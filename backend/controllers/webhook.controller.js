@@ -24,6 +24,8 @@ import axios from 'axios';
 import IntegrationSettings from '../models/IntegrationSettings.js';
 import { normalizePhone } from '../utils/normalization.js';
 import Contact from '../models/Contact.js';
+import SystemSetting from '../src/modules/systemSettings/system.model.js';
+import Activity from '../models/Activity.js';
 
 // ── POST /api/webhooks/lead ───────────────────────────────────────────────────
 export const captureLeadWebhook = async (req, res) => {
@@ -167,7 +169,7 @@ export const whatsAppReplyWebhook = async (req, res) => {
 // ── GET /api/webhooks/whatsapp-live-bot ─────────────────────────────────────
 // Facebook Webhook Verification
 export const whatsAppLiveBotVerify = (req, res) => {
-    const VERIFY_TOKEN = "bharat_crm_ai_token_2025"; // A hardcoded secure string or from env
+    const VERIFY_TOKEN = process.env.FB_WEBHOOK_VERIFY_TOKEN || "bharat-properties-webhook-2026"; // A hardcoded secure string or from env
     const mode = req.query['hub.mode'];
     const token = req.query['hub.verify_token'];
     const challenge = req.query['hub.challenge'];
@@ -257,6 +259,24 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                 conversation.messages.push({ role: 'user', content: messageText });
                 await conversation.save();
 
+                // 3.1 Create formal Activity Log (For Timeline consistency and Feed notifications)
+                await Activity.create({
+                    type: 'WhatsApp',
+                    subject: `Inbound WhatsApp: ${messageText.substring(0, 30)}${messageText.length > 30 ? '...' : ''}`,
+                    entityId: entityId,
+                    entityType: entityType,
+                    status: 'Completed',
+                    performedBy: 'System', // WhatsApp User
+                    dueDate: new Date(),
+                    description: messageText,
+                    details: {
+                        direction: 'incoming',
+                        platform: 'whatsapp',
+                        from: fromNumber,
+                        conversationId: conversation._id
+                    }
+                }).catch(err => console.error('[WhatsApp Live Bot] Failed to create Activity:', err.message));
+
                 // 4. Generate AI Response
                 // Convert past messages to simple context string for prompt
                 const chatHistoryContext = conversation.messages.map(m => `${m.role}: ${m.content}`).join('\n');
@@ -264,7 +284,7 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
 
                 if (aiResult.success && aiResult.reply) {
                     // 5. Send strictly to WhatsApp Meta API (Standardized via SystemSetting)
-                    const setting = await mongoose.model('SystemSetting').findOne({ key: 'meta_wa_config' }).lean();
+                    const setting = await SystemSetting.findOne({ key: 'meta_wa_config' }).lean();
                     const config = setting?.value;
                     
                     const token = config?.token || config?.apiKey;

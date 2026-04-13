@@ -273,6 +273,7 @@ export const getUnifiedTimeline = async (req, res) => {
         const conversationQuery = {
             $or: [
                 { lead: objId },
+                { 'metadata.entityId': objId },
                 { 'metadata.entityId': entityId },
                 { 'metadata.entityId': objId.toString() }
             ],
@@ -732,12 +733,13 @@ export const getMessagingActivities = async (req, res) => {
                 entityType: a.entityType,
                 entityId: a.entityId?._id || a.entityId,
                 actor: a.actor || 'System',
-                isMatched: !!(a.entityId && a.entityId.firstName !== 'WhatsApp' && a.entityId.firstName !== 'WhatsApp Lead'),
+                isMatched: a.details?.isMatched ?? !!(a.entityId && a.entityId.firstName !== 'WhatsApp' && a.entityId.firstName !== 'WhatsApp Lead'),
                 details: a.details,
-                platform: a.details?.platform || 'Direct'
+                platform: a.details?.platform || (a.type === 'WhatsApp' ? 'WhatsApp' : 'Direct')
             })),
             ...conversations.map(c => {
-                const lastMsg = c.messages?.[c.messages.length - 1];
+                const messages = c.messages || [];
+                const lastMsg = messages[messages.length - 1];
                 return {
                     _id: c._id,
                     type: 'WhatsApp',
@@ -750,7 +752,12 @@ export const getMessagingActivities = async (req, res) => {
                     participantMobile: c.phoneNumber || c.lead?.mobile || '',
                     direction: lastMsg?.role === 'user' ? 'Incoming' : 'Outgoing',
                     platform: 'WhatsApp Bot',
-                    isMatched: !!(c.lead && c.lead.source !== 'AI Bot WhatsApp' && c.lead.firstName !== 'WhatsApp')
+                    isMatched: !!(c.lead && c.lead.source !== 'AI Bot WhatsApp' && c.lead.firstName !== 'WhatsApp'),
+                    thread: messages.map(m => ({
+                        sender: m.role === 'user' ? 'customer' : 'ai',
+                        text: m.content,
+                        time: m.timestamp
+                    }))
                 };
             })
         ];

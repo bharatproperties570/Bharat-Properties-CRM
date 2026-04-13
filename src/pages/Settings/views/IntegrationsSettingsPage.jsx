@@ -247,7 +247,11 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                         'Copy your **WhatsApp Business Account ID** (WABA ID).',
                         'Configure the Webhook URL below for real-time status updates.'
                     ],
-                    showWebhook: true
+                    showWebhook: true,
+                    webhookConfig: {
+                        field: 'messages, message_deliveries, message_reads',
+                        path: '/api/webhooks/whatsapp-live-bot'
+                    }
                 };
             case 'telegram':
                 return {
@@ -421,13 +425,34 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                                 )}
                             </div>
                             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                <div style={{ flex: 1, fontSize: '0.75rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', background: '#f1f5f9', padding: '10px', borderRadius: '8px', fontFamily: 'monospace' }}>{window.location.origin}{guide.webhookConfig?.path || '/api/social/webhook'}</div>
-                                <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}${guide.webhookConfig?.path || '/api/social/webhook'}`); toast.success('URL Copied!'); }} style={{ background: 'none', border: 'none', color: 'var(--primary-color)', cursor: 'pointer', fontSize: '1rem' }} title="Copy URL">
+                                <div style={{ flex: 1, fontSize: '0.75rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', background: '#f1f5f9', padding: '10px', borderRadius: '8px', fontFamily: 'monospace' }}>
+                                    {window.location.origin.includes('localhost') ? 'https://cd1040f1c478748e-223-178-209-51.serveousercontent.com' : window.location.origin}{guide.webhookConfig?.path || '/api/social/webhook'}
+                                </div>
+                                <button 
+                                    onClick={() => { 
+                                        const url = `${window.location.origin.includes('localhost') ? 'https://cd1040f1c478748e-223-178-209-51.serveousercontent.com' : window.location.origin}${guide.webhookConfig?.path || '/api/social/webhook'}`;
+                                        navigator.clipboard.writeText(url); 
+                                        toast.success('Webhook URL Copied!'); 
+                                    }} 
+                                    style={{ background: 'none', border: 'none', color: 'var(--primary-color)', cursor: 'pointer', fontSize: '1.1rem' }} 
+                                    title="Copy Webhook URL"
+                                >
                                     <i className="far fa-copy"></i>
                                 </button>
                             </div>
-                            <p style={{ marginTop: '8px', fontSize: '0.65rem', color: '#64748b', fontStyle: 'italic' }}>
-                                <i className="fas fa-shield-alt"></i> Use the <strong>Verify Token</strong> saved on the right in your Meta Console.
+                            <p style={{ marginTop: '12px', fontSize: '0.65rem', color: '#64748b', fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <i className="fas fa-shield-alt"></i> 
+                                <span>Verify Token: <strong>{config.verifyToken || 'bharat-properties-webhook-2026'}</strong></span>
+                                <button 
+                                    onClick={() => { 
+                                        navigator.clipboard.writeText(config.verifyToken || 'bharat-properties-webhook-2026'); 
+                                        toast.success('Verify Token Copied!'); 
+                                    }}
+                                    style={{ background: 'none', border: 'none', color: '#0ea5e9', cursor: 'pointer', padding: '2px' }}
+                                    title="Copy Token"
+                                >
+                                    <i className="far fa-copy" style={{ fontSize: '0.8rem' }}></i>
+                                </button>
                             </p>
                         </div>
                     )}

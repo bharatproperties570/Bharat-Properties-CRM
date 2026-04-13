@@ -13,6 +13,7 @@ import ComposeEmailModal from '../Communication/components/ComposeEmailModal';
 import SendMessageModal from '../../components/SendMessageModal';
 import ManageTagsModal from '../../components/ManageTagsModal';
 import AddQuoteModal from '../../components/AddQuoteModal';
+import AddOfferModal from '../../components/AddOfferModal';
 import toast from 'react-hot-toast';
 import { api } from "../../utils/api";
 import ProfessionalMap from '../../components/ProfessionalMap';
@@ -57,6 +58,8 @@ function DealsPage({ onNavigate, onAddActivity }) {
     const [currentView, setCurrentView] = useState('list'); // 'list' or 'map'
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isQuoteModalOpen, setIsQuoteModalOpen] = useState(false);
+    const [isOfferModalOpen, setIsOfferModalOpen] = useState(false);
+    const [activeRowMenu, setActiveRowMenu] = useState(null); // dealId of open menu
     const [editingDeal, setEditingDeal] = useState(null);
     const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
     const [filters, setFilters] = useState({});
@@ -688,13 +691,19 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                     <DealRow
                                         key={deal._id || index}
                                         deal={deal}
-                                        isSelected={selectedIds.includes(deal._id)}
-                                        toggleSelect={toggleSelect}
+                                        index={index}
+                                        selected={selectedIds.includes(deal._id)}
+                                        onSelect={(id) => setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id])}
                                         onNavigate={onNavigate}
-                                        dealScores={dealScores}
                                         getLookupValue={getLookupValue}
-                                        getUserName={getUserName}
-                                        getTeamName={getTeamName}
+                                        activeRowMenu={activeRowMenu}
+                                        setActiveRowMenu={setActiveRowMenu}
+                                        onAction={(type, d) => {
+                                            setEditingDeal(d);
+                                            if (type === 'quote') setIsQuoteModalOpen(true);
+                                            if (type === 'offer') setIsOfferModalOpen(true);
+                                            setActiveRowMenu(null);
+                                        }}
                                     />
                                 ))}
                             </div>
@@ -820,8 +829,30 @@ function DealsPage({ onNavigate, onAddActivity }) {
             <AddQuoteModal
                 isOpen={isQuoteModalOpen}
                 onClose={() => setIsQuoteModalOpen(false)}
-                deal={deals.find(d => d._id === selectedIds[0])}
-                onSave={fetchDeals}
+                deal={editingDeal}
+                onSuccess={() => {
+                    setIsQuoteModalOpen(false);
+                    fetchDeals();
+                }}
+            />
+
+            <AddOfferModal 
+                isOpen={isOfferModalOpen}
+                onClose={() => setIsOfferModalOpen(false)}
+                deal={editingDeal}
+                onSave={async (offerData) => {
+                    try {
+                        const response = await api.post(`deals/${editingDeal._id}/offers`, offerData);
+                        if (response.data.success) {
+                            toast.success('Offer registered successfully');
+                            setIsOfferModalOpen(false);
+                            fetchDeals();
+                        }
+                    } catch (error) {
+                        console.error('Failed to save offer:', error);
+                        toast.error('Failed to register offer');
+                    }
+                }}
             />
 
             <ComposeEmailModal
@@ -923,16 +954,10 @@ function DealsPage({ onNavigate, onAddActivity }) {
 
 // --- MEMOIZED COMPONENTS FOR PERFORMANCE ---
 
-const DealRow = React.memo(function DealRow({
-    deal,
-    isSelected,
-    toggleSelect,
-    onNavigate,
-    dealScores,
-    getLookupValue,
-    getUserName,
-    getTeamName
-}) {
+const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLookupValue, activeRowMenu, setActiveRowMenu, onAction, dealScores = {} }) => {
+    const getUserName = (user) => (user?.name || user?.fullName || (typeof user === 'string' ? user : 'N/A'));
+    const getTeamName = (team) => (team?.name || (typeof team === 'string' ? team : 'General'));
+    
     const s = dealScores[deal._id];
     const scoreVal = s ? s.score : (deal.dealProbability || 0);
     const scoreColor = s ? s.color : '#94a3b8';
@@ -943,8 +968,8 @@ const DealRow = React.memo(function DealRow({
             <input
                 type="checkbox"
                 className="item-check"
-                checked={isSelected}
-                onChange={() => toggleSelect(deal._id)}
+                checked={selected}
+                onChange={() => onSelect(deal._id)}
             />
 
             {/* Col 1: Score */}
@@ -975,13 +1000,19 @@ const DealRow = React.memo(function DealRow({
                             height: '28px',
                             borderRadius: '6px',
                             padding: '0 10px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '0.7rem',
+                            fontWeight: 900,
+                            letterSpacing: '0.05em',
                             cursor: 'pointer'
                         }}
                     >
-                        {renderValue(deal.unitNo, 'N/A')}
+                        {deal.unitNo || 'UNIT'}
                     </div>
-                    <div style={{ fontSize: '0.62rem', color: 'var(--primary-color)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                        {renderValue(deal.unitType || deal.corner, '')}
+                    <div className="text-ellipsis" style={{ fontWeight: 800, color: '#1e293b', fontSize: '0.9rem' }}>
+                        {renderValue(deal.unitType) || 'Unit'}
                     </div>
                 </div>
                 <div style={{ paddingLeft: '2px' }}>
@@ -1129,11 +1160,50 @@ const DealRow = React.memo(function DealRow({
                     </div>
                 </div>
             </div>
+
+            {/* Col 11: Actions */}
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', marginLeft: 'auto' }}>
+                <button
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveRowMenu(activeRowMenu === deal._id ? null : deal._id);
+                    }}
+                    style={{
+                        background: 'none', border: '1px solid #e2e8f0', borderRadius: '8px',
+                        width: '32px', height: '32px', cursor: 'pointer', color: '#64748b',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center'
+                    }}
+                >
+                    <i className="fas fa-ellipsis-v"></i>
+                </button>
+
+                {activeRowMenu === deal._id && (
+                    <div style={{
+                        position: 'absolute', right: '40px', bottom: '0',
+                        background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px',
+                        boxShadow: '0 10px 25px rgba(0,0,0,0.1)', zIndex: 100, minWidth: '150px',
+                        padding: '8px 0', overflow: 'hidden'
+                    }}>
+                        <button
+                            onClick={() => onAction('quote', deal)}
+                            style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.75rem', fontWeight: 700, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                            className="hover:bg-slate-50"
+                        >
+                            <i className="fas fa-file-invoice text-blue-500" style={{ width: '14px' }}></i> Quote
+                        </button>
+                        <button
+                            onClick={() => onAction('offer', deal)}
+                            style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.75rem', fontWeight: 700, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                            className="hover:bg-slate-50"
+                        >
+                            <i className="fas fa-handshake text-indigo-500" style={{ width: '14px' }}></i> Offer
+                        </button>
+                    </div>
+                )}
+            </div>
         </div>
     );
 });
 DealRow.displayName = 'DealRow';
-
-
 
 export default DealsPage;

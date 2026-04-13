@@ -196,21 +196,17 @@ const DealDetailHeader = ({
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <button
                         onClick={() => setIsCallModalOpen(true)}
-                        style={{ border: 'none', background: 'rgba(241, 245, 249, 0.8)', color: '#475569', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                        style={{ border: 'none', background: '#16a34a', color: '#fff', padding: '10px 18px', borderRadius: '12px', fontSize: '0.8rem', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 4px 12px rgba(22, 163, 74, 0.2)' }}
+                        className="hover:scale-105 transition-all"
                     >
-                        <i className="fas fa-phone-alt" style={{ color: '#16a34a' }}></i> CALL
-                    </button>
-                    <button
-                        onClick={() => setIsMessageOpen(true)}
-                        style={{ border: 'none', background: 'rgba(241, 245, 249, 0.8)', color: '#475569', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-                    >
-                        <i className="fas fa-comment-alt" style={{ color: '#3b82f6' }}></i> SMS
+                        <i className="fas fa-phone-alt"></i> CALL
                     </button>
                     <button
                         onClick={() => setIsMailOpen(true)}
-                        style={{ border: 'none', background: 'rgba(241, 245, 249, 0.8)', color: '#475569', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                        style={{ border: 'none', background: '#8b5cf6', color: '#fff', padding: '10px 18px', borderRadius: '12px', fontSize: '0.8rem', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 4px 12px rgba(139, 92, 246, 0.2)' }}
+                        className="hover:scale-105 transition-all"
                     >
-                        <i className="fas fa-envelope" style={{ color: '#8b5cf6' }}></i> EMAIL
+                        <i className="fas fa-envelope"></i> EMAIL
                     </button>
                 </div>
 
@@ -260,29 +256,7 @@ const DealDetailHeader = ({
                                 <i className="fas fa-file-alt" style={{ color: '#64748b', width: '16px' }}></i> Document
                             </button>
                             <div style={{ height: '1px', background: '#e2e8f0', margin: '4px 0' }}></div>
-                            <button
-                                onClick={() => {
-                                    setShowMoreMenu(false);
-                                    setIsQuoteModalOpen(true);
-                                }}
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '10px',
-                                    width: '100%',
-                                    padding: '10px 16px',
-                                    background: 'transparent',
-                                    border: 'none',
-                                    color: '#475569',
-                                    fontSize: '0.8rem',
-                                    fontWeight: 600,
-                                    cursor: 'pointer',
-                                    textAlign: 'left'
-                                }}
-                                className="hover:bg-slate-50 transition-colors"
-                            >
-                                <Calculator size={14} className="text-blue-500" /> Quotation
-                            </button>
+
                             <button
                                 onClick={() => {
                                     setShowMoreMenu(false);

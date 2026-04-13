@@ -5,7 +5,7 @@ const ActivitySchema = new mongoose.Schema({
     type: { type: String, required: true, index: true }, // Call, Meeting, Site Visit, Task, Email
     subject: { type: String, required: true },
     entityType: { type: String, required: true, index: true }, // Lead, Contact, Deal, Project, Company, User
-    entityId: { type: mongoose.Schema.Types.ObjectId, required: false, index: true },
+    entityId: { type: mongoose.Schema.Types.ObjectId, required: false, index: true, refPath: 'entityType' },
     relatedTo: [{
         id: { type: mongoose.Schema.Types.ObjectId },
         name: String,

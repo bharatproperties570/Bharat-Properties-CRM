@@ -53,6 +53,7 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     // Custom Hooks
     const { financials } = useDealFinancials(deal);
 
+    const [activeTab, setActiveTab] = useState('analysis');
     const [activities, setActivities] = useState([]);
     const [liveScoreData, setLiveScoreData] = useState({ score: 0, color: '#94a3b8', label: 'Warm' });
     const [showMoreMenu, setShowMoreMenu] = useState(false);
@@ -307,6 +308,53 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                 onNavigate={onNavigate}
             />
 
+            {/* TAB NAVIGATION BAR */}
+            <div style={{ 
+                background: '#fff', 
+                borderBottom: '1px solid #e2e8f0', 
+                position: 'sticky', 
+                top: '77px', 
+                zIndex: 900,
+                padding: '0 40px',
+                display: 'flex',
+                gap: '24px',
+                overflowX: 'auto'
+            }} className="no-scrollbar">
+                {[
+                    { id: 'analysis', label: 'Analysis', icon: 'fa-chart-pie' },
+                    { id: 'financial', label: 'Financial', icon: 'fa-indian-rupee-sign' },
+                    { id: 'details', label: 'Details', icon: 'fa-info-circle' },
+                    { id: 'location', label: 'Location', icon: 'fa-map-marker-alt' },
+                    { id: 'activities', label: 'Activities', icon: 'fa-history' },
+                    { id: 'match', label: 'Match', icon: 'fa-user-check' },
+                    { id: 'owner', label: 'Owner', icon: 'fa-user-tie' },
+                    { id: 'history', label: 'History', icon: 'fa-book' }
+                ].map(tab => (
+                    <button
+                        key={tab.id}
+                        onClick={() => setActiveTab(tab.id)}
+                        style={{
+                            padding: '16px 8px',
+                            background: 'none',
+                            border: 'none',
+                            borderBottom: activeTab === tab.id ? '3px solid #3b82f6' : '3px solid transparent',
+                            color: activeTab === tab.id ? '#3b82f6' : '#64748b',
+                            fontSize: '0.85rem',
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            whiteSpace: 'nowrap',
+                            transition: 'all 0.2s ease'
+                        }}
+                    >
+                        <i className={`fas ${tab.icon}`} style={{ fontSize: '0.9rem' }}></i>
+                        {tab.label}
+                    </button>
+                ))}
+            </div>
+
             <DealLifecycle 
                 deal={deal} 
                 activities={activities} 
@@ -314,57 +362,79 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                 stageAlerts={stageAlerts}
             />
 
-            <div style={{ maxWidth: '1600px', margin: '12px auto', padding: '0 24px', display: 'flex', gap: '16px' }}>
-                {/* LEFT COLUMN */}
-                <div style={{ flex: '1.5', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                    <DealFinancialSection 
-                        deal={deal} 
-                        financials={financials} 
-                        setIsOfferModalOpen={setIsOfferModalOpen} 
-                    />
+            <div style={{ maxWidth: '1600px', margin: '12px auto', padding: '0 24px' }}>
+                {activeTab === 'analysis' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        <DealAnalysis 
+                            deal={deal} 
+                            isMarkingLost={isMarkingLost} 
+                            handleMarkAsLost={handleMarkAsLost}
+                            setDeal={setDeal}
+                        />
+                    </div>
+                )}
 
-                    {inventory ? (
-                        <>
-                            <InventorySpecsPanel 
-                                inventory={inventory} 
-                                getLookupValue={getLookupValue}
-                                isInventoryActive={inventory.status === 'Active' || (typeof inventory.status === 'object' && inventory.status.lookup_value === 'Active')}
-                                onFeedback={() => {}} // Placeholder or handle if needed
-                                hideConsole={true}
-                            />
+                {activeTab === 'financial' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        <DealFinancialSection 
+                            deal={deal} 
+                            financials={financials} 
+                            setIsOfferModalOpen={setIsOfferModalOpen} 
+                        />
+                        <LandedCostSheet financials={financials} deal={deal} />
+                    </div>
+                )}
 
-                            <BuiltupDetailsCard 
-                                inventory={inventory} 
-                                getLookupValue={getLookupValue} 
-                            />
+                {activeTab === 'details' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        {inventory ? (
+                            <>
+                                <InventorySpecsPanel 
+                                    inventory={inventory} 
+                                    getLookupValue={getLookupValue}
+                                    isInventoryActive={inventory.status === 'Active' || (typeof inventory.status === 'object' && inventory.status.lookup_value === 'Active')}
+                                    onFeedback={() => {}} 
+                                    hideConsole={true}
+                                />
+                                <BuiltupDetailsCard 
+                                    inventory={inventory} 
+                                    getLookupValue={getLookupValue} 
+                                />
+                            </>
+                        ) : (
+                            <>
+                                <DealTechnicalSpecs 
+                                    deal={deal} 
+                                    getLookupValue={getLookupValue}
+                                    getStrictLookupValue={(field, val) => getLookupValue(field, val)}
+                                />
+                                <DealBuiltupDetails 
+                                    deal={deal} 
+                                    getLookupValue={getLookupValue} 
+                                />
+                            </>
+                        )}
+                    </div>
+                )}
 
+                {activeTab === 'location' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        {inventory ? (
                             <LocationDetailsCard 
                                 inventory={inventory} 
                                 getLookupValue={getLookupValue} 
                             />
-                        </>
-                    ) : (
-                        <>
-                            <DealTechnicalSpecs 
-                                deal={deal} 
-                                getLookupValue={getLookupValue}
-                                getStrictLookupValue={(field, val) => getLookupValue(field, val)}
-                            />
-
+                        ) : (
                             <DealGeography 
                                 deal={deal} 
                                 getLookupValue={getLookupValue} 
                             />
+                        )}
+                    </div>
+                )}
 
-                            <DealBuiltupDetails 
-                                deal={deal} 
-                                getLookupValue={getLookupValue} 
-                            />
-                        </>
-                    )}
-
-                    {/* Activities Timeline Section in Main Column */}
-                    <div style={{ marginTop: '24px' }}>
+                {activeTab === 'activities' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                         {(() => {
                             const relatedEntities = [
                                 { type: 'Deal', id: dealId }
@@ -374,15 +444,6 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                             }
                             if (inventory) {
                                 relatedEntities.push({ type: 'Inventory', id: inventory._id || inventory.id });
-                                if (inventory.owners && Array.isArray(inventory.owners)) {
-                                    inventory.owners.forEach(o => { if (o._id || o.id) relatedEntities.push({ type: 'Contact', id: o._id || o.id }); });
-                                }
-                                if (inventory.associates && Array.isArray(inventory.associates)) {
-                                    inventory.associates.forEach(a => {
-                                        const cId = a.contact?._id || a.contact?.id || a.id;
-                                        if (cId) relatedEntities.push({ type: 'Contact', id: cId });
-                                    });
-                                }
                             }
 
                             return (
@@ -399,100 +460,90 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                             );
                         })()}
                     </div>
-                </div>
+                )}
 
-                {/* RIGHT COLUMN */}
-                <div className="no-scrollbar" style={{ flex: '1', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px', padding: '24px', background: '#fff', borderLeft: '1px solid #e2e8f0' }}>
-                    <button 
-                        className="hover:shadow-sm"
-                        onClick={() => setIsPublishModalOpen(true)}
-                    >
-                        <i className={`fas fa-paper-plane ${deal.isPublished ? 'text-blue-500' : 'text-slate-400'}`}></i>
-                        {deal.isPublished ? 'Live on Website' : 'Publish to Hub'}
-                    </button>
-                    <DealAnalysis 
-                        deal={deal} 
-                        isMarkingLost={isMarkingLost} 
-                        handleMarkAsLost={handleMarkAsLost}
-                        setDeal={setDeal}
-                    />
+                {activeTab === 'match' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        <MatchedLeadsCard 
+                            matchingLeads={matchingLeads} 
+                            onNavigate={onNavigate} 
+                            entityId={dealId}
+                            entityType="deal"
+                        />
+                    </div>
+                )}
 
-                    <LandedCostSheet financials={financials} deal={deal} />
+                {activeTab === 'owner' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        <PropertyOwnerSection 
+                            inventory={inventory || { _id: null, owners: [], associates: [] }} 
+                            onOwnerClick={() => setIsOwnerModalOpen(true)}
+                        />
+                        <MediaVaultSection 
+                            inventory={inventory}
+                            onMediaClick={() => {
+                                if (!inventory?._id) {
+                                    toast.error('Please link an inventory to manage media archive.');
+                                    return;
+                                }
+                                setIsUploadModalOpen(true);
+                            }}
+                            onMediaView={(m) => setMediaViewer({ isOpen: true, data: m })}
+                            onUploadClick={() => {
+                                if (!inventory?._id) {
+                                    toast.error('Please link an inventory to upload media.');
+                                    return;
+                                }
+                                setIsUploadModalOpen(true);
+                            }}
+                            onDocumentClick={() => {
+                                if (!inventory?._id) {
+                                    toast.error('Please link an inventory to manage documents.');
+                                    return;
+                                }
+                                setIsDocumentModalOpen(true);
+                            }}
+                        />
+                    </div>
+                )}
 
-                    <MatchedLeadsCard 
-                        matchingLeads={matchingLeads} 
-                        onNavigate={onNavigate} 
-                        entityId={dealId}
-                        entityType="deal"
-                    />
-
-                    <PropertyOwnerSection 
-                        inventory={inventory || { _id: null, owners: [], associates: [] }} 
-                        onOwnerClick={() => setIsOwnerModalOpen(true)}
-                    />
-
-                    <MediaVaultSection 
-                        inventory={inventory}
-                        onMediaClick={() => {
-                            if (!inventory?._id) {
-                                toast.error('Please link an inventory to manage media archive.');
-                                return;
-                            }
-                            setIsUploadModalOpen(true);
-                        }}
-                        onMediaView={(m) => setMediaViewer({ isOpen: true, data: m })}
-                        onUploadClick={() => {
-                            if (!inventory?._id) {
-                                toast.error('Please link an inventory to upload media.');
-                                return;
-                            }
-                            setIsUploadModalOpen(true);
-                        }}
-                        onDocumentClick={() => {
-                            if (!inventory?._id) {
-                                toast.error('Please link an inventory to manage documents.');
-                                return;
-                            }
-                            setIsDocumentModalOpen(true);
-                        }}
-                    />
-                    {/* Chain of Title */}
-                    <div className="glass-card">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
-                            <div style={{ width: '36px', height: '36px', background: 'rgba(100, 116, 139, 0.1)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                <i className="fas fa-history" style={{ color: '#64748b', fontSize: '0.9rem' }}></i>
+                {activeTab === 'history' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        <div className="glass-card">
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
+                                <div style={{ width: '36px', height: '36px', background: 'rgba(100, 116, 139, 0.1)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <i className="fas fa-history" style={{ color: '#64748b', fontSize: '0.9rem' }}></i>
+                                </div>
+                                <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 900, color: '#0f172a' }}>Chain of Title History</h3>
                             </div>
-                            <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 900, color: '#0f172a' }}>Chain of Title History</h3>
-                        </div>
-                        <div style={{ paddingLeft: '14px', borderLeft: '2px solid #f1f5f9', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                            {inventory ? (
-                                (inventory.ownerHistory || []).length > 0 ? (
-                                    (inventory.ownerHistory || []).reverse().slice(0, 5).map((item, idx) => (
-                                        <div key={idx} style={{ position: 'relative' }}>
-                                            <div style={{ position: 'absolute', left: '-20px', top: '4px', width: '10px', height: '10px', background: '#10b981', borderRadius: '50%', border: '2px solid #fff' }}></div>
-                                            <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 800, color: '#1e293b' }}>{renderValue(item.contactName)}</p>
-                                            <p style={{ margin: 0, fontSize: '0.65rem', color: '#64748b' }}>{new Date(item.date).toLocaleDateString()}</p>
-                                        </div>
-                                    ))
+                            <div style={{ paddingLeft: '14px', borderLeft: '2px solid #f1f5f9', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                {inventory ? (
+                                    (inventory.ownerHistory || []).length > 0 ? (
+                                        (inventory.ownerHistory || []).reverse().slice(0, 5).map((item, idx) => (
+                                            <div key={idx} style={{ position: 'relative' }}>
+                                                <div style={{ position: 'absolute', left: '-20px', top: '4px', width: '10px', height: '10px', background: '#10b981', borderRadius: '50%', border: '2px solid #fff' }}></div>
+                                                <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 800, color: '#1e293b' }}>{renderValue(item.contactName)}</p>
+                                                <p style={{ margin: 0, fontSize: '0.65rem', color: '#64748b' }}>{new Date(item.date).toLocaleDateString()}</p>
+                                            </div>
+                                        ))
+                                    ) : (
+                                        <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0 }}>No history recorded yet.</p>
+                                    )
                                 ) : (
-                                    <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0 }}>No history recorded yet.</p>
-                                )
-                            ) : (
-                                <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0 }}>No inventory linked to this deal.</p>
-                            )}
+                                    <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0 }}>No inventory linked to this deal.</p>
+                                )}
+                            </div>
                         </div>
-                    </div>
 
-                    {/* Lifecycle */}
-                    <div className="glass-card">
-                        <h3 style={{ fontSize: '0.85rem', fontWeight: 900, color: '#0f172a', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Inventory Lifecycle</h3>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                            <LifecycleMetric label="Created" value={inventory?.createdAt ? new Date(inventory.createdAt).toLocaleDateString() : '-'} icon="calendar-plus" color="#10b981" />
-                            <LifecycleMetric label="Updated" value={inventory?.updatedAt ? new Date(inventory.updatedAt).toLocaleDateString() : '-'} icon="edit" color="#3b82f6" />
+                        <div className="glass-card">
+                            <h3 style={{ fontSize: '0.85rem', fontWeight: 900, color: '#0f172a', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Inventory Lifecycle</h3>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                                <LifecycleMetric label="Created" value={inventory?.createdAt ? new Date(inventory.createdAt).toLocaleDateString() : '-'} icon="calendar-plus" color="#10b981" />
+                                <LifecycleMetric label="Updated" value={inventory?.updatedAt ? new Date(inventory.updatedAt).toLocaleDateString() : '-'} icon="edit" color="#3b82f6" />
+                            </div>
                         </div>
                     </div>
-                </div>
-            </div>
+                )}
 
             {/* MODALS */}
             {isOfferModalOpen && (

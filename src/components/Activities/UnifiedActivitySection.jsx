@@ -408,6 +408,7 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
         if (type.includes('email')) return { icon: 'envelope', color: '#ef4444', bg: '#fef2f2' };
         if (type.includes('sms')) return { icon: 'comment-alt', color: '#4f46e5', bg: '#f5f3ff' };
         if (type.includes('whatsapp')) return { icon: 'whatsapp', color: '#25d366', bg: '#f0fdf4', brand: true };
+        if (type === 'messaging') return { icon: 'comment-dots', color: '#6366f1', bg: '#eef2ff' };
 
         return { icon: 'clock', color: '#64748b', bg: '#f8fafc' };
     };
@@ -818,11 +819,11 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                                                 </div>
                                                 {item.type?.toLowerCase() === 'whatsapp' ? (
                                                     <div className="whatsapp-chat-container" style={{ marginTop: '12px' }}>
-                                                        <div className={`wa-bubble ${item.details?.direction === 'incoming' ? 'wa-incoming' : 'wa-outgoing'}`}>
-                                                            {item.description}
+                                                        <div className={`wa-bubble ${item.details?.direction?.toLowerCase() === 'incoming' ? 'wa-incoming' : 'wa-outgoing'}`}>
+                                                            <div className="wa-bubble-content">{item.description}</div>
                                                             <div className="wa-bubble-time">
                                                                 {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                                {item.details?.direction === 'outgoing' && (
+                                                                {item.details?.direction?.toLowerCase() === 'outgoing' && (
                                                                     <i className="fas fa-check-double wa-check" style={{ marginLeft: '4px' }}></i>
                                                                 )}
                                                             </div>

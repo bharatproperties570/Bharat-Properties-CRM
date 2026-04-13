@@ -8,11 +8,14 @@ import ViewEmailModal from './components/ViewEmailModal';
 import AIStatusPanel from './components/AIStatusPanel';
 import AIConversationsTab from './components/AIConversationsTab';
 import AICallPanel from './components/AICallPanel';
+import ConversationThread from './components/ConversationThread';
+import './components/ConversationThread.css';
 
 function CommunicationPage() {
     const [activeTab, setActiveTab] = useState('AI Conversations');
     const [activeSubTab, setActiveSubTab] = useState('Matched');
     const [selectedIds, setSelectedIds] = useState([]);
+    const [selectedConversation, setSelectedConversation] = useState(null);
 
     // Filter State
     const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -56,6 +59,9 @@ function CommunicationPage() {
                         let participantName = 'Unknown';
                         if (act.participants && act.participants.length > 0) {
                             participantName = act.participants[0].name;
+                        } else if (act.details?.sender) {
+                            // Fallback to WhatsApp/SMS sender phone number
+                            participantName = act.details.sender;
                         } else if (act.relatedTo && act.relatedTo.length > 0) {
                             // Fallback to related entity if it's likely the person
                             const potentialPerson = act.relatedTo.find(r => r.model === 'Contact' || r.model === 'Lead');
@@ -64,6 +70,9 @@ function CommunicationPage() {
                             } else {
                                 participantName = act.relatedTo[0].name;
                             }
+                        } else if (act.subject?.includes('from')) {
+                            // Last resort: extract from subject "WhatsApp from 919..."
+                            participantName = act.subject.split('from').pop().trim();
                         }
 
                         // Better deals resolution
@@ -572,142 +581,157 @@ function CommunicationPage() {
                         />
                     </div>
 
-                    {/* List Content */}
-                    <div style={{ padding: '1rem 2rem' }}>
-                        <div className="list-header" style={{
-                            padding: '15px 20px',
-                            background: '#f8fafc',
-                            borderBottom: '2px solid #e2e8f0',
-                            display: 'grid',
-                            gridTemplateColumns: activeTab === 'Email' ? '40px 220px 1fr 140px 200px 120px' : '40px 200px 150px 120px 150px 120px 150px',
-                            gap: '15px',
-                            fontSize: '0.75rem',
-                            fontWeight: 800,
-                            color: '#475569',
-                            textTransform: 'uppercase'
-                        }}>
-                            <div><input type="checkbox" checked={isAllSelected} onChange={toggleSelectAll} /></div>
-                            {activeTab === 'Email' ? (
-                                <>
-                                    <div>Participants</div>
-                                    <div>Email Details</div>
-                                    <div>Type</div>
-                                    <div>Associated</div>
-                                    <div style={{ textAlign: 'right' }}>Date</div>
-                                </>
-                            ) : (
-                                <>
-                                    <div>Participants</div>
-                                    <div>Type</div>
-                                    <div>Platform</div>
-                                    <div>Outcome</div>
-                                    <div>Duration</div>
-                                    <div>Associated Deal</div>
-                                    <div>Date</div>
-                                </>
-                            )}
-                        </div>
-
-                        <div className="list-content">
-                            {paginatedData.map((item) => (
-                                <div
-                                    key={item.id}
-                                    style={{
-                                        padding: '10px 20px',
-                                        background: '#fff',
-                                        borderBottom: '1px solid #f1f5f9',
-                                        display: 'grid',
-                                        gridTemplateColumns: activeTab === 'Email' ? '40px 220px 1fr 140px 200px 120px' : '40px 200px 150px 120px 150px 120px 150px',
-                                        gap: '15px',
-                                        alignItems: 'center'
-                                    }}
-                                >
-                                    <input
-                                        type="checkbox"
-                                        checked={selectedIds.includes(item.id)}
-                                        onChange={() => toggleSelect(item.id)}
-                                    />
-                                    
+                    {/* List Content and Thread Sidebar */}
+                    <div style={{ display: 'flex', flex: 1, overflow: 'hidden', height: '100%' }}>
+                        <div style={{ flex: 1, overflowY: 'auto' }}>
+                            <div style={{ padding: '1rem 2rem' }}>
+                                <div className="list-header" style={{
+                                    padding: '15px 20px',
+                                    background: '#f8fafc',
+                                    borderBottom: '2px solid #e2e8f0',
+                                    display: 'grid',
+                                    gridTemplateColumns: activeTab === 'Email' ? '40px 220px 1fr 140px 200px 120px' : '40px 200px 150px 120px 150px 120px 150px',
+                                    gap: '15px',
+                                    fontSize: '0.75rem',
+                                    fontWeight: 800,
+                                    color: '#475569',
+                                    textTransform: 'uppercase'
+                                }}>
+                                    <div><input type="checkbox" checked={isAllSelected} onChange={toggleSelectAll} /></div>
                                     {activeTab === 'Email' ? (
                                         <>
-                                            <div style={{ fontSize: '0.85rem', fontWeight: 700 }}>{item.participant}</div>
-                                            <div style={{ overflow: 'hidden' }}>
-                                                <div 
-                                                    onClick={() => { setSelectedEmail(item); setIsViewModalOpen(true); }}
-                                                    style={{ 
-                                                        fontSize: '0.85rem', 
-                                                        fontWeight: 700, 
-                                                        color: '#0ea5e9', 
-                                                        cursor: 'pointer',
-                                                        textDecoration: 'none'
-                                                    }}
-                                                    onMouseOver={(e) => e.target.style.textDecoration = 'underline'}
-                                                    onMouseOut={(e) => e.target.style.textDecoration = 'none'}
-                                                >
-                                                    {item.subject}
-                                                </div>
-                                                <div style={{ fontSize: '0.75rem', color: '#64748b', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{item.snippet}</div>
-                                            </div>
-                                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                                <i className={item.type?.includes('Outgoing') ? 'fas fa-paper-plane' : 'fas fa-envelope-open'} style={{ color: '#0ea5e9' }}></i>
-                                                {(item.labels || []).slice(0, 1).map(l => <span key={l} style={{ fontSize: '0.65rem', background: '#f1f5f9', padding: '2px 5px', borderRadius: '4px' }}>{l}</span>)}
-                                            </div>
-                                            <div style={{ fontSize: '0.8rem' }}>
-                                                {item.associated ? (
-                                                    <div onClick={() => handleViewProfile(item.associated)} style={{ cursor: 'pointer' }}>
-                                                        <div style={{ fontWeight: 700, color: '#0369a1' }}>{item.associated.name}</div>
-                                                        <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{item.associated.project}</div>
-                                                    </div>
-                                                ) : <span style={{ color: '#94a3b8' }}>Unmatched</span>}
-                                            </div>
-                                            <div style={{ textAlign: 'right', fontSize: '0.75rem' }}>{item.date}</div>
+                                            <div>Participants</div>
+                                            <div>Email Details</div>
+                                            <div>Type</div>
+                                            <div>Associated</div>
+                                            <div style={{ textAlign: 'right' }}>Date</div>
                                         </>
                                     ) : (
                                         <>
-                                            <div style={{ fontSize: '0.8rem', fontWeight: 700 }}>{item.participant}</div>
-                                            <div style={{ fontSize: '0.75rem' }}>{item.type}</div>
-                                            <div>
-                                                 <span style={{ fontSize: '0.7rem', background: '#e0f2fe', padding: '2px 8px', borderRadius: '10px' }}>{item.platform}</span>
-                                            </div>
-                                            <div>{item.outcome}</div>
-                                            <div>{item.duration}</div>
-                                            <div>{item.associatedDeals}</div>
-                                            <div style={{ fontSize: '0.75rem' }}>{item.date}</div>
+                                            <div>Participants</div>
+                                            <div>Type</div>
+                                            <div>Platform</div>
+                                            <div>Outcome</div>
+                                            <div>Duration</div>
+                                            <div>Associated Deal</div>
+                                            <div>Date</div>
                                         </>
                                     )}
                                 </div>
-                            ))}
 
-                            {activeTab === 'Email' && nextPageToken && (
-                                <div style={{ textAlign: 'center', padding: '20px' }}>
-                                    <button 
-                                        onClick={handleLoadMore}
-                                        disabled={isMoreLoading}
-                                        style={{
-                                            padding: '8px 24px',
-                                            borderRadius: '20px',
-                                            border: '1px solid #0ea5e9',
-                                            background: 'transparent',
-                                            color: '#0ea5e9',
-                                            fontSize: '0.85rem',
-                                            fontWeight: 600,
-                                            cursor: 'pointer',
-                                            transition: 'all 0.2s'
-                                        }}
-                                        onMouseOver={e => {
-                                            e.currentTarget.style.background = '#0ea5e9';
-                                            e.currentTarget.style.color = '#fff';
-                                        }}
-                                        onMouseOut={e => {
-                                            e.currentTarget.style.background = 'transparent';
-                                            e.currentTarget.style.color = '#0ea5e9';
-                                        }}
-                                    >
-                                        {isMoreLoading ? <><i className="fas fa-spinner fa-spin" style={{ marginRight: '8px' }}></i>Loading...</> : 'Load More Emails'}
-                                    </button>
+                                <div className="list-content">
+                                    {paginatedData.map((item) => (
+                                        <div
+                                            key={item.id}
+                                            onClick={() => {
+                                                if (activeTab === 'Messaging' || item.via === 'MESSAGE' || item.via === 'WHATSAPP') {
+                                                    setSelectedConversation(item);
+                                                }
+                                            }}
+                                            className={`list-row-premium ${selectedConversation?.id === item.id ? 'selected' : ''}`}
+                                            style={{
+                                                padding: '10px 20px',
+                                                background: selectedConversation?.id === item.id ? '#f0f9ff' : '#fff',
+                                                borderBottom: '1px solid #f1f5f9',
+                                                display: 'grid',
+                                                gridTemplateColumns: activeTab === 'Email' ? '40px 220px 1fr 140px 200px 120px' : '40px 200px 150px 120px 150px 120px 150px',
+                                                gap: '15px',
+                                                alignItems: 'center',
+                                                cursor: (activeTab === 'Messaging' || item.via === 'MESSAGE' || item.via === 'WHATSAPP') ? 'pointer' : 'default',
+                                                transition: 'all 0.2s',
+                                                borderLeft: selectedConversation?.id === item.id ? '4px solid #0ea5e9' : 'none'
+                                            }}
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedIds.includes(item.id)}
+                                                onChange={(e) => {
+                                                    e.stopPropagation();
+                                                    toggleSelect(item.id);
+                                                }}
+                                            />
+                                            
+                                            {activeTab === 'Email' ? (
+                                                <>
+                                                    <div style={{ fontSize: '0.85rem', fontWeight: 700 }}>{item.participant}</div>
+                                                    <div style={{ overflow: 'hidden' }}>
+                                                        <div 
+                                                            onClick={(e) => { e.stopPropagation(); setSelectedEmail(item); setIsViewModalOpen(true); }}
+                                                            style={{ 
+                                                                fontSize: '0.85rem', 
+                                                                fontWeight: 700, 
+                                                                color: '#0ea5e9', 
+                                                                cursor: 'pointer',
+                                                                textDecoration: 'none'
+                                                            }}
+                                                        >
+                                                            {item.subject}
+                                                        </div>
+                                                        <div style={{ fontSize: '0.75rem', color: '#64748b', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{item.snippet}</div>
+                                                    </div>
+                                                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                                        <i className={item.type?.includes('Outgoing') ? 'fas fa-paper-plane' : 'fas fa-envelope-open'} style={{ color: '#0ea5e9' }}></i>
+                                                        {(item.labels || []).slice(0, 1).map(l => <span key={l} style={{ fontSize: '0.65rem', background: '#f1f5f9', padding: '2px 5px', borderRadius: '4px' }}>{l}</span>)}
+                                                    </div>
+                                                    <div style={{ fontSize: '0.8rem' }}>
+                                                        {item.associated ? (
+                                                            <div onClick={(e) => { e.stopPropagation(); handleViewProfile(item.associated); }} style={{ cursor: 'pointer' }}>
+                                                                <div style={{ fontWeight: 700, color: '#0369a1' }}>{item.associated.name}</div>
+                                                            </div>
+                                                        ) : <span style={{ color: '#94a3b8' }}>Unmatched</span>}
+                                                    </div>
+                                                    <div style={{ textAlign: 'right', fontSize: '0.75rem' }}>{item.date}</div>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <div style={{ fontSize: '0.8rem', fontWeight: 700 }}>{item.participant}</div>
+                                                    <div style={{ fontSize: '0.75rem' }}>{item.type}</div>
+                                                    <div>
+                                                         <span style={{ fontSize: '0.7rem', background: '#e0f2fe', padding: '2px 8px', borderRadius: '10px' }}>{item.platform}</span>
+                                                    </div>
+                                                    <div>{item.outcome}</div>
+                                                    <div>{item.duration}</div>
+                                                    <div>{item.associatedDeals}</div>
+                                                    <div style={{ fontSize: '0.75rem' }}>{item.date}</div>
+                                                </>
+                                            )}
+                                        </div>
+                                    ))}
+
+                                    {activeTab === 'Email' && nextPageToken && (
+                                        <div style={{ textAlign: 'center', padding: '20px' }}>
+                                            <button 
+                                                onClick={handleLoadMore}
+                                                disabled={isMoreLoading}
+                                                style={{
+                                                    padding: '8px 24px',
+                                                    borderRadius: '20px',
+                                                    border: '1px solid #0ea5e9',
+                                                    background: 'transparent',
+                                                    color: '#0ea5e9',
+                                                    fontSize: '0.85rem',
+                                                    fontWeight: 600,
+                                                    cursor: 'pointer'
+                                                }}
+                                            >
+                                                {isMoreLoading ? 'Loading...' : 'Load More Emails'}
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
-                            )}
+                            </div>
                         </div>
+
+                        {/* Thread Side Panel */}
+                        {selectedConversation && (
+                            <div style={{ width: '450px', borderLeft: '1px solid #e2e8f0', background: '#fff', height: '100%', position: 'sticky', top: 0 }}>
+                                <ConversationThread 
+                                    messages={selectedConversation.thread || []} 
+                                    participantName={selectedConversation.participant}
+                                    onClose={() => setSelectedConversation(null)}
+                                />
+                            </div>
+                        )}
                     </div>
                         </>
                     )}

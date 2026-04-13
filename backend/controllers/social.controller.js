@@ -2,6 +2,13 @@ import SystemSetting from '../src/modules/systemSettings/system.model.js';
 import socialCommentService from '../services/SocialCommentService.js';
 import facebookService from '../services/FacebookService.js';
 import metaLeadService from '../services/MetaLeadService.js';
+import Conversation from '../models/Conversation.js';
+import { generateBotResponse } from '../services/aiBot.service.js';
+import axios from 'axios';
+import mongoose from 'mongoose';
+import Lead, { resolveLeadLookup } from '../models/Lead.js';
+import Activity from '../models/Activity.js';
+import Contact from '../models/Contact.js';
 
 /**
  * POST /api/social/config/enterprise
@@ -240,56 +247,140 @@ export const receiveWebhook = async (req, res) => {
         // Respond immediately with 200 to acknowledge receipt (required by Meta)
         res.status(200).json({ received: true });
 
+        console.log(`[SocialController] Webhook Body Received:`, JSON.stringify(req.body, null, 2));
         const events = socialCommentService.processWebhookPayload(req.body);
         if (events.length > 0) {
             console.log(`[SocialController] Received ${events.length} social event(s):`, 
                 events.map(e => `${e.platform}:${e.type}`).join(', '));
             
             // --- WhatsApp Activity Synchronization ---
-            const Activity = (await import('../models/Activity.js')).default;
+                    const Activity = (await import('../models/Activity.js')).default;
             const Lead = (await import('../models/Lead.js')).default;
+            const Contact = (await import('../models/Contact.js')).default;
+            const { normalizePhone } = await import('../utils/normalization.js');
 
             for (const event of events) {
-                // Handle Lead Ingestion
-                if (event.type === 'leadgen' && event.leadgenId) {
-                    console.log(`[SocialController] Triggering Meta lead processing for ID: ${event.leadgenId}`);
-                    metaLeadService.processMetaLead(event.leadgenId).catch(err => {
-                        console.error(`[SocialController] Failed to ingest Meta lead ${event.leadgenId}:`, err.message);
-                    });
-                }
-
+                // ...
                 if (event.platform === 'whatsapp' && event.type === 'message') {
-                    // 1. Normalize phone (e.g., 919876543210 -> 9876543210)
+                    // 1. Normalize phone using the same utility as the Lead model
                     const rawPhone = event.senderId;
-                    const cleanPhone = rawPhone.replace(/\D/g, '').slice(-10);
+                    const cleanPhone = normalizePhone(rawPhone);
+                    console.log(`[SocialController] Processing WhatsApp message from ${rawPhone} (normalized: ${cleanPhone})`);
 
                     // 2. Find matching Lead/Contact
-                    const lead = await Lead.findOne({ mobile: { $regex: new RegExp(cleanPhone + '$') } });
+                    console.log(`[SocialController] Searching for match with ${cleanPhone}...`);
+                    let match = await Lead.findOne({ mobile: cleanPhone });
+                    let entityType = 'Lead';
+                    
+                    if (!match) {
+                        console.log(`[SocialController] No Lead found for ${cleanPhone}, checking Contacts...`);
+                        match = await Contact.findOne({ "phones.number": cleanPhone });
+                        if (match) entityType = 'Contact';
+                    }
 
-                    // 3. Save as Activity
-                    await Activity.create({
+                    if (!match) {
+                        // Fallback to regex for legacy data that might not be fully normalized
+                        match = await Lead.findOne({ mobile: { $regex: new RegExp(cleanPhone + '$') } });
+                        if (match) entityType = 'Lead';
+                    }
+
+                    if (match) {
+                        console.log(`[SocialController] ✅ Match Found: ${entityType} | ID: ${match._id} | Name: ${match.fullName || match.firstName}`);
+                    } else {
+                        console.log(`[SocialController] ❌ No match found for ${cleanPhone}`);
+                    }
+
+                    // 3. Resolve Participant Info
+                    const participantName = match ? (match.fullName || match.name || `${match.firstName || ''} ${match.lastName || ''}`.trim()) : `WA: ${rawPhone}`;
+                    
+                    const entityId = match?._id;
+                    const entityType = match ? (entityType === 'Lead' ? 'Lead' : 'Contact') : (match ? entityType : 'Wait'); // Logic fix below
+
+                    // 4. Find or Create Conversation (Senior Professional Sync)
+                    let conversation = await Conversation.findOne({ 
+                        $or: [
+                            { lead: match?._id },
+                            { metadata: { entityId: match?._id } },
+                            { phoneNumber: rawPhone }
+                        ],
+                        status: 'active' 
+                    });
+
+                    if (!conversation) {
+                        conversation = await Conversation.create({
+                            lead: match?._id || new mongoose.Types.ObjectId(),
+                            channel: 'whatsapp',
+                            phoneNumber: rawPhone,
+                            status: 'active',
+                            messages: [],
+                            metadata: {
+                                entityId: match?._id,
+                                entityType: entityType,
+                                isContact: entityType === 'Contact'
+                            }
+                        });
+                    }
+
+                    // 5. Append User Message to Thread
+                    conversation.messages.push({ role: 'user', content: event.text });
+                    await conversation.save();
+
+                    // 6. Save as Activity for Timeline
+                    const activity = await Activity.create({
                         type: 'WhatsApp',
-                        subject: `WhatsApp from ${rawPhone}`,
-                        entityType: lead ? 'Lead' : 'System',
-                        entityId: lead ? lead._id : null,
+                        subject: `WhatsApp from ${participantName}`,
+                        entityType: match ? entityType : 'System',
+                        entityId: match ? match._id : null,
                         description: event.text,
                         status: 'Completed',
-                        priority: 'Normal',
-                        dueDate: new Date(),
-                        performedBy: 'WhatsApp Service',
+                        performedBy: 'System',
                         details: {
                             platform: 'whatsapp',
                             direction: 'incoming',
                             sender: rawPhone,
                             message: event.text,
-                            messageId: event.messageId
+                            conversationId: conversation._id
                         },
-                        timestamp: event.timestamp || new Date()
+                        timestamp: new Date()
                     });
-                    
-                    if (lead) {
-                        lead.lastActivityAt = new Date();
-                        await lead.save();
+
+                    // 7. Generate AI Bot Response (Professional Auto-Reply)
+                    const chatHistoryContext = conversation.messages.map(m => `${m.role}: ${m.content}`).join('\n');
+                    const aiResult = await generateBotResponse(event.text, chatHistoryContext);
+
+                    if (aiResult.success && aiResult.reply) {
+                        const setting = await SystemSetting.findOne({ key: 'meta_wa_config' }).lean();
+                        const config = setting?.value;
+                        const token = config?.token || config?.apiKey;
+                        const phoneId = config?.phoneId;
+
+                        if (token && phoneId) {
+                            try {
+                                await axios.post(
+                                    `https://graph.facebook.com/v19.0/${phoneId}/messages`,
+                                    {
+                                        messaging_product: "whatsapp",
+                                        recipient_type: "individual",
+                                        to: rawPhone,
+                                        type: "text",
+                                        text: { preview_url: false, body: aiResult.reply }
+                                    },
+                                    {
+                                        headers: { 'Authorization': `Bearer ${token}` }
+                                    }
+                                );
+
+                                conversation.messages.push({ role: 'assistant', content: aiResult.reply });
+                                await conversation.save();
+                            } catch (waError) {
+                                console.error('[SocialWebhook] Failed to send AI reply:', waError.response?.data || waError.message);
+                            }
+                        }
+                    }
+
+                    if (match) {
+                        match.lastActivityAt = new Date();
+                        await match.save();
                     }
                 }
             }
