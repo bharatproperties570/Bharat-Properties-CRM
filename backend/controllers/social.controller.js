@@ -292,9 +292,9 @@ export const receiveWebhook = async (req, res) => {
 
                     // 3. Resolve Participant Info
                     const participantName = match ? (match.fullName || match.name || `${match.firstName || ''} ${match.lastName || ''}`.trim()) : `WA: ${rawPhone}`;
-                    
                     const entityId = match?._id;
-                    const entityType = match ? (entityType === 'Lead' ? 'Lead' : 'Contact') : (match ? entityType : 'Wait'); // Logic fix below
+                    // entityType is already declared as 'let' above, just update it if needed for the 'Wait' case
+                    if (!match) entityType = 'System'; 
 
                     // 4. Find or Create Conversation (Senior Professional Sync)
                     let conversation = await Conversation.findOne({ 
