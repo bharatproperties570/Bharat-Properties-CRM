@@ -118,6 +118,21 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
         setIsSocialModalOpen(true);
     };
 
+    const enrichDealIntelligence = () => {
+        toast.promise(
+            api.get(`stage-engine/deals/enrich?dealId=${dealId}`),
+            {
+                loading: 'Analyzing transaction health...',
+                success: (res) => {
+                    fetchDealDetails();
+                    fetchLiveScore();
+                    return 'Intelligence data refreshed! ✨';
+                },
+                error: 'Failed to enrich deal data'
+            }
+        );
+    };
+
     const fetchDealDetails = useCallback(async () => {
         setLoading(true);
         try {
@@ -302,12 +317,12 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     }, []);
 
 
-    // Effects
+    // Effects (RESTORING MISSING DATA FETCHING)
     useEffect(() => {
         fetchDealDetails();
         fetchLiveScore();
         fetchAllLeads();
-    }, [fetchDealDetails, fetchLiveScore, fetchAllLeads]);
+    }, [dealId, fetchDealDetails, fetchLiveScore, fetchAllLeads]);
 
     useEffect(() => {
         const invId = deal?.inventoryId?._id || (typeof deal?.inventoryId === 'string' ? deal.inventoryId : null);
@@ -338,7 +353,7 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     if (!deal) return <div className="error-state">Deal not found</div>;
 
     return (
-        <div className="deal-detail-page" style={{ background: '#f1f5f9', minHeight: '100vh', paddingBottom: '60px', fontFamily: '"Inter", sans-serif', color: '#1e293b' }}>
+        <div className="deal-detail-page bg-slate-50 min-h-screen" style={{ fontFamily: '"Inter", sans-serif' }}>
             <DealDetailHeader 
                 deal={deal} 
                 liveScoreData={liveScoreData} 
@@ -368,16 +383,10 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                 onNavigate={onNavigate}
             />
 
-            <DealLifecycle 
-                deal={deal} 
-                activities={activities} 
-                stageStyle={stageStyle} 
-                stageAlerts={stageAlerts}
-            />
-
-            <div style={{ maxWidth: '100%', margin: '12px auto', padding: '0 24px', display: 'flex', gap: '16px', height: 'calc(100vh - 250px)', overflow: 'hidden' }}>
+            {/* MAIN CONTENT SPLIT - 3 COLUMN LAYOUT */}
+            <div style={{ maxWidth: '100%', margin: '12px auto', padding: '0 24px', display: 'flex', gap: '16px', height: 'calc(100vh - 120px)', overflow: 'hidden' }}>
                 
-                {/* COLUMN 1: LEFT - UNIT & LOCATION INTELLIGENCE */}
+                {/* COLUMN 1: LEFT - UNIT & LOCATION INTELLIGENCE (400px) */}
                 <div className="no-scrollbar" style={{ flex: '0 0 400px', display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto', paddingBottom: '20px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                         <i className="fas fa-building" style={{ color: '#4f46e5' }}></i>

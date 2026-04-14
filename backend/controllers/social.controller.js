@@ -525,8 +525,21 @@ export const postSocialMedia = async (req, res) => {
 
         res.json(result);
     } catch (err) {
-        console.error('[SocialController] postSocialMedia error:', err.message);
-        res.status(500).json({ success: false, error: err.message });
+        // PROFESSIONAL LOGING OF EXTERNAL API ERRORS
+        const apiError = err.response?.data || err.message;
+        console.error('[SocialController] postSocialMedia CRITICAL ERROR:', JSON.stringify(apiError, null, 2));
+        
+        // Return structured error to frontend for better toast messages
+        let errorMessage = err.message;
+        if (err.response?.data?.error?.message) {
+            errorMessage = `Platform Error: ${err.response.data.error.message}`;
+        }
+
+        res.status(500).json({ 
+            success: false, 
+            error: errorMessage,
+            details: apiError 
+        });
     }
 };
 

@@ -93,8 +93,26 @@ const SocialPostModal = ({ isOpen, onClose, initialData = null }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col md:flex-row h-[90vh] md:h-auto max-h-[800px] animate-in fade-in zoom-in duration-200">
+    <div 
+      className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/70 backdrop-blur-md p-4"
+      style={{ 
+        position: 'fixed', 
+        top: 0, 
+        left: 0, 
+        right: 0, 
+        bottom: 0, 
+        zIndex: 99999,
+        background: 'rgba(0,0,0,0.7)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backdropFilter: 'blur(8px)'
+      }}
+    >
+      <div 
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col md:flex-row h-[90vh] md:h-auto max-h-[85vh] animate-in fade-in zoom-in duration-300"
+        style={{ background: 'white', display: 'flex' }}
+      >
         
         {/* Left: Input Area */}
         <div className="flex-1 p-6 md:p-8 border-r border-slate-100 flex flex-col gap-6 overflow-y-auto">
