@@ -170,19 +170,21 @@ const SingleDealLifecycle = ({ deal, activities = [] }) => {
                 }
                 
                 .deal-arrow.current { 
-                    background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%);
+                    background: linear-gradient(135deg, var(--stage-color, #4f46e5) 0%, #3b82f6 100%);
                     color: #fff;
                     z-index: 20;
                     transform: scale(1.02);
-                    box-shadow: 0 10px 30px rgba(79, 70, 229, 0.3);
+                    box-shadow: 0 10px 40px var(--stage-color-shadow, rgba(79, 70, 229, 0.4)), inset 0 0 0 1px rgba(255,255,255,0.2);
+                    border: none;
                 }
 
                 .deal-arrow.current::after {
                     content: '';
                     position: absolute;
                     inset: 0;
-                    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
-                    animation: sweep 2s infinite;
+                    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+                    animation: sweep 3s infinite;
+                    opacity: 0.3;
                 }
 
                 @keyframes sweep {
@@ -202,14 +204,15 @@ const SingleDealLifecycle = ({ deal, activities = [] }) => {
                 }
 
                 .pulse-dot {
-                    width: 8px; height: 8px; border-radius: 50%; background: #fff;
-                    box-shadow: 0 0 12px #fff;
-                    animation: active-pulse 1.5s infinite;
+                    width: 10px; height: 10px; border-radius: 50%; background: #fff;
+                    box-shadow: 0 0 15px #fff, 0 0 30px #fff;
+                    animation: active-pulse 2s infinite;
+                    border: 2px solid rgba(255,255,255,0.5);
                 }
                 @keyframes active-pulse {
-                    0% { transform: scale(1); opacity: 1; }
-                    50% { transform: scale(1.5); opacity: 0.5; }
-                    100% { transform: scale(1); opacity: 1; }
+                    0% { transform: scale(1); opacity: 1; box-shadow: 0 0 0 0 rgba(255,255,255,0.7); }
+                    70% { transform: scale(1.4); opacity: 0.6; box-shadow: 0 0 0 10px rgba(255,255,255,0); }
+                    100% { transform: scale(1); opacity: 1; box-shadow: 0 0 0 0 rgba(255,255,255,0); }
                 }
 
                 .side-panel {
@@ -234,6 +237,10 @@ const SingleDealLifecycle = ({ deal, activities = [] }) => {
                     <div
                         key={stage.id}
                         className={`deal-arrow ${stage.status} ${stage.isStuck ? 'stuck' : ''} ${idx === 0 ? 'first' : ''} ${idx === lifecycleData.stages.length - 1 ? 'last' : ''}`}
+                        style={{
+                            '--stage-color': stage.color,
+                            '--stage-color-shadow': `${stage.color}55`
+                        }}
                         onClick={() => stage.status !== 'future' && setSelectedStage(stage)}
                     >
                         {/* 1. Header Row (Compact) */}

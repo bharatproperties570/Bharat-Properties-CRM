@@ -196,49 +196,21 @@ const DealDetailHeader = ({
                     </button>
                 )}
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <button
-                        onClick={() => setIsCallModalOpen(true)}
-                        style={{ border: 'none', background: '#16a34a', color: '#fff', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 4px 12px rgba(22, 163, 74, 0.2)' }}
-                        className="hover:scale-105 transition-all"
-                    >
-                        <i className="fas fa-phone-alt"></i> CALL
-                    </button>
-                    <button
-                        onClick={handleWhatsApp}
-                        style={{ border: 'none', background: '#25d366', color: '#fff', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 4px 12px rgba(37, 211, 102, 0.2)' }}
-                        className="hover:scale-105 transition-all"
-                    >
-                        <i className="fab fa-whatsapp"></i> WHATSAPP
-                    </button>
-                    <button
-                        onClick={() => setIsMessageOpen(true)}
-                        style={{ border: 'none', background: '#3b82f6', color: '#fff', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 4px 12px rgba(59, 130, 246, 0.2)' }}
-                        className="hover:scale-105 transition-all"
-                    >
-                        <i className="fas fa-comment-alt"></i> SMS
-                    </button>
-                    <button
-                        onClick={() => setIsMailOpen(true)}
-                        style={{ border: 'none', background: '#8b5cf6', color: '#fff', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 4px 12px rgba(139, 92, 246, 0.2)' }}
-                        className="hover:scale-105 transition-all"
-                    >
-                        <i className="fas fa-envelope"></i> EMAIL
-                    </button>
-                    <button
-                        onClick={handleMatch}
-                        style={{ border: 'none', background: '#4f46e5', color: '#fff', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 4px 12px rgba(79, 70, 229, 0.2)' }}
-                        className="hover:scale-105 transition-all"
-                    >
-                        <i className="fas fa-user-check"></i> MATCH
-                    </button>
-                    <button
-                        onClick={handleShare}
-                        style={{ border: 'none', background: '#64748b', color: '#fff', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 4px 12px rgba(100, 116, 139, 0.2)' }}
-                        className="hover:scale-105 transition-all"
-                    >
-                        <i className="fas fa-share-alt"></i> SHARE
-                    </button>
+                <div style={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '4px', 
+                    padding: '4px',
+                    background: '#f8fafc',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '14px',
+                }}>
+                    <ActionButton onClick={() => setIsCallModalOpen(true)} icon="fa-phone-alt" label="CALL" color="#16a34a" />
+                    <ActionButton onClick={handleWhatsApp} icon="fa-whatsapp" label="WHATSAPP" color="#25d366" isFab />
+                    <ActionButton onClick={() => setIsMessageOpen(true)} icon="fa-comment-alt" label="SMS" color="#3b82f6" />
+                    <ActionButton onClick={() => setIsMailOpen(true)} icon="fa-envelope" label="EMAIL" color="#8b5cf6" />
+                    <ActionButton onClick={handleMatch} icon="fa-user-check" label="MATCH" color="#4f46e5" />
+                    <ActionButton onClick={handleShare} icon="fa-share-alt" label="SHARE" color="#64748b" />
                 </div>
 
 
@@ -335,5 +307,31 @@ const DealDetailHeader = ({
         </header>
     );
 };
+
+const ActionButton = ({ onClick, icon, label, color, isFab = false }) => (
+    <button
+        onClick={onClick}
+        style={{
+            border: 'none',
+            background: color,
+            color: '#fff',
+            padding: '8px 12px',
+            borderRadius: '10px',
+            fontSize: '0.65rem',
+            fontWeight: 900,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '5px',
+            boxShadow: `0 4px 10px ${color}33`,
+            transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+            whiteSpace: 'nowrap'
+        }}
+        className="hover:scale-105 active:scale-95"
+    >
+        <i className={`${isFab ? 'fab' : 'fas'} ${icon}`} style={{ fontSize: '0.8rem' }}></i>
+        <span style={{ letterSpacing: '0.02em' }}>{label}</span>
+    </button>
+);
 
 export default DealDetailHeader;
