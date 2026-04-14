@@ -1,6 +1,8 @@
 import SystemSetting from '../src/modules/systemSettings/system.model.js';
 import socialCommentService from '../services/SocialCommentService.js';
 import facebookService from '../services/FacebookService.js';
+import whatsAppService from '../services/WhatsAppService.js';
+import linkedInService from '../services/LinkedInService.js';
 import metaLeadService from '../services/MetaLeadService.js';
 import Conversation from '../models/Conversation.js';
 import { generateBotResponse } from '../services/aiBot.service.js';
@@ -502,6 +504,21 @@ export const postSocialMedia = async (req, res) => {
             result = await facebookService.postToPage(text, imageUrl);
         } else if (platform.toLowerCase() === 'instagram') {
             result = await facebookService.postToInstagram(text, imageUrl);
+        } else if (platform.toLowerCase() === 'linkedin') {
+            let assetUrn = null;
+            if (imageUrl) {
+                try {
+                    console.log('[SocialController] Handling LinkedIn Image Upload:', imageUrl);
+                    const { uploadUrl, asset } = await linkedInService.registerImageUpload();
+                    const imageResponse = await axios.get(imageUrl, { responseType: 'arraybuffer' });
+                    await linkedInService.uploadImageBinary(uploadUrl, imageResponse.data, imageResponse.headers['content-type']);
+                    assetUrn = asset;
+                    console.log('[SocialController] LinkedIn Asset Registered:', assetUrn);
+                } catch (imgErr) {
+                    console.error('[SocialController] LinkedIn Image Upload Failed, posting text only:', imgErr.message);
+                }
+            }
+            result = await linkedInService.postToOrganization(text, null, assetUrn);
         } else {
             return res.status(400).json({ success: false, error: 'Unsupported platform for posting' });
         }

@@ -38,6 +38,7 @@ import MatchedLeadsCard from '../../components/MatchedLeadsCard';
 import DealAnalysis from '../../components/DealDetail/DealAnalysis';
 import LandedCostSheet from '../../components/DealDetail/DealCostSheet';
 import { MediaViewerModal } from '../../components/DealDetail/DealCommon';
+import SocialPostModal from '../../components/SocialPostModal';
 
 const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     const { user } = useUserContext();
@@ -67,6 +68,7 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     const [isActivityOpen, setIsActivityOpen] = useState(false);
     const [isOwnerModalOpen, setIsOwnerModalOpen] = useState(false);
     const [isMarkingLost, setIsMarkingLost] = useState(false);
+    const [isSocialModalOpen, setIsSocialModalOpen] = useState(false);
 
     const [activityInitialData, setActivityInitialData] = useState(null);
     const [selectedContactsForMail, setSelectedContactsForMail] = useState([]);
@@ -98,29 +100,22 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                 round: (deal.negotiationRounds || []).length + 1,
                 date: newOffer.date,
                 offerBy: newOffer.leadName,
-                buyerOffer: newOffer.amount,
-                ownerCounter: newOffer.counterAmount || 0,
-                status: newOffer.status,
-                notes: newOffer.conditions
+                amount: newOffer.amount,
+                note: newOffer.note
             };
-
-            const response = await api.patch(`deals/${dealId}`, {
-                negotiationRounds: [
-                    ...(deal.negotiationRounds || []),
-                    offerData
-                ]
-            });
-
+            const response = await api.post(`deals/${dealId}/offers`, offerData);
             if (response.data && response.data.success) {
-                setDeal(response.data.deal);
-                toast.success("Offer recorded successfully!");
-            } else {
-                toast.error("Failed to save offer");
+                toast.success("Offer added successfully");
+                fetchDealDetails();
             }
         } catch (error) {
-            console.error("Error saving offer:", error);
-            toast.error("An error occurred while saving the offer");
+            console.error("Error adding offer:", error);
+            toast.error("Failed to add offer");
         }
+    };
+    
+    const handleSocialClick = () => {
+        setIsSocialModalOpen(true);
     };
 
     const fetchDealDetails = useCallback(async () => {
@@ -366,6 +361,8 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                 setIsDocumentModalOpen={setIsDocumentModalOpen}
                 setIsNoteModalOpen={setIsNoteModalOpen}
                 setIsQuoteModalOpen={setIsQuoteModalOpen}
+                handleSocialClick={handleSocialClick}
+                enrichDealIntelligence={enrichDealIntelligence}
                 fetchDealDetails={fetchDealDetails}
                 getLookupValue={getLookupValue}
                 onNavigate={onNavigate}

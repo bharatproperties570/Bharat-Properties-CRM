@@ -18,6 +18,7 @@ import ComposeEmailModal from '../Communication/components/ComposeEmailModal';
 import AddLeadModal from '../../components/AddLeadModal';
 import EnrollSequenceModal from '../../components/EnrollSequenceModal';
 import PipelineDashboard from '../../components/PipelineDashboard';
+import SocialPostModal from '../../components/SocialPostModal';
 
 
 /* ══════════════════════════════════════════
@@ -406,6 +407,7 @@ export default function MarketingOverviewPage() {
   const [isAiGenerating, setIsAiGenerating] = useState(false);
   const [showMultiPostPicker, setShowMultiPostPicker] = useState(false);
   const [multiPostDate, setMultiPostDate] = useState(null);
+  const [isQuickPostModalOpen, setIsQuickPostModalOpen] = useState(false);
 
   // ══ REAL API FETCH FUNCTION (P1 + P4 + P8 + P9 + Phase B) ══
   const fetchLiveData = useCallback(async () => {
@@ -1544,6 +1546,13 @@ export default function MarketingOverviewPage() {
                       onClick={toggleTheme}
                     >
                       {theme === 'dark' ? '☀ Light Theme' : '🌙 Dark Theme'}
+                    </button>
+                    <button 
+                      className="tact-btn primary-gold" 
+                      style={{ padding: '4px 12px' }} 
+                      onClick={() => setIsQuickPostModalOpen(true)}
+                    >
+                      🚀 Quick Social Post
                     </button>
                     <button 
                       className="tact-btn" 

@@ -7,6 +7,7 @@ import Chart from 'react-apexcharts';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import { fixDriveUrl, getYoutubeId } from '../../utils/helpers';
 import PublishModal from '../../components/Marketing/PublishModal';
+import SocialPostModal from '../../components/SocialPostModal';
 
 const ProjectDetailPage = ({ projectId, onBack, onNavigate, onEditProject }) => {
     const { getLookupValue } = usePropertyConfig();
@@ -17,6 +18,7 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onEditProject }) => 
     const [dealsData, setDealsData] = useState([]);
     const [blocksData, setBlocksData] = useState([]);
     const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
+    const [isSocialModalOpen, setIsSocialModalOpen] = useState(false);
     const [mediaViewer, setMediaViewer] = useState({ isOpen: false, data: null });
 
     const fetchProjectDetails = useCallback(async () => {
@@ -215,6 +217,7 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onEditProject }) => 
 
                  <div style={{ display: 'flex', gap: '10px' }}>
                     <ActionButton icon="edit" label="Edit" onClick={() => onEditProject && onEditProject(project)} />
+                    <ActionButton icon="share-alt" label="Share" onClick={() => setIsSocialModalOpen(true)} />
                     <ActionButton icon="plus-square" label="Add Block" />
                     <ActionButton icon="plus" label="Inventory" primary />
                 </div>
@@ -526,9 +529,22 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onEditProject }) => 
             <PublishModal 
                 isOpen={isPublishModalOpen}
                 onClose={() => setIsPublishModalOpen(false)}
-                data={project}
-                type="project"
+                project={{...project, deals: dealsData}}
                 onPublishSuccess={fetchProjectDetails}
+            />
+
+            <SocialPostModal
+                isOpen={isSocialModalOpen}
+                onClose={() => setIsSocialModalOpen(false)}
+                initialData={project ? {
+                    id: project._id,
+                    name: project.name,
+                    title: project.name,
+                    location: project.address?.location || project.locationSearch,
+                    price: project.priceRange || "Contact for Price",
+                    description: project.description || "Excited to share this new project!",
+                    imageUrl: project.primaryImage || project.media?.[0]?.url
+                } : null}
             />
         </div>
     );
