@@ -5,6 +5,7 @@ const isProd = import.meta.env.PROD;
 // In production, we default to the relative '/api' which is then proxied by vercel.json
 // or we use the explicit VITE_API_URL if provided in the Vercel dashboard environments.
 export const API_BASE_URL = import.meta.env.VITE_API_URL || (isProd ? '/api' : 'http://localhost:4000/api');
+export const BASE_BACKEND_URL = API_BASE_URL.replace(/\/api$/, '');
 
 // Notification APIs
 export const marketingAPI = {
