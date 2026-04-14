@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import Swal from 'sweetalert2';
-import { api, activitiesAPI } from '../../utils/api';
+import { api } from '../../utils/api';
 import toast from 'react-hot-toast';
 import AddOfferModal from '../../components/AddOfferModal';
 import AddOwnerModal from '../../components/AddOwnerModal';
@@ -16,22 +16,18 @@ import AddBookingModal from '../../components/AddBookingModal';
 import AddInventoryDocumentModal from '../../components/AddInventoryDocumentModal';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import { renderValue } from '../../utils/renderUtils';
-import { getInitials, fixDriveUrl, getYoutubeId } from '../../utils/helpers';
 
 // Inventory Components
 import InventorySpecsPanel from '../Inventory/components/InventorySpecsPanel';
 import LocationDetailsCard from '../Inventory/components/LocationDetailsCard';
 import BuiltupDetailsCard from '../Inventory/components/BuiltupDetailsCard';
 import PropertyOwnerSection from '../../components/Shared/PropertyOwnerSection';
-import MediaVaultSection from '../../components/Shared/MediaVaultSection';
 
 // Hooks & Components
 import { useDealFinancials } from '../../hooks/useDealFinancials';
 import { useDealIntelligence } from '../../hooks/useDealIntelligence';
 import DealDetailHeader from '../../components/DealDetail/DealDetailHeader';
 import DealLifecycle from '../../components/DealDetail/DealLifecycle';
-import DealTechnicalSpecs from '../../components/DealDetail/DealTechnicalSpecs';
-import DealGeography from '../../components/DealDetail/DealGeography';
 import DealBuiltupDetails from '../../components/DealDetail/DealBuiltupDetails';
 import DealFinancialSection from '../../components/DealDetail/DealFinancialSection';
 // Shared Components
@@ -67,19 +63,11 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
     const [isQuoteModalOpen, setIsQuoteModalOpen] = useState(false);
     const [isDocumentModalOpen, setIsDocumentModalOpen] = useState(false);
-    const [isActivityOpen, setIsActivityOpen] = useState(false);
+    const [isActivityOpen, setIsActivityOpen] = useState(false); // Used in some UI checks
     const [isOwnerModalOpen, setIsOwnerModalOpen] = useState(false);
     const [isMarkingLost, setIsMarkingLost] = useState(false);
 
-    const [activityInitialData, setActivityInitialData] = useState(null);
-    const [selectedContactsForMail, setSelectedContactsForMail] = useState([]);
-    const [selectedContactsForMessage, setSelectedContactsForMessage] = useState([]);
-    const [mailSubject, setMailSubject] = useState('');
-    const [mailBody, setMailBody] = useState('');
-    const [mailAttachments, setMailAttachments] = useState([]);
-
     const [mediaViewer, setMediaViewer] = useState({ isOpen: false, data: null });
-    const { user } = useUserContext();
 
     const handleMatch = () => setActiveTab('match');
     
