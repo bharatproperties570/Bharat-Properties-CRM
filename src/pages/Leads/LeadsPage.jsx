@@ -31,6 +31,8 @@ import { useUserContext } from '../../context/UserContext';
 import { renderValue } from '../../utils/renderUtils';
 import { useCallback } from 'react';
 
+import usePermissions, { PermissionGate } from '../../hooks/usePermissions';
+
 function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     const {
         scoringAttributes,
@@ -528,21 +530,23 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                 {/* Single Selection Only */}
                                 {selectedCount === 1 && (
                                     <>
-                                        <button
-                                            className="action-btn"
-                                            title="Edit Lead"
-                                            onClick={() => {
-                                                console.log('Edit Button Clicked - selectedIds:', selectedIds);
-                                                const selectedLead = leads.find(l => l._id === selectedIds[0]);
-                                                console.log('Found Lead:', selectedLead);
-                                                if (selectedLead) {
-                                                    setEditingLead(selectedLead);
-                                                    setIsAddLeadModalOpen(true);
-                                                }
-                                            }}
-                                        >
-                                            <i className="fas fa-edit"></i> Edit
-                                        </button>
+                                        <PermissionGate module="leads" action="edit">
+                                            <button
+                                                className="action-btn"
+                                                title="Edit Lead"
+                                                onClick={() => {
+                                                    console.log('Edit Button Clicked - selectedIds:', selectedIds);
+                                                    const selectedLead = leads.find(l => l._id === selectedIds[0]);
+                                                    console.log('Found Lead:', selectedLead);
+                                                    if (selectedLead) {
+                                                        setEditingLead(selectedLead);
+                                                        setIsAddLeadModalOpen(true);
+                                                    }
+                                                }}
+                                            >
+                                                <i className="fas fa-edit"></i> Edit
+                                            </button>
+                                        </PermissionGate>
                                         <button
                                             className="action-btn"
                                             title="Call Lead"
@@ -765,13 +769,15 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                 )}
 
                                 <div style={{ marginLeft: 'auto' }}>
-                                    <button
-                                        className="action-btn danger"
-                                        title="Delete"
-                                        onClick={handleDelete}
-                                    >
-                                        <i className="fas fa-trash-alt"></i>
-                                    </button>
+                                    <PermissionGate module="leads" action="delete">
+                                        <button
+                                            className="action-btn danger"
+                                            title="Delete"
+                                            onClick={handleDelete}
+                                        >
+                                            <i className="fas fa-trash-alt"></i>
+                                        </button>
+                                    </PermissionGate>
                                 </div>
                             </div>
                         ) : (

@@ -210,9 +210,15 @@ export default function InventoryDetailPage({ inventoryId, onBack, onAddActivity
                 getTargetContacts={getTargetContacts}
             />
 
-            <main style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-                {/* LEFT COLUMN - Primary Specs & Activity (1.5) */}
-                <div className="no-scrollbar" style={{ flex: 1.5, overflowY: 'auto', padding: '24px 32px', borderRight: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            <main className="no-scrollbar" style={{ flex: 1, display: 'flex', gap: '16px', padding: '12px 24px', height: 'calc(100vh - 120px)', overflow: 'hidden' }}>
+                
+                {/* COLUMN 1: LEFT - TECHNICAL SPECS */}
+                <div className="no-scrollbar" style={{ flex: '0 0 400px', display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto', paddingBottom: '20px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                        <i className="fas fa-microchip" style={{ color: '#4f46e5' }}></i>
+                        <span style={{ fontSize: '0.7rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Technical & Location intelligence</span>
+                    </div>
+
                     {(() => {
                         const activeStatusNames = ['Available', 'Active', 'Interested / Warm', 'Interested / Hot', 'Request Call Back', 'Busy / Driving', 'Market Feedback', 'General Inquiry', 'Blocked', 'Booked', 'Interested'];
                         const rawStatus = getLookupValue('Status', inventory.status) || 'Available';
@@ -235,26 +241,41 @@ export default function InventoryDetailPage({ inventoryId, onBack, onAddActivity
                         getLookupValue={getLookupValue} 
                         onUpdateLocation={() => setIsEditModalOpen(true)}
                     />
+
                     <BuiltupDetailsCard inventory={inventory} getLookupValue={getLookupValue} />
+                </div>
 
-                    {/* Activities Timeline Section in Main Column */}
-                    <div style={{ marginTop: '8px' }}>
-                        {(() => {
-                            const relatedEntities = [
-                                { type: 'Inventory', id: inventoryId }
-                            ];
-                            if (inventory.owners && Array.isArray(inventory.owners)) {
-                                inventory.owners.forEach(o => { if (o._id || o.id) relatedEntities.push({ type: 'Contact', id: o._id || o.id }); });
-                            }
-                            if (inventory.associates && Array.isArray(inventory.associates)) {
-                                inventory.associates.forEach(a => {
-                                    const cId = a.contact?._id || a.contact?.id || a.id;
-                                    if (cId) relatedEntities.push({ type: 'Contact', id: cId });
-                                });
-                            }
+                {/* COLUMN 2: CENTER - INTERACTION INTELLIGENCE */}
+                <div className="no-scrollbar" style={{ flex: '1', display: 'flex', flexDirection: 'column', background: '#f8fafc', overflowY: 'auto', minWidth: '0', position: 'relative' }}>
+                    <div className="glass-card" style={{ 
+                        background: '#fff',
+                        borderRadius: '16px',
+                        border: '1px solid #e2e8f0',
+                        boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        minHeight: '100%'
+                    }}>
+                        <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', background: '#fff', display: 'flex', alignItems: 'center', gap: '8px', borderTopLeftRadius: '16px', borderTopRightRadius: '16px' }}>
+                            <i className="fas fa-bolt" style={{ color: '#4f46e5' }}></i>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 900, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Interaction Intelligence</span>
+                        </div>
+                        <div style={{ padding: '20px', flex: 1 }}>
+                            {(() => {
+                                const relatedEntities = [
+                                    { type: 'Inventory', id: inventoryId }
+                                ];
+                                if (inventory.owners && Array.isArray(inventory.owners)) {
+                                    inventory.owners.forEach(o => { if (o._id || o.id) relatedEntities.push({ type: 'Contact', id: o._id || o.id }); });
+                                }
+                                if (inventory.associates && Array.isArray(inventory.associates)) {
+                                    inventory.associates.forEach(a => {
+                                        const cId = a.contact?._id || a.contact?.id || a.id;
+                                        if (cId) relatedEntities.push({ type: 'Contact', id: cId });
+                                    });
+                                }
 
-                            return (
-                                <div className="glass-card" style={{ padding: 0, overflow: 'hidden' }}>
+                                return (
                                     <UnifiedActivitySection 
                                         entityId={inventoryId} 
                                         entityType="Inventory" 
@@ -263,14 +284,19 @@ export default function InventoryDetailPage({ inventoryId, onBack, onAddActivity
                                         hideComposer={true}
                                         relatedEntities={relatedEntities}
                                     />
-                                </div>
-                            );
-                        })()}
+                                );
+                            })()}
+                        </div>
                     </div>
                 </div>
 
-                {/* RIGHT COLUMN - Secondary Stats & Owners (1) */}
-                <div className="no-scrollbar" style={{ flex: 1, overflowY: 'auto', background: '#fff', padding: '24px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                {/* COLUMN 3: RIGHT - LEADS & OWNERSHIP */}
+                <div className="no-scrollbar" style={{ flex: '0 0 400px', display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto', paddingBottom: '20px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                        <i className="fas fa-users-viewfinder" style={{ color: '#4f46e5' }}></i>
+                        <span style={{ fontSize: '0.7rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Leads & Ownership</span>
+                    </div>
+
                     <MatchedLeadsCard 
                         matchingLeads={matchingLeads}
                         onNavigate={onNavigate}

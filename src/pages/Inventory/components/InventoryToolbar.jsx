@@ -1,5 +1,6 @@
 import React from 'react';
 import { renderValue } from '../../../utils/renderUtils';
+import usePermissions, { PermissionGate } from '../../../hooks/usePermissions';
 
 const InventoryToolbar = ({
     selectedIds,
@@ -39,7 +40,9 @@ const InventoryToolbar = ({
 
                     {selectedIds.length === 1 && (
                         <>
-                            <button className="action-btn" title="Edit Property" onClick={handleEditClick}><i className="fas fa-edit"></i> Edit</button>
+                            <PermissionGate module="inventory" action="edit">
+                                <button className="action-btn" title="Edit Property" onClick={handleEditClick}><i className="fas fa-edit"></i> Edit</button>
+                            </PermissionGate>
                             <button className="action-btn" title="Add Activity" onClick={() => {
                                 const p = getSelectedProperty();
                                 if (p) {
@@ -84,7 +87,9 @@ const InventoryToolbar = ({
 
                     <button className="action-btn" title="Add Tag" onClick={handleTagClick}><i className="fas fa-tag"></i> Tag</button>
                     <div style={{ marginLeft: 'auto' }}>
-                        <button className="action-btn danger" title="Delete" onClick={handleDelete}><i className="fas fa-trash-alt"></i></button>
+                        <PermissionGate module="inventory" action="delete">
+                            <button className="action-btn danger" title="Delete" onClick={handleDelete}><i className="fas fa-trash-alt"></i></button>
+                        </PermissionGate>
                     </div>
                 </div>
             ) : (

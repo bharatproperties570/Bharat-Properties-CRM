@@ -15,6 +15,7 @@ import { applyProjectFilters } from '../../utils/projectFilterLogic';
 import ProfessionalMap from '../../components/ProfessionalMap';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import { renderValue } from '../../utils/renderUtils';
+import usePermissions, { PermissionGate } from '../../hooks/usePermissions';
 
 function ProjectsPage({ onNavigate }) {
     const { teams } = useUserContext();
@@ -383,7 +384,9 @@ function ProjectsPage({ onNavigate }) {
                                         <>
                                             <button className="action-btn" title="Add Price" onClick={handlePriceClick}><i className="fas fa-rupee-sign"></i> Price</button>
                                             <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px' }}></div>
-                                            <button className="action-btn" title="Edit Project" onClick={handleEditProject}><i className="fas fa-edit"></i> Edit</button>
+                                            <PermissionGate module="projects" action="edit">
+                                                <button className="action-btn" title="Edit Project" onClick={handleEditProject}><i className="fas fa-edit"></i> Edit</button>
+                                            </PermissionGate>
                                             <button className="action-btn" title="Share Project"><i className="fas fa-share-alt"></i> Share</button>
                                             <button className="action-btn" title="Preview"><i className="fas fa-eye"></i> Preview</button>
                                             <button className="action-btn" title="Matched Leads"><i className="fas fa-handshake"></i> Matches</button>
@@ -407,7 +410,9 @@ function ProjectsPage({ onNavigate }) {
                                     )}
 
                                     <div style={{ marginLeft: 'auto' }}>
-                                        <button className="action-btn danger" title="Delete" onClick={() => handleDeleteProject(selectedIds[0])}><i className="fas fa-trash-alt"></i></button>
+                                        <PermissionGate module="projects" action="delete">
+                                            <button className="action-btn danger" title="Delete" onClick={() => handleDeleteProject(selectedIds[0])}><i className="fas fa-trash-alt"></i></button>
+                                        </PermissionGate>
                                     </div>
                                 </div>
                             ) : (

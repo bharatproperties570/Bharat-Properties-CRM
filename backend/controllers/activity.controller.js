@@ -359,17 +359,24 @@ export const getUnifiedTimeline = async (req, res) => {
 // @route   GET /api/activities/:id
 export const getActivityById = async (req, res) => {
     try {
-        const activity = await Activity.findById(req.params.id)
+        // [SECURITY] Enforce visibility — user can only fetch activities in their scope
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const activity = await Activity.findOne({
+            _id: req.params.id,
+            ...visibilityFilter
+        })
             .populate('assignedTo', 'firstName lastName email')
             .lean();
 
         if (!activity) {
-            return res.status(404).json({ success: false, error: "Activity not found" });
+            // Return 404 (not 403) to avoid leaking existence of the record
+            return res.status(404).json({ success: false, error: "Activity not found or access denied" });
         }
 
         res.json({ success: true, data: activity });
     } catch (error) {
-        if (error.name === "CastError") return res.status(400).json({ success: false, error: `Invalid ${error.path}: ${error.value}` }); res.status(500).json({ success: false, error: error.message });
+        if (error.name === "CastError") return res.status(400).json({ success: false, error: `Invalid ${error.path}: ${error.value}` });
+        res.status(500).json({ success: false, error: error.message });
     }
 };
 

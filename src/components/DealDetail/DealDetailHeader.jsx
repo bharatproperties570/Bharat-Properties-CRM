@@ -21,10 +21,7 @@ const DealDetailHeader = ({
     setIsUploadModalOpen,
     setIsDocumentModalOpen,
     setIsNoteModalOpen,
-    handleWhatsApp,
-    handleMatch,
-    handleShare,
-    fetchDealDetails,
+    setIsQuoteModalOpen,
     enrichDealIntelligence
 }) => {
     const [showMoreMenu, setShowMoreMenu] = useState(false);
@@ -196,21 +193,25 @@ const DealDetailHeader = ({
                     </button>
                 )}
 
-                <div style={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: '4px', 
-                    padding: '4px',
-                    background: '#f8fafc',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '14px',
-                }}>
-                    <ActionButton onClick={() => setIsCallModalOpen(true)} icon="fa-phone-alt" label="CALL" color="#16a34a" />
-                    <ActionButton onClick={handleWhatsApp} icon="fa-whatsapp" label="WHATSAPP" color="#25d366" isFab />
-                    <ActionButton onClick={() => setIsMessageOpen(true)} icon="fa-comment-alt" label="SMS" color="#3b82f6" />
-                    <ActionButton onClick={() => setIsMailOpen(true)} icon="fa-envelope" label="EMAIL" color="#8b5cf6" />
-                    <ActionButton onClick={handleMatch} icon="fa-user-check" label="MATCH" color="#4f46e5" />
-                    <ActionButton onClick={handleShare} icon="fa-share-alt" label="SHARE" color="#64748b" />
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <button
+                        onClick={() => setIsCallModalOpen(true)}
+                        style={{ border: 'none', background: 'rgba(241, 245, 249, 0.8)', color: '#475569', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                    >
+                        <i className="fas fa-phone-alt" style={{ color: '#16a34a' }}></i> CALL
+                    </button>
+                    <button
+                        onClick={() => setIsMessageOpen(true)}
+                        style={{ border: 'none', background: 'rgba(241, 245, 249, 0.8)', color: '#475569', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                    >
+                        <i className="fas fa-comment-alt" style={{ color: '#3b82f6' }}></i> SMS
+                    </button>
+                    <button
+                        onClick={() => setIsMailOpen(true)}
+                        style={{ border: 'none', background: 'rgba(241, 245, 249, 0.8)', color: '#475569', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                    >
+                        <i className="fas fa-envelope" style={{ color: '#8b5cf6' }}></i> EMAIL
+                    </button>
                 </div>
 
 
@@ -259,7 +260,29 @@ const DealDetailHeader = ({
                                 <i className="fas fa-file-alt" style={{ color: '#64748b', width: '16px' }}></i> Document
                             </button>
                             <div style={{ height: '1px', background: '#e2e8f0', margin: '4px 0' }}></div>
-
+                            <button
+                                onClick={() => {
+                                    setShowMoreMenu(false);
+                                    setIsQuoteModalOpen(true);
+                                }}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '10px',
+                                    width: '100%',
+                                    padding: '10px 16px',
+                                    background: 'transparent',
+                                    border: 'none',
+                                    color: '#475569',
+                                    fontSize: '0.8rem',
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    textAlign: 'left'
+                                }}
+                                className="hover:bg-slate-50 transition-colors"
+                            >
+                                <Calculator size={14} className="text-blue-500" /> Quotation
+                            </button>
                             <button
                                 onClick={() => {
                                     setShowMoreMenu(false);
@@ -307,31 +330,5 @@ const DealDetailHeader = ({
         </header>
     );
 };
-
-const ActionButton = ({ onClick, icon, label, color, isFab = false }) => (
-    <button
-        onClick={onClick}
-        style={{
-            border: 'none',
-            background: color,
-            color: '#fff',
-            padding: '8px 12px',
-            borderRadius: '10px',
-            fontSize: '0.65rem',
-            fontWeight: 900,
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '5px',
-            boxShadow: `0 4px 10px ${color}33`,
-            transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-            whiteSpace: 'nowrap'
-        }}
-        className="hover:scale-105 active:scale-95"
-    >
-        <i className={`${isFab ? 'fab' : 'fas'} ${icon}`} style={{ fontSize: '0.8rem' }}></i>
-        <span style={{ letterSpacing: '0.02em' }}>{label}</span>
-    </button>
-);
 
 export default DealDetailHeader;

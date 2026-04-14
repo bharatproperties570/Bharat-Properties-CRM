@@ -29,8 +29,14 @@ export const getProjectById = async (req, res) => {
         if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
             return res.status(400).json({ success: false, error: "Invalid Project ID format" });
         }
-        const project = await Project.findById(req.params.id).populate(projectPopulateFields).lean();
-        if (!project) return res.status(404).json({ success: false, error: "Project not found" });
+        // [SECURITY] Enforce visibility — scoped users cannot bypass via direct ID lookup
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const project = await Project.findOne({
+            _id: req.params.id,
+            ...visibilityFilter
+        }).populate(projectPopulateFields).lean();
+
+        if (!project) return res.status(404).json({ success: false, error: "Project not found or access denied" });
         res.json({ success: true, data: project });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });

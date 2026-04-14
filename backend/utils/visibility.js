@@ -1,52 +1,73 @@
 import mongoose from "mongoose";
-import Team from "../models/Team.js";
 
 /**
- * Enterprise Visibility Engine
- * Generates robust MongoDB filters based on User Data Scope and Team assignments.
- * Supports: Assigned, Team, Department, and Global scopes.
+ * Enterprise Visibility Engine v2 — Hardened
+ * Generates robust MongoDB $or filters based on User Data Scope and Team assignments.
+ * Scopes: assigned | team | department | all
+ *
+ * SECURITY RULES:
+ * 1. isElevated ONLY fires if dataScope==='all' or the user is the system owner email.
+ *    Role names (admin, manager) do NOT bypass scope — they use their configured dataScope.
+ * 2. team scope with empty teams logs a WARN and falls through to assigned scope.
+ * 3. Every resolution path emits a [VISIBLE_AUDIT] log for production diagnostics.
  */
 export const getVisibilityFilter = async (user) => {
-    // 0. Safety Check: If user is just a decoded token (unhydrated fallback)
-    if (user && !user.dataScope && !user.teams && user.id) {
-        console.warn(`[Visibility] User ${user.id} provided without dataScope/teams. Request might be missing hydration.`);
+    if (!user) {
+        console.warn(`[VISIBLE_AUDIT] ⛔ No user object provided — locking down to { _id: null }.`);
+        return { _id: null };
     }
 
-    if (!user) return { _id: null }; // No user, no data (Shielded)
+    // 0. Safety: Detect unhydrated token-only objects
+    if (!user.dataScope && !user.teams && user.id) {
+        console.warn(`[VISIBLE_AUDIT] ⚠️  User ${user.id} is unhydrated (no dataScope/teams). Middleware may be missing.`);
+    }
 
-    // 1. Super Admin / Global Scope / Dynamic Role Detection
     const roleName = user.role?.name?.toLowerCase() || '';
-    const isElevated = user.dataScope === 'all' || 
-                      ['admin', 'super admin', 'sales manager', 'owner'].includes(roleName) ||
-                      user.email === 'bharatproperties570@gmail.com';
+    const userEmail = user.email?.toLowerCase() || '';
 
-    console.log(`[Visibility] 🚦 Resolving scope for User: ${user.fullName || user.email} | Role: ${roleName} | Scope: ${user.dataScope} | Elevated: ${isElevated}`);
+    // 1. STRICT Elevated Check: ONLY full-scope users bypass the filter.
+    //    Role names (admin, manager) alone do NOT grant bypass — their dataScope config does.
+    const OWNER_EMAIL = 'bharatproperties570@gmail.com';
+    const isElevated = user.dataScope === 'all' || userEmail === OWNER_EMAIL;
+
+    console.log(
+        `[VISIBLE_AUDIT] 🚦 User: ${user.fullName || user.email} | ` +
+        `Role: ${roleName} | Scope: ${user.dataScope} | Elevated: ${isElevated}`
+    );
 
     if (isElevated) {
-        console.log(`[Visibility] ✅ Full Access Granted (Elevated Bypass)`);
-        return {}; 
+        console.log(`[VISIBLE_AUDIT] ✅ Full Access — dataScope=all or system owner.`);
+        return {};
     }
 
+    // 2. Validate ObjectId
     const userId = user?._id || user?.id;
     if (!userId || !mongoose.Types.ObjectId.isValid(userId.toString())) {
-        console.warn(`[Visibility] No valid ObjectId found for user. Returning empty filter.`);
+        console.warn(`[VISIBLE_AUDIT] ⛔ No valid ObjectId for user. Locking down.`);
         return { _id: null };
     }
     const userObjectId = new mongoose.Types.ObjectId(userId.toString());
 
-    // Hybrid resolution: supports single team (legacy) and plural teams (new)
+    // 3. Resolve team IDs (supports both legacy `team` and plural `teams`)
     const rawTeams = Array.isArray(user.teams) ? user.teams : (user.team ? [user.team] : []);
     const userTeams = rawTeams
         .map(t => (t && typeof t === 'object' && t._id) ? t._id : t)
         .filter(t => t && mongoose.Types.ObjectId.isValid(t.toString()))
         .map(t => new mongoose.Types.ObjectId(t.toString()));
 
-    // 2. Department Scope: Resolve all teams within the user's department
+    // 4. Department Scope: All teams in the user's department
     if (user.dataScope === 'department' && user.department) {
         const TeamModel = mongoose.model('Team');
         const deptTeams = await TeamModel.find({ department: user.department, isActive: true }).select('_id');
-        const deptTeamIds = deptTeams.map(t => t._id).filter(id => mongoose.Types.ObjectId.isValid(id.toString()));
-        
+        const deptTeamIds = deptTeams
+            .map(t => t._id)
+            .filter(id => mongoose.Types.ObjectId.isValid(id.toString()));
+
+        console.log(
+            `[VISIBLE_AUDIT] 🏢 Department scope for ${user.department} — ` +
+            `${deptTeamIds.length} teams found.`
+        );
+
         return {
             $or: [
                 { assignedTo: userObjectId },
@@ -64,27 +85,39 @@ export const getVisibilityFilter = async (user) => {
         };
     }
 
-    // 3. Team Scope: Restricted to user's assigned teams
-    if (user.dataScope === 'team' && userTeams.length > 0) {
-        return {
-            $or: [
-                { assignedTo: userObjectId },
-                { owner: userObjectId },
-                { assign: { $in: [userObjectId] } },
-                { 'assignment.assignedTo': userObjectId },
-                { teams: { $in: userTeams } },
-                { team: { $in: userTeams } },
-                { 'assignment.team': { $in: userTeams } },
-                { visibleTo: { $in: ['Everyone', 'Public'] } },
-                { 'assignment.visibleTo': { $in: ['Everyone', 'Public'] } },
-                { owner: null },
-                { owner: { $exists: false } }
-            ]
-        };
+    // 5. Team Scope: Restricted to user's assigned teams
+    if (user.dataScope === 'team') {
+        if (userTeams.length === 0) {
+            console.warn(
+                `[VISIBLE_AUDIT] ⚠️  Team scope requested but user ${user.email} has no teams. ` +
+                `Falling back to assigned scope for safety.`
+            );
+            // Falls through to assigned scope below
+        } else {
+            console.log(
+                `[VISIBLE_AUDIT] 👥 Team scope — ${userTeams.length} team(s): ` +
+                `[${userTeams.map(t => t.toString()).join(', ')}]`
+            );
+            return {
+                $or: [
+                    { assignedTo: userObjectId },
+                    { owner: userObjectId },
+                    { assign: { $in: [userObjectId] } },
+                    { 'assignment.assignedTo': userObjectId },
+                    { teams: { $in: userTeams } },
+                    { team: { $in: userTeams } },
+                    { 'assignment.team': { $in: userTeams } },
+                    { visibleTo: { $in: ['Everyone', 'Public'] } },
+                    { 'assignment.visibleTo': { $in: ['Everyone', 'Public'] } },
+                    { owner: null },
+                    { owner: { $exists: false } }
+                ]
+            };
+        }
     }
 
-
-    // 4. Default: Assigned Scope (Strict isolation)
+    // 6. Default: Assigned Scope (Strict isolation — only own records + public)
+    console.log(`[VISIBLE_AUDIT] 🔒 Assigned scope — strict isolation for ${user.email}.`);
     return {
         $or: [
             { assignedTo: userObjectId },

@@ -73,10 +73,21 @@ export const getInventory = async (req, res) => {
         let query = { ...visibilityFilter };
 
         if (ownerPhone) {
-            query.$or = [
+            // [SECURITY FIX] Use $and to MERGE with visibility filter, not overwrite it
+            const phoneConditions = [
                 { ownerPhone: { $regex: new RegExp(`${ownerPhone}$`) } },
                 { owners: { $in: await Contact.find({ "phones.number": { $regex: new RegExp(`${ownerPhone}$`) } }).select('_id') } }
             ];
+            if (query.$or) {
+                // Wrap existing $or into $and so both conditions must be satisfied
+                query.$and = [
+                    { $or: query.$or },
+                    { $or: phoneConditions }
+                ];
+                delete query.$or;
+            } else {
+                query.$or = phoneConditions;
+            }
         }
 
         // Support for block/location filtering
@@ -382,10 +393,15 @@ export const getInventory = async (req, res) => {
 
 export const getInventoryById = async (req, res) => {
     try {
+        // [SECURITY] Enforce visibility — scoped users cannot bypass via direct ID lookup
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const inventory = await Inventory.findOne({
+            _id: req.params.id,
+            ...visibilityFilter
+        }).populate(populateFields);
 
-        const inventory = await Inventory.findById(req.params.id).populate(populateFields);
         if (!inventory) {
-            return res.status(404).json({ success: false, error: "Inventory item not found" });
+            return res.status(404).json({ success: false, error: "Inventory item not found or access denied" });
         }
 
         const deals = await mongoose.model('Deal').find({ inventoryId: inventory._id }).lean();

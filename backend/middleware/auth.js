@@ -36,10 +36,26 @@ export const protect = async (req, res, next) => {
     }
 };
 
+/**
+ * Role-name based route authorization guard.
+ * Usage: router.get('/admin-only', protect, authorize('admin', 'super admin'), handler)
+ * NOTE: Compares against role *name* string (case-insensitive), not the ObjectId.
+ */
 export const authorize = (...roles) => {
     return (req, res, next) => {
-        if (!roles.includes(req.user.role)) {
-            return res.status(403).json({ success: false, message: "User role not authorized to access this route" });
+        // req.user.role is a populated object after auth hydration — extract the name
+        const userRoleName = (req.user?.role?.name || '').toLowerCase();
+        const allowedRoles = roles.map(r => r.toLowerCase());
+
+        if (!allowedRoles.includes(userRoleName)) {
+            console.warn(
+                `[Auth] 🚫 Access denied for ${req.user?.email} (role: ${userRoleName}). ` +
+                `Required: [${allowedRoles.join(', ')}]`
+            );
+            return res.status(403).json({
+                success: false,
+                message: `Access denied. Required role: ${roles.join(' or ')}.`
+            });
         }
         next();
     };

@@ -1,13 +1,12 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import Swal from 'sweetalert2';
-import { api } from '../../utils/api';
+import { api, activitiesAPI } from '../../utils/api';
 import toast from 'react-hot-toast';
 import AddOfferModal from '../../components/AddOfferModal';
 import AddOwnerModal from '../../components/AddOwnerModal';
 import UnifiedActivitySection from '../../components/Activities/UnifiedActivitySection';
 import { useCall } from '../../context/CallContext';
 import { useUserContext } from '../../context/UserContext';
-import PublishModal from '../../components/Marketing/PublishModal';
 
 import AddNoteModal from '../../components/AddNoteModal';
 import UploadModal from '../../components/UploadModal';
@@ -16,18 +15,22 @@ import AddBookingModal from '../../components/AddBookingModal';
 import AddInventoryDocumentModal from '../../components/AddInventoryDocumentModal';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import { renderValue } from '../../utils/renderUtils';
+import { getInitials, fixDriveUrl, getYoutubeId } from '../../utils/helpers';
 
 // Inventory Components
 import InventorySpecsPanel from '../Inventory/components/InventorySpecsPanel';
 import LocationDetailsCard from '../Inventory/components/LocationDetailsCard';
 import BuiltupDetailsCard from '../Inventory/components/BuiltupDetailsCard';
 import PropertyOwnerSection from '../../components/Shared/PropertyOwnerSection';
+import MediaVaultSection from '../../components/Shared/MediaVaultSection';
 
 // Hooks & Components
 import { useDealFinancials } from '../../hooks/useDealFinancials';
 import { useDealIntelligence } from '../../hooks/useDealIntelligence';
 import DealDetailHeader from '../../components/DealDetail/DealDetailHeader';
 import DealLifecycle from '../../components/DealDetail/DealLifecycle';
+import DealTechnicalSpecs from '../../components/DealDetail/DealTechnicalSpecs';
+import DealGeography from '../../components/DealDetail/DealGeography';
 import DealBuiltupDetails from '../../components/DealDetail/DealBuiltupDetails';
 import DealFinancialSection from '../../components/DealDetail/DealFinancialSection';
 // Shared Components
@@ -49,47 +52,30 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     // Custom Hooks
     const { financials } = useDealFinancials(deal);
 
-    const [activeTab, setActiveTab] = useState('analysis');
     const [activities, setActivities] = useState([]);
     const [liveScoreData, setLiveScoreData] = useState({ score: 0, color: '#94a3b8', label: 'Warm' });
     const [showMoreMenu, setShowMoreMenu] = useState(false);
-    const { startCall, startWhatsAppCall } = useCall();
+    const { startCall } = useCall();
     const [isMailOpen, setIsMailOpen] = useState(false);
     const [isMessageOpen, setIsMessageOpen] = useState(false);
     const [isTagsModalOpen, setIsTagsModalOpen] = useState(false);
     const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
     const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
     const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
-    const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
     const [isQuoteModalOpen, setIsQuoteModalOpen] = useState(false);
     const [isDocumentModalOpen, setIsDocumentModalOpen] = useState(false);
-    const [isActivityOpen, setIsActivityOpen] = useState(false); // Used in some UI checks
+    const [isActivityOpen, setIsActivityOpen] = useState(false);
     const [isOwnerModalOpen, setIsOwnerModalOpen] = useState(false);
     const [isMarkingLost, setIsMarkingLost] = useState(false);
 
+    const [activityInitialData, setActivityInitialData] = useState(null);
+    const [selectedContactsForMail, setSelectedContactsForMail] = useState([]);
+    const [selectedContactsForMessage, setSelectedContactsForMessage] = useState([]);
+    const [mailSubject, setMailSubject] = useState('');
+    const [mailBody, setMailBody] = useState('');
+    const [mailAttachments, setMailAttachments] = useState([]);
+
     const [mediaViewer, setMediaViewer] = useState({ isOpen: false, data: null });
-
-    const handleMatch = () => setActiveTab('match');
-    
-    const handleShare = async () => {
-        const shareData = {
-            title: `Deal Detail: ${deal?.unitNo || 'Unit'}`,
-            text: `Check out this deal: ${deal?.projectName || 'Project'} - ${deal?.unitNo || 'Unit'}`,
-            url: window.location.href
-        };
-
-        if (navigator.share) {
-            try {
-                await navigator.share(shareData);
-            } catch (err) {
-                console.error("Shared failed:", err);
-            }
-        } else {
-            // Fallback: Copy to clipboard
-            navigator.clipboard.writeText(window.location.href);
-            toast.success("Link copied to clipboard!");
-        }
-    };
 
     const currentStage = deal?.stage || 'Open';
     const stageAlerts = useDealIntelligence(deal, currentStage);
@@ -162,6 +148,71 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
             setLoading(false);
         }
     }, [dealId]);
+
+    const handleTogglePublish = async () => {
+        const newStatus = !deal.isPublished;
+        let shareUnitNumber = deal.websiteMetadata?.shareUnitNumber || false;
+        let shareLocation = deal.websiteMetadata?.shareLocation || false;
+
+        if (newStatus) {
+            const unitResult = await Swal.fire({
+                title: 'Unit Number Privacy',
+                text: "Do you want to share the Unit Number publicly on the website?",
+                icon: 'question',
+                showCancelButton: true,
+                showDenyButton: true,
+                confirmButtonColor: '#3b82f6',
+                denyButtonColor: '#64748b',
+                confirmButtonText: 'Yes, Share Unit No',
+                denyButtonText: 'No, Keep Confidential',
+                cancelButtonText: 'Cancel Toggle'
+            });
+
+            if (unitResult.isDismissed && !unitResult.isDenied) return;
+            shareUnitNumber = unitResult.isConfirmed;
+
+            const locationResult = await Swal.fire({
+                title: 'Location Privacy',
+                text: "Do you want to share the exact House/Plot Number and Street publicly?",
+                icon: 'question',
+                showCancelButton: true,
+                showDenyButton: true,
+                confirmButtonColor: '#3b82f6',
+                denyButtonColor: '#64748b',
+                confirmButtonText: 'Yes, Share Location',
+                denyButtonText: 'No, Keep Confidential',
+                cancelButtonText: 'Cancel Toggle'
+            });
+
+            if (locationResult.isDismissed && !locationResult.isDenied) return;
+            shareLocation = locationResult.isConfirmed;
+        }
+
+        try {
+            const payload = {
+                isPublished: newStatus,
+                publishedAt: newStatus ? new Date() : null,
+                websiteMetadata: {
+                    ...deal.websiteMetadata,
+                    shareUnitNumber: shareUnitNumber,
+                    shareLocation: shareLocation
+                }
+            };
+
+            const res = await api.put(`deals/${dealId}`, payload);
+            if (res.data && (res.data.success || res.data.status === 'success')) {
+                setDeal(prev => ({ 
+                    ...prev, 
+                    isPublished: newStatus,
+                    websiteMetadata: payload.websiteMetadata
+                }));
+                toast.success(newStatus ? 'Listing published to Website!' : 'Listing removed from Website');
+            }
+        } catch (error) {
+            console.error("Error toggling publication:", error);
+            toast.error('Error updating publication status');
+        }
+    };
 
     const handleMarkAsLost = async (reasons = null) => {
         if (!reasons && !isMarkingLost) {
@@ -298,13 +349,11 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                 liveScoreData={liveScoreData} 
                 stageAlerts={stageAlerts}
                 onBack={onBack}
+                handleTogglePublish={handleTogglePublish}
                 setIsMarkingLost={setIsMarkingLost}
                 isMarkingLost={isMarkingLost}
                 setIsCallModalOpen={(val) => {
-                    if (val) startCall({ name: deal.partyStructure?.primaryContact?.name || 'Client', mobile: deal.partyStructure?.primaryContact?.phone || deal.contactId?.mobile }, { entityId: dealId, entityType: 'Deal' });
-                }}
-                handleWhatsApp={() => {
-                    startWhatsAppCall({ name: deal.partyStructure?.primaryContact?.name || 'Client', mobile: deal.partyStructure?.primaryContact?.phone || deal.contactId?.mobile }, { entityId: dealId, entityType: 'Deal' });
+                    if (val) startCall(deal.contactId, { entityId: dealId, entityType: 'Deal' });
                 }}
                 setIsMessageOpen={setIsMessageOpen}
                 setIsMailOpen={setIsMailOpen}
@@ -316,59 +365,11 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                 setIsUploadModalOpen={setIsUploadModalOpen}
                 setIsDocumentModalOpen={setIsDocumentModalOpen}
                 setIsNoteModalOpen={setIsNoteModalOpen}
+                setIsQuoteModalOpen={setIsQuoteModalOpen}
                 fetchDealDetails={fetchDealDetails}
                 getLookupValue={getLookupValue}
                 onNavigate={onNavigate}
-                handleMatch={handleMatch}
-                handleShare={handleShare}
             />
-
-            {/* TAB NAVIGATION BAR */}
-            <div style={{ 
-                background: '#fff', 
-                borderBottom: '1px solid #e2e8f0', 
-                position: 'sticky', 
-                top: '77px', 
-                zIndex: 900,
-                padding: '0 40px',
-                display: 'flex',
-                gap: '24px',
-                overflowX: 'auto'
-            }} className="no-scrollbar">
-                {[
-                    { id: 'analysis', label: 'Analysis', icon: 'fa-chart-pie' },
-                    { id: 'financial', label: 'Financial', icon: 'fa-indian-rupee-sign' },
-                    { id: 'details', label: 'Details', icon: 'fa-info-circle' },
-                    { id: 'location', label: 'Location', icon: 'fa-map-marker-alt' },
-                    { id: 'activities', label: 'Activities', icon: 'fa-history' },
-                    { id: 'match', label: 'Match', icon: 'fa-user-check' },
-                    { id: 'owner', label: 'Owner', icon: 'fa-user-tie' },
-                    { id: 'history', label: 'History', icon: 'fa-book' }
-                ].map(tab => (
-                    <button
-                        key={tab.id}
-                        onClick={() => setActiveTab(tab.id)}
-                        style={{
-                            padding: '16px 8px',
-                            background: 'none',
-                            border: 'none',
-                            borderBottom: activeTab === tab.id ? '3px solid #3b82f6' : '3px solid transparent',
-                            color: activeTab === tab.id ? '#3b82f6' : '#64748b',
-                            fontSize: '0.85rem',
-                            fontWeight: 800,
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '8px',
-                            whiteSpace: 'nowrap',
-                            transition: 'all 0.2s ease'
-                        }}
-                    >
-                        <i className={`fas ${tab.icon}`} style={{ fontSize: '0.9rem' }}></i>
-                        {tab.label}
-                    </button>
-                ))}
-            </div>
 
             <DealLifecycle 
                 deal={deal} 
@@ -377,87 +378,91 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                 stageAlerts={stageAlerts}
             />
 
-            <div style={{ maxWidth: '1600px', margin: '12px auto', padding: '0 24px' }}>
-                {activeTab === 'analysis' && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                        <DealAnalysis 
-                            deal={deal} 
-                            isMarkingLost={isMarkingLost} 
-                            handleMarkAsLost={handleMarkAsLost}
-                            setDeal={setDeal}
-                        />
+            <div style={{ maxWidth: '100%', margin: '12px auto', padding: '0 24px', display: 'flex', gap: '16px', height: 'calc(100vh - 250px)', overflow: 'hidden' }}>
+                
+                {/* COLUMN 1: LEFT - UNIT & LOCATION INTELLIGENCE */}
+                <div className="no-scrollbar" style={{ flex: '0 0 400px', display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto', paddingBottom: '20px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                        <i className="fas fa-building" style={{ color: '#4f46e5' }}></i>
+                        <span style={{ fontSize: '0.7rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Unit & Location Intelligence</span>
                     </div>
-                )}
 
-                {activeTab === 'financial' && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                        <DealFinancialSection 
-                            deal={deal} 
-                            financials={financials} 
-                            setIsOfferModalOpen={setIsOfferModalOpen} 
-                        />
-                        <LandedCostSheet financials={financials} deal={deal} />
-                    </div>
-                )}
-
-                {activeTab === 'details' && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                        {inventory ? (
-                            <>
-                                <InventorySpecsPanel 
-                                    inventory={inventory} 
-                                    getLookupValue={getLookupValue}
-                                    isInventoryActive={inventory.status === 'Active' || (typeof inventory.status === 'object' && inventory.status.lookup_value === 'Active')}
-                                    onFeedback={() => {}} 
-                                    hideConsole={true}
-                                />
-                                <BuiltupDetailsCard 
-                                    inventory={inventory} 
-                                    getLookupValue={getLookupValue} 
-                                />
-                            </>
-                        ) : (
-                            <DealBuiltupDetails 
-                                deal={deal} 
-                                getLookupValue={getLookupValue} 
+                    {inventory ? (
+                        <>
+                            <InventorySpecsPanel 
+                                inventory={inventory} 
+                                getLookupValue={getLookupValue}
+                                isInventoryActive={inventory.status === 'Active' || (typeof inventory.status === 'object' && inventory.status.lookup_value === 'Active')}
+                                onFeedback={() => {}} 
+                                hideConsole={true}
                             />
-                        )}
-                    </div>
-                )}
 
-                {activeTab === 'location' && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                        {inventory ? (
                             <LocationDetailsCard 
                                 inventory={inventory} 
                                 getLookupValue={getLookupValue} 
                             />
-                        ) : (
-                            <div className="glass-card">
-                                <p style={{ fontSize: '0.85rem', fontWeight: 600, color: '#64748b', margin: 0 }}>
-                                    <i className="fas fa-map-marker-alt" style={{ marginRight: '8px' }}></i>
-                                    {deal.location || 'Location details not specified.'}
-                                </p>
-                            </div>
-                        )}
-                    </div>
-                )}
 
-                {activeTab === 'activities' && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                        {(() => {
-                            const relatedEntities = [
-                                { type: 'Deal', id: dealId }
-                            ];
-                            if (deal.contactId?._id || deal.contactId) {
-                                relatedEntities.push({ type: 'Contact', id: deal.contactId?._id || deal.contactId });
-                            }
-                            if (inventory) {
-                                relatedEntities.push({ type: 'Inventory', id: inventory._id || inventory.id });
-                            }
+                            <BuiltupDetailsCard 
+                                inventory={inventory} 
+                                getLookupValue={getLookupValue} 
+                            />
+                        </>
+                    ) : (
+                        <>
+                            <DealTechnicalSpecs 
+                                deal={deal} 
+                                getLookupValue={getLookupValue}
+                                getStrictLookupValue={(field, val) => getLookupValue(field, val)}
+                            />
 
-                            return (
-                                <div className="glass-card" style={{ padding: 0, overflow: 'hidden' }}>
+                            <DealGeography 
+                                deal={deal} 
+                                getLookupValue={getLookupValue} 
+                            />
+
+                            <DealBuiltupDetails 
+                                deal={deal} 
+                                getLookupValue={getLookupValue} 
+                            />
+                        </>
+                    )}
+                </div>
+
+                {/* COLUMN 2: CENTER - INTERACTION INTELLIGENCE */}
+                <div className="no-scrollbar" style={{ flex: '1', display: 'flex', flexDirection: 'column', background: '#f8fafc', overflowY: 'auto', minWidth: '0', position: 'relative' }}>
+                    <div className="glass-card" style={{ 
+                        background: '#fff',
+                        borderRadius: '16px',
+                        border: '1px solid #e2e8f0',
+                        boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        minHeight: '100%'
+                    }}>
+                        <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', background: '#fff', display: 'flex', alignItems: 'center', gap: '8px', borderTopLeftRadius: '16px', borderTopRightRadius: '16px' }}>
+                            <i className="fas fa-bolt" style={{ color: '#4f46e5' }}></i>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 900, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Interaction Intelligence</span>
+                        </div>
+                        <div style={{ padding: '20px', flex: 1 }}>
+                            {(() => {
+                                const relatedEntities = [{ type: 'Deal', id: dealId }];
+                                if (deal.contactId?._id || deal.contactId) {
+                                    relatedEntities.push({ type: 'Contact', id: deal.contactId?._id || deal.contactId });
+                                }
+                                if (inventory) {
+                                    relatedEntities.push({ type: 'Inventory', id: inventory._id || inventory.id });
+                                    if (inventory.owners && Array.isArray(inventory.owners)) {
+                                        inventory.owners.forEach(o => { if (o._id || o.id) relatedEntities.push({ type: 'Contact', id: o._id || o.id }); });
+                                    }
+                                    if (inventory.associates && Array.isArray(inventory.associates)) {
+                                        inventory.associates.forEach(a => {
+                                            const cId = a.contact?._id || a.contact?.id || a.id;
+                                            if (cId) relatedEntities.push({ type: 'Contact', id: cId });
+                                        });
+                                    }
+                                }
+
+                                return (
                                     <UnifiedActivitySection 
                                         entityId={dealId} 
                                         entityType="Deal" 
@@ -466,69 +471,109 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                                         hideComposer={true}
                                         relatedEntities={relatedEntities}
                                     />
-                                </div>
-                            );
-                        })()}
+                                );
+                            })()}
+                        </div>
                     </div>
-                )}
+                </div>
 
-                {activeTab === 'match' && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                        <MatchedLeadsCard 
-                            matchingLeads={matchingLeads} 
-                            onNavigate={onNavigate} 
-                            entityId={dealId}
-                            entityType="deal"
-                        />
+                {/* COLUMN 3: RIGHT - PRICING & LOGISTICS */}
+                <div className="no-scrollbar" style={{ flex: '0 0 400px', display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto', paddingBottom: '20px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                        <i className="fas fa-file-invoice-dollar" style={{ color: '#4f46e5' }}></i>
+                        <span style={{ fontSize: '0.7rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Pricing & Logistics</span>
                     </div>
-                )}
 
-                {activeTab === 'owner' && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                        <PropertyOwnerSection 
-                            inventory={inventory || { _id: null, owners: [], associates: [] }} 
-                            onOwnerClick={() => setIsOwnerModalOpen(true)}
-                        />
-                    </div>
-                )}
+                    <DealAnalysis 
+                        deal={deal} 
+                        isMarkingLost={isMarkingLost} 
+                        handleMarkAsLost={handleMarkAsLost}
+                        setDeal={setDeal}
+                    />
 
-                {activeTab === 'history' && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                        <div className="glass-card">
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
-                                <div style={{ width: '36px', height: '36px', background: 'rgba(100, 116, 139, 0.1)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                    <i className="fas fa-history" style={{ color: '#64748b', fontSize: '0.9rem' }}></i>
-                                </div>
-                                <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 900, color: '#0f172a' }}>Chain of Title History</h3>
+                    <DealFinancialSection 
+                        deal={deal} 
+                        financials={financials} 
+                        setIsOfferModalOpen={setIsOfferModalOpen} 
+                    />
+
+                    <LandedCostSheet financials={financials} deal={deal} />
+
+                    <MatchedLeadsCard 
+                        matchingLeads={matchingLeads} 
+                        onNavigate={onNavigate} 
+                        entityId={dealId}
+                        entityType="deal"
+                    />
+
+                    <PropertyOwnerSection 
+                        inventory={inventory || { _id: null, owners: [], associates: [] }} 
+                        onOwnerClick={() => setIsOwnerModalOpen(true)}
+                    />
+
+                    <MediaVaultSection 
+                        inventory={inventory}
+                        onMediaClick={() => {
+                            if (!inventory?._id) {
+                                toast.error('Please link an inventory to manage media archive.');
+                                return;
+                            }
+                            setIsUploadModalOpen(true);
+                        }}
+                        onMediaView={(m) => setMediaViewer({ isOpen: true, data: m })}
+                        onUploadClick={() => {
+                            if (!inventory?._id) {
+                                toast.error('Please link an inventory to upload media.');
+                                return;
+                            }
+                            setIsUploadModalOpen(true);
+                        }}
+                        onDocumentClick={() => {
+                            if (!inventory?._id) {
+                                toast.error('Please link an inventory to manage documents.');
+                                return;
+                            }
+                            setIsDocumentModalOpen(true);
+                        }}
+                    />
+
+                    {/* Property History */}
+                    <div className="glass-card">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+                            <div style={{ width: '32px', height: '32px', background: 'rgba(100, 116, 139, 0.1)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <i className="fas fa-history" style={{ color: '#64748b', fontSize: '0.8rem' }}></i>
                             </div>
-                            <div style={{ paddingLeft: '14px', borderLeft: '2px solid #f1f5f9', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                                {inventory ? (
-                                    (inventory.ownerHistory || []).length > 0 ? (
-                                        (inventory.ownerHistory || []).reverse().slice(0, 5).map((item, idx) => (
-                                            <div key={idx} style={{ position: 'relative' }}>
-                                                <div style={{ position: 'absolute', left: '-20px', top: '4px', width: '10px', height: '10px', background: '#10b981', borderRadius: '50%', border: '2px solid #fff' }}></div>
-                                                <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 800, color: '#1e293b' }}>{renderValue(item.contactName)}</p>
-                                                <p style={{ margin: 0, fontSize: '0.65rem', color: '#64748b' }}>{new Date(item.date).toLocaleDateString()}</p>
-                                            </div>
-                                        ))
-                                    ) : (
-                                        <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0 }}>No history recorded yet.</p>
-                                    )
+                            <h3 style={{ margin: 0, fontSize: '0.85rem', fontWeight: 900, color: '#0f172a' }}>Property History</h3>
+                        </div>
+                        <div style={{ paddingLeft: '14px', borderLeft: '2px solid #f1f5f9', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            {inventory ? (
+                                (inventory.ownerHistory || []).length > 0 ? (
+                                    (inventory.ownerHistory || []).reverse().slice(0, 5).map((item, idx) => (
+                                        <div key={idx} style={{ position: 'relative' }}>
+                                            <div style={{ position: 'absolute', left: '-20px', top: '4px', width: '8px', height: '8px', background: '#10b981', borderRadius: '50%', border: '2px solid #fff' }}></div>
+                                            <p style={{ margin: 0, fontSize: '0.75rem', fontWeight: 800, color: '#1e293b' }}>{renderValue(item.contactName)}</p>
+                                            <p style={{ margin: 0, fontSize: '0.6rem', color: '#64748b' }}>{new Date(item.date).toLocaleDateString()}</p>
+                                        </div>
+                                    ))
                                 ) : (
-                                    <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0 }}>No inventory linked to this deal.</p>
-                                )}
-                            </div>
-                        </div>
-
-                        <div className="glass-card">
-                            <h3 style={{ fontSize: '0.85rem', fontWeight: 900, color: '#0f172a', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '0.8px' }}>Inventory Lifecycle</h3>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                                <LifecycleMetric label="Created" value={inventory?.createdAt ? new Date(inventory.createdAt).toLocaleDateString() : '-'} icon="calendar-plus" color="#10b981" />
-                                <LifecycleMetric label="Updated" value={inventory?.updatedAt ? new Date(inventory.updatedAt).toLocaleDateString() : '-'} icon="edit" color="#3b82f6" />
-                            </div>
+                                    <p style={{ fontSize: '0.7rem', color: '#64748b', margin: 0 }}>No history recorded.</p>
+                                )
+                            ) : (
+                                <p style={{ fontSize: '0.7rem', color: '#64748b', margin: 0 }}>No inventory linked.</p>
+                            )}
                         </div>
                     </div>
-                )}
+
+                    {/* Inventory Lifecycle */}
+                    <div className="glass-card">
+                        <h3 style={{ fontSize: '0.75rem', fontWeight: 900, color: '#0f172a', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.6px' }}>Lifecycle Analytics</h3>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                            <LifecycleMetric label="Acquired" value={inventory?.createdAt ? new Date(inventory.createdAt).toLocaleDateString() : '-'} icon="calendar-plus" color="#10b981" />
+                            <LifecycleMetric label="Modified" value={inventory?.updatedAt ? new Date(inventory.updatedAt).toLocaleDateString() : '-'} icon="edit" color="#3b82f6" />
+                        </div>
+                    </div>
+                </div>
+            </div>
 
             {/* MODALS */}
             {isOfferModalOpen && (
@@ -693,13 +738,6 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                         setIsOwnerModalOpen(false);
                     }
                 }}
-            />
-            <PublishModal 
-                isOpen={isPublishModalOpen}
-                onClose={() => setIsPublishModalOpen(false)}
-                data={deal}
-                type="deal"
-                onPublishSuccess={fetchDealDetails}
             />
         </div>
     );

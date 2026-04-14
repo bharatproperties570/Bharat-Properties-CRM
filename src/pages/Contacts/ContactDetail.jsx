@@ -596,24 +596,13 @@ const ContactDetail = ({ contactId, onBack }) => {
                 )}
 
                 {/* THREE COLUMN GRID - PROFESSIONAL DASHBOARD */}
-                <div className="detail-main-content" style={{ flex: 1, display: 'flex', overflow: 'hidden', background: '#f8fafc' }}>
+                <div className="no-scrollbar" style={{ flex: 1, display: 'flex', gap: '16px', padding: '12px 24px', height: 'calc(100vh - 250px)', overflow: 'hidden', background: '#f8fafc' }}>
                     
-                    {/* COLUMN 1: LEFT - Profile & Preferences (360° Dashboard) */}
-                    <div className="detail-col-left no-scrollbar" style={{ 
-                        flex: '0 0 450px', 
-                        display: 'flex', 
-                        flexDirection: 'column', 
-                        gap: '1rem', 
-                        padding: '1.25rem',
-                        borderRight: '1px solid #e2e8f0',
-                        overflowY: 'auto',
-                        background: '#fff',
-                        boxSizing: 'border-box',
-                        minWidth: '0'
-                    }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                    {/* COLUMN 1: LEFT - Profile & Preferences */}
+                    <div className="no-scrollbar" style={{ flex: '0 0 400px', display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto', paddingBottom: '20px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                             <i className="fas fa-id-card" style={{ color: '#4f46e5' }}></i>
-                            <span style={{ fontSize: '0.7rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Lead 360° Unified Dashboard</span>
+                            <span style={{ fontSize: '0.7rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Contact Intelligence</span>
                         </div>
                         
                         <ContactCoreInfo 
@@ -636,19 +625,8 @@ const ContactDetail = ({ contactId, onBack }) => {
                         />
                     </div>
 
-                    {/* COLUMN 2: CENTER - Interaction Intelligence (Activities) */}
-                    <div className="detail-col-center no-scrollbar" style={{ 
-                        flex: '1', 
-                        display: 'flex', 
-                        flexDirection: 'column', 
-                        background: '#f8fafc',
-                        padding: '1.25rem 4px',
-                        overflowY: 'auto',
-                        minWidth: '0',
-                        boxSizing: 'border-box',
-                        position: 'relative',
-                        zIndex: 1
-                    }}>
+                    {/* COLUMN 2: CENTER - Interaction Intelligence */}
+                    <div className="no-scrollbar" style={{ flex: '1', display: 'flex', flexDirection: 'column', minWidth: '0', position: 'relative' }}>
                         <div className="glass-card activity-timeline-container" style={{ 
                             background: '#fff',
                             borderRadius: '16px',
@@ -677,21 +655,11 @@ const ContactDetail = ({ contactId, onBack }) => {
                     </div>
 
                     {/* COLUMN 3: RIGHT - Secondary Dashboard */}
-                    <div className="detail-col-right no-scrollbar" style={{
-                        flex: '0 0 450px',
-                        background: '#fff',
-                        padding: '1.25rem',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '1.5rem',
-                        borderLeft: '1px solid #e2e8f0',
-                        height: '100%',
-                        overflowY: 'auto',
-                        minWidth: '0',
-                        boxSizing: 'border-box',
-                        position: 'relative',
-                        zIndex: 1
-                    }}>
+                    <div className="no-scrollbar" style={{ flex: '0 0 400px', display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto', paddingBottom: '20px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                            <i className="fas fa-chart-line" style={{ color: '#4f46e5' }}></i>
+                            <span style={{ fontSize: '0.7rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Strategic Monitoring</span>
+                        </div>
                         {recordType === 'lead' && (
                             <ContactPropertyRequirement
                                 contact={contact}
@@ -726,10 +694,6 @@ const ContactDetail = ({ contactId, onBack }) => {
                             renderLookup={getLookupValue}
                         />
 
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '0.5rem' }}>
-                            <i className="fas fa-chart-line" style={{ color: '#4f46e5' }}></i>
-                            <span style={{ fontSize: '0.7rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Strategic Insights</span>
-                        </div>
                         {/* AI Intelligence & Probability Sections */}
                         <ContactAIIntelligence 
                             contact={contact}

@@ -20,6 +20,7 @@ import { useUserContext } from "../../context/UserContext";
 import DocumentUploadModal from "../../components/DocumentUploadModal";
 import { usePropertyConfig } from "../../context/PropertyConfigContext";
 import { renderValue } from "../../utils/renderUtils";
+import usePermissions, { PermissionGate } from '../../hooks/usePermissions';
 
 // ─── DEBOUNCE UTILITY ──────────────────────────────────────────────────────────
 const useDebounce = (value, delay) => {
@@ -582,7 +583,9 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                 <button className="action-btn" onClick={handleSendMail}><i className="fas fa-envelope"></i> Email</button>
                 {selectedIds.length === 1 && (
                   <>
-                    <button className="action-btn" onClick={handleEditClick}><i className="fas fa-edit"></i> Edit</button>
+                    <PermissionGate module="contacts" action="edit">
+                      <button className="action-btn" onClick={handleEditClick}><i className="fas fa-edit"></i> Edit</button>
+                    </PermissionGate>
                     <button className="action-btn" onClick={() => {
                       const selectedContact = contacts.find((c) => (c._id) === selectedIds[0]);
                       if (selectedContact) { setContactForLead(selectedContact); setIsAddLeadModalOpen(true); }
@@ -614,7 +617,9 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                 }}><i className="fas fa-random"></i> Distribute</button>
                 <button className="action-btn" onClick={handleSendMessage}><i className="fas fa-paper-plane"></i> Send Message</button>
                 <div style={{ marginLeft: "auto" }}>
-                  <button className="action-btn danger" onClick={delete_contact}><i className="fas fa-trash-alt"></i></button>
+                  <PermissionGate module="contacts" action="delete">
+                    <button className="action-btn danger" onClick={delete_contact}><i className="fas fa-trash-alt"></i></button>
+                  </PermissionGate>
                 </div>
               </div>
             ) : (

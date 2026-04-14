@@ -186,12 +186,43 @@ UserSchema.virtual('teamMembers', {
 });
 
 // ========== Methods ==========
-// Check if user has specific permission
-// eslint-disable-next-line no-unused-vars
-UserSchema.methods.hasPermission = function (_module, _action) {
-    // This will be implemented in the permission service
-    // For now, return true for backward compatibility
-    return true;
+
+/**
+ * hasPermission(module, action)
+ * Checks the user's Role.moduleAccess for a given module + action.
+ * Action: 'view' | 'create' | 'edit' | 'delete'
+ *
+ * Priority:
+ *   1. System owner email → always true
+ *   2. dataScope === 'all'  → always true
+ *   3. role.moduleAccess[module][action] → explicit grant/deny
+ *   4. Default → false (deny-by-default)
+ */
+UserSchema.methods.hasPermission = function (module, action) {
+    const OWNER_EMAIL = 'bharatproperties570@gmail.com';
+
+    // 1. System owner always has full access
+    if (this.email?.toLowerCase() === OWNER_EMAIL) return true;
+
+    // 2. Global scope users have full access
+    if (this.dataScope === 'all') return true;
+
+    // 3. If role is not populated, deny by default (safe fallback)
+    if (!this.role || typeof this.role !== 'object' || !this.role.moduleAccess) {
+        console.warn(
+            `[Permission] hasPermission called for user ${this.email} ` +
+            `but role is not populated. Denying '${action}' on '${module}'.`
+        );
+        return false;
+    }
+
+    const modulePerms = this.role.moduleAccess[module];
+    if (!modulePerms) {
+        // Module not explicitly configured — deny by default
+        return false;
+    }
+
+    return modulePerms[action] === true;
 };
 
 // Record login

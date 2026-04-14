@@ -23,6 +23,7 @@ import { STAGE_PIPELINE, getStageProbability } from '../../utils/stageEngine';
 import { renderValue } from "../../utils/renderUtils";
 import PipelineDashboard from '../../components/PipelineDashboard';
 import useDebounce from '../../hooks/useDebounce';
+import usePermissions, { PermissionGate } from '../../hooks/usePermissions';
 
 // Helper: colored stage chip for deals
 const DealStageChip = ({ stage }) => {
@@ -454,7 +455,9 @@ function DealsPage({ onNavigate, onAddActivity }) {
 
                                 {selectedIds.length === 1 && (
                                     <>
-                                        <button className="action-btn" title="Edit Deal" onClick={handleEditClick}><i className="fas fa-edit"></i> Edit</button>
+                                        <PermissionGate module="deals" action="edit">
+                                            <button className="action-btn" title="Edit Deal" onClick={handleEditClick}><i className="fas fa-edit"></i> Edit</button>
+                                        </PermissionGate>
                                         <button
                                             className="action-btn"
                                             title="Add Activity"
@@ -526,7 +529,9 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                 <button className="action-btn" title="Add Note"><i className="fas fa-sticky-note"></i> Note</button>
 
                                 <div style={{ marginLeft: 'auto' }}>
-                                    <button className="action-btn danger" title="Delete" onClick={() => handleDelete()}><i className="fas fa-trash-alt"></i></button>
+                                    <PermissionGate module="deals" action="delete">
+                                        <button className="action-btn danger" title="Delete" onClick={() => handleDelete()}><i className="fas fa-trash-alt"></i></button>
+                                    </PermissionGate>
                                 </div>
                             </div>
                         ) : (
