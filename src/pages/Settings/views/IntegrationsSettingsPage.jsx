@@ -27,7 +27,7 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
         clientSecret: '',
         appId: '',
         appSecret: '',
-        redirectUri: 'http://localhost:4000/api/marketing/linkedin/callback',
+        redirectUri: `${window.location.origin}/api/marketing/linkedin/callback`,
         orgId: '42752175'
     });
 
@@ -66,7 +66,7 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                     ...prev, 
                     ...loadedConfig, 
                     token: loadedConfig.token || loadedConfig.apiKey || '',
-                    redirectUri: loadedConfig.redirectUri || 'http://localhost:4000/api/marketing/linkedin/callback' 
+                    redirectUri: loadedConfig.redirectUri || `${window.location.origin}/api/marketing/linkedin/callback` 
                 }));
                 setLastKnownStatus(type === 'linkedin' && connectionData?.health === 'EXPIRED' ? 'Expired' : 'Connected');
             }
@@ -358,7 +358,7 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                     steps: [
                         'Go to LinkedIn Developer Portal and create a new App.',
                         'Enable "Lead Gen Forms" and "Sign In with LinkedIn" products.',
-                        'Configure Redirect URI: http://localhost:4000/api/marketing/linkedin/callback',
+                        `Configure Redirect URI: ${window.location.origin}/api/marketing/linkedin/callback`,
                         'Step 1: Save Client ID/Secret below.',
                         'Step 2: Click "Connect LinkedIn via OAuth" button.'
                     ],
@@ -430,7 +430,7 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                             </div>
                             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                                 <div style={{ flex: 1, fontSize: '0.75rem', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', background: '#f1f5f9', padding: '10px', borderRadius: '8px', fontFamily: 'monospace' }}>
-                                    {window.location.origin.includes('localhost') ? 'https://cd1040f1c478748e-223-178-209-51.serveousercontent.com' : window.location.origin}{guide.webhookConfig?.path || '/api/social/webhook'}
+                                    {window.location.origin.includes('localhost') ? (config.url || 'https://cd1040f1c478748e-223-178-209-51.serveousercontent.com') : window.location.origin}{guide.webhookConfig?.path || '/api/social/webhook'}
                                 </div>
                                 <button 
                                     onClick={() => { 
@@ -906,7 +906,7 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                                 <div className="card-input-group">
                                     <label>Redirect URI (Standardized)</label>
                                     <div style={{ display: 'flex', gap: '8px' }}>
-                                        <input type="text" readOnly value={config.redirectUri || 'http://localhost:4000/api/marketing/linkedin/callback'} style={{ background: '#f8fafc', color: '#64748b', cursor: 'not-allowed' }} />
+                                        <input type="text" readOnly value={config.redirectUri || `${window.location.origin}/api/marketing/linkedin/callback`} style={{ background: '#f8fafc', color: '#64748b', cursor: 'not-allowed' }} />
                                         <button onClick={() => { navigator.clipboard.writeText(config.redirectUri); toast.success('Copied!'); }} style={{ padding: '0 12px', background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: '8px', cursor: 'pointer' }}><i className="far fa-copy"></i></button>
                                     </div>
                                 </div>
