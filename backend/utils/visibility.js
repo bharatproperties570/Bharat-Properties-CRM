@@ -17,12 +17,13 @@ export const getVisibilityFilter = async (user) => {
     // 1. Super Admin / Global Scope / Dynamic Role Detection
     const roleName = user.role?.name?.toLowerCase() || '';
     const isElevated = user.dataScope === 'all' || 
-                      ['admin', 'super admin', 'sales manager', 'owner'].includes(roleName);
+                      ['admin', 'super admin', 'sales manager', 'owner'].includes(roleName) ||
+                      user.email === 'bharatproperties570@gmail.com';
 
-    console.log(`[Visibility] 🚦 Resolving scope for User: ${user.fullName} | Role: ${roleName} | Scope: ${user.dataScope} | Elevated: ${isElevated}`);
+    console.log(`[Visibility] 🚦 Resolving scope for User: ${user.fullName || user.email} | Role: ${roleName} | Scope: ${user.dataScope} | Elevated: ${isElevated}`);
 
     if (isElevated) {
-        console.log(`[Visibility] ✅ Full Access Granted (Elevated Role/All Scope)`);
+        console.log(`[Visibility] ✅ Full Access Granted (Elevated Bypass)`);
         return {}; 
     }
 
