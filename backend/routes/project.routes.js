@@ -4,13 +4,11 @@ import { authenticate } from "../src/middlewares/auth.middleware.js";
 
 const router = express.Router();
 
-// Public GET routes
-router.get("/", getProjects);
-router.get("/:id", getProjectById);
-
-// Apply authentication to management routes
+// Apply authentication to all routes below
 router.use(authenticate);
 
+router.get("/", getProjects);
+router.get("/:id", getProjectById);
 router.post("/import", importProjects);
 router.post("/check-duplicates", checkDuplicatesImport);
 router.post("/", addProject);
