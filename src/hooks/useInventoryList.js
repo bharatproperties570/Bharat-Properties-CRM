@@ -7,6 +7,7 @@ export const useInventoryList = (initialFilters = {}) => {
     const [inventoryItems, setInventoryItems] = useState([]);
     const [loading, setLoading] = useState(false);
     const [totalRecords, setTotalRecords] = useState(0);
+    const [totalPages, setTotalPages] = useState(1);
     const [currentPage, setCurrentPage] = useState(1);
     const [recordsPerPage, setRecordsPerPage] = useState(25);
     const [searchTerm, setSearchTerm] = useState('');
@@ -16,6 +17,11 @@ export const useInventoryList = (initialFilters = {}) => {
     const [stats, setStats] = useState({ active: 0, inactive: 0, categories: [] });
 
     const debouncedSearchTerm = useDebounce(searchTerm, 500);
+
+    // -- Pagination Reset Logic --
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [debouncedSearchTerm, statusFilter, filters, recordsPerPage]);
 
     const fetchInventory = useCallback(async () => {
         setLoading(true);
@@ -33,6 +39,8 @@ export const useInventoryList = (initialFilters = {}) => {
             if (response.data && response.data.success) {
                 setInventoryItems(response.data.records || []);
                 setTotalRecords(response.data.totalCount || 0);
+                const tp = response.data.totalPages || 1;
+                setTotalPages(tp > 0 ? tp : 1);
                 setStats({
                     active: response.data.activeCount || 0,
                     inactive: response.data.inactiveCount || 0,
@@ -42,6 +50,8 @@ export const useInventoryList = (initialFilters = {}) => {
         } catch (error) {
             console.error("Error fetching inventory:", error);
             toast.error("Error loading inventory");
+        } finally {
+            setLoading(false);
         }
     }, [currentPage, recordsPerPage, debouncedSearchTerm, statusFilter, filters]);
 
@@ -61,6 +71,7 @@ export const useInventoryList = (initialFilters = {}) => {
         inventoryItems,
         loading,
         totalRecords,
+        totalPages,
         currentPage,
         setCurrentPage,
         recordsPerPage,

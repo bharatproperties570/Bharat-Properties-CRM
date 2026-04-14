@@ -284,23 +284,33 @@ export const receiveWebhook = async (req, res) => {
                         if (match) entityType = 'Lead';
                     }
 
-                    if (match) {
-                        console.log(`[SocialController] ✅ Match Found: ${entityType} | ID: ${match._id} | Name: ${match.fullName || match.firstName}`);
-                    } else {
-                        console.log(`[SocialController] ❌ No match found for ${cleanPhone}`);
+                    if (!match) {
+                        console.log(`[SocialController] ❌ No match found for ${cleanPhone}. Creating automatic WhatsApp Lead...`);
+                        const sourceId = await resolveLeadLookup('Source', 'WhatsApp Inbound');
+                        match = await Lead.create({
+                            firstName: 'WhatsApp',
+                            lastName: 'Lead',
+                            mobile: cleanPhone,
+                            source: sourceId,
+                            intent_index: 50,
+                            tags: ['AI Auto-Engaged'],
+                            description: `Auto-created from inbound WhatsApp message: ${event.text.substring(0, 100)}`
+                        });
+                        entityType = 'Lead';
                     }
 
+                    console.log(`[SocialController] ✅ Entity Resolved: ${entityType} | ID: ${match._id}`);
+
                     // 3. Resolve Participant Info
-                    const participantName = match ? (match.fullName || match.name || `${match.firstName || ''} ${match.lastName || ''}`.trim()) : `WA: ${rawPhone}`;
-                    const entityId = match?._id;
-                    // entityType is already declared as 'let' above, just update it if needed for the 'Wait' case
-                    if (!match) entityType = 'System'; 
+                    const participantName = match.fullName || match.firstName || `WA: ${rawPhone}`;
+                    const entityId = match._id;
 
                     // 4. Find or Create Conversation (Senior Professional Sync)
                     let conversation = await Conversation.findOne({ 
                         $or: [
-                            { lead: match?._id },
-                            { metadata: { entityId: match?._id } },
+                            { lead: entityId },
+                            { 'metadata.entityId': entityId },
+                            { phoneNumber: cleanPhone },
                             { phoneNumber: rawPhone }
                         ],
                         status: 'active' 
@@ -308,13 +318,13 @@ export const receiveWebhook = async (req, res) => {
 
                     if (!conversation) {
                         conversation = await Conversation.create({
-                            lead: match?._id || new mongoose.Types.ObjectId(),
+                            lead: entityType === 'Lead' ? entityId : (new mongoose.Types.ObjectId()), 
                             channel: 'whatsapp',
-                            phoneNumber: rawPhone,
+                            phoneNumber: cleanPhone,
                             status: 'active',
                             messages: [],
                             metadata: {
-                                entityId: match?._id,
+                                entityId: entityId,
                                 entityType: entityType,
                                 isContact: entityType === 'Contact'
                             }
@@ -328,12 +338,12 @@ export const receiveWebhook = async (req, res) => {
                     // 6. Save as Activity for Timeline
                     const activity = await Activity.create({
                         type: 'WhatsApp',
-                        subject: `WhatsApp from ${participantName}`,
-                        entityType: match ? entityType : 'System',
-                        entityId: match ? match._id : null,
+                        subject: `Inbound WhatsApp: ${event.text.substring(0, 40)}${event.text.length > 40 ? '...' : ''}`,
+                        entityType: entityType,
+                        entityId: entityId,
                         description: event.text,
                         status: 'Completed',
-                        performedBy: 'System',
+                        performedBy: 'WhatsApp User',
                         details: {
                             platform: 'whatsapp',
                             direction: 'incoming',
@@ -341,7 +351,8 @@ export const receiveWebhook = async (req, res) => {
                             message: event.text,
                             conversationId: conversation._id
                         },
-                        timestamp: new Date()
+                        timestamp: new Date(),
+                        dueDate: new Date()
                     });
 
                     // 7. Generate AI Bot Response (Professional Auto-Reply)
@@ -351,8 +362,10 @@ export const receiveWebhook = async (req, res) => {
                     if (aiResult.success && aiResult.reply) {
                         const setting = await SystemSetting.findOne({ key: 'meta_wa_config' }).lean();
                         const config = setting?.value;
-                        const token = config?.token || config?.apiKey;
-                        const phoneId = config?.phoneId;
+                        
+                        // Enhanced credential resolution with multiple fallbacks
+                        const token = config?.token || config?.accessToken || config?.waToken || config?.apiKey || process.env.WHATSAPP_TOKEN;
+                        const phoneId = config?.phoneId || config?.waPhoneId || process.env.WHATSAPP_PHONE_ID;
 
                         if (token && phoneId) {
                             try {

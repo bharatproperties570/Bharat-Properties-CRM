@@ -21,7 +21,10 @@ const DealDetailHeader = ({
     setIsUploadModalOpen,
     setIsDocumentModalOpen,
     setIsNoteModalOpen,
-    setIsQuoteModalOpen,
+    handleWhatsApp,
+    handleMatch,
+    handleShare,
+    fetchDealDetails,
     enrichDealIntelligence
 }) => {
     const [showMoreMenu, setShowMoreMenu] = useState(false);
@@ -193,20 +196,48 @@ const DealDetailHeader = ({
                     </button>
                 )}
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <button
                         onClick={() => setIsCallModalOpen(true)}
-                        style={{ border: 'none', background: '#16a34a', color: '#fff', padding: '10px 18px', borderRadius: '12px', fontSize: '0.8rem', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 4px 12px rgba(22, 163, 74, 0.2)' }}
+                        style={{ border: 'none', background: '#16a34a', color: '#fff', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 4px 12px rgba(22, 163, 74, 0.2)' }}
                         className="hover:scale-105 transition-all"
                     >
                         <i className="fas fa-phone-alt"></i> CALL
                     </button>
                     <button
+                        onClick={handleWhatsApp}
+                        style={{ border: 'none', background: '#25d366', color: '#fff', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 4px 12px rgba(37, 211, 102, 0.2)' }}
+                        className="hover:scale-105 transition-all"
+                    >
+                        <i className="fab fa-whatsapp"></i> WHATSAPP
+                    </button>
+                    <button
+                        onClick={() => setIsMessageOpen(true)}
+                        style={{ border: 'none', background: '#3b82f6', color: '#fff', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 4px 12px rgba(59, 130, 246, 0.2)' }}
+                        className="hover:scale-105 transition-all"
+                    >
+                        <i className="fas fa-comment-alt"></i> SMS
+                    </button>
+                    <button
                         onClick={() => setIsMailOpen(true)}
-                        style={{ border: 'none', background: '#8b5cf6', color: '#fff', padding: '10px 18px', borderRadius: '12px', fontSize: '0.8rem', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 4px 12px rgba(139, 92, 246, 0.2)' }}
+                        style={{ border: 'none', background: '#8b5cf6', color: '#fff', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 4px 12px rgba(139, 92, 246, 0.2)' }}
                         className="hover:scale-105 transition-all"
                     >
                         <i className="fas fa-envelope"></i> EMAIL
+                    </button>
+                    <button
+                        onClick={handleMatch}
+                        style={{ border: 'none', background: '#4f46e5', color: '#fff', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 4px 12px rgba(79, 70, 229, 0.2)' }}
+                        className="hover:scale-105 transition-all"
+                    >
+                        <i className="fas fa-user-check"></i> MATCH
+                    </button>
+                    <button
+                        onClick={handleShare}
+                        style={{ border: 'none', background: '#64748b', color: '#fff', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 4px 12px rgba(100, 116, 139, 0.2)' }}
+                        className="hover:scale-105 transition-all"
+                    >
+                        <i className="fas fa-share-alt"></i> SHARE
                     </button>
                 </div>
 

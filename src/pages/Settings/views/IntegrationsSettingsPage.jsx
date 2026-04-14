@@ -25,6 +25,8 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
         route: 'clickhere',
         clientId: '',
         clientSecret: '',
+        appId: '',
+        appSecret: '',
         redirectUri: 'http://localhost:4000/api/marketing/linkedin/callback',
         orgId: '42752175'
     });
@@ -101,7 +103,7 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                     
                     await marketingAPI.saveLinkedInConfig(linkedInOnlyConfig);
                     toast.success('LinkedIn credentials saved. Now click Step 2 to authorize.');
-                } else if (['facebook', 'instagram', 'whatsapp'].includes(type)) {
+                } else if (['facebook', 'instagram', 'whatsapp', 'messenger'].includes(type)) {
                     if (type === 'whatsapp') {
                         // Normalize token/apiKey for Meta
                         const whatsappPayload = {
@@ -117,7 +119,9 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                             pageId: config.pageId,
                             pageAccessToken: config.pageAccessToken,
                             igUserId: config.igUserId,
-                            verifyToken: config.verifyToken
+                            verifyToken: config.verifyToken,
+                            appId: config.appId,
+                            appSecret: config.appSecret
                         };
                         await socialAPI.saveConfig(type, socialPayload);
                     }
@@ -140,7 +144,7 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                 if (testRes.success) {
                     setLastKnownStatus('Connected');
                     setTestResult({ success: true, message: 'Configuration saved and gateway connected!' });
-                    onConnect();
+                    if (onConnect) onConnect();
                 } else {
                     setLastKnownStatus('Error');
                     setTestResult({ success: false, message: 'Saved successfully, but connection test failed: ' + testRes.error });
@@ -148,7 +152,7 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
             }
         } catch (err) {
             setLastKnownStatus('Error');
-            alert('Failed to save configuration: ' + err.message);
+            toast.error('Failed to save configuration: ' + err.message);
         } finally {
             setIsSaving(false);
         }
@@ -396,7 +400,7 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
 
     return (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10002 }}>
-            <div style={{ background: '#fff', width: '850px', borderRadius: '24px', display: 'flex', overflow: 'hidden', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.3)', border: '1px solid #e2e8f0' }}>
+            <div style={{ background: '#fff', width: '95vw', maxWidth: '1350px', borderRadius: '24px', display: 'flex', overflow: 'hidden', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.3)', border: '1px solid #e2e8f0' }}>
                 {/* Left: Setup Guide */}
                 <div style={{ flex: 1, background: '#f8fafc', padding: '40px', borderRight: '1px solid #f1f5f9' }}>
                     <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: `${guide.color}15`, color: guide.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', marginBottom: '24px' }}>
@@ -476,7 +480,7 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                 </div>
 
                 {/* Right: Configuration Form / Templates / Logs */}
-                <div style={{ flex: 1.2, padding: '40px', display: 'flex', flexDirection: 'column', minHeight: '650px' }}>
+                <div style={{ flex: 3, padding: '40px 24px', display: 'flex', flexDirection: 'column', minHeight: '650px', background: '#fff' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                         <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: '#1e293b' }}>
                             {type === 'twilio' ? 'SMS Communication Hub' : 'Integration Setup'}
@@ -679,37 +683,111 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                         )}
 
                         {type === 'facebook' && (
-                            <>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                                 <div className="card-input-group">
-                                    <label>Page Access Token (Long-lived)</label>
-                                    <input type="password" placeholder="EAA..." value={config.pageAccessToken || ''} onChange={e => setConfig({ ...config, pageAccessToken: e.target.value })} />
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <i className="fas fa-fingerprint" style={{ color: '#1877F2' }}></i>
+                                        Facebook App ID
+                                    </label>
+                                    <input type="text" placeholder="123456789..." value={config.appId || ''} onChange={e => setConfig({ ...config, appId: e.target.value })} />
                                 </div>
                                 <div className="card-input-group">
-                                    <label>Facebook Page ID</label>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <i className="fas fa-key" style={{ color: '#1877F2' }}></i>
+                                        App Secret
+                                    </label>
+                                    <div style={{ position: 'relative' }}>
+                                        <input 
+                                            type={config.showAppSecret ? "text" : "password"} 
+                                            placeholder="••••••••••••" 
+                                            value={config.appSecret || ''} 
+                                            onChange={e => setConfig({ ...config, appSecret: e.target.value })} 
+                                        />
+                                        <button 
+                                            onClick={() => setConfig({ ...config, showAppSecret: !config.showAppSecret })}
+                                            style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer' }}
+                                        >
+                                            <i className={`far ${config.showAppSecret ? 'fa-eye-slash' : 'fa-eye'}`}></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="card-input-group">
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <i className="fas fa-id-badge" style={{ color: '#1877F2' }}></i>
+                                        Facebook Page ID
+                                    </label>
                                     <input type="text" placeholder="102345..." value={config.pageId || ''} onChange={e => setConfig({ ...config, pageId: e.target.value })} />
                                 </div>
                                 <div className="card-input-group">
-                                    <label>Webhook Verify Token</label>
-                                    <input type="text" placeholder="Your secret token" value={config.verifyToken || ''} onChange={e => setConfig({ ...config, verifyToken: e.target.value })} />
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <i className="fas fa-user-shield" style={{ color: '#1877F2' }}></i>
+                                        Page Access Token (Long-lived)
+                                    </label>
+                                    <textarea 
+                                        placeholder="EAA..." 
+                                        value={config.pageAccessToken || ''} 
+                                        onChange={e => setConfig({ ...config, pageAccessToken: e.target.value })} 
+                                        style={{ height: '80px', fontSize: '0.8rem', paddingTop: '12px' }}
+                                    />
                                 </div>
-                            </>
+                                <div className="card-input-group">
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <i className="fas fa-shield-alt" style={{ color: '#1877F2' }}></i>
+                                        Webhook Verify Token
+                                    </label>
+                                    <input type="text" placeholder="Your secret token" value={config.verifyToken || ''} onChange={e => setConfig({ ...config, verifyToken: e.target.value })} style={{ fontWeight: 600, color: '#1e293b' }} />
+                                </div>
+                            </div>
                         )}
 
                         {type === 'instagram' && (
-                            <>
-                                <div className="card-input-group">
-                                    <label>Instagram Business User ID</label>
-                                    <input type="text" placeholder="1784..." value={config.igUserId || ''} onChange={e => setConfig({ ...config, igUserId: e.target.value })} />
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                                <div style={{ background: 'linear-gradient(45deg, #f09433 0%,#e6683c 25%,#dc2743 50%,#cc2366 75%,#bc1888 100%)', padding: '1.5px', borderRadius: '14px', boxShadow: '0 4px 15px rgba(228, 64, 95, 0.15)' }}>
+                                    <div style={{ background: '#fff', padding: '20px', borderRadius: '13px' }}>
+                                        <div className="card-input-group">
+                                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#bc1888' }}>
+                                                <i className="fab fa-instagram" style={{ fontSize: '1.1rem' }}></i>
+                                                Instagram Business User ID
+                                            </label>
+                                            <input type="text" placeholder="1784..." value={config.igUserId || ''} onChange={e => setConfig({ ...config, igUserId: e.target.value })} style={{ border: '1px solid #bc188840' }} />
+                                        </div>
+                                    </div>
                                 </div>
                                 <div className="card-input-group">
-                                    <label>Linked Page Access Token</label>
-                                    <input type="password" placeholder="EAA..." value={config.pageAccessToken || ''} onChange={e => setConfig({ ...config, pageAccessToken: e.target.value })} />
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <i className="fas fa-fingerprint" style={{ color: '#E4405F' }}></i>
+                                        Meta App ID (Optional)
+                                    </label>
+                                    <input type="text" placeholder="123456..." value={config.appId || ''} onChange={e => setConfig({ ...config, appId: e.target.value })} />
                                 </div>
                                 <div className="card-input-group">
-                                    <label>Webhook Verify Token</label>
-                                    <input type="text" placeholder="Your secret token" value={config.verifyToken || ''} onChange={e => setConfig({ ...config, verifyToken: e.target.value })} />
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <i className="fas fa-lock" style={{ color: '#E4405F' }}></i>
+                                        Linked Page Access Token
+                                    </label>
+                                    <div style={{ position: 'relative' }}>
+                                        <textarea 
+                                            placeholder="EAA..." 
+                                            value={config.pageAccessToken || ''} 
+                                            onChange={e => setConfig({ ...config, pageAccessToken: e.target.value })} 
+                                            style={{ height: '80px', fontSize: '0.8rem', paddingTop: '12px', paddingRight: '40px', fontFamily: config.showIgToken ? 'monospace' : 'password', WebkitTextSecurity: config.showIgToken ? 'none' : 'disc' }}
+                                        />
+                                        <button 
+                                            onClick={() => setConfig({ ...config, showIgToken: !config.showIgToken })}
+                                            style={{ position: 'absolute', right: '12px', top: '12px', background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer' }}
+                                        >
+                                            <i className={`far ${config.showIgToken ? 'fa-eye-slash' : 'fa-eye'}`}></i>
+                                        </button>
+                                    </div>
                                 </div>
-                            </>
+                                <div className="card-input-group">
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <i className="fas fa-shield-alt" style={{ color: '#E4405F' }}></i>
+                                        Webhook Verify Token
+                                    </label>
+                                    <input type="text" placeholder="Your secret token" value={config.verifyToken || ''} onChange={e => setConfig({ ...config, verifyToken: e.target.value })} style={{ fontWeight: 600, color: '#1e293b' }} />
+                                </div>
+                            </div>
                         )}
 
                         {type === 'claude' && (
@@ -738,7 +816,63 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                             </div>
                         )}
 
-                        {/* Legacy forms kept simple */}
+                        {type === 'messenger' && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                                <div className="card-input-group">
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <i className="fab fa-facebook-messenger" style={{ color: '#006AFF' }}></i>
+                                        Messenger App ID
+                                    </label>
+                                    <input type="text" placeholder="1234..." value={config.appId || ''} onChange={e => setConfig({ ...config, appId: e.target.value })} />
+                                </div>
+                                <div className="card-input-group">
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <i className="fas fa-key" style={{ color: '#006AFF' }}></i>
+                                        Messenger App Secret
+                                    </label>
+                                    <div style={{ position: 'relative' }}>
+                                        <input 
+                                            type={config.showMsgSecret ? "text" : "password"} 
+                                            placeholder="••••••••••••" 
+                                            value={config.appSecret || ''} 
+                                            onChange={e => setConfig({ ...config, appSecret: e.target.value })} 
+                                        />
+                                        <button 
+                                            onClick={() => setConfig({ ...config, showMsgSecret: !config.showMsgSecret })}
+                                            style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer' }}
+                                        >
+                                            <i className={`far ${config.showMsgSecret ? 'fa-eye-slash' : 'fa-eye'}`}></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="card-input-group">
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <i className="fas fa-id-badge" style={{ color: '#006AFF' }}></i>
+                                        Linked Facebook Page ID
+                                    </label>
+                                    <input type="text" placeholder="102345..." value={config.pageId || ''} onChange={e => setConfig({ ...config, pageId: e.target.value })} />
+                                </div>
+                                <div className="card-input-group">
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <i className="fas fa-user-shield" style={{ color: '#006AFF' }}></i>
+                                        Page Access Token (Long-lived)
+                                    </label>
+                                    <textarea 
+                                        placeholder="EAA..." 
+                                        value={config.pageAccessToken || ''} 
+                                        onChange={e => setConfig({ ...config, pageAccessToken: e.target.value })} 
+                                        style={{ height: '80px', fontSize: '0.8rem', paddingTop: '12px' }}
+                                    />
+                                </div>
+                                <div className="card-input-group">
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <i className="fas fa-shield-alt" style={{ color: '#006AFF' }}></i>
+                                        Webhook Verify Token
+                                    </label>
+                                    <input type="text" placeholder="Your secret token" value={config.verifyToken || ''} onChange={e => setConfig({ ...config, verifyToken: e.target.value })} style={{ fontWeight: 600, color: '#1e293b' }} />
+                                </div>
+                            </div>
+                        )}
                         {type === 'whatsapp' && (
                             <>
                                 <div className="card-input-group">
@@ -792,10 +926,56 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                         )}
                     </div>
 
+                    {/* Modal Footer: Action Buttons */}
+                    <div style={{ marginTop: '24px', paddingTop: '20px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                        <button
+                            onClick={onClose}
+                            style={{ padding: '12px 24px', borderRadius: '12px', border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontWeight: 700, fontSize: '0.9rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                            className="hover:bg-slate-50 transition-all"
+                        >
+                            Cancel
+                        </button>
+                        
+                        {!['google_calendar', 'apple_calendar'].includes(type) && (
+                            <button
+                                onClick={handleTest}
+                                disabled={testing}
+                                style={{ padding: '12px 24px', borderRadius: '12px', border: '1px solid #e2e8f0', background: '#f8fafc', color: '#1e293b', fontWeight: 700, fontSize: '0.9rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                                className="hover:bg-slate-100 transition-all"
+                            >
+                                {testing ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-vial"></i>}
+                                Test Connection
+                            </button>
+                        )}
+
+                        <button
+                            onClick={handleSave}
+                            disabled={isSaving}
+                            style={{ 
+                                padding: '12px 32px', 
+                                borderRadius: '12px', 
+                                border: 'none', 
+                                background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)', 
+                                color: '#fff', 
+                                fontWeight: 800, 
+                                fontSize: '0.9rem', 
+                                cursor: isSaving ? 'not-allowed' : 'pointer', 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: '8px',
+                                boxShadow: '0 4px 12px rgba(37, 99, 235, 0.2)' 
+                            }}
+                            className="hover:scale-105 transition-all"
+                        >
+                            {isSaving ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-save"></i>}
+                            {isSaving ? 'Saving...' : 'Save Configuration'}
+                        </button>
+                    </div>
+
                     <style>{`
-                        .card-input-group { display: flex; flexDirection: column; gap: 8px; }
-                        .card-input-group label { fontSize: 0.8rem; fontWeight: 700; color: #64748b; }
-                        .card-input-group input, .card-input-group textarea { width: 100%; padding: 12px; border: 1px solid #e2e8f0; borderRadius: 10px; fontSize: 0.9rem; transition: border 0.2s; }
+                        .card-input-group { display: flex; flex-direction: column; gap: 8px; }
+                        .card-input-group label { font-size: 0.8rem; font-weight: 700; color: #64748b; }
+                        .card-input-group input, .card-input-group textarea { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius: 10px; font-size: 0.9rem; transition: border 0.2s; }
                         .card-input-group input:focus { border-color: var(--primary-color); outline: none; }
                         .switch { position: relative; display: inline-block; width: 44px; height: 22px; }
                         .switch input { opacity: 0; width: 0; height: 0; }
@@ -1174,7 +1354,7 @@ const IntegrationsSettingsPage = () => {
             </div>
 
             <div style={{ flex: 1, padding: '40px', overflowY: 'auto' }}>
-                <div style={{ maxWidth: '1000px' }}>
+                <div style={{ width: '100%' }}>
                     {['AI Intelligence', 'Communication Channels', 'Voice & Telephony', 'Social Marketing', 'Connectivity & Productivity', 'Automation'].map(cat => {
                         const catIcons = {
                             'AI Intelligence': 'fas fa-brain',

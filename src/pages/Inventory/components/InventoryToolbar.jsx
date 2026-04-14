@@ -112,9 +112,20 @@ const InventoryToolbar = ({
                         <div style={{ display: "flex", alignItems: "center", gap: "0" }}>
                             <button 
                                 onClick={goToPreviousPage} 
-                                disabled={currentPage === 1 || loading} 
+                                disabled={currentPage <= 1 || loading} 
                                 className="pagination-btn"
-                                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', border: '1px solid #e2e8f0', borderRight: 'none', borderRadius: '6px 0 0 6px', background: '#fff', fontSize: '0.75rem', fontWeight: 700, color: '#64748b' }}
+                                style={{ 
+                                    display: 'flex', alignItems: 'center', gap: '6px', 
+                                    padding: '6px 12px', border: '1px solid #e2e8f0', borderRight: 'none', 
+                                    borderRadius: '6px 0 0 6px', 
+                                    background: (currentPage <= 1 || loading) ? '#f8fafc' : '#fff', 
+                                    fontSize: '0.75rem', fontWeight: 700, 
+                                    color: (currentPage <= 1 || loading) ? '#cbd5e1' : '#64748b', 
+                                    cursor: (currentPage <= 1 || loading) ? 'not-allowed' : 'pointer',
+                                    transition: 'all 0.2s ease'
+                                }}
+                                onMouseEnter={(e) => { if (!(currentPage <= 1 || loading)) e.currentTarget.style.background = '#f1f5f9'; }}
+                                onMouseLeave={(e) => { if (!(currentPage <= 1 || loading)) e.currentTarget.style.background = '#fff'; }}
                             >
                                 <i className="fas fa-chevron-left" style={{ fontSize: '0.65rem' }}></i> Prev
                             </button>
@@ -123,9 +134,20 @@ const InventoryToolbar = ({
                             </div>
                             <button 
                                 onClick={goToNextPage} 
-                                disabled={currentPage === totalPages || loading} 
+                                disabled={currentPage >= totalPages || loading} 
                                 className="pagination-btn"
-                                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', border: '1px solid #e2e8f0', borderLeft: 'none', borderRadius: '0 6px 6px 0', background: '#fff', fontSize: '0.75rem', fontWeight: 700, color: '#64748b' }}
+                                style={{ 
+                                    display: 'flex', alignItems: 'center', gap: '6px', 
+                                    padding: '6px 12px', border: '1px solid #e2e8f0', borderLeft: 'none', 
+                                    borderRadius: '0 6px 6px 0', 
+                                    background: (currentPage >= totalPages || loading) ? '#f8fafc' : '#fff', 
+                                    fontSize: '0.75rem', fontWeight: 700, 
+                                    color: (currentPage >= totalPages || loading) ? '#cbd5e1' : '#64748b', 
+                                    cursor: (currentPage >= totalPages || loading) ? 'not-allowed' : 'pointer',
+                                    transition: 'all 0.2s ease'
+                                }}
+                                onMouseEnter={(e) => { if (!(currentPage >= totalPages || loading)) e.currentTarget.style.background = '#f1f5f9'; }}
+                                onMouseLeave={(e) => { if (!(currentPage >= totalPages || loading)) e.currentTarget.style.background = '#fff'; }}
                             >
                                 Next <i className="fas fa-chevron-right" style={{ fontSize: '0.65rem' }}></i>
                             </button>

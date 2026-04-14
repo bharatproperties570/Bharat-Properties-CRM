@@ -41,6 +41,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
         inventoryItems,
         loading,
         totalRecords,
+        totalPages,
         currentPage,
         setCurrentPage,
         recordsPerPage,
@@ -175,9 +176,9 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                 recordsPerPage={recordsPerPage}
                                 setRecordsPerPage={setRecordsPerPage}
                                 currentPage={currentPage}
-                                totalPages={Math.ceil(totalRecords / recordsPerPage)}
+                                totalPages={totalPages}
                                 goToPreviousPage={() => setCurrentPage(p => Math.max(1, p - 1))}
-                                goToNextPage={() => setCurrentPage(p => p + 1)}
+                                goToNextPage={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                                 loading={loading}
                                 inventoryItems={inventoryItems}
                                 handleEditClick={() => { setSelectedProperty(getSelectedPropertyObj()); setIsEditModalOpen(true); }}

@@ -234,15 +234,16 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                 let conversation = await Conversation.findOne({ 
                     $or: [
                         { lead: lead?._id },
-                        { metadata: { entityId: contact?._id } },
-                        { phoneNumber: normalizedMobile }
+                        { 'metadata.entityId': contact?._id },
+                        { phoneNumber: normalizedMobile },
+                        { phoneNumber: fromNumber }
                     ],
                     status: 'active' 
                 });
 
                 if (!conversation) {
                     conversation = await Conversation.create({
-                        lead: lead?._id || new mongoose.Types.ObjectId(), // Required field in schema, but we'll use metadata for Contacts
+                        lead: lead?._id || new mongoose.Types.ObjectId(), // Required field in schema
                         channel: 'whatsapp',
                         phoneNumber: normalizedMobile,
                         status: 'active',
@@ -262,11 +263,11 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                 // 3.1 Create formal Activity Log (For Timeline consistency and Feed notifications)
                 await Activity.create({
                     type: 'WhatsApp',
-                    subject: `Inbound WhatsApp: ${messageText.substring(0, 30)}${messageText.length > 30 ? '...' : ''}`,
+                    subject: `Inbound WhatsApp: ${messageText.substring(0, 40)}${messageText.length > 40 ? '...' : ''}`,
                     entityId: entityId,
                     entityType: entityType,
                     status: 'Completed',
-                    performedBy: 'System', // WhatsApp User
+                    performedBy: 'WhatsApp User',
                     dueDate: new Date(),
                     description: messageText,
                     details: {

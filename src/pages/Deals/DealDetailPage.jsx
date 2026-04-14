@@ -57,7 +57,7 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     const [activities, setActivities] = useState([]);
     const [liveScoreData, setLiveScoreData] = useState({ score: 0, color: '#94a3b8', label: 'Warm' });
     const [showMoreMenu, setShowMoreMenu] = useState(false);
-    const { startCall } = useCall();
+    const { startCall, startWhatsAppCall } = useCall();
     const [isMailOpen, setIsMailOpen] = useState(false);
     const [isMessageOpen, setIsMessageOpen] = useState(false);
     const [isTagsModalOpen, setIsTagsModalOpen] = useState(false);
@@ -79,6 +79,29 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     const [mailAttachments, setMailAttachments] = useState([]);
 
     const [mediaViewer, setMediaViewer] = useState({ isOpen: false, data: null });
+    const { user } = useUserContext();
+
+    const handleMatch = () => setActiveTab('match');
+    
+    const handleShare = async () => {
+        const shareData = {
+            title: `Deal Detail: ${deal?.unitNo || 'Unit'}`,
+            text: `Check out this deal: ${deal?.projectName || 'Project'} - ${deal?.unitNo || 'Unit'}`,
+            url: window.location.href
+        };
+
+        if (navigator.share) {
+            try {
+                await navigator.share(shareData);
+            } catch (err) {
+                console.error("Shared failed:", err);
+            }
+        } else {
+            // Fallback: Copy to clipboard
+            navigator.clipboard.writeText(window.location.href);
+            toast.success("Link copied to clipboard!");
+        }
+    };
 
     const currentStage = deal?.stage || 'Open';
     const stageAlerts = useDealIntelligence(deal, currentStage);
@@ -290,7 +313,10 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                 setIsMarkingLost={setIsMarkingLost}
                 isMarkingLost={isMarkingLost}
                 setIsCallModalOpen={(val) => {
-                    if (val) startCall(deal.contactId, { entityId: dealId, entityType: 'Deal' });
+                    if (val) startCall({ name: deal.partyStructure?.primaryContact?.name || 'Client', mobile: deal.partyStructure?.primaryContact?.phone || deal.contactId?.mobile }, { entityId: dealId, entityType: 'Deal' });
+                }}
+                handleWhatsApp={() => {
+                    startWhatsAppCall({ name: deal.partyStructure?.primaryContact?.name || 'Client', mobile: deal.partyStructure?.primaryContact?.phone || deal.contactId?.mobile }, { entityId: dealId, entityType: 'Deal' });
                 }}
                 setIsMessageOpen={setIsMessageOpen}
                 setIsMailOpen={setIsMailOpen}
@@ -302,10 +328,11 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                 setIsUploadModalOpen={setIsUploadModalOpen}
                 setIsDocumentModalOpen={setIsDocumentModalOpen}
                 setIsNoteModalOpen={setIsNoteModalOpen}
-                setIsQuoteModalOpen={setIsQuoteModalOpen}
                 fetchDealDetails={fetchDealDetails}
                 getLookupValue={getLookupValue}
                 onNavigate={onNavigate}
+                handleMatch={handleMatch}
+                handleShare={handleShare}
             />
 
             {/* TAB NAVIGATION BAR */}
@@ -402,17 +429,10 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                                 />
                             </>
                         ) : (
-                            <>
-                                <DealTechnicalSpecs 
-                                    deal={deal} 
-                                    getLookupValue={getLookupValue}
-                                    getStrictLookupValue={(field, val) => getLookupValue(field, val)}
-                                />
-                                <DealBuiltupDetails 
-                                    deal={deal} 
-                                    getLookupValue={getLookupValue} 
-                                />
-                            </>
+                            <DealBuiltupDetails 
+                                deal={deal} 
+                                getLookupValue={getLookupValue} 
+                            />
                         )}
                     </div>
                 )}
@@ -425,10 +445,12 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                                 getLookupValue={getLookupValue} 
                             />
                         ) : (
-                            <DealGeography 
-                                deal={deal} 
-                                getLookupValue={getLookupValue} 
-                            />
+                            <div className="glass-card">
+                                <p style={{ fontSize: '0.85rem', fontWeight: 600, color: '#64748b', margin: 0 }}>
+                                    <i className="fas fa-map-marker-alt" style={{ marginRight: '8px' }}></i>
+                                    {deal.location || 'Location details not specified.'}
+                                </p>
+                            </div>
                         )}
                     </div>
                 )}
@@ -478,31 +500,6 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                         <PropertyOwnerSection 
                             inventory={inventory || { _id: null, owners: [], associates: [] }} 
                             onOwnerClick={() => setIsOwnerModalOpen(true)}
-                        />
-                        <MediaVaultSection 
-                            inventory={inventory}
-                            onMediaClick={() => {
-                                if (!inventory?._id) {
-                                    toast.error('Please link an inventory to manage media archive.');
-                                    return;
-                                }
-                                setIsUploadModalOpen(true);
-                            }}
-                            onMediaView={(m) => setMediaViewer({ isOpen: true, data: m })}
-                            onUploadClick={() => {
-                                if (!inventory?._id) {
-                                    toast.error('Please link an inventory to upload media.');
-                                    return;
-                                }
-                                setIsUploadModalOpen(true);
-                            }}
-                            onDocumentClick={() => {
-                                if (!inventory?._id) {
-                                    toast.error('Please link an inventory to manage documents.');
-                                    return;
-                                }
-                                setIsDocumentModalOpen(true);
-                            }}
                         />
                     </div>
                 )}

@@ -138,45 +138,78 @@ const SingleDealLifecycle = ({ deal, activities = [] }) => {
                 .deal-arrow {
                     position: relative;
                     flex: 1;
-                    min-width: 250px;
-                    margin-left: -12px;
-                    padding: 12px 18px 12px 32px;
-                    clip-path: polygon(0% 0%, calc(100% - 14px) 0%, 100% 50%, calc(100% - 14px) 100%, 0% 100%, 14px 50%);
-                    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                    min-width: 220px;
+                    margin-left: -14px;
+                    padding: 16px 20px 16px 36px;
+                    clip-path: polygon(0% 0%, calc(100% - 18px) 0%, 100% 50%, calc(100% - 18px) 100%, 0% 100%, 18px 50%);
+                    transition: all 0.4s cubic-bezier(0.19, 1, 0.22, 1);
                     display: flex;
                     flex-direction: column;
                     border: none;
                     cursor: pointer;
+                    background: #fff;
+                    box-shadow: inset 0 0 0 1px rgba(226, 232, 240, 0.5);
                 }
 
                 .deal-arrow.first {
                     margin-left: 0;
-                    padding-left: 20px;
-                    clip-path: polygon(0% 0%, calc(100% - 14px) 0%, 100% 50%, calc(100% - 14px) 100%, 0% 100%);
+                    padding-left: 24px;
+                    clip-path: polygon(0% 0%, calc(100% - 18px) 0%, 100% 50%, calc(100% - 18px) 100%, 0% 100%);
+                    border-radius: 12px 0 0 12px;
                 }
 
                 .deal-arrow.last {
-                    padding-right: 20px;
-                    clip-path: polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%, 14px 50%);
+                    padding-right: 24px;
+                    clip-path: polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%, 18px 50%);
+                    border-radius: 0 12px 12px 0;
                 }
 
-                .deal-arrow.completed { background: #f8fafc; color: #475569; }
-                .deal-arrow.current { 
-                   background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
-                   z-index: 10;
-                   box-shadow: 0 4px 15px rgba(37, 99, 235, 0.1);
+                .deal-arrow.completed { 
+                    background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+                    color: #166534; 
                 }
-                .deal-arrow.future { background: #fefefe; opacity: 0.6; cursor: default; }
-                .deal-arrow.stuck { background: #fff1f2; }
+                
+                .deal-arrow.current { 
+                    background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%);
+                    color: #fff;
+                    z-index: 20;
+                    transform: scale(1.02);
+                    box-shadow: 0 10px 30px rgba(79, 70, 229, 0.3);
+                }
+
+                .deal-arrow.current::after {
+                    content: '';
+                    position: absolute;
+                    inset: 0;
+                    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+                    animation: sweep 2s infinite;
+                }
+
+                @keyframes sweep {
+                    0% { transform: translateX(-100%); }
+                    100% { transform: translateX(100%); }
+                }
+
+                .deal-arrow.future { 
+                    background: #f8fafc; 
+                    color: #94a3b8;
+                    opacity: 0.8;
+                }
+
+                .deal-arrow.stuck { 
+                    background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+                    color: #991b1b;
+                }
 
                 .pulse-dot {
-                    width: 6px; height: 6px; border-radius: 50%; background: #2563eb;
-                    animation: deal-pulse 2s infinite;
+                    width: 8px; height: 8px; border-radius: 50%; background: #fff;
+                    box-shadow: 0 0 12px #fff;
+                    animation: active-pulse 1.5s infinite;
                 }
-                @keyframes deal-pulse {
-                    0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.5); }
-                    70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(37, 99, 235, 0); }
-                    100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
+                @keyframes active-pulse {
+                    0% { transform: scale(1); opacity: 1; }
+                    50% { transform: scale(1.5); opacity: 0.5; }
+                    100% { transform: scale(1); opacity: 1; }
                 }
 
                 .side-panel {
@@ -206,14 +239,14 @@ const SingleDealLifecycle = ({ deal, activities = [] }) => {
                         {/* 1. Header Row (Compact) */}
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <stage.icon size={14} color={stage.status === 'future' ? '#94a3b8' : stage.color} />
-                                <span style={{ fontWeight: 900, fontSize: '0.75rem', color: stage.status === 'future' ? '#64748b' : '#0f172a', textTransform: 'uppercase' }}>
+                                <stage.icon size={14} color={stage.status === 'current' ? '#fff' : (stage.status === 'future' ? '#94a3b8' : stage.color)} />
+                                <span style={{ fontWeight: 900, fontSize: '0.75rem', color: stage.status === 'current' ? '#fff' : (stage.status === 'future' ? '#64748b' : '#0f172a'), textTransform: 'uppercase' }}>
                                     {stage.label}
                                 </span>
                                 {stage.status === 'current' && <div className="pulse-dot" />}
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                {stage.status === 'completed' && <CheckCircle size={12} color="#10b981" />}
+                                {stage.status === 'completed' && <CheckCircle size={12} color="#166534" />}
                                 {stage.isStuck && <AlertCircle size={12} color="#ef4444" />}
                             </div>
                         </div>
@@ -221,44 +254,44 @@ const SingleDealLifecycle = ({ deal, activities = [] }) => {
                         {/* 2. Unified Middle Row: Dates, Durations & Metrics */}
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', fontSize: '0.6rem', fontWeight: 700 }}>
                             <div style={{ display: 'flex', gap: '6px' }}>
-                                <span style={{ color: '#0f172a' }}>{stage.enteredAt ? new Date(stage.enteredAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '---'}</span>
-                                <span style={{ color: stage.isStuck ? '#ef4444' : '#475569', background: 'rgba(0,0,0,0.03)', padding: '0 4px', borderRadius: '3px' }}>
+                                <span style={{ color: stage.status === 'current' ? 'rgba(255,255,255,0.9)' : '#0f172a' }}>{stage.enteredAt ? new Date(stage.enteredAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '---'}</span>
+                                <span style={{ color: stage.status === 'current' ? '#fff' : (stage.isStuck ? '#ef4444' : '#475569'), background: stage.status === 'current' ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.03)', padding: '0 4px', borderRadius: '3px' }}>
                                     {stage.status !== 'future' ? `${stage.duration}d` : '--'}
                                 </span>
                             </div>
                             <div style={{ display: 'flex', gap: '4px' }}>
-                                <Metric value={stage.breakdown.calls} icon={<Phone size={8} />} color="#3b82f6" />
-                                <Metric value={stage.breakdown.meetings} icon={<Users size={8} />} color="#8b5cf6" />
-                                <Metric value={stage.breakdown.visits} icon={<Home size={8} />} color="#10b981" />
+                                <Metric value={stage.breakdown.calls} icon={<Phone size={8} />} color={stage.status === 'current' ? '#fff' : "#3b82f6"} />
+                                <Metric value={stage.breakdown.meetings} icon={<Users size={8} />} color={stage.status === 'current' ? '#fff' : "#8b5cf6"} />
+                                <Metric value={stage.breakdown.visits} icon={<Home size={8} />} color={stage.status === 'current' ? '#fff' : "#10b981"} />
                             </div>
                         </div>
 
                         {/* 3. Footer: CRM Data / Milestones */}
-                        <div style={{ marginTop: 'auto', paddingTop: '6px', borderTop: '1px solid rgba(0,0,0,0.03)' }}>
+                        <div style={{ marginTop: 'auto', paddingTop: '6px', borderTop: stage.status === 'current' ? '1px solid rgba(255,255,255,0.2)' : '1px solid rgba(0,0,0,0.03)' }}>
                             {stage.status === 'current' && (
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                     <div style={{ flex: 1 }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.55rem', fontWeight: 950, color: '#4f46e5', marginBottom: '1px' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.55rem', fontWeight: 950, color: '#fff', marginBottom: '1px' }}>
                                             <span>WIN {deal.dealProbability || 50}%</span>
                                         </div>
-                                        <div style={{ width: '100%', height: '2px', background: 'rgba(255,255,255,0.4)', borderRadius: '1px', overflow: 'hidden' }}>
-                                            <div style={{ width: `${deal.dealProbability || 50}%`, height: '100%', background: '#4f46e5' }} />
+                                        <div style={{ width: '100%', height: '2px', background: 'rgba(255,255,255,0.2)', borderRadius: '1px', overflow: 'hidden' }}>
+                                            <div style={{ width: `${deal.dealProbability || 50}%`, height: '100%', background: '#fff' }} />
                                         </div>
                                     </div>
                                     <div style={{ display: 'flex', gap: '2px' }}>
-                                        <Badge label="T" active={deal.financialDetails?.token?.status === 'Completed'} />
-                                        <Badge label="A" active={deal.financialDetails?.agreement?.status === 'Completed'} />
-                                        <Badge label="R" active={deal.financialDetails?.registry?.status === 'Completed'} />
+                                        <Badge label="T" active={deal.financialDetails?.token?.status === 'Completed'} isDark={true} />
+                                        <Badge label="A" active={deal.financialDetails?.agreement?.status === 'Completed'} isDark={true} />
+                                        <Badge label="R" active={deal.financialDetails?.registry?.status === 'Completed'} isDark={true} />
                                     </div>
                                 </div>
                             )}
                             {stage.status === 'completed' && (
-                                <div style={{ fontSize: '0.55rem', color: '#94a3b8', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <div style={{ fontSize: '0.55rem', color: '#166534', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
                                     <Users size={8} /> {stage.agent}
                                 </div>
                             )}
                             {idx < lifecycleData.stages.length - 1 && lifecycleData.transitions[idx].wait && (
-                                <div style={{ position: 'absolute', right: '-8px', top: '50%', transform: 'translateY(-50%)', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '3px', padding: '1px 3px', fontSize: '0.5rem', fontWeight: 800, color: '#6366f1', zIndex: 11 }}>
+                                <div style={{ position: 'absolute', right: '-12px', top: '50%', transform: 'translateY(-50%)', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '4px', padding: '2px 5px', fontSize: '0.55rem', fontWeight: 800, color: '#4f46e5', zize: 100, boxShadow: '0 2px 5px rgba(0,0,0,0.05)' }}>
                                     {lifecycleData.transitions[idx].wait}d
                                 </div>
                             )}
