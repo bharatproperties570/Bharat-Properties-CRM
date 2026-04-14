@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
+import { useUserContext } from '../../../context/UserContext';
 import { PROPERTY_CATEGORIES } from '../../../constants/propertyConstants';
 import { renderValue } from '../../../utils/renderUtils';
 
@@ -138,6 +139,7 @@ const MultiSelectDropdown = ({ options, selected, onChange, placeholder, disable
 
 const ProjectFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
     const { projectMasterFields, projectAmenities } = usePropertyConfig();
+    const { teams } = useUserContext();
     const [isVisible, setIsVisible] = useState(false);
 
     useEffect(() => {
@@ -191,6 +193,7 @@ const ProjectFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
 
     const categoryOptions = Object.keys(PROPERTY_CATEGORIES);
     const cityOptions = ['Chandigarh', 'Mohali', 'Panchkula', 'Zirakpur', 'Kurukshetra', 'New Chandigarh'];
+    const teamOptions = teams.map(t => t.name || t.lookup_value).filter(Boolean).sort();
 
     if (!isOpen && !isVisible) return null;
 
@@ -339,6 +342,15 @@ const ProjectFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
                     <section>
                         <span style={styles.sectionTitle}>System Info</span>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                            <div>
+                                <label style={styles.label}>Team Assignment</label>
+                                <MultiSelectDropdown
+                                    options={teamOptions}
+                                    selected={filters.teams || []}
+                                    onChange={(val) => updateFilter('teams', val)}
+                                    placeholder="Select Teams"
+                                />
+                            </div>
                             <div>
                                 <label style={styles.label}>Created By (User)</label>
                                 <input

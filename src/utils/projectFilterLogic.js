@@ -82,7 +82,18 @@ export const applyProjectFilters = (projects, filters) => {
             if (!project.blocks || project.blocks.length === 0) return false;
         }
 
-        // 8. User
+        // 8. Teams
+        if (filters.teams && filters.teams.length > 0) {
+            const projectTeams = (project.teams || project.team || []).map(t => 
+                typeof t === 'object' ? (t.name || t.lookup_value) : t
+            );
+            const hasTeamMatch = filters.teams.some(teamName => 
+                projectTeams.some(pt => pt && String(pt).includes(teamName))
+            );
+            if (!hasTeamMatch) return false;
+        }
+
+        // 9. User
         if (filters.user) {
             if (!project.user || !project.user.toLowerCase().includes(filters.user.toLowerCase())) return false;
         }

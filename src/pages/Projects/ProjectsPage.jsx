@@ -542,19 +542,22 @@ function ProjectsPage({ onNavigate }) {
                         <div className="list-content">
                             {Object.entries(
                                 paginatedProjects.reduce((acc, project) => {
-                                    // Simple city extraction or default to 'Other'
-                                    const locString = (project.locationSearch || project.address?.location || project.address?.city || '').toLowerCase();
-                                    const city = locString.includes('mohali') ? 'Mohali' :
-                                        locString.includes('chandigarh') ? 'Chandigarh' :
-                                            locString.includes('kurukshetra') ? 'Kurukshetra' : 'Other Locations';
-                                    if (!acc[city]) acc[city] = [];
-                                    acc[city].push(project);
+                                    // Professional Team Grouping
+                                    const teamId = (project.team && project.team.length > 0) ? 
+                                        (typeof project.team[0] === 'object' ? project.team[0]._id : project.team[0]) : 
+                                        'Unassigned';
+                                    
+                                    const teamLabel = teamId === 'Unassigned' ? 'Unassigned Projects' : getTeamName(teamId);
+                                    
+                                    if (!acc[teamLabel]) acc[teamLabel] = [];
+                                    acc[teamLabel].push(project);
                                     return acc;
                                 }, {})
-                            ).map(([city, projects]) => (
-                                <div key={city} className="list-group">
-                                    <div className="group-header" style={{ padding: '10px 2rem', background: '#f1f5f9', letterSpacing: '1px', fontWeight: 700, fontSize: '0.75rem', color: '#64748b', borderBottom: '1px solid #e2e8f0' }}>
-                                        {city.toUpperCase()} PROJECTS <span style={{ marginLeft: '8px', background: '#e2e8f0', padding: '1px 6px', borderRadius: '4px', fontSize: '0.7rem' }}>{projects.length}</span>
+                            ).map(([teamGroup, projects]) => (
+                                <div key={teamGroup} className="list-group">
+                                    <div className="group-header" style={{ padding: '12px 2rem', background: '#f8fafc', letterSpacing: '0.05em', fontWeight: 800, fontSize: '0.7rem', color: '#475569', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        <i className="fas fa-users" style={{ color: '#94a3b8', fontSize: '0.9rem' }}></i>
+                                        {teamGroup.toUpperCase()} <span style={{ marginLeft: '4px', background: '#e2e8f0', color: '#475569', padding: '2px 8px', borderRadius: '12px', fontSize: '0.65rem', fontWeight: 700 }}>{projects.length} UNITS</span>
                                     </div>
                                     {projects.map((project) => (
                                         <div key={project._id} className="list-item project-list-grid" style={{ padding: '15px 1.5rem', borderBottom: '1px solid #f1f5f9', transition: 'all 0.2s ease' }}>
