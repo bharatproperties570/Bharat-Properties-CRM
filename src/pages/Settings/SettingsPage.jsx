@@ -124,7 +124,8 @@ const UserCard = ({ name, team, initials, isAdmin, count, hasAddIcon, isHighligh
     </div>
 );
 
-const UserHierarchy = ({ showPermissions, setShowPermissions, onAssignUser, users, onAddUser }) => {
+const UserHierarchy = ({ showPermissions, setShowPermissions, onAssignUser, users, onAddUser, currentUser }) => {
+    const isAdmin = currentUser?.dataScope === 'all' || currentUser?.email === 'bharatproperties570@gmail.com';
     const [permissionModule, setPermissionModule] = useState('leads');
     const [showModuleDropdown, setShowModuleDropdown] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
@@ -202,13 +203,15 @@ const UserHierarchy = ({ showPermissions, setShowPermissions, onAssignUser, user
                         count={children.length}
                         isHighlighted={showPermissions}
                     />
-                    <div
-                        style={{ color: '#cbd5e1', cursor: 'pointer' }}
-                        onClick={() => onAssignUser({ manager: user.fullName || user.name, managerId: user._id })}
-                        title="Assign team member"
-                    >
-                        <i className="fas fa-plus-circle"></i>
-                    </div>
+                    {isAdmin && (
+                        <div
+                            style={{ color: '#cbd5e1', cursor: 'pointer' }}
+                            onClick={() => onAssignUser({ manager: user.fullName || user.name, managerId: user._id })}
+                            title="Assign team member"
+                        >
+                            <i className="fas fa-plus-circle"></i>
+                        </div>
+                    )}
                 </div>
                 {hasChildren && isExpanded && (
                     <div style={{ marginTop: '20px', marginLeft: '20px', borderLeft: '2px solid #e2e8f0', paddingLeft: '20px' }}>
@@ -325,7 +328,8 @@ const UserHierarchy = ({ showPermissions, setShowPermissions, onAssignUser, user
     );
 };
 
-const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, onEditUser, onResetPassword, onToggleStatus }) => {
+const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, onEditUser, onResetPassword, onToggleStatus, currentUser }) => {
+    const isAdmin = currentUser?.dataScope === 'all' || currentUser?.email === 'bharatproperties570@gmail.com';
     const [openActionId, setOpenActionId] = useState(null);
     const [filterStatus, setFilterStatus] = useState('Active');
 
@@ -365,7 +369,9 @@ const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, o
                         ))}
                     </div>
                 </div>
-                <button className="btn-primary" onClick={() => onNewUser()} style={{ padding: '8px 20px', borderRadius: '6px', fontSize: '0.85rem', fontWeight: 700 }}>+ New user</button>
+                {isAdmin && (
+                    <button className="btn-primary" onClick={() => onNewUser()} style={{ padding: '8px 20px', borderRadius: '6px', fontSize: '0.85rem', fontWeight: 700 }}>+ New user</button>
+                )}
             </div>
             <div style={{ border: '1px solid #e2e8f0', borderRadius: '4px', overflow: 'visible' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
@@ -404,70 +410,74 @@ const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, o
                                         }}>{user.status || (user.isActive ? 'Active' : 'Inactive')}</span>
                                     </td>
                                     <td style={{ padding: '16px', position: 'relative' }}>
-                                        <button
-                                            onClick={() => setOpenActionId(openActionId === (user._id || user.id) ? null : (user._id || user.id))}
-                                            style={{ background: 'var(--primary-color)', color: '#fff', border: 'none', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer' }}
-                                        >
-                                            <i className="fas fa-caret-down"></i>
-                                        </button>
-                                        {openActionId === (user._id || user.id) && (
-                                            <div style={{
-                                                position: 'absolute',
-                                                [isLastItems ? 'bottom' : 'top']: '100%',
-                                                [isLastItems ? 'marginBottom' : 'marginTop']: '4px',
-                                                right: 0,
-                                                width: '160px',
-                                                background: '#fff',
-                                                border: '1px solid #e2e8f0',
-                                                borderRadius: '4px',
-                                                boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
-                                                zIndex: 100
-                                            }}>
-                                                <div
-                                                    style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
-                                                    onMouseOver={e => e.target.style.background = '#f8fafc'}
-                                                    onMouseOut={e => e.target.style.background = 'transparent'}
-                                                    onClick={() => { onEditUser(user); setOpenActionId(null); }}
+                                        {isAdmin && (
+                                            <>
+                                                <button
+                                                    onClick={() => setOpenActionId(openActionId === (user._id || user.id) ? null : (user._id || user.id))}
+                                                    style={{ background: 'var(--primary-color)', color: '#fff', border: 'none', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer' }}
                                                 >
-                                                    Edit User
-                                                </div>
-                                                <div
-                                                    style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
-                                                    onMouseOver={e => e.target.style.background = '#f8fafc'}
-                                                    onMouseOut={e => e.target.style.background = 'transparent'}
-                                                    onClick={() => { onResetPassword(user); setOpenActionId(null); }}
-                                                >
-                                                    Reset Password
-                                                </div>
-                                                <div
-                                                    style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', color: '#ef4444' }}
-                                                    onMouseOver={e => e.target.style.background = '#fef2f2'}
-                                                    onMouseOut={e => e.target.style.background = 'transparent'}
-                                                    onClick={() => { onDeleteUser(user._id || user.id); setOpenActionId(null); }}
-                                                >
-                                                    Delete User
-                                                </div>
-                                                {(user.status === 'inactive' || user.isActive === false) && (
-                                                    <div
-                                                        style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', color: '#22c55e', borderTop: '1px solid #f1f5f9' }}
-                                                        onMouseOver={e => e.target.style.background = '#f0fdf4'}
-                                                        onMouseOut={e => e.target.style.background = 'transparent'}
-                                                        onClick={() => { onToggleStatus(user, 'active'); setOpenActionId(null); }}
-                                                    >
-                                                        Activate User
+                                                    <i className="fas fa-caret-down"></i>
+                                                </button>
+                                                {openActionId === (user._id || user.id) && (
+                                                    <div style={{
+                                                        position: 'absolute',
+                                                        [isLastItems ? 'bottom' : 'top']: '100%',
+                                                        [isLastItems ? 'marginBottom' : 'marginTop']: '4px',
+                                                        right: 0,
+                                                        width: '160px',
+                                                        background: '#fff',
+                                                        border: '1px solid #e2e8f0',
+                                                        borderRadius: '4px',
+                                                        boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+                                                        zIndex: 100
+                                                    }}>
+                                                        <div
+                                                            style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
+                                                            onMouseOver={e => e.target.style.background = '#f8fafc'}
+                                                            onMouseOut={e => e.target.style.background = 'transparent'}
+                                                            onClick={() => { onEditUser(user); setOpenActionId(null); }}
+                                                        >
+                                                            Edit User
+                                                        </div>
+                                                        <div
+                                                            style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
+                                                            onMouseOver={e => e.target.style.background = '#f8fafc'}
+                                                            onMouseOut={e => e.target.style.background = 'transparent'}
+                                                            onClick={() => { onResetPassword(user); setOpenActionId(null); }}
+                                                        >
+                                                            Reset Password
+                                                        </div>
+                                                        <div
+                                                            style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', color: '#ef4444' }}
+                                                            onMouseOver={e => e.target.style.background = '#fef2f2'}
+                                                            onMouseOut={e => e.target.style.background = 'transparent'}
+                                                            onClick={() => { onDeleteUser(user._id || user.id); setOpenActionId(null); }}
+                                                        >
+                                                            Delete User
+                                                        </div>
+                                                        {(user.status === 'inactive' || user.isActive === false) && (
+                                                            <div
+                                                                style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', color: '#22c55e', borderTop: '1px solid #f1f5f9' }}
+                                                                onMouseOver={e => e.target.style.background = '#f0fdf4'}
+                                                                onMouseOut={e => e.target.style.background = 'transparent'}
+                                                                onClick={() => { onToggleStatus(user, 'active'); setOpenActionId(null); }}
+                                                            >
+                                                                Activate User
+                                                            </div>
+                                                        )}
+                                                        {(user.status !== 'inactive' && user.isActive !== false) && (
+                                                            <div
+                                                                style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', color: '#f59e0b', borderTop: '1px solid #f1f5f9' }}
+                                                                onMouseOver={e => e.target.style.background = '#fffbeb'}
+                                                                onMouseOut={e => e.target.style.background = 'transparent'}
+                                                                onClick={() => { onToggleStatus(user, 'inactive'); setOpenActionId(null); }}
+                                                            >
+                                                                Deactivate User
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 )}
-                                                {(user.status !== 'inactive' && user.isActive !== false) && (
-                                                    <div
-                                                        style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', color: '#f59e0b', borderTop: '1px solid #f1f5f9' }}
-                                                        onMouseOver={e => e.target.style.background = '#fffbeb'}
-                                                        onMouseOut={e => e.target.style.background = 'transparent'}
-                                                        onClick={() => { onToggleStatus(user, 'inactive'); setOpenActionId(null); }}
-                                                    >
-                                                        Deactivate User
-                                                    </div>
-                                                )}
-                                            </div>
+                                            </>
                                         )}
                                     </td>
                                 </tr>
@@ -480,7 +490,8 @@ const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, o
     );
 };
 
-const RolesList = ({ onNewRole, roles, onDeleteRole }) => {
+const RolesList = ({ onNewRole, roles, onDeleteRole, currentUser }) => {
+    const isAdmin = currentUser?.dataScope === 'all' || currentUser?.email === 'bharatproperties570@gmail.com';
     return (
         <div style={{ flex: 1, background: '#fff', padding: '32px 40px', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -488,7 +499,9 @@ const RolesList = ({ onNewRole, roles, onDeleteRole }) => {
                     <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#cbd5e1', fontSize: '0.8rem' }}></i>
                     <input type="text" placeholder="Search..." style={{ width: '240px', padding: '8px 12px 8px 32px', border: '1px solid #e2e8f0', borderRadius: '4px', fontSize: '0.8rem' }} />
                 </div>
-                <button className="btn-primary" onClick={() => onNewRole()} style={{ padding: '8px 20px', borderRadius: '6px', fontSize: '0.85rem', fontWeight: 700 }}>+ New role</button>
+                {isAdmin && (
+                    <button className="btn-primary" onClick={() => onNewRole()} style={{ padding: '8px 20px', borderRadius: '6px', fontSize: '0.85rem', fontWeight: 700 }}>+ New role</button>
+                )}
             </div>
             <div style={{ border: '1px solid #e2e8f0', borderRadius: '4px', overflow: 'visible' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
@@ -505,7 +518,7 @@ const RolesList = ({ onNewRole, roles, onDeleteRole }) => {
                                 <td style={{ padding: '16px', fontWeight: 700, color: '#1e293b' }}>{role.name}</td>
                                 <td style={{ padding: '16px', color: '#64748b' }}>{role.description}</td>
                                 <td style={{ padding: '16px', textAlign: 'center', fontWeight: 700, color: '#1e293b' }}>
-                                    {!role.isSystemRole && (
+                                    {isAdmin && !role.isSystemRole && (
                                         <button
                                             type="button"
                                             onClick={(e) => {
@@ -539,7 +552,8 @@ const RolesList = ({ onNewRole, roles, onDeleteRole }) => {
     );
 };
 
-const TeamsList = ({ teams, onNewTeam, onEditTeam, onDeleteTeam }) => {
+const TeamsList = ({ teams, onNewTeam, onEditTeam, onDeleteTeam, currentUser }) => {
+    const isAdmin = currentUser?.dataScope === 'all' || currentUser?.email === 'bharatproperties570@gmail.com';
     return (
         <div style={{ flex: 1, background: '#fff', padding: '32px 40px', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -547,7 +561,9 @@ const TeamsList = ({ teams, onNewTeam, onEditTeam, onDeleteTeam }) => {
                     <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#cbd5e1', fontSize: '0.8rem' }}></i>
                     <input type="text" placeholder="Search teams..." style={{ width: '240px', padding: '8px 12px 8px 32px', border: '1px solid #e2e8f0', borderRadius: '4px', fontSize: '0.8rem' }} />
                 </div>
-                <button className="btn-primary" onClick={() => onNewTeam()} style={{ padding: '8px 20px', borderRadius: '6px', fontSize: '0.85rem', fontWeight: 700 }}>+ New Team</button>
+                {isAdmin && (
+                    <button className="btn-primary" onClick={() => onNewTeam()} style={{ padding: '8px 20px', borderRadius: '6px', fontSize: '0.85rem', fontWeight: 700 }}>+ New Team</button>
+                )}
             </div>
             <div style={{ border: '1px solid #e2e8f0', borderRadius: '4px', overflow: 'visible' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
@@ -583,20 +599,24 @@ const TeamsList = ({ teams, onNewTeam, onEditTeam, onDeleteTeam }) => {
                                     </span>
                                 </td>
                                 <td style={{ padding: '16px', textAlign: 'center', display: 'flex', justifyContent: 'center', gap: '8px' }}>
-                                    <button
-                                        onClick={() => onEditTeam(team)}
-                                        style={{ border: 'none', background: 'transparent', color: 'var(--primary-color)', cursor: 'pointer', padding: '4px' }}
-                                        title="Edit Team"
-                                    >
-                                        <i className="fas fa-edit"></i>
-                                    </button>
-                                    <button
-                                        onClick={() => onDeleteTeam(team._id)}
-                                        style={{ border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer', padding: '4px' }}
-                                        title="Delete Team"
-                                    >
-                                        <i className="fas fa-trash"></i>
-                                    </button>
+                                    {isAdmin && (
+                                        <>
+                                            <button
+                                                onClick={() => onEditTeam(team)}
+                                                style={{ border: 'none', background: 'transparent', color: 'var(--primary-color)', cursor: 'pointer', padding: '4px' }}
+                                                title="Edit Team"
+                                            >
+                                                <i className="fas fa-edit"></i>
+                                            </button>
+                                            <button
+                                                onClick={() => onDeleteTeam(team._id)}
+                                                style={{ border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer', padding: '4px' }}
+                                                title="Delete Team"
+                                            >
+                                                <i className="fas fa-trash"></i>
+                                            </button>
+                                        </>
+                                    )}
                                 </td>
                             </tr>
                         ))}
@@ -621,7 +641,7 @@ const EmptyState = ({ title }) => (
 // --- Main Settings Hub Component ---
 
 const SettingsPage = () => {
-    const { users, roles, teams, loading, error, deleteUser, deleteRole, deleteTeam, refreshData, toggleUserStatus } = useUserContext();
+    const { users, roles, teams, loading, error, deleteUser, deleteRole, deleteTeam, refreshData, toggleUserStatus, currentUser } = useUserContext();
     const [activeTab, setActiveTab] = useState('users');
     const [subTab, setSubTab] = useState('user-list');
     const [searchTerm, setSearchTerm] = useState('');
@@ -973,6 +993,7 @@ const SettingsPage = () => {
                                 onResetPassword={handleResetPassword}
                                 onNewUser={() => { setEditingUser(null); setIsAddUserModalOpen(true); }}
                                 onToggleStatus={handleToggleStatus}
+                                currentUser={currentUser}
                             />}
                             {subTab === 'user-hierarchy' && <UserHierarchy
                                 users={users}
@@ -980,14 +1001,16 @@ const SettingsPage = () => {
                                 setShowPermissions={setShowPermissions}
                                 onAssignUser={handleAssignMember}
                                 onAddUser={() => { setEditingUser(null); setIsAddUserModalOpen(true); }}
+                                currentUser={currentUser}
                             />}
                             {subTab === 'teams' && <TeamsList
                                 teams={teams}
                                 onNewTeam={() => { setEditingTeam(null); setIsCreateTeamModalOpen(true); }}
                                 onEditTeam={(team) => { setEditingTeam(team); setIsCreateTeamModalOpen(true); }}
                                 onDeleteTeam={handleDeleteTeam}
+                                currentUser={currentUser}
                             />}
-                            {subTab === 'roles' && <RolesList onNewRole={() => setIsCreateRoleModalOpen(true)} roles={roles} onDeleteRole={handleDeleteRole} />}
+                            {subTab === 'roles' && <RolesList onNewRole={() => setIsCreateRoleModalOpen(true)} roles={roles} onDeleteRole={handleDeleteRole} currentUser={currentUser} />}
                         </>
                     ) : activeTab === 'sales-goals' ? (
                         <SalesGoalsSettingsPage />
