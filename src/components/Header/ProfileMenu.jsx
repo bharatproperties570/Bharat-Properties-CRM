@@ -62,7 +62,7 @@ const ProfileMenu = ({ currentUser, logout, onNavigate }) => {
             <div className="profile-dropdown-content" style={{ zIndex: 100001 }}>
                 <div className="p-dropdown-header">
                     <strong>{currentUser?.name || 'Bharat Properties'}</strong>
-                    <span>{currentUser?.role || 'Administrator'}</span>
+                    <span>{typeof currentUser?.role === 'object' ? currentUser.role?.name : (currentUser?.role || 'Administrator')}</span>
                 </div>
                 <div className="p-dropdown-divider"></div>
                 <a href="#" onClick={(e) => { e.preventDefault(); onNavigate('profile'); }}>

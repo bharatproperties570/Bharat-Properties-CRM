@@ -1602,8 +1602,8 @@ const LeadItem = React.memo(function LeadItem({
                         {getInitials(lead.owner || 'U')}
                     </div>
                     <div style={{ textAlign: 'right', lineHeight: 1.2 }}>
-                        <div style={{ fontSize: '0.75rem', fontWeight: 900, color: '#0f172a' }}>{lead.owner}</div>
-                        <div style={{ fontSize: '0.6rem', color: '#64748b', fontWeight: 700 }}>{lead.team}</div>
+                        <div style={{ fontSize: '0.75rem', fontWeight: 900, color: '#0f172a' }}>{renderValue(lead.owner)}</div>
+                        <div style={{ fontSize: '0.6rem', color: '#64748b', fontWeight: 700 }}>{renderValue(lead.team)}</div>
                         <div style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, marginTop: '2px' }}>
                             {lead.updatedAt ? new Date(lead.updatedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' }) + ' ' + new Date(lead.updatedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) : ''}
                         </div>

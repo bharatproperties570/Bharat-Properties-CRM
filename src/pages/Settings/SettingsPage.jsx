@@ -94,7 +94,7 @@ const UserCard = ({ name, team, initials, isAdmin, count, hasAddIcon, isHighligh
             </div>
             <div style={{ flex: 1 }}>
                 <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1e293b' }}>{name}</div>
-                <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{team}</div>
+                <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{renderValue(team)}</div>
             </div>
             {hasAddIcon && (
                 <div style={{ color: '#94a3b8', fontSize: '0.8rem' }}>
