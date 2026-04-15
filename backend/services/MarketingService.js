@@ -30,7 +30,9 @@ class MarketingService {
             platformFocus = 'Professional, investment-focused, and industry-oriented. Use a clean layout.';
         } else if (platform === 'youtube') {
             platformFocus = 'Engagement-heavy. Generate a catchy video Title, Description, and a 30-second Short Script.';
-        } else if (platform === 'google_business' || platform === 'business') {
+        } else if (platform === 'x' || platform === 'twitter') {
+            platformFocus = 'Short, punchy, highly engaging, strictly under 280 characters, use 2-3 trending hashtags.';
+        } else if (platform === 'google_business' || platform === 'business' || platform === 'google business') {
             platformFocus = 'Local SEO focused. Highlight location advantages and immediate availability.';
         }
 

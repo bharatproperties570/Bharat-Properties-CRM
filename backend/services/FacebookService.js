@@ -61,59 +61,105 @@ class FacebookService {
     }
 
     /**
-     * Post Text + Image to Facebook Page
+     * Post to Facebook Page (Feed, Story, or Reel)
+     * @param {string} text 
+     * @param {string} imageUrl 
+     * @param {string} format 'post' | 'story' | 'reel'
      */
-    async postToPage(text, imageUrl) {
+    async postToPage(text, imageUrl, format = 'post') {
         const config = await this._getConfig();
-        if (!config.pageAccessToken || !config.pageId) {
-             throw new Error('Facebook Page credentials missing');
+        
+        if (!config.pageAccessToken) {
+            throw new Error('Facebook Page Access Token missing. Go to Settings > Integrations to configure.');
+        }
+        if (!config.pageId) {
+            throw new Error('Facebook Page ID missing.');
         }
 
         try {
-            const url = `${this.graphBase}/${this.graphVersion}/${config.pageId}/photos`;
-            const { data } = await axios.post(url, null, {
-                params: {
-                    url: imageUrl,
-                    caption: text,
-                    access_token: config.pageAccessToken
-                }
-            });
+            // Defensive check for local URLs
+            if (imageUrl && (imageUrl.includes('localhost') || imageUrl.includes('127.0.0.1'))) {
+                throw new Error('Cannot upload local image to Facebook. Use a public image URL.');
+            }
+
+            let url = '';
+            let params = { access_token: config.pageAccessToken };
+
+            if (format === 'story') {
+                // PHOTO STORIES (Official v19.0 path)
+                // Step 1: Upload photo as unpublished
+                const uploadUrl = `${this.graphBase}/${this.graphVersion}/${config.pageId}/photos`;
+                const uploadRes = await axios.post(uploadUrl, null, {
+                    params: {
+                        url: imageUrl || 'https://via.placeholder.com/1080x1920?text=Bharat+Properties',
+                        published: false,
+                        access_token: config.pageAccessToken
+                    }
+                });
+                
+                // Step 2: Publish as Story
+                url = `${this.graphBase}/${this.graphVersion}/${config.pageId}/photo_stories`;
+                params.photo_id = uploadRes.data.id;
+            } else if (format === 'reel') {
+                // REELS (Requires Video, fallback to generic video reels endpoint)
+                // Note: Direct Reel publishing from Image is restricted, returning helpful error
+                throw new Error('Facebook Reels require a video file. Please use the Instagram platform for image-based Reels/Stories or upload a .mp4 asset.');
+            } else {
+                // STANDARD FEED POST
+                url = `${this.graphBase}/${this.graphVersion}/${config.pageId}/photos`;
+                params.url = imageUrl || 'https://via.placeholder.com/800x600?text=Bharat+Properties';
+                params.caption = text;
+            }
+
+            const { data } = await axios.post(url, null, { params });
             return { success: true, postId: data.id };
         } catch (err) {
-            console.error('[FacebookService] Page post fatal error:', err.response?.data || err.message);
-            throw err;
+            this._handleApiError(err, 'Facebook');
         }
     }
 
     /**
-     * Post Text + Image to Instagram Business Account
+     * Post to Instagram via Graph API (Post, Story, or Reel)
+     * @param {string} text 
+     * @param {string} imageUrl 
+     * @param {string} format 'post' | 'story' | 'reel'
      */
-    async postToInstagram(text, imageUrl) {
+    async postToInstagram(text, imageUrl, format = 'post') {
         const config = await this._getConfig();
+        
         if (!config.pageAccessToken || !config.igUserId) {
-             throw new Error('Instagram credentials missing (Page Access Token or IG User ID)');
+            throw new Error('Instagram Business ID or Page Token missing.');
         }
 
         try {
-            console.log(`[FacebookService] Creating IG Media Container for: ${imageUrl}`);
+            if (imageUrl && (imageUrl.includes('localhost') || imageUrl.includes('127.0.0.1'))) {
+                throw new Error('Cannot upload local image to Instagram. Use a public image URL.');
+            }
+
+            const mediaUrl = imageUrl || 'https://via.placeholder.com/1080x1920?text=Bharat+Properties';
+
             // 1. Create Media Container
             const containerUrl = `${this.graphBase}/${this.graphVersion}/${config.igUserId}/media`;
-            const containerRes = await axios.post(containerUrl, null, {
-                params: {
-                    image_url: imageUrl,
-                    caption: text,
-                    access_token: config.pageAccessToken
-                }
-            });
+            const containerParams = {
+                access_token: config.pageAccessToken,
+                caption: format === 'story' ? undefined : text // Stories don't have captions in the same way
+            };
 
+            if (format === 'story') {
+                containerParams.image_url = mediaUrl;
+                containerParams.media_type = 'STORIES';
+            } else if (format === 'reel') {
+                // If its an image, IG allows creating a Reel from it sometimes, but officially needs video_url
+                containerParams.image_url = mediaUrl;
+                containerParams.media_type = 'REELS'; 
+            } else {
+                containerParams.image_url = mediaUrl;
+            }
+
+            const containerRes = await axios.post(containerUrl, null, { params: containerParams });
             const creationId = containerRes.data.id;
-            console.log(`[FacebookService] IG Container Created: ${creationId}. Polling status...`);
 
-            // 2. Poll for status (Simple wait for now, better to actually check status endpoint)
-            // Typically takes a few seconds. For brevity/simplicity in this step, we wait then publish.
-            await new Promise(resolve => setTimeout(resolve, 5000));
-
-            // 3. Publish Media
+            // 2. Publish Media
             const publishUrl = `${this.graphBase}/${this.graphVersion}/${config.igUserId}/media_publish`;
             const publishRes = await axios.post(publishUrl, null, {
                 params: {
@@ -122,11 +168,27 @@ class FacebookService {
                 }
             });
 
-            return { success: true, igMediaId: publishRes.data.id };
+            return { success: true, postId: publishRes.data.id };
         } catch (err) {
-            console.error('[FacebookService] Instagram post fatal error:', err.response?.data || err.message);
-            throw err;
+            this._handleApiError(err, 'Instagram');
         }
+    }
+
+    /**
+     * Professional error transformer to handle deprecated permissions (publish_actions)
+     */
+    _handleApiError(err, platform) {
+        const apiError = err.response?.data?.error?.message || err.message;
+        console.error(`[FacebookService] ${platform} error:`, apiError);
+
+        if (apiError.includes('publish_actions')) {
+            throw new Error(`[Meta Permission Fix] Your App is requesting deprecated "publish_actions". Please update your Meta App to use "pages_manage_posts" instead.`);
+        }
+        if (apiError.includes('permission') || apiError.includes('access')) {
+            throw new Error(`[Permission Required] Please verify your Page Token has "pages_manage_posts" and "instagram_content_publish" enabled in the Meta Developer Portal.`);
+        }
+        
+        throw new Error(apiError);
     }
 
     /**

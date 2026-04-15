@@ -3510,6 +3510,17 @@ export default function MarketingOverviewPage() {
           }}
         />
       )}
+
+      {/* ── Real Social Post Modal ── */}
+      <SocialPostModal
+        isOpen={isQuickPostModalOpen}
+        onClose={() => setIsQuickPostModalOpen(false)}
+        initialData={{
+          title: "New Update from Bharat Properties",
+          description: "Excited to share our latest listings with you all! Check out these exclusive opportunities in Kurukshetra.",
+          location: "Kurukshetra, Haryana"
+        }}
+      />
     </div>
   );
 }

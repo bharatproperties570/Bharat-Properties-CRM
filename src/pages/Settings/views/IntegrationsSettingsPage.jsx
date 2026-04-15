@@ -280,6 +280,7 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                         'Go to Meta Developer Console.',
                         'Create/Select App and enable "Messenger" & "Webhooks".',
                         'Generate a **Page Access Token** (Long-lived recommended).',
+                        '**CRITICAL**: Enable "pages_manage_posts" and "pages_read_engagement".',
                         'Step 1: Input Page ID and Access Token below.',
                         'Step 2: Set "Verify Token" and configure Webhook URL in Meta Console.',
                         'Step 3: Subscribe to "leadgen" and "messages" fields.'
@@ -298,8 +299,8 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                     steps: [
                         'Convert your Instagram to a Business Account.',
                         'Link it to your verified Facebook Page.',
-                        'Get your **Instagram Business User ID** from Meta Suite.',
-                        'Enable "instagram_basic" and "instagram_manage_comments" permissions.',
+                        'Enable **"instagram_basic"** and **"instagram_content_publish"**.',
+                        'Required for Stories/Reels: **"pages_read_engagement"** (Page Token).',
                         'Configure Webhook URL and Verify Token in Meta Console.'
                     ],
                     showWebhook: true,
