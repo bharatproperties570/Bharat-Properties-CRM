@@ -3,15 +3,26 @@ import Lookup from "../models/Lookup.js";
 export const getLookups = async (req, res) => {
     try {
         const { lookup_type, parent_lookup_id } = req.query;
+        console.log(`[LOOKUP_FETCH] Request received for type: ${lookup_type}${parent_lookup_id ? ' | Parent: ' + parent_lookup_id : ''}`);
 
         const query = {};
-        if (lookup_type) query.lookup_type = { $regex: new RegExp(`^${lookup_type}$`, 'i') };
+        if (lookup_type) {
+            // Robust matching: Try exact match first, then normalized match (ignoring spaces and case)
+            // This handles cases like "Unit Type" vs "UnitType"
+            const normalizedType = lookup_type.replace(/\s+/g, '');
+            query.$or = [
+                { lookup_type: { $regex: new RegExp(`^${lookup_type}$`, 'i') } },
+                { lookup_type: { $regex: new RegExp(`^${normalizedType}$`, 'i') } },
+                { lookup_type: { $regex: new RegExp(`^${lookup_type.split('').join('\\s*')}$`, 'i') } }
+            ];
+        }
+
         if (parent_lookup_id && parent_lookup_id !== "null" && parent_lookup_id !== "undefined") {
             // Only add to query if it's a valid hex string for ObjectId
             if (/^[0-9a-fA-F]{24}$/.test(parent_lookup_id)) {
                 query.parent_lookup_id = parent_lookup_id;
             } else {
-                // Return empty if invalid ID provided to prevent 500
+                console.warn(`[LOOKUP_FETCH] Invalid parent_lookup_id provided: ${parent_lookup_id}`);
                 return res.json({ status: "success", data: [] });
             }
         } else if (parent_lookup_id === "null") {
@@ -22,8 +33,10 @@ export const getLookups = async (req, res) => {
             .sort({ order: 1, lookup_value: 1 })
             .lean();
 
+        console.log(`[LOOKUP_FETCH] Success: Found ${lookups.length} records for ${lookup_type}`);
         res.json({ status: "success", data: lookups });
     } catch (error) {
+        console.error(`[LOOKUP_FETCH] Error fetching lookups for ${lookup_type}:`, error);
         res.status(500).json({ status: "error", message: error.message });
     }
 };

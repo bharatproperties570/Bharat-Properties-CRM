@@ -1252,38 +1252,63 @@ export const PropertyConfigProvider = ({ children }) => {
             }
 
             const newLookups = {};
+            const helperGet = (obj, key) => {
+                const normalized = key.toLowerCase().replace(/\s+/g, '');
+                const foundKey = Object.keys(obj).find(k => k.toLowerCase() === normalized);
+                return foundKey ? obj[foundKey] : undefined;
+            };
+
             allLookups.forEach(item => {
                 let type = item.lookup_type || item.type || '';
-                // Normalize keys by removing spaces so 'Unit Type' and 'UnitType' merge
-                type = type.replace(/\s+/g, '');
+                // Normalize keys by removing spaces and preserving PascalCase as a hint, 
+                // but we'll use helperGet for robust access.
+                const key = type.replace(/\s+/g, '');
 
-                if (!newLookups[type]) newLookups[type] = [];
-                newLookups[type].push(item);
+                if (!newLookups[key]) newLookups[key] = [];
+                newLookups[key].push(item);
             });
 
+            console.log('[PropertyConfigContext] Grouped Lookups:', Object.keys(newLookups));
             setLookups(newLookups);
 
             // Populate masterFields from Lookups (Facing, Direction, etc.)
+            // We use Case-Insensitive keys for robustness
+            const getValues = (type) => helperGet(newLookups, type)?.map(l => l.lookup_value) || [];
+
             setMasterFields(prev => ({
                 ...prev,
-                facings: newLookups['Facing']?.map(l => l.lookup_value) || [],
-                directions: newLookups['Direction']?.map(l => l.lookup_value) || [],
-                roadWidths: newLookups['RoadWidth']?.map(l => l.lookup_value) || [],
-                unitTypes: newLookups['UnitType']?.map(l => l.lookup_value) || [],
-                titles: newLookups['Title'] || [],
-                relations: newLookups['Relation']?.map(l => ({
+                facings: getValues('Facing'),
+                directions: getValues('Direction'),
+                roadWidths: getValues('RoadWidth'),
+                unitTypes: getValues('UnitType'),
+                titles: helperGet(newLookups, 'Title') || [],
+                relations: helperGet(newLookups, 'Relation')?.map(l => ({
                     id: l._id,
                     name: l.lookup_value
                 })) || []
             }));
 
-            // Reconstruct propertyConfig from Lookups (for compatibility)
-            // This is a complex mapping, we'll implement it if needed, 
-            // but for now let's focus on providing the lookup lists.
+            // Sync Lead Master Fields from Lookups (Funding, Timeline, Furnishing, Transaction)
+            // This ensures "Add Lead" form is ALWAYS up to date with DB Lookups
+            setLeadMasterFields(prev => {
+                const transactionTypes = getValues('TransactionType');
+                const fundingTypes = getValues('FundingType');
+                const furnishingStatuses = getValues('FurnishingStatus');
+                const timelines = getValues('Timeline');
+
+                return {
+                    ...prev,
+                    transactionTypes: transactionTypes.length > 0 ? transactionTypes : prev.transactionTypes,
+                    fundingTypes: fundingTypes.length > 0 ? fundingTypes : prev.fundingTypes,
+                    furnishingStatuses: furnishingStatuses.length > 0 ? furnishingStatuses : prev.furnishingStatuses,
+                    timelines: timelines.length > 0 ? timelines : prev.timelines
+                };
+            });
 
             // Map Sizes for refreshSizes compatibility
-            if (newLookups['Size']) {
-                const normalizedSizes = newLookups['Size'].map(l => ({
+            const sizesList = helperGet(newLookups, 'Size');
+            if (sizesList) {
+                const normalizedSizes = sizesList.map(l => ({
                     id: l._id,
                     name: l.lookup_value,
                     ...l.metadata
@@ -1296,7 +1321,7 @@ export const PropertyConfigProvider = ({ children }) => {
             console.error('[PropertyConfigContext] Failed to refresh lookups:', error);
             return {};
         }
-    }, [setMasterFields, setSizes]);
+    }, [setMasterFields, setSizes, setLeadMasterFields]);
 
     // Load all configurations from backend on mount
     useEffect(() => {

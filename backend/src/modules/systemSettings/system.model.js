@@ -10,7 +10,7 @@ const SystemSettingSchema = new mongoose.Schema({
     },
     category: {
         type: String,
-        enum: ['email', 'messaging', 'voice', 'integration', 'general', 'security', 'property', 'sales_config'],
+        enum: ['email', 'messaging', 'voice', 'integration', 'general', 'security', 'property', 'sales_config', 'crm_config'],
         required: true
     },
     value: {
