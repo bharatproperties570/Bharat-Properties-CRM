@@ -23,7 +23,8 @@ import { STAGE_PIPELINE, getStageProbability } from '../../utils/stageEngine';
 import { renderValue } from "../../utils/renderUtils";
 import PipelineDashboard from '../../components/PipelineDashboard';
 import useDebounce from '../../hooks/useDebounce';
-import usePermissions, { PermissionGate } from '../../hooks/usePermissions';
+import { PermissionGate } from '../../hooks/usePermissions';
+import SocialPostModal from '../../components/SocialPostModal';
 
 // Helper: colored stage chip for deals
 const DealStageChip = ({ stage }) => {
@@ -70,6 +71,8 @@ function DealsPage({ onNavigate, onAddActivity }) {
     const [currentPage, setCurrentPage] = useState(1);
     const [recordsPerPage, setRecordsPerPage] = useState(25);
     const [refreshTrigger, setRefreshTrigger] = useState(0);
+    const [isSocialModalOpen, setIsSocialModalOpen] = useState(false);
+    const [selectedSocialData, setSelectedSocialData] = useState(null);
 
     // ── STAGE ENGINE SYNC ──────────────────────────────────────────
     useEffect(() => {
@@ -707,6 +710,17 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                             setEditingDeal(d);
                                             if (type === 'quote') setIsQuoteModalOpen(true);
                                             if (type === 'offer') setIsOfferModalOpen(true);
+                                            if (type === 'share') {
+                                                setSelectedSocialData({
+                                                    id: d._id,
+                                                    unitNo: d.unitNo,
+                                                    projectName: d.projectName,
+                                                    price: d.price,
+                                                    location: getLookupValue('Locality', d.location) || getLookupValue('Area', d.location) || getLookupValue('Location', d.location),
+                                                    images: d.propertyImages || []
+                                                });
+                                                setIsSocialModalOpen(true);
+                                            }
                                             setActiveRowMenu(null);
                                         }}
                                     />
@@ -931,6 +945,19 @@ function DealsPage({ onNavigate, onAddActivity }) {
                     />
                 )
             }
+
+            {isSocialModalOpen && (
+                <SocialPostModal
+                    isOpen={isSocialModalOpen}
+                    onClose={() => setIsSocialModalOpen(false)}
+                    initialData={{
+                        id: selectedSocialData?.id,
+                        type: 'Deal',
+                        text: `🏡 Fresh Deal Alert: ${selectedSocialData?.unitNo || 'New Property'} at ${selectedSocialData?.projectName || 'Prime Location'}.\n\n✨ Unit: ${selectedSocialData?.unitNo}\n📍 Location: ${selectedSocialData?.location}\n💰 Expected: ₹${selectedSocialData?.price?.toLocaleString('en-IN')}\n\nInterested? Contact us for exclusive details! #BharatProperties #RealEstate`,
+                        imageUrl: selectedSocialData?.images?.[0] || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?auto=format&fit=crop&q=80&w=1000'
+                    }}
+                />
+            )}
 
             <footer className="summary-footer" style={{ height: '55px', background: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', marginTop: 'auto' }}>
                 <div style={{ display: 'flex', gap: '20px', alignItems: 'center', padding: '0 2rem', width: '100%', overflowX: 'auto' }}>
@@ -1202,6 +1229,13 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
                             className="hover:bg-slate-50"
                         >
                             <i className="fas fa-handshake text-indigo-500" style={{ width: '14px' }}></i> Offer
+                        </button>
+                        <button
+                            onClick={() => onAction('share', deal)}
+                            style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.75rem', fontWeight: 700, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                            className="hover:bg-slate-50"
+                        >
+                            <i className="fas fa-share-alt" style={{ width: '14px', color: '#10b981' }}></i> Share
                         </button>
                     </div>
                 )}

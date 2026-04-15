@@ -217,7 +217,10 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onEditProject }) => 
 
                  <div style={{ display: 'flex', gap: '10px' }}>
                     <ActionButton icon="edit" label="Edit" onClick={() => onEditProject && onEditProject(project)} />
-                    <ActionButton icon="share-alt" label="Share" onClick={() => setIsSocialModalOpen(true)} />
+                    <ActionButton icon="share-alt" label="Share" onClick={(e) => {
+                        if (e && e.stopPropagation) e.stopPropagation();
+                        setIsSocialModalOpen(true);
+                    }} />
                     <ActionButton icon="plus-square" label="Add Block" />
                     <ActionButton icon="plus" label="Inventory" primary />
                 </div>

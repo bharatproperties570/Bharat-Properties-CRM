@@ -734,7 +734,7 @@ body {
 .list-item.inventory-list-grid,
 .list-header.inventory-list-grid {
     display: grid;
-    grid-template-columns: 40px minmax(160px, 1.1fr) minmax(300px, 1.3fr) minmax(160px, 0.7fr) minmax(150px, 0.8fr) minmax(140px, 0.8fr) 280px minmax(150px, 1fr);
+    grid-template-columns: 40px minmax(160px, 1.1fr) minmax(300px, 1.3fr) minmax(160px, 0.7fr) minmax(150px, 0.8fr) minmax(140px, 0.8fr) 280px minmax(150px, 1fr) 80px;
     align-items: center;
     gap: 1.8rem;
 }

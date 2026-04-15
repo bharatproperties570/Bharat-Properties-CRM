@@ -214,8 +214,25 @@ const DealDetailHeader = ({
                         <i className="fas fa-envelope" style={{ color: '#8b5cf6' }}></i> EMAIL
                     </button>
                     <button
-                        onClick={handleSocialClick}
-                        style={{ border: 'none', background: 'rgba(241, 245, 249, 0.8)', color: '#475569', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                        onClick={(e) => {
+                            if (e && e.stopPropagation) e.stopPropagation();
+                            handleSocialClick(e);
+                        }}
+                        style={{ 
+                            border: 'none', 
+                            background: 'rgba(241, 245, 249, 0.8)', 
+                            color: '#475569', 
+                            padding: '8px 14px', 
+                            borderRadius: '10px', 
+                            fontSize: '0.75rem', 
+                            fontWeight: 800, 
+                            cursor: 'pointer', 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: '8px',
+                            transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
+                        }}
+                        className="hover:bg-amber-50 hover:text-amber-700 hover:shadow-sm active:scale-95"
                     >
                         <i className="fas fa-share-alt" style={{ color: '#f59e0b' }}></i> SHARE
                     </button>

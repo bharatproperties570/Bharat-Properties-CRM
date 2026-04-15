@@ -15,6 +15,7 @@ import AddBookingModal from '../../components/AddBookingModal';
 import AddInventoryDocumentModal from '../../components/AddInventoryDocumentModal';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import { renderValue } from '../../utils/renderUtils';
+import { formatIndianCurrency } from '../../utils/numberToWords';
 import { getInitials, fixDriveUrl, getYoutubeId } from '../../utils/helpers';
 
 // Inventory Components
@@ -114,7 +115,8 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
         }
     };
     
-    const handleSocialClick = () => {
+    const handleSocialClick = (e) => {
+        if (e && e.stopPropagation) e.stopPropagation();
         setIsSocialModalOpen(true);
     };
 
@@ -678,72 +680,88 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                 data={mediaViewer.data} 
             />
 
-            <AddOwnerModal 
-                isOpen={isOwnerModalOpen}
-                onClose={() => setIsOwnerModalOpen(false)}
-                currentOwners={inventory ? [
-                    ...(inventory.owners || []).map(o => ({ id: o._id, name: o.name, mobile: o.phones?.[0]?.number || o.mobile, role: 'Property Owner' })),
-                    ...(inventory.associates || []).map(a => ({ id: a.contact?._id, name: a.contact?.name || a.name, mobile: a.contact?.phones?.[0]?.number || a.mobile, role: 'Associate', relationship: a.relationship }))
-                ] : []}
-                onSave={async (newOwners) => {
-                    if (!inventory || !inventory._id) {
-                        toast.error("Please link an inventory to this deal first to manage owner group.");
-                        return;
-                    }
-                    const inventoryId = inventory._id || inventory.id;
-                    const currentOwnersIds = (inventory.owners || []).map(o => o._id || o.id);
-                    const currentAssociatesIds = (inventory.associates || []).map(a => a.contact?._id || a.contact?.id || a.id);
-                    const allCurrentIds = [...currentOwnersIds, ...currentAssociatesIds];
-
-                    const historyEntries = [];
-                    
-                    // Track additions
-                    newOwners.forEach(no => {
-                        if (!allCurrentIds.includes(no.id)) {
-                            historyEntries.push({
-                                contactName: no.name,
-                                contactMobile: no.mobile,
-                                contactId: no.id,
-                                role: no.role,
-                                author: user?._id || null,
-                                source: no.source || 'Update data',
-                                date: no.date || new Date().toISOString(),
-                                type: 'Added'
-                            });
+            {isOwnerModalOpen && (
+                <AddOwnerModal 
+                    isOpen={isOwnerModalOpen}
+                    onClose={() => setIsOwnerModalOpen(false)}
+                    currentOwners={inventory ? [
+                        ...(inventory.owners || []).map(o => ({ id: o._id, name: o.name, mobile: o.phones?.[0]?.number || o.mobile, role: 'Property Owner' })),
+                        ...(inventory.associates || []).map(a => ({ id: a.contact?._id, name: a.contact?.name || a.name, mobile: a.contact?.phones?.[0]?.number || a.mobile, role: 'Associate', relationship: a.relationship }))
+                    ] : []}
+                    onSave={async (newOwners) => {
+                        if (!inventory || !inventory._id) {
+                            toast.error("Please link an inventory to this deal first to manage owner group.");
+                            return;
                         }
-                    });
+                        const inventoryId = inventory._id || inventory.id;
+                        const currentOwnersIds = (inventory.owners || []).map(o => o._id || o.id);
+                        const currentAssociatesIds = (inventory.associates || []).map(a => a.contact?._id || a.contact?.id || a.id);
+                        const allCurrentIds = [...currentOwnersIds, ...currentAssociatesIds];
 
-                    // Track removals
-                    const newOwnersIds = newOwners.map(no => no.id);
-                    [...(inventory.owners || []), ...(inventory.associates || [])].forEach(old => {
-                        const oldId = old._id || old.id || (old.contact?._id || old.contact?.id);
-                        if (oldId && !newOwnersIds.includes(oldId)) {
-                            historyEntries.push({
-                                contactName: old.name || old.contact?.name || 'Unknown',
-                                contactMobile: old.mobile || old.contact?.mobile || (old.contact?.phones?.[0]?.number) || '',
-                                contactId: oldId,
-                                role: old.role || (old.contact ? 'Associate' : 'Property Owner'),
-                                author: user?._id || null,
-                                source: 'Removed from current profile',
-                                date: new Date().toISOString(),
-                                type: 'Removed'
-                            });
+                        const historyEntries = [];
+                        
+                        // Track additions
+                        newOwners.forEach(no => {
+                            if (!allCurrentIds.includes(no.id)) {
+                                historyEntries.push({
+                                    contactName: no.name,
+                                    contactMobile: no.mobile,
+                                    contactId: no.id,
+                                    role: no.role,
+                                    author: user?._id || null,
+                                    source: no.source || 'Update data',
+                                    date: no.date || new Date().toISOString(),
+                                    type: 'Added'
+                                });
+                            }
+                        });
+
+                        // Track removals
+                        const newOwnersIds = newOwners.map(no => no.id);
+                        [...(inventory.owners || []), ...(inventory.associates || [])].forEach(old => {
+                            const oldId = old._id || old.id || (old.contact?._id || old.contact?.id);
+                            if (oldId && !newOwnersIds.includes(oldId)) {
+                                historyEntries.push({
+                                    contactName: old.name || old.contact?.name || 'Unknown',
+                                    contactMobile: old.mobile || old.contact?.mobile || (old.contact?.phones?.[0]?.number) || '',
+                                    contactId: oldId,
+                                    role: old.role || (old.contact ? 'Associate' : 'Property Owner'),
+                                    author: user?._id || null,
+                                    source: 'Removed from current profile',
+                                    date: new Date().toISOString(),
+                                    type: 'Removed'
+                                });
+                            }
+                        });
+
+                        const updates = {
+                            owners: newOwners.filter(o => o.role === 'Property Owner').map(o => o.id),
+                            associates: newOwners.filter(o => o.role === 'Associate').map(o => ({ contact: o.id, relationship: o.relationship })),
+                            ownerHistory: [...(inventory.ownerHistory || []), ...historyEntries]
+                        };
+
+                        const res = await api.put(`inventory/${inventoryId}`, updates);
+                        if (res.data?.success) {
+                            toast.success("Contacts updated");
+                            fetchDealDetails();
+                            setIsOwnerModalOpen(false);
                         }
-                    });
+                    }}
+                />
+            )}
 
-                    const updates = {
-                        owners: newOwners.filter(o => o.role === 'Property Owner').map(o => o.id),
-                        associates: newOwners.filter(o => o.role === 'Associate').map(o => ({ contact: o.id, relationship: o.relationship })),
-                        ownerHistory: [...(inventory.ownerHistory || []), ...historyEntries]
-                    };
-
-                    const res = await api.put(`inventory/${inventoryId}`, updates);
-                    if (res.data?.success) {
-                        toast.success("Contacts updated");
-                        fetchDealDetails();
-                        setIsOwnerModalOpen(false);
-                    }
-                }}
+            <SocialPostModal
+                isOpen={isSocialModalOpen}
+                onClose={() => setIsSocialModalOpen(false)}
+                initialData={deal ? {
+                    id: deal._id,
+                    name: `${deal.projectName || 'Premium Property'} - ${deal.unitNo}`,
+                    title: `${deal.unitNo} | ${deal.projectName || 'Exclusive Listing'}`,
+                    location: deal.location || deal.address?.location || inventory?.address?.location || 'Prime Location',
+                    price: deal.price ? formatIndianCurrency(deal.price) : (inventory?.price ? formatIndianCurrency(inventory.price) : "Contact for Price"),
+                    description: deal.notes || inventory?.description || `Excited to showcase this high-potential listing at ${deal.projectName || 'our latest project'}. View details of Unit ${deal.unitNo} now!`,
+                    imageUrl: deal.primaryImage || (inventory?.media?.[0]?.url) || (inventory?.images?.[0]) || project?.primaryImage
+                } : null}
             />
         </div>
     );

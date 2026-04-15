@@ -29,6 +29,7 @@ import ManageTagsModal from '../../components/ManageTagsModal';
 import InventoryFeedbackModal from '../../components/InventoryFeedbackModal';
 import InventoryFilterPanel from './components/InventoryFilterPanel';
 import AddDealModal from '../../components/AddDealModal';
+import SocialPostModal from '../../components/SocialPostModal';
 
 export default function InventoryPage({ onNavigate, onAddActivity }) {
     const { teams, users } = useUserContext();
@@ -72,6 +73,10 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
     const [isAddDealModalOpen, setIsAddDealModalOpen] = useState(false);
     const [selectedDealData, setSelectedDealData] = useState(null);
     const [modalData, setModalData] = useState([]);
+    
+    // -- Social Sharing State --
+    const [isSocialModalOpen, setIsSocialModalOpen] = useState(false);
+    const [socialMediaData, setSocialMediaData] = useState(null);
 
     // -- Derived Handlers --
     const getTeamName = useCallback((tv) => {
@@ -141,6 +146,22 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
 
     const handleSelectAll = (e) => {
         setSelectedIds(e.target.checked ? inventoryItems.map(i => i._id) : []);
+    };
+
+    const handleRowAction = (type, item) => {
+        if (type === 'share') {
+            setSocialMediaData({
+                id: item._id,
+                unitNo: item.unitNo,
+                projectName: item.projectName,
+                location: renderValue(item.address?.locality || item.address?.area),
+                price: item.price || 'Market Rate',
+                imageUrl: item.propertyImages?.[0]
+            });
+            setIsSocialModalOpen(true);
+        } else if (type === 'match') {
+            onNavigate('inventory-matching', item._id);
+        }
     };
 
     return (
@@ -220,6 +241,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                 onNavigate={onNavigate}
                                 getUserName={getUserName}
                                 getTeamName={getTeamName}
+                                onAction={handleRowAction}
                             />
                         </>
                     ) : (
@@ -305,6 +327,19 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                 onClose={() => setIsAddDealModalOpen(false)}
                 initialData={selectedDealData}
             />
+
+            {isSocialModalOpen && (
+                <SocialPostModal
+                    isOpen={isSocialModalOpen}
+                    onClose={() => setIsSocialModalOpen(false)}
+                    initialData={{
+                        id: socialMediaData?.id,
+                        type: 'Inventory',
+                        text: `✨ Exclusive Inventory Spotlight ✨\n\nProperty: ${socialMediaData?.unitNo || 'Prime Unit'} at ${socialMediaData?.projectName || 'Prime Project'}\n📍 Location: ${socialMediaData?.location}\n💎 Status: Ready for Viewing\n\nDirect deal with verified property. DM for more details or to schedule a site visit! #BharatProperties #PremiumHomes #RealEstateIndia`,
+                        imageUrl: socialMediaData?.imageUrl || 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&q=80&w=1000'
+                    }}
+                />
+            )}
 
             <ComposeEmailModal 
                 isOpen={isEmailModalOpen}

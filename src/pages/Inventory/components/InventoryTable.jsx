@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { renderValue } from '../../../utils/renderUtils';
 import { getInitials } from '../../../utils/helpers';
 
@@ -10,8 +10,10 @@ const InventoryTable = ({
     getLookupValue,
     onNavigate,
     getUserName,
-    getTeamName
+    getTeamName,
+    onAction
 }) => {
+    const [activeRowMenu, setActiveRowMenu] = useState(null);
     const isAllSelected = inventoryItems.length > 0 && selectedIds.length === inventoryItems.length;
 
     return (
@@ -45,6 +47,7 @@ const InventoryTable = ({
                 <div>Associate Contact</div>
                 <div>Status</div>
                 <div style={{ textAlign: 'right', paddingRight: '1rem' }}>Assignment</div>
+                <div style={{ textAlign: 'center' }}>Actions</div>
             </div>
 
             {/* Grid Body */}
@@ -293,6 +296,67 @@ const InventoryTable = ({
                                     <i className="far fa-clock" style={{ fontSize: '0.55rem' }}></i>
                                     {new Date(item.updatedAt || item.createdAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
                                 </div>
+                            </div>
+
+                            {/* Col 9: Actions */}
+                            <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <button
+                                    className="action-menu-trigger"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setActiveRowMenu(activeRowMenu === item._id ? null : item._id);
+                                    }}
+                                    style={{
+                                        background: 'none',
+                                        border: '1px solid #e2e8f0',
+                                        borderRadius: '8px',
+                                        width: '32px',
+                                        height: '32px',
+                                        cursor: 'pointer',
+                                        color: '#64748b',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        transition: 'all 0.2s'
+                                    }}
+                                >
+                                    <i className="fas fa-ellipsis-v"></i>
+                                </button>
+
+                                {activeRowMenu === item._id && (
+                                    <div style={{
+                                        position: 'absolute',
+                                        right: '40px',
+                                        bottom: '0',
+                                        background: '#fff',
+                                        border: '1px solid #e2e8f0',
+                                        borderRadius: '12px',
+                                        boxShadow: '0 10px 25px rgba(0,0,0,0.1)',
+                                        zIndex: 100,
+                                        minWidth: '160px',
+                                        padding: '8px 0',
+                                        overflow: 'hidden'
+                                    }}>
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); onNavigate('inventory-detail', item._id); }}
+                                            style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.75rem', fontWeight: 700, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                                        >
+                                            <i className="fas fa-external-link-alt text-blue-500" style={{ width: '14px' }}></i> View Details
+                                        </button>
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); onAction && onAction('share', item); setActiveRowMenu(null); }}
+                                            style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.75rem', fontWeight: 700, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                                        >
+                                            <i className="fas fa-share-alt" style={{ width: '14px', color: '#10b981' }}></i> Share to Social
+                                        </button>
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); onAction && onAction('match', item); setActiveRowMenu(null); }}
+                                            style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.75rem', fontWeight: 700, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                                        >
+                                            <i className="fas fa-sync-alt text-indigo-500" style={{ width: '14px' }}></i> Find Matches
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     );
