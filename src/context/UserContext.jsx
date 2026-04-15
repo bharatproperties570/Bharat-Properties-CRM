@@ -21,6 +21,16 @@ export const UserProvider = ({ children }) => {
     const [token, setToken] = useState(localStorage.getItem('authToken'));
     const [currentUser, setCurrentUser] = useState(null);
 
+    const processUserWithAdminFlag = (user) => {
+        if (!user) return null;
+        const roleName = user.role?.name || '';
+        const isAdmin = user.dataScope === 'all' || 
+                        user.email === 'bharatproperties570@gmail.com' ||
+                        roleName.toLowerCase() === 'admin' ||
+                        roleName.toLowerCase() === 'super admin';
+        return { ...user, isAdmin };
+    };
+
     // Fetch initial data
     const fetchAllData = useCallback(async () => {
         if (!token) {
@@ -29,6 +39,14 @@ export const UserProvider = ({ children }) => {
         }
         setLoading(true);
         try {
+            // Fetch current user profile first if not set
+            if (!currentUser) {
+                const meRes = await authAPI.getMe();
+                if (meRes.success) {
+                    setCurrentUser(processUserWithAdminFlag(meRes.user));
+                }
+            }
+
             const usersRes = await usersAPI.getAll();
             if (usersRes.success) {
                 const activeUsers = (usersRes.data || []).filter(u => u.status === 'active' || u.isActive);
@@ -60,7 +78,7 @@ export const UserProvider = ({ children }) => {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [token, currentUser]);
 
     useEffect(() => {
         fetchAllData();
@@ -75,7 +93,7 @@ export const UserProvider = ({ children }) => {
                 if (newToken) {
                     localStorage.setItem('authToken', newToken);
                     setToken(newToken);
-                    setCurrentUser(response.data?.user || response.user || null);
+                    setCurrentUser(processUserWithAdminFlag(response.data?.user || response.user));
                     fetchAllData();
                     return { success: true };
                 }

@@ -183,3 +183,12 @@ export const resetPassword = async (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 };
+
+export const getMe = async (req, res) => {
+    try {
+        // req.user is already populated by the authenticate middleware
+        res.json({ success: true, user: { id: req.user._id, name: req.user.fullName || req.user.username, role: req.user.role, dataScope: req.user.dataScope, email: req.user.email } });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};

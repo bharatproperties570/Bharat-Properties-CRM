@@ -468,6 +468,7 @@ export const intakeAPI = {
 export const authAPI = {
     login: (credentials) => apiRequest('/auth/login', { method: 'POST', body: JSON.stringify(credentials) }),
     register: (data) => apiRequest('/auth/register', { method: 'POST', body: JSON.stringify(data) }),
+    getMe: () => apiRequest('/auth/me', { method: 'GET' }),
 };
 
 // AI Agents API
