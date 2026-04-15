@@ -125,7 +125,10 @@ const UserCard = ({ name, team, initials, isAdmin, count, hasAddIcon, isHighligh
 );
 
 const UserHierarchy = ({ showPermissions, setShowPermissions, onAssignUser, users, onAddUser, currentUser }) => {
-    const isAdmin = currentUser?.dataScope === 'all' || currentUser?.email === 'bharatproperties570@gmail.com';
+    const isAdmin = currentUser?.dataScope === 'all' || 
+                    currentUser?.email === 'bharatproperties570@gmail.com' ||
+                    currentUser?.role?.name === 'Admin' ||
+                    currentUser?.role?.name === 'Super Admin';
     const [permissionModule, setPermissionModule] = useState('leads');
     const [showModuleDropdown, setShowModuleDropdown] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
@@ -329,7 +332,10 @@ const UserHierarchy = ({ showPermissions, setShowPermissions, onAssignUser, user
 };
 
 const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, onEditUser, onResetPassword, onToggleStatus, currentUser }) => {
-    const isAdmin = currentUser?.dataScope === 'all' || currentUser?.email === 'bharatproperties570@gmail.com';
+    const isAdmin = currentUser?.dataScope === 'all' || 
+                    currentUser?.email === 'bharatproperties570@gmail.com' ||
+                    currentUser?.role?.name === 'Admin' ||
+                    currentUser?.role?.name === 'Super Admin';
     const [openActionId, setOpenActionId] = useState(null);
     const [filterStatus, setFilterStatus] = useState('Active');
 
@@ -491,7 +497,10 @@ const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, o
 };
 
 const RolesList = ({ onNewRole, roles, onDeleteRole, currentUser }) => {
-    const isAdmin = currentUser?.dataScope === 'all' || currentUser?.email === 'bharatproperties570@gmail.com';
+    const isAdmin = currentUser?.dataScope === 'all' || 
+                    currentUser?.email === 'bharatproperties570@gmail.com' ||
+                    currentUser?.role?.name === 'Admin' ||
+                    currentUser?.role?.name === 'Super Admin';
     return (
         <div style={{ flex: 1, background: '#fff', padding: '32px 40px', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -553,7 +562,10 @@ const RolesList = ({ onNewRole, roles, onDeleteRole, currentUser }) => {
 };
 
 const TeamsList = ({ teams, onNewTeam, onEditTeam, onDeleteTeam, currentUser }) => {
-    const isAdmin = currentUser?.dataScope === 'all' || currentUser?.email === 'bharatproperties570@gmail.com';
+    const isAdmin = currentUser?.dataScope === 'all' || 
+                    currentUser?.email === 'bharatproperties570@gmail.com' ||
+                    currentUser?.role?.name === 'Admin' ||
+                    currentUser?.role?.name === 'Super Admin';
     return (
         <div style={{ flex: 1, background: '#fff', padding: '32px 40px', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>

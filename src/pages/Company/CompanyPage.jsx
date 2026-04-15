@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getInitials } from '../../utils/helpers';
+import { PermissionGate } from '../../hooks/usePermissions';
 import { renderValue } from '../../utils/renderUtils';
 import CompanyFilterPanel from './components/CompanyFilterPanel';
 import AssignContactModal from '../../components/AssignContactModal';
@@ -251,19 +252,21 @@ function CompanyPage({ onEdit, onNavigate }) {
                                 <div className="selection-count" style={{ marginRight: '10px', fontWeight: 600, color: 'var(--primary-color)', whiteSpace: 'nowrap' }}>
                                     {selectedCount} Selected
                                 </div>
-                                {selectedCount === 1 && (
-                                    <button
-                                        className="action-btn"
-                                        title="Edit Business"
-                                        onClick={() => {
-                                            const companyToEdit = companies.find(c => c._id === selectedIds[0]);
-                                            if (companyToEdit) onEdit(companyToEdit);
-                                        }}
-                                        style={{ color: '#10b981', borderColor: '#10b981', background: '#f0fdf4' }}
-                                    >
-                                        <i className="fas fa-edit"></i> Edit
-                                    </button>
-                                )}
+                                <PermissionGate module="companies" action="edit">
+                                    {selectedCount === 1 && (
+                                        <button
+                                            className="action-btn"
+                                            title="Edit Business"
+                                            onClick={() => {
+                                                const companyToEdit = companies.find(c => c._id === selectedIds[0]);
+                                                if (companyToEdit) onEdit(companyToEdit);
+                                            }}
+                                            style={{ color: '#10b981', borderColor: '#10b981', background: '#f0fdf4' }}
+                                        >
+                                            <i className="fas fa-edit"></i> Edit
+                                        </button>
+                                    )}
+                                </PermissionGate>
                                 <button className="action-btn" title="Export"><i className="fas fa-file-export"></i> Export</button>
                                 <button
                                     className="action-btn"
@@ -280,13 +283,15 @@ function CompanyPage({ onEdit, onNavigate }) {
                                     <i className="fas fa-tag"></i> Tag
                                 </button>
                                 <div style={{ marginLeft: 'auto' }}>
-                                    <button
-                                        className="action-btn danger"
-                                        onClick={handleDelete}
-                                        disabled={loading}
-                                    >
-                                        <i className={`fas ${loading ? 'fa-spinner fa-spin' : 'fa-trash-alt'}`}></i> Delete
-                                    </button>
+                                    <PermissionGate module="companies" action="delete">
+                                        <button
+                                            className="action-btn danger"
+                                            onClick={handleDelete}
+                                            disabled={loading}
+                                        >
+                                            <i className={`fas ${loading ? 'fa-spinner fa-spin' : 'fa-trash-alt'}`}></i> Delete
+                                        </button>
+                                    </PermissionGate>
                                 </div>
                             </div>
                         ) : (

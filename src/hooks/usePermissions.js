@@ -37,10 +37,12 @@ export const usePermissions = () => {
             };
         }
 
-        // System owner or dataScope=all → full bypass
+        // System owner, dataScope=all, or Admin/Super Admin role → full bypass
         const elevated =
             currentUser.email?.toLowerCase() === OWNER_EMAIL ||
-            currentUser.dataScope === 'all';
+            currentUser.dataScope === 'all' ||
+            currentUser.role?.name === 'Admin' ||
+            currentUser.role?.name === 'Super Admin';
 
         /**
          * canDo(module, action)
