@@ -124,11 +124,18 @@ const UserCard = ({ name, team, initials, isAdmin, count, hasAddIcon, isHighligh
     </div>
 );
 
-const UserHierarchy = ({ showPermissions, setShowPermissions, onAssignUser, users, onAddUser, currentUser }) => {
+const UserHierarchy = ({ showPermissions, setShowPermissions, onAssignUser, users, onAddUser, currentUser, roles }) => {
+    // Determine if current user is admin
+    let roleName = currentUser?.role?.name;
+    if (!roleName && typeof currentUser?.role === 'string' && roles) {
+        const roleObj = roles.find(r => r._id === currentUser.role);
+        if (roleObj) roleName = roleObj.name;
+    }
+
     const isAdmin = currentUser?.dataScope === 'all' || 
                     currentUser?.email === 'bharatproperties570@gmail.com' ||
-                    currentUser?.role?.name === 'Admin' ||
-                    currentUser?.role?.name === 'Super Admin';
+                    roleName?.toLowerCase() === 'admin' ||
+                    roleName?.toLowerCase() === 'super admin';
     const [permissionModule, setPermissionModule] = useState('leads');
     const [showModuleDropdown, setShowModuleDropdown] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
@@ -331,11 +338,18 @@ const UserHierarchy = ({ showPermissions, setShowPermissions, onAssignUser, user
     );
 };
 
-const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, onEditUser, onResetPassword, onToggleStatus, currentUser }) => {
+const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, onEditUser, onResetPassword, onToggleStatus, currentUser, roles }) => {
+    // Determine if current user is admin
+    let roleName = currentUser?.role?.name;
+    if (!roleName && typeof currentUser?.role === 'string' && roles) {
+        const roleObj = roles.find(r => r._id === currentUser.role);
+        if (roleObj) roleName = roleObj.name;
+    }
+
     const isAdmin = currentUser?.dataScope === 'all' || 
                     currentUser?.email === 'bharatproperties570@gmail.com' ||
-                    currentUser?.role?.name === 'Admin' ||
-                    currentUser?.role?.name === 'Super Admin';
+                    roleName?.toLowerCase() === 'admin' ||
+                    roleName?.toLowerCase() === 'super admin';
     const [openActionId, setOpenActionId] = useState(null);
     const [filterStatus, setFilterStatus] = useState('Active');
 
@@ -497,10 +511,17 @@ const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, o
 };
 
 const RolesList = ({ onNewRole, roles, onDeleteRole, currentUser }) => {
+    // Determine if current user is admin
+    let roleName = currentUser?.role?.name;
+    if (!roleName && typeof currentUser?.role === 'string' && roles) {
+        const roleObj = roles.find(r => r._id === currentUser.role);
+        if (roleObj) roleName = roleObj.name;
+    }
+
     const isAdmin = currentUser?.dataScope === 'all' || 
                     currentUser?.email === 'bharatproperties570@gmail.com' ||
-                    currentUser?.role?.name === 'Admin' ||
-                    currentUser?.role?.name === 'Super Admin';
+                    roleName?.toLowerCase() === 'admin' ||
+                    roleName?.toLowerCase() === 'super admin';
     return (
         <div style={{ flex: 1, background: '#fff', padding: '32px 40px', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -561,11 +582,18 @@ const RolesList = ({ onNewRole, roles, onDeleteRole, currentUser }) => {
     );
 };
 
-const TeamsList = ({ teams, onNewTeam, onEditTeam, onDeleteTeam, currentUser }) => {
+const TeamsList = ({ teams, onNewTeam, onEditTeam, onDeleteTeam, currentUser, roles }) => {
+    // Determine if current user is admin
+    let roleName = currentUser?.role?.name;
+    if (!roleName && typeof currentUser?.role === 'string' && roles) {
+        const roleObj = roles.find(r => r._id === currentUser.role);
+        if (roleObj) roleName = roleObj.name;
+    }
+
     const isAdmin = currentUser?.dataScope === 'all' || 
                     currentUser?.email === 'bharatproperties570@gmail.com' ||
-                    currentUser?.role?.name === 'Admin' ||
-                    currentUser?.role?.name === 'Super Admin';
+                    roleName?.toLowerCase() === 'admin' ||
+                    roleName?.toLowerCase() === 'super admin';
     return (
         <div style={{ flex: 1, background: '#fff', padding: '32px 40px', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -1032,6 +1060,7 @@ const SettingsPage = () => {
                                 onNewUser={() => { setEditingUser(null); setIsAddUserModalOpen(true); }}
                                 onToggleStatus={handleToggleStatus}
                                 currentUser={currentUser}
+                                roles={roles}
                             />}
                             {subTab === 'user-hierarchy' && <UserHierarchy
                                 users={users}
@@ -1040,6 +1069,7 @@ const SettingsPage = () => {
                                 onAssignUser={handleAssignMember}
                                 onAddUser={() => { setEditingUser(null); setIsAddUserModalOpen(true); }}
                                 currentUser={currentUser}
+                                roles={roles}
                             />}
                             {subTab === 'teams' && <TeamsList
                                 teams={teams}
@@ -1047,6 +1077,7 @@ const SettingsPage = () => {
                                 onEditTeam={(team) => { setEditingTeam(team); setIsCreateTeamModalOpen(true); }}
                                 onDeleteTeam={handleDeleteTeam}
                                 currentUser={currentUser}
+                                roles={roles}
                             />}
                             {subTab === 'roles' && <RolesList onNewRole={() => setIsCreateRoleModalOpen(true)} roles={roles} onDeleteRole={handleDeleteRole} currentUser={currentUser} />}
                         </>

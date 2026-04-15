@@ -42,7 +42,8 @@ export const login = async (req, res) => {
             maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
         });
 
-        res.json({ success: true, token, user: { id: user._id, name: user.fullName || user.username, role: user.role } });
+        const populatedUser = await User.findById(user._id).populate('role', 'name');
+        res.json({ success: true, token, user: { id: user._id, name: user.fullName || user.username, role: populatedUser.role } });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
