@@ -316,7 +316,7 @@ const ParsingRulesPage = ({ isEmbedded = false }) => {
                                                     <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', marginBottom: '4px' }}>
                                                         <i className="fas fa-phone-alt" style={{ color: '#22c55e', fontSize: '0.7rem' }}></i>
                                                         <span style={{ fontWeight: 600 }}>{c.mobile}</span>
-                                                        <span style={{ color: '#94a3b8' }}>({c.role})</span>
+                                                        <span style={{ color: '#94a3b8' }}>({typeof c.role === 'object' ? c.role?.name : c.role})</span>
                                                     </div>
                                                 ))}
                                             </div>

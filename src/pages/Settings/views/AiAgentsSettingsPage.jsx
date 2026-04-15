@@ -240,7 +240,7 @@ const AiAgentsSettingsPage = () => {
                                         </span>
                                     </div>
                                     <span style={{ color: '#3b82f6', fontSize: '0.8rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                                        {agent.role} Agent
+                                        {typeof agent.role === 'object' ? agent.role?.name : agent.role} Agent
                                     </span>
                                 </div>
                                 <div style={{ display: 'flex', gap: '8px' }}>

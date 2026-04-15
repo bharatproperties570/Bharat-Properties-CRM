@@ -137,7 +137,7 @@ export const CommissionDetails = ({ commission = {} }) => {
                                         </div>
                                         <div>
                                             <span style={{ fontWeight: 700, color: '#1e293b', display: 'block' }}>{split.name}</span>
-                                            <span style={{ fontSize: '0.7rem', color: '#64748b' }}>{split.role}</span>
+                                            <span style={{ fontSize: '0.7rem', color: '#64748b' }}>{typeof split.role === 'object' ? split.role?.name : split.role}</span>
                                         </div>
                                     </div>
                                 </td>
