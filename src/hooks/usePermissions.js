@@ -37,22 +37,8 @@ export const usePermissions = () => {
             };
         }
 
-        // System owner, dataScope=all, or Admin/Super Admin role → full bypass
-        // Get role name from currentUser (may be populated object or just an ID)
-        let roleName = currentUser.role?.name;
-
-        // Fallback: If role is a string ID, try to find the role name in the global roles list
-        if (!roleName && typeof currentUser.role === 'string') {
-            const roleObj = roles?.find(r => r._id === currentUser.role);
-            if (roleObj) roleName = roleObj.name;
-        }
-
-        // System owner, dataScope=all, or Admin/Super Admin role → full bypass
-        const elevated =
-            currentUser.email?.toLowerCase() === OWNER_EMAIL ||
-            currentUser.dataScope === 'all' ||
-            roleName?.toLowerCase() === 'admin' ||
-            roleName?.toLowerCase() === 'super admin';
+        // Use the centralized isAdmin flag calculated in UserContext
+        const elevated = currentUser.isAdmin === true;
 
         /**
          * canDo(module, action)
