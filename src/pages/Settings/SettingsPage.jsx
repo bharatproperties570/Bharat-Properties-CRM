@@ -711,7 +711,21 @@ const SettingsPage = () => {
     };
 
     const handleDeleteUser = async (id) => {
-        if (window.confirm('Are you sure you want to delete this user?')) {
+        const userToDelete = users.find(u => (u._id || u.id) === id);
+        
+        // Safeguard 1: Prevent self-deletion
+        if (id === currentUser?._id || id === currentUser?.id) {
+            showToast('You cannot delete your own account.', 'error');
+            return;
+        }
+
+        // Safeguard 2: Prevent deleting system owner
+        if (userToDelete?.email === 'bharatproperties570@gmail.com') {
+            showToast('System owner account cannot be deleted.', 'error');
+            return;
+        }
+
+        if (window.confirm(`Are you sure you want to delete ${userToDelete?.fullName || 'this user'}?`)) {
             const result = await deleteUser(id);
             if (result.success) {
                 showToast('User deleted successfully');
@@ -790,6 +804,18 @@ const SettingsPage = () => {
     };
 
     const handleToggleStatus = async (user, status) => {
+        // Safeguard 1: Prevent self-inactivation
+        if (status === 'inactive' && (user._id === currentUser?._id || user._id === currentUser?.id)) {
+            showToast('You cannot deactivate your own account.', 'error');
+            return;
+        }
+
+        // Safeguard 2: Prevent deactivating system owner
+        if (status === 'inactive' && user.email === 'bharatproperties570@gmail.com') {
+            showToast('System owner account cannot be deactivated.', 'error');
+            return;
+        }
+
         if (status === 'inactive') {
             setUserToInactivate(user);
             setIsInactivateUserModalOpen(true);
