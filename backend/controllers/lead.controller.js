@@ -377,7 +377,7 @@ export const getLeads = async (req, res, next) => {
 
         // Calculate Stats (Total, Today, Fresh, Hot, and Pipeline) in a optimized way
         // SENIOR OPTIMIZATION: Only calculate stats on Page 1 to save DB resources on scroll
-        let statsObj: any = null;
+        let statsObj = null;
         if (Number(page) === 1) {
             const stats = await Lead.aggregate([
                 { $match: visibilityFilter },
