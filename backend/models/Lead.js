@@ -67,7 +67,13 @@ const LeadSchema = new mongoose.Schema({
         method: String,
         assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
         team: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team' }],
-        visibleTo: { type: String, enum: ['Everyone', 'Team', 'Private'], default: 'Everyone' }
+        visibleTo: { type: String, enum: ['Everyone', 'Team', 'Private'], default: 'Everyone' },
+        history: [{
+            assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+            assignedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+            assignedAt: { type: Date, default: Date.now },
+            notes: String
+        }]
     },
     owner: { type: mongoose.Schema.Types.Mixed, ref: 'User' },
     contactDetails: { type: mongoose.Schema.Types.ObjectId, ref: 'Contact' },

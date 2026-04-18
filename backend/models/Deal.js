@@ -1,5 +1,27 @@
 import mongoose from "mongoose";
 import { invalidateDashboardCache } from "../src/config/redis.js";
+import Lookup from "./Lookup.js";
+
+const escapeRegExp = (string) => {
+    if (!string) return '';
+    return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+};
+
+const resolveLookup = async (type, value) => {
+    if (!value) return null;
+    
+    // Handle objects (populated or passed as objects)
+    const val = (value && typeof value === 'object' && value._id) ? value._id : value;
+    
+    if (mongoose.Types.ObjectId.isValid(val)) return val;
+    
+    const escapedValue = escapeRegExp(val);
+    let lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: new RegExp(`^${escapedValue}$`, 'i') } });
+    if (!lookup) {
+        lookup = await Lookup.create({ lookup_type: type, lookup_value: val });
+    }
+    return lookup._id;
+};
 
 const DealSchema = new mongoose.Schema({
     projectName: String,
@@ -145,7 +167,13 @@ const DealSchema = new mongoose.Schema({
     assignment: {
         assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
         team: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team' }],
-        visibleTo: { type: String, enum: ['Everyone', 'Team', 'Private'], default: 'Everyone' }
+        visibleTo: { type: String, enum: ['Everyone', 'Team', 'Private'], default: 'Everyone' },
+        history: [{
+            assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+            assignedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+            assignedAt: { type: Date, default: Date.now },
+            notes: String
+        }]
     },
     visibleTo: { type: String, default: "Public" },
     
@@ -241,7 +269,14 @@ DealSchema.pre("save", function (next) {
         }
     }
 
-    next();
+    // Resolve lookups for Mixed fields to prevent CastErrors during population
+    const resolveHooks = async () => {
+        this.category = await resolveLookup('Category', this.category);
+        this.subCategory = await resolveLookup('SubCategory', this.subCategory);
+        this.intent = await resolveLookup('Intent', this.intent);
+    };
+
+    resolveHooks().then(() => next()).catch(next);
 });
 
 DealSchema.pre('findOneAndUpdate', async function (next) {
@@ -279,7 +314,15 @@ DealSchema.pre('findOneAndUpdate', async function (next) {
         }
     }
 
-    next();
+    // Resolve lookups for Mixed fields in updates
+    const resolveAndUpdate = async () => {
+        const setUpdate = update.$set || update;
+        if (setUpdate.category) setUpdate.category = await resolveLookup('Category', setUpdate.category);
+        if (setUpdate.subCategory) setUpdate.subCategory = await resolveLookup('SubCategory', setUpdate.subCategory);
+        if (setUpdate.intent) setUpdate.intent = await resolveLookup('Intent', setUpdate.intent);
+    };
+
+    resolveAndUpdate().then(() => next()).catch(next);
 });
 
 DealSchema.post('save', invalidateDashboardCache);

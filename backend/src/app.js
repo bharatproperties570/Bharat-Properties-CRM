@@ -15,6 +15,7 @@ import myFieldRuleRoutes from "../routes/fieldRule.routes.js"; // My implementat
 import myDistributionRuleRoutes from "../routes/distributionRule.routes.js"; // My implementation
 import companyRoutes from "../routes/company.routes.js";
 import dealRoutes from "../routes/deal.routes.js";
+import bookingRoutes from "../routes/booking.routes.js";
 
 // Existing structure (kept for safety)
 // import userRoutes from "./modules/users/user.routes.js"; (Not touching imports unless needed)
@@ -99,6 +100,7 @@ app.use("/field-rules", myFieldRuleRoutes);
 app.use("/distribution-rules", myDistributionRuleRoutes);
 app.use("/companies", companyRoutes);
 app.use("/deals", dealRoutes);
+app.use("/bookings", bookingRoutes);
 
 // New settings API routes
 app.use("/users", userRoutes);

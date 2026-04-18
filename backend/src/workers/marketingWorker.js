@@ -47,43 +47,109 @@ const processMarketingJob = async (job) => {
 
     // ─── BLAST: Campaign broadcast ─────────────────────────────────────────────
     if (name === 'blast') {
-        const { channel, leadIds = [], mobiles = [], emails = [], message, subject, html } = data;
-        await job.log(`Starting ${channel.toUpperCase()} blast for ${leadIds.length || mobiles.length || emails.length} recipients`);
+        const { channel, leadIds = [], mobiles = [], emails = [], message, subject, html, leads = [] } = data;
+        await job.log(`Starting ${channel.toUpperCase()} blast for ${leads.length || mobiles.length || emails.length} recipients`);
 
-        let result = {};
+        const { default: Activity } = await import('../../models/Activity.js');
+        const { default: VariableResolutionService } = await import('../../services/VariableResolutionService.js');
+        const { waMapping } = data;
 
-        if (channel === 'wa' || channel === 'whatsapp') {
-            const targets = mobiles.length > 0 ? mobiles : leadIds;
-            result = await whatsAppService.broadcast(targets, message);
-            await job.log(`WhatsApp: ${result.sent} sent, ${result.failed} failed`);
+        let sent = 0, failed = 0;
 
-        } else if (channel === 'email') {
-            let sent = 0, failed = 0;
-            const totalEmails = emails.length || leadIds.length;
-            for (let i = 0; i < emails.length; i++) {
-                try {
-                    await emailService.sendEmail(emails[i], subject || 'Bharat Properties Update', message, html);
-                    sent++;
-                } catch (err) {
-                    failed++;
-                    await job.log(`Email failed for ${emails[i]}: ${err.message}`);
-                }
-                await job.updateProgress(Math.round(((i + 1) / totalEmails) * 100));
-                // Small cooldown
-                await new Promise(r => setTimeout(r, 150));
+        // Unified Processing Loop
+        for (let i = 0; i < leads.length; i++) {
+            const recipient = leads[i]; // Standardized recipient from MarketingAudienceService
+            const targetMobile = recipient.mobile;
+            const targetEmail = recipient.email;
+
+            // 1. Resolve Variables
+            let resolvedMessage = message || '';
+            let resolvedSubject = subject || '';
+            let recipientParams = {};
+
+            if (waMapping && Object.keys(waMapping).length > 0) {
+                // If we have a mapping, use the Enterprise Variable Registry
+                const resolutionContext = { ...recipient, ...recipient.context };
+                recipientParams = VariableResolutionService.resolveForLeads(resolutionContext, waMapping);
+            } else {
+                // Legacy / Simple replacement
+                const rName = recipient.name || 'Customer';
+                resolvedMessage = (message || '').replace(/{{name}}/g, rName).replace(/{{firstName}}/g, rName.split(' ')[0]);
+                resolvedSubject = (subject || '').replace(/{{name}}/g, rName);
             }
-            result = { sent, failed };
-            await job.log(`Email: ${sent} sent, ${failed} failed`);
 
-        } else if (channel === 'sms') {
-            const targets = mobiles.length > 0 ? mobiles : leadIds;
-            result = await smsService.bulkSend(targets, message);
-            await job.log(`SMS: ${result.sent} sent, ${result.failed} failed`);
+            try {
+                let success = false;
+                let messageId = null;
+
+                if (channel === 'wa' || channel === 'whatsapp') {
+                    const { templateName, templateLang = 'en' } = data;
+                    if (templateName) {
+                        let finalComponents = [];
+                        const indices = Object.keys(recipientParams || {})
+                            .filter(k => !isNaN(k))
+                            .sort((a, b) => parseInt(a) - parseInt(b));
+
+                        const bodyParams = indices.map(idx => ({ type: 'text', text: String(recipientParams[idx] || '') }));
+                        if (bodyParams.length > 0) finalComponents.push({ type: 'body', parameters: bodyParams });
+                        
+                        const res = await whatsAppService.sendTemplate(targetMobile, templateName, templateLang, finalComponents);
+                        success = res.success;
+                        messageId = res.messageId;
+                    } else {
+                        // Standardize on sendMessage for plain text dispatches
+                        const res = await whatsAppService.sendMessage(targetMobile, resolvedMessage);
+                        success = res.success;
+                        messageId = res.messageId;
+                    }
+                } else if (channel === 'email') {
+                    if (targetEmail) {
+                        await emailService.sendEmail(targetEmail, resolvedSubject || 'Bharat Properties Update', resolvedMessage, html);
+                        success = true;
+                    }
+                } else if (channel === 'sms') {
+                    if (targetMobile) {
+                        const res = await smsService.sendDirect(targetMobile, resolvedMessage);
+                        success = res.success;
+                        messageId = res.messageId;
+                    }
+                }
+
+                if (success) {
+                    sent++;
+                    // 2. LOG ACTIVITY (The Pulse)
+                    await Activity.create({
+                        type: 'Marketing',
+                        subject: `${channel.toUpperCase()} Campaign: ${data.name || 'Broadcast'}`,
+                        entityType: recipient.context?.originalType || 'Lead',
+                        entityId: recipient.id,
+                        description: `Sent via ${channel.toUpperCase()}\nMessage: ${resolvedMessage.substring(0, 100)}...`,
+                        status: 'Sent', // Changed from Completed to Sent to reflect real trackable state
+                        performedBy: 'Marketing Engine',
+                        details: { 
+                            channel, 
+                            campaignName: data.name, 
+                            jobId: job.id,
+                            msgId: messageId 
+                        },
+                        dueDate: new Date()
+                    });
+                } else {
+                    failed++;
+                }
+            } catch (err) {
+                failed++;
+                await job.log(`Dispatch failed for ${targetMobile || targetEmail}: ${err.message}`);
+            }
+
+            await job.updateProgress(Math.round(((i + 1) / leads.length) * 100));
+            // Adaptive cooldown to respect provider limits
+            await new Promise(r => setTimeout(r, channel === 'wa' ? 300 : 150));
         }
 
-        await job.updateProgress(100);
-        console.log(`[MarketingWorker] ✅ Blast complete (${channel}):`, result);
-        return { channel, ...result, completedAt: new Date().toISOString() };
+        const result = { sent, failed };
+        await job.log(`${channel.toUpperCase()} Blast Complete: ${sent} sent, ${failed} failed`);
+        return { ...result, completedAt: new Date().toISOString() };
     }
 
     // ─── DRIP: Single drip sequence step ──────────────────────────────────────
@@ -148,6 +214,59 @@ const processMarketingJob = async (job) => {
         await job.updateProgress(100);
         await job.log(`Sync complete. ${count} leads processed.`);
         return { synced: count, completedAt: new Date().toISOString() };
+    }
+
+    // ─── SCHEDULED-SOCIAL-DISPATCH: Actual publishing of a pre-prepared post ─
+    if (name === 'scheduled-social-dispatch') {
+        const { platform, text, imageUrl, format, entityId, entityType } = data;
+        await job.log(`Dispatching scheduled ${platform} post for ${entityType} ${entityId}`);
+
+        const { default: fbService } = await import('../../services/FacebookService.js');
+        const { default: liService } = await import('../../services/LinkedInService.js');
+        const { default: Activity } = await import('../../models/Activity.js');
+
+        let result;
+        const targetPlatform = platform.toLowerCase();
+
+        try {
+            if (targetPlatform === 'facebook') {
+                result = await fbService.postToPage(text, imageUrl, format);
+            } else if (targetPlatform === 'instagram') {
+                result = await fbService.postToInstagram(text, imageUrl, format);
+            } else if (targetPlatform === 'linkedin') {
+                // For LinkedIn, we assume image and other assets are already handled or not required for basic scheduled post
+                result = await liService.postToOrganization(text, null, null);
+            } else {
+                await job.log(`Warning: ${targetPlatform} dispatch is mock-only`);
+                result = { success: true, id: `mock_${Date.now()}` };
+            }
+
+            // Log as Activity for Timeline visibility
+            await Activity.create({
+                type: 'Social Post',
+                subject: `Scheduled Share to ${platform}`,
+                entityType: entityType || 'System',
+                entityId: entityId || null,
+                description: text,
+                status: 'Completed',
+                performedBy: 'CRM Scheduler',
+                details: {
+                    platform: targetPlatform,
+                    format: format,
+                    imageUrl: imageUrl,
+                    dispatchedAt: new Date(),
+                    jobId: job.id
+                },
+                dueDate: new Date()
+            });
+
+            await job.updateProgress(100);
+            await job.log(`✅ ${platform} Post Successful! ID: ${result.postId || result.id}`);
+            return { ...result, completedAt: new Date().toISOString() };
+        } catch (err) {
+            await job.log(`❌ ${platform} Post Failed: ${err.message}`);
+            throw err; // Rethrow to let BullMQ handle retries
+        }
     }
 
     throw new Error(`Unknown marketing job type: ${name}`);

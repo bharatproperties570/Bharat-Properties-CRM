@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { systemSettingsAPI } from '../../../utils/api';
 
 // --- Sub-Components (Defined Outside) ---
 
@@ -124,8 +125,7 @@ const VoiceSettingsPage = () => {
     useEffect(() => {
         const fetchConfig = async () => {
             try {
-                const res = await fetch('/api/system-settings/voice_exotel_config');
-                const data = await res.json();
+                const data = await systemSettingsAPI.getByKey('voice_exotel_config');
                 if (data.status === 'success' && data.data) {
                     setExotelConfig({ ...data.data.value, connected: true });
                 }
@@ -138,17 +138,11 @@ const VoiceSettingsPage = () => {
 
     const saveExotelConfig = async () => {
         try {
-            const res = await fetch('/api/system-settings', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    key: 'voice_exotel_config',
-                    category: 'voice',
-                    value: exotelConfig,
-                    description: 'Exotel Voice API Credentials'
-                })
+            const data = await systemSettingsAPI.upsert('voice_exotel_config', {
+                category: 'voice',
+                value: exotelConfig,
+                description: 'Exotel Voice API Credentials'
             });
-            const data = await res.json();
             if (data.status === 'success') {
                 setExotelConfig(p => ({ ...p, connected: true }));
                 alert('Exotel connected successfully!');

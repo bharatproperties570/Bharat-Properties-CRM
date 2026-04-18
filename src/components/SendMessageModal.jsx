@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useTriggers } from '../context/TriggersContext';
 import smsService from '../services/smsService';
 import whatsappService from '../services/whatsappService';
+import { systemSettingsAPI } from '../utils/api';
 
 const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [], initialProperty = null }) => {
     const { fireEvent } = useTriggers();
@@ -29,6 +30,7 @@ const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [], ini
     // WhatsApp Templates State
     const [whatsappTemplates, setWhatsappTemplates] = useState([]);
     const [isLoadingWhatsApp, setIsLoadingWhatsApp] = useState(false);
+    const [variableRegistry, setVariableRegistry] = useState({});
 
     // Real Data for References (Passed from parent or fetched)
     const [propertyRefs, setPropertyRefs] = useState([]);
@@ -89,6 +91,7 @@ const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [], ini
             setScheduleDate('');
             setScheduleTime('');
             loadSmsTemplates();
+            loadVariableRegistry();
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen]);
@@ -109,7 +112,7 @@ const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [], ini
         setIsLoadingWhatsApp(true);
         try {
             const res = await whatsappService.getTemplates();
-            setWhatsappTemplates(res.data || []);
+            setWhatsappTemplates(res.templates || []);
         } catch (err) {
             console.error('Failed to load WhatsApp templates', err);
         } finally {
@@ -156,20 +159,88 @@ const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [], ini
         }
     };
 
+    const loadVariableRegistry = async () => {
+        try {
+            const res = await systemSettingsAPI.getByKey('messaging_variable_registry');
+            if (res.success && res.data?.value) {
+                setVariableRegistry(res.data.value);
+            }
+        } catch (err) {
+            console.error('Failed to load Variable Registry', err);
+        }
+    };
+
     const handleTemplateChange = (e) => {
         const val = e.target.value;
         setTemplateId(val);
 
+        let resolvedBody = '';
         if (channel === 'SMS') {
             const template = smsTemplates.find(t => t._id === val);
-            if (template) setMessageBody(template.body);
-            else if (val === '') setMessageBody('');
+            if (template) resolvedBody = template.body;
         } else {
-            if (val === 'welcome') setMessageBody("Hello {{Name}}, welcome to Bharat Properties! We're glad to have you.");
-            else if (val === 'property_alert') setMessageBody("Hi {{Name}}, a new property matching your criteria in {{Location}} just got listed! Check it now: {{Link}}");
-            else if (val === 'meeting_confirm') setMessageBody("Dear {{Name}}, confirming our meeting at {{Time}} tomorrow. Please reply YES to confirm.");
-            else if (val === '') setMessageBody("");
+            const template = whatsappTemplates.find(t => t.name === val);
+            if (template) {
+                resolvedBody = template.components?.find(c => c.type === 'BODY')?.text || template.body || '';
+            } else {
+                if (val === 'welcome') resolvedBody = "Hello {{Name}}, welcome to Bharat Properties! We're glad to have you.";
+                else if (val === 'property_alert') resolvedBody = "Hi {{Name}}, a new property matching your criteria in {{Location}} just got listed! Check it now: {{Link}}";
+                else if (val === 'meeting_confirm') resolvedBody = "Dear {{Name}}, confirming our meeting at {{Time}} tomorrow. Please reply YES to confirm.";
+            }
         }
+
+        // Apply Global Registry + Local Data Auto-Resolution
+        if (resolvedBody) {
+            const recipient = recipients[0] || {};
+            // Replace standard tags
+            resolvedBody = resolvedBody.replace(/{{Name}}/g, recipient.name || 'valued customer');
+            resolvedBody = resolvedBody.replace(/{{FirstName}}/g, recipient.firstName || recipient.name?.split(' ')[0] || 'valued customer');
+            resolvedBody = resolvedBody.replace(/{{Phone}}/g, recipient.phone || 'your phone');
+            
+            // Resolve registry-mapped placeholders like {{1}}, {{2}}
+            resolvedBody = resolvedBody.replace(/{{(\d+)}}/g, (match, vIdx) => {
+                const mappedField = variableRegistry[vIdx] || variableRegistry[String(vIdx)];
+                if (mappedField) {
+                    // Map the technical field name to the lead's actual data
+                    const fieldMap = {
+                        'name': recipient.name,
+                        'firstName': recipient.firstName || recipient.name?.split(' ')[0],
+                        'mobile': recipient.phone || recipient.mobile,
+                        'email': recipient.email,
+                        'source': recipient.source,
+                        'status': recipient.status || recipient.stage,
+                        'assignedTo': recipient.assignedTo?.name || recipient.owner,
+                        'leadId': recipient.id || recipient._id,
+                        'propertyName': initialProperty?.unitNo || initialProperty?.projectName,
+                        'unitNumber': initialProperty?.unitNo,
+                        'projectName': initialProperty?.projectName,
+                        'block': initialProperty?.block,
+                        'unitType': initialProperty?.unitType,
+                        'category': initialProperty?.category?.name || initialProperty?.category,
+                        'subCategory': initialProperty?.subCategory?.name || initialProperty?.subCategory,
+                        'price': initialProperty?.price,
+                        'priceInWords': initialProperty?.priceInWords,
+                        'size': initialProperty?.size,
+                        'sizeUnit': initialProperty?.sizeUnit,
+                        'location': initialProperty?.location || initialProperty?.city,
+                        'budget': recipient.budgetPreference || recipient.budget,
+                        'requirementType': recipient.requirementType || recipient.bhk,
+                        'priority': recipient.priority,
+                        'campaign': recipient.campaignName || recipient.source,
+                        'remark': recipient.lastRemark || recipient.notes?.[0]?.content,
+                        'bookingDate': recipient.bookingDate,
+                        'visitDate': recipient.visitDate,
+                        'tokenAmount': recipient.financialDetails?.token?.amount,
+                        'agreementAmount': recipient.financialDetails?.agreement?.amount,
+                        'dealType': recipient.dealType
+                    };
+                    return fieldMap[mappedField] || match;
+                }
+                return match;
+            });
+        }
+        
+        setMessageBody(resolvedBody);
     };
 
     const handleReferenceSelect = (type, id) => {
@@ -211,7 +282,7 @@ const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [], ini
             let res;
             if (channel === 'WHATSAPP') {
                 res = await whatsappService.sendMessage({
-                    mobile: recipients[0], // WhatsApp currently supports 1-to-1 from this modal
+                    mobile: recipients[0]?.phone || recipients[0]?.mobile, // WhatsApp currently supports 1-to-1 from this modal
                     message: messageBody,
                     templateId,
                     mediaUrl: attachment?.url,

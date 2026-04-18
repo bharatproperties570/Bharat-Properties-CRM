@@ -246,7 +246,7 @@ export default function InventoryDetailPage({ inventoryId, onBack, onAddActivity
                 </div>
 
                 {/* COLUMN 2: CENTER - INTERACTION INTELLIGENCE */}
-                <div className="no-scrollbar" style={{ flex: '1', display: 'flex', flexDirection: 'column', background: '#f8fafc', overflowY: 'auto', minWidth: '0', position: 'relative' }}>
+                <div className="no-scrollbar" style={{ flex: '1', display: 'flex', flexDirection: 'column', background: '#f8fafc', overflowY: 'auto', minWidth: '0', position: 'relative', paddingBottom: '20px' }}>
                     <div className="glass-card" style={{ 
                         background: '#fff',
                         borderRadius: '16px',
@@ -281,7 +281,6 @@ export default function InventoryDetailPage({ inventoryId, onBack, onAddActivity
                                         entityType="Inventory" 
                                         entityData={inventory}
                                         onActivitySaved={refresh}
-                                        hideComposer={true}
                                         relatedEntities={relatedEntities}
                                     />
                                 );
@@ -373,61 +372,68 @@ export default function InventoryDetailPage({ inventoryId, onBack, onAddActivity
                 isOpen={isOwnerModalOpen}
                 onClose={() => setIsOwnerModalOpen(false)}
                 currentOwners={[
-                    ...(inventory.owners || []).map(o => ({ id: o._id, name: o.name, mobile: o.phones?.[0]?.number || o.mobile, role: 'Property Owner' })),
-                    ...(inventory.associates || []).map(a => ({ id: a.contact?._id, name: a.contact?.name || a.name, mobile: a.contact?.phones?.[0]?.number || a.mobile, role: 'Associate', relationship: a.relationship }))
+                    ...(inventory.owners || []).map(o => ({ id: o._id || o.id, name: o.name, mobile: o.phones?.[0]?.number || o.mobile, role: 'Property Owner' })),
+                    ...(inventory.associates || []).map(a => ({ id: a.contact?._id || a.contact?.id || a.id, name: a.contact?.name || a.name, mobile: a.contact?.phones?.[0]?.number || a.mobile, role: 'Associate', relationship: a.relationship }))
                 ]}
                 onSave={async (newOwners) => {
-                    const currentOwnersIds = (inventory.owners || []).map(o => o._id || o.id);
-                    const currentAssociatesIds = (inventory.associates || []).map(a => a.contact?._id || a.contact?.id || a.id);
-                    const allCurrentIds = [...currentOwnersIds, ...currentAssociatesIds];
+                    try {
+                        const currentOwnersIds = (inventory.owners || []).map(o => o._id || o.id);
+                        const currentAssociatesIds = (inventory.associates || []).map(a => a.contact?._id || a.contact?.id || a.id);
+                        const allCurrentIds = [...currentOwnersIds, ...currentAssociatesIds];
 
-                    const historyEntries = [];
-                    
-                    // Track additions
-                    newOwners.forEach(no => {
-                        if (!allCurrentIds.includes(no.id)) {
-                            historyEntries.push({
-                                contactName: no.name,
-                                contactMobile: no.mobile,
-                                contactId: no.id,
-                                role: no.role,
-                                author: user?._id || null,
-                                source: no.source || 'Update data',
-                                date: no.date || new Date().toISOString(),
-                                type: 'Added'
-                            });
+                        const historyEntries = [];
+                        
+                        // Track additions
+                        newOwners.forEach(no => {
+                            if (!allCurrentIds.includes(no.id)) {
+                                historyEntries.push({
+                                    contactName: no.name,
+                                    contactMobile: no.mobile,
+                                    contactId: no.id,
+                                    role: no.role,
+                                    author: user?._id || null,
+                                    source: no.source || 'Update data',
+                                    date: no.date || new Date().toISOString(),
+                                    type: 'Added'
+                                });
+                            }
+                        });
+
+                        // Track removals
+                        const newOwnersIds = newOwners.map(no => no.id);
+                        [...(inventory.owners || []), ...(inventory.associates || [])].forEach(old => {
+                            const oldId = old._id || old.id || (old.contact?._id || old.contact?.id);
+                            if (oldId && !newOwnersIds.includes(oldId)) {
+                                historyEntries.push({
+                                    contactName: old.name || old.contact?.name || 'Unknown',
+                                    contactMobile: old.mobile || old.contact?.mobile || (old.contact?.phones?.[0]?.number) || '',
+                                    contactId: oldId,
+                                    role: old.role || (old.contact ? 'Associate' : 'Property Owner'),
+                                    author: user?._id || null,
+                                    source: 'Removed from current profile',
+                                    date: new Date().toISOString(),
+                                    type: 'Removed'
+                                });
+                            }
+                        });
+
+                        const updates = {
+                            owners: newOwners.filter(o => o.role === 'Property Owner').map(o => o.id),
+                            associates: newOwners.filter(o => o.role === 'Associate').map(o => ({ contact: o.id, relationship: o.relationship })),
+                            ownerHistory: [...(inventory.ownerHistory || []), ...historyEntries]
+                        };
+
+                        const res = await api.put(`inventory/${inventoryId}`, updates);
+                        if (res.data?.success) {
+                            toast.success("Contacts updated successfully");
+                            refresh();
+                            setIsOwnerModalOpen(false);
+                        } else {
+                            toast.error(res.data?.message || "Failed to update contacts");
                         }
-                    });
-
-                    // Track removals
-                    const newOwnersIds = newOwners.map(no => no.id);
-                    [...(inventory.owners || []), ...(inventory.associates || [])].forEach(old => {
-                        const oldId = old._id || old.id || (old.contact?._id || old.contact?.id);
-                        if (oldId && !newOwnersIds.includes(oldId)) {
-                            historyEntries.push({
-                                contactName: old.name || old.contact?.name || 'Unknown',
-                                contactMobile: old.mobile || old.contact?.mobile || (old.contact?.phones?.[0]?.number) || '',
-                                contactId: oldId,
-                                role: old.role || (old.contact ? 'Associate' : 'Property Owner'),
-                                author: user?._id || null,
-                                source: 'Removed from current profile',
-                                date: new Date().toISOString(),
-                                type: 'Removed'
-                            });
-                        }
-                    });
-
-                    const updates = {
-                        owners: newOwners.filter(o => o.role === 'Property Owner').map(o => o.id),
-                        associates: newOwners.filter(o => o.role === 'Associate').map(o => ({ contact: o.id, relationship: o.relationship })),
-                        ownerHistory: [...(inventory.ownerHistory || []), ...historyEntries]
-                    };
-
-                    const res = await api.put(`inventory/${inventoryId}`, updates);
-                    if (res.data?.success) {
-                        toast.success("Contacts updated");
-                        refresh();
-                        setIsOwnerModalOpen(false);
+                    } catch (error) {
+                        console.error("Error updating owners:", error);
+                        toast.error(error.response?.data?.message || "Internal server error during save");
                     }
                 }}
             />

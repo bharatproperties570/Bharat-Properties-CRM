@@ -62,6 +62,7 @@ const InventorySchema = new mongoose.Schema({
         unit: { type: String, default: 'Sq.Ft.' }
     },
     sizeUnit: String,
+    sizeType: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup', index: true },
     floor: { type: String },
     facing: {
         type: mongoose.Schema.Types.Mixed,

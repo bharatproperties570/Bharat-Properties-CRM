@@ -129,6 +129,10 @@ const SocialPostModal = ({
   const [isGenerating, setIsGenerating] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
   const [status, setStatus] = useState('idle');
+  
+  // Scheduling States
+  const [isScheduled, setIsScheduled] = useState(false);
+  const [scheduledTime, setScheduledTime] = useState('');
 
   const isActuallyOpen = isOpen || show;
 
@@ -189,12 +193,17 @@ const SocialPostModal = ({
         imageUrl: imageUrl,
         format: format,
         entityId: propertyId,
-        entityType: entityType
+        entityType: entityType,
+        scheduledTime: isScheduled ? scheduledTime : null
       });
 
       if (res?.success) {
         setStatus('success');
-        toast.success(`Broadcasting ${format} successful on ${platform}! 🚀`);
+        const successMsg = isScheduled 
+          ? `Listing scheduled for ${new Date(scheduledTime).toLocaleString()}! 📅`
+          : `Broadcasting ${format} successful on ${platform}! 🚀`;
+        
+        toast.success(successMsg);
         setTimeout(() => {
           onClose();
           setStatus('idle');
@@ -422,11 +431,68 @@ const SocialPostModal = ({
                     </div>
                 </div>
 
+                {/* Scheduling Area */}
+                <div style={{ 
+                    padding: '20px', 
+                    borderRadius: '24px', 
+                    background: isScheduled ? `${THEME.accent}08` : '#f8fafc',
+                    border: `1px solid ${isScheduled ? `${THEME.accent}20` : '#e2e8f0'}`,
+                    transition: '0.3s'
+                }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <div style={{ 
+                                width: '36px', height: '36px', borderRadius: '10px', 
+                                background: isScheduled ? THEME.accent : '#e2e8f0',
+                                color: isScheduled ? '#fff' : THEME.slate,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                transition: '0.3s'
+                            }}>
+                                <Zap size={18} />
+                            </div>
+                            <div>
+                                <span style={{ fontSize: '0.85rem', fontWeight: 800, color: THEME.navy }}>Schedule Publication</span>
+                                <p style={{ margin: 0, fontSize: '0.7rem', color: THEME.slate }}>Optimal timing for maximum reach</p>
+                            </div>
+                        </div>
+                        <div 
+                            onClick={() => setIsScheduled(!isScheduled)}
+                            style={{ 
+                                width: '48px', height: '24px', borderRadius: '12px', 
+                                background: isScheduled ? THEME.accent : '#cbd5e1',
+                                position: 'relative', cursor: 'pointer', transition: '0.3s'
+                            }}
+                        >
+                            <div style={{ 
+                                width: '18px', height: '18px', borderRadius: '50%', background: '#fff',
+                                position: 'absolute', top: '3px', left: isScheduled ? '27px' : '3px',
+                                transition: '0.3s', boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                            }}></div>
+                        </div>
+                    </div>
+
+                    {isScheduled && (
+                        <div style={{ marginTop: '16px', animation: 'modalPop 0.3s' }}>
+                            <input 
+                                type="datetime-local" 
+                                value={scheduledTime}
+                                onChange={(e) => setScheduledTime(e.target.value)}
+                                style={{ 
+                                    width: '100%', padding: '12px 16px', borderRadius: '12px',
+                                    border: '1px solid #e2e8f0', background: '#fff',
+                                    fontSize: '0.9rem', color: THEME.navy, fontWeight: 600,
+                                    outline: 'none'
+                                }}
+                            />
+                        </div>
+                    )}
+                </div>
+
                 {/* Publication Bar */}
                 <div style={{ marginTop: 'auto', display: 'flex', gap: '16px' }}>
                     <button
                         onClick={handlePublish}
-                        disabled={isPublishing || status === 'success'}
+                        disabled={isPublishing || status === 'success' || (isScheduled && !scheduledTime)}
                         style={{
                             flex: 1, padding: '24px', borderRadius: '24px', border: 'none',
                             background: status === 'success' ? '#10b981' : THEME.navy,
@@ -436,8 +502,8 @@ const SocialPostModal = ({
                             transition: 'all 0.4s'
                         }}
                     >
-                        {isPublishing ? <Loader2 className="animate-spin" /> : status === 'success' ? <CheckCircle2 /> : <Zap size={24} style={{ fill: THEME.gold, color: THEME.gold }} />}
-                        {isPublishing ? 'Synchronizing Node...' : status === 'success' ? 'Listing Dispatched' : `Launch to ${platform}`}
+                        {isPublishing ? <Loader2 className="animate-spin" /> : status === 'success' ? <CheckCircle2 /> : isScheduled ? <Zap size={24} style={{ fill: THEME.gold, color: THEME.gold }} /> : <Send size={24} />}
+                        {isPublishing ? 'Synchronizing Node...' : status === 'success' ? 'Listing Handled' : isScheduled ? `Schedule for ${platform}` : `Launch to ${platform}`}
                     </button>
                 </div>
             </div>

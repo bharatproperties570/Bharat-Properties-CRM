@@ -18,6 +18,7 @@
 
 import Lead, { resolveLeadLookup } from '../models/Lead.js';
 import Activity from '../models/Activity.js';
+import Deal from '../models/Deal.js';
 import whatsAppService from './WhatsAppService.js';
 import emailService from './email.service.js';
 import smsService from './SmsService.js';
@@ -242,35 +243,80 @@ class NurtureBot {
 
     /**
      * Fetch aggregate stats for the Marketing Suite UI.
+     * Enhanced for enterprise-grade real-time analytics.
      */
     async getMarketingStats() {
-        const [totalCaptured, hotLeads, nurturedToday] = await Promise.all([
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+
+        // Fetch counts for core KPI indicators
+        const [
+            totalCaptured, 
+            hotLeads, 
+            waActivities,
+            allMarketingLeads,
+            deals
+        ] = await Promise.all([
             Lead.countDocuments({ tags: 'Marketing Automation' }),
             Lead.countDocuments({ 'customFields.nurtureState': 'VISIT_BOOKED' }),
-            Activity.countDocuments({ 
-                tags: 'Automation', 
-                createdAt: { $gte: new Date(new Date().setHours(0,0,0,0)) } 
-            }),
+            Activity.find({ 
+                type: 'WhatsApp', 
+                createdAt: { $gte: todayStart } 
+            }).lean(),
+            Lead.find({ tags: 'Marketing Automation' }).select('_id budget').lean(),
+            Deal.find({ stage: { $ne: 'Closed Lost' } }).select('expectedValue price').lean()
         ]);
+
+        // Calculate Pipeline Value (Enterprise Multi-Model Calculation)
+        // Summing budgets from leads + prices from active deals
+        const leadPipeline = allMarketingLeads.reduce((acc, l) => {
+            const match = (l.budget || '').match(/\d+/);
+            return acc + (match ? parseInt(match[0]) * 100000 : 0); // basic Lakhs conversion fallback
+        }, 0);
+        
+        const dealPipeline = deals.reduce((acc, d) => acc + (d.price || d.expectedValue || 0), 0);
+        const totalPipelineValue = leadPipeline + dealPipeline;
+
+        // WhatsApp Professional Analytics (Real-time tracking)
+        const waMetrics = {
+            sent: waActivities.length,
+            delivered: waActivities.filter(a => ['Delivered', 'Read', 'Completed'].includes(a.status)).length,
+            read: waActivities.filter(a => a.status === 'Read').length,
+            failed: waActivities.filter(a => a.status === 'Failed').length
+        };
+
+        const engagementRate = totalCaptured > 0 
+            ? ((waMetrics.read / totalCaptured) * 100).toFixed(1) 
+            : '0.0';
 
         const recentLeads = await Lead.find({ tags: 'Marketing Automation' })
             .sort({ createdAt: -1 })
             .limit(10)
-            .select('firstName lastName mobile email intent_index customFields createdAt')
+            .select('firstName lastName mobile email intent_index customFields createdAt stage source propertyType budget')
             .lean();
 
-        const recentActivities = await Activity.find({ tags: 'Automation' })
+        const recentActivities = await Activity.find({ tags: { $in: ['Automation', 'NurtureBot'] } })
             .sort({ createdAt: -1 })
             .limit(15)
             .populate('entityId', 'firstName lastName mobile')
             .lean();
 
+        // Map to standard Enterprise Dashboard DTO
         return {
             totalCaptured,
             hotLeads,
-            nurturedToday,
+            nurturedToday: waMetrics.sent,
+            totalPipelineValue,
+            engagementRate: `${engagementRate}%`,
+            waMetrics,
             recentLeads,
-            recentActivities
+            recentActivities,
+            kpiCards: [
+                { label: 'TOTAL PIPELINE', val: `₹${(totalPipelineValue / 10000000).toFixed(2)}Cr`, sub: 'Active deal potential', type: 'blue' },
+                { label: 'ENGAGEMENT', val: `${engagementRate}%`, sub: 'Response velocity', type: 'green' },
+                { label: 'CONVERSIONS', val: String(hotLeads), sub: 'Ready for site visit', type: 'gold' },
+                { label: 'ACTIVITY', val: String(waMetrics.sent), sub: 'Automations today', type: 'blue' }
+            ]
         };
     }
 

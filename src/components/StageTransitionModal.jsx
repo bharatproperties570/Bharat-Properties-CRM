@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { activitiesAPI } from '../utils/api';
 
 /**
  * StageTransitionModal
@@ -78,26 +79,11 @@ const StageTransitionModal = ({
         setError('');
 
         try {
-            const response = await fetch(`/api/activities/${activityId}/complete-with-form`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({
-                    outcome,
-                    outcomeReason,
-                    stageFormData: formData
-                })
+            const data = await activitiesAPI.completeWithForm(activityId, {
+                outcome,
+                outcomeReason,
+                stageFormData: formData
             });
-
-            const data = await response.json();
-
-            if (!response.ok) {
-                if (data.requiresForm && data.missingFields?.length > 0) {
-                    setError(`Still missing: ${data.missingFields.map(f => FIELD_LABELS[f] || f).join(', ')}`);
-                    return;
-                }
-                throw new Error(data.message || 'Failed to complete activity');
-            }
 
             if (onSuccess) onSuccess(data);
             if (onClose) onClose();

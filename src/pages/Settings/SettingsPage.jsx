@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { API_BASE_URL } from '../../utils/api';
+import { API_BASE_URL, api } from '../../utils/api';
 import Toast from '../../components/Toast';
 import AddUserModal from '../../components/AddUserModal';
 import CreateRoleModal from '../../components/CreateRoleModal';
@@ -709,27 +709,22 @@ const SettingsPage = () => {
         
         const checkHealth = async () => {
             try {
-                // Use native fetch to avoid interceptors for simple check
-                const response = await fetch(`${API_BASE_URL}/health`);
-                if (!response.ok) {
-                    setHealthStatus({ status: 'error', message: `Server Error (${response.status})` });
-                    return;
-                }
+                // Execute via the hardened 'api' instance to keep the session alive via Silent Refresh
+                const response = await api.get('/health');
                 
-                const contentType = response.headers.get("content-type");
-                if (contentType && contentType.includes("application/json")) {
-                    const data = await response.json();
-                    if (data.success) {
-                        setHealthStatus({ status: 'healthy', message: 'API Connected' });
-                    } else {
-                        setHealthStatus({ status: 'warning', message: 'API Unstable' });
-                    }
+                if (response.data && response.data.success) {
+                    setHealthStatus({ status: 'healthy', message: 'API Connected' });
                 } else {
-                    // HTML or other non-JSON response (Likely Vercel redirect)
-                    setHealthStatus({ status: 'error', message: 'Proxy Configuration Error (HTML Response)' });
+                    setHealthStatus({ status: 'warning', message: 'API Unstable' });
                 }
             } catch (err) {
-                setHealthStatus({ status: 'error', message: 'Server Unreachable' });
+                // Check if we got an HTML response (likely proxy or routing issue)
+                const errorMsg = err.response?.data?.includes?.('<!DOCTYPE html') 
+                    ? 'Proxy Configuration Error (HTML Response)' 
+                    : (err.response?.status === 404 ? 'API 404: Endpoint Missing' : 'Server Unreachable');
+                
+                setHealthStatus({ status: 'error', message: errorMsg });
+                console.error('Health Check Error:', err.message);
             }
         };
 

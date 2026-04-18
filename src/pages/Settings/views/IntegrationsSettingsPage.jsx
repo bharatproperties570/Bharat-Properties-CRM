@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
+import { AlertCircle } from 'lucide-react';
 import { googleSettingsAPI, systemSettingsAPI, marketingAPI, socialAPI } from '../../../utils/api';
-import { toast } from 'react-hot-toast';
+import toast from 'react-hot-toast';
 
 import smsService from '../../../services/smsService';
 import contactSyncManager from '../../../services/contactSyncManager';
@@ -105,12 +106,12 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                     toast.success('LinkedIn credentials saved. Now click Step 2 to authorize.');
                 } else if (['facebook', 'instagram', 'whatsapp', 'messenger'].includes(type)) {
                     if (type === 'whatsapp') {
-                        // Normalize token/apiKey for Meta
+                        // ── Senior Professional: Auto-trim to prevent whitespace errors ──
                         const whatsappPayload = {
-                            token: config.token || config.apiKey,
-                            phoneId: config.phoneId,
-                            businessId: config.businessId || config.wabaId,
-                            verifyToken: config.verifyToken
+                            token:      (config.token || config.apiKey || '').toString().trim(),
+                            phoneId:    (config.phoneId || '').toString().trim(),
+                            businessId: (config.businessId || config.wabaId || '').toString().trim(),
+                            verifyToken: (config.verifyToken || '').toString().trim()
                         };
                         await socialAPI.saveWhatsAppConfig(whatsappPayload);
                     } else {
@@ -166,7 +167,23 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
             if (['openai', 'gemini', 'claude'].includes(type)) {
                 res = await systemSettingsAPI.testAi(type, config);
             } else if (['facebook', 'instagram', 'whatsapp'].includes(type)) {
-                res = await socialAPI.testConnection();
+                if (type === 'whatsapp') {
+                    // Senior Professional: Real-world connectivity test (sync check)
+                    const waRes = await marketingAPI.getWhatsAppTemplates();
+                    if (waRes.success && waRes.templates) {
+                        res = { 
+                            success: true, 
+                            message: `✓ Connection Established! ${waRes.templates.length} approved templates synchronized from Meta.` 
+                        };
+                    } else {
+                        res = { 
+                            success: false, 
+                            error: waRes.message || 'Meta Handshake Failed: Please verify WABA ID mapping and Token scope.' 
+                        };
+                    }
+                } else {
+                    res = await socialAPI.testConnection();
+                }
             } else {
                 const phone = prompt('Enter phone number to send test SMS (with country code):', '+91');
                 if (!phone) {
@@ -280,10 +297,10 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                         'Go to Meta Developer Console.',
                         'Create/Select App and enable "Messenger" & "Webhooks".',
                         'Generate a **Page Access Token** (Long-lived recommended).',
-                        '**CRITICAL**: Enable "pages_manage_posts" and "pages_read_engagement".',
-                        'Step 1: Input Page ID and Access Token below.',
-                        'Step 2: Set "Verify Token" and configure Webhook URL in Meta Console.',
-                        'Step 3: Subscribe to "leadgen" and "messages" fields.'
+                        'Step 2: Generate a **Page Access Token** via Graph API Explorer.',
+                        '**IMPORTANT**: Ensure "publish_actions" is NOT selected. Use "pages_manage_posts" instead.',
+                        'Step 3: Setup "Verify Token" and configure Webhook URL in Meta Console.',
+                        'Step 4: Subscribe to "leadgen" and "messages" fields.'
                     ],
                     showWebhook: true,
                     webhookConfig: {
@@ -684,6 +701,21 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                         )}
 
                         {type === 'facebook' && (
+                            <div style={{ marginBottom: '24px', padding: '16px', background: '#fff9eb', border: '1px solid #fce8ac', borderRadius: '14px', position: 'relative', overflow: 'hidden' }}>
+                                <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: '4px', background: '#f59e0b' }}></div>
+                                <div style={{ display: 'flex', gap: '12px' }}>
+                                    <AlertCircle style={{ color: '#d97706', flexShrink: 0 }} size={20} />
+                                    <div>
+                                        <h4 style={{ margin: 0, fontSize: '0.85rem', fontWeight: 800, color: '#92400e' }}>Meta Permission Migration Required</h4>
+                                        <p style={{ margin: '4px 0 0', fontSize: '0.75rem', color: '#b45309', lineHeight: '1.4' }}>
+                                            The <b>publish_actions</b> permission is deprecated by Meta. Please ensure your token has <b>pages_manage_posts</b> enabled to post to your page.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {type === 'facebook' && (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                                 <div className="card-input-group">
                                     <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -887,6 +919,9 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                                 <div className="card-input-group">
                                     <label>WhatsApp Business Account ID</label>
                                     <input type="text" placeholder="WABA ID..." value={config.businessId || ''} onChange={e => setConfig({ ...config, businessId: e.target.value })} />
+                                    <small style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '4px' }}>
+                                        <i className="fas fa-info-circle"></i> Ensure this is the 15-digit <strong>WhatsApp Business Account ID</strong> found in WhatsApp Manager &gt; Settings.
+                                    </small>
                                 </div>
                                 <div className="card-input-group">
                                     <label>Webhook Verify Token (Optional)</label>

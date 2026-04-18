@@ -887,12 +887,12 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                 else setSelectedIds(leads.map(l => l._id));
                             }} checked={selectedCount === leads.length && leads.length > 0} /></div>
                             <div>Lead Profile</div>
-                            <div>Match</div>
+                            <div style={{ position: 'relative', left: '-30px' }}>Match</div>
                             <div>Requirement & Budget</div>
                             <div>Location</div>
                             <div>Status & Source</div>
                             <div>Interaction</div>
-                            <div style={{ textAlign: 'right', paddingRight: '20px' }}>Assignment</div>
+                            <div>Assignment</div>
                         </div>
                     )}
 
@@ -1419,7 +1419,7 @@ const LeadItem = React.memo(function LeadItem({
                 </div>
             </div>
 
-            <div className="col-intent">
+            <div className="col-intent" style={{ position: 'relative', left: '-30px' }}>
                 <div style={{ lineHeight: 1.4 }}>
                     <div
                         contentEditable
@@ -1482,7 +1482,7 @@ const LeadItem = React.memo(function LeadItem({
             </div>
 
             <div className="col-status">
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'start' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
                     <span
                         className={`status-badge ${(String(renderValue(getLookupValue('Status', lead.status), null) || (typeof lead.statusFallback === 'object' ? lead.statusFallback.class : 'new') || 'new')).toLowerCase()}`}
                     >
@@ -1490,7 +1490,7 @@ const LeadItem = React.memo(function LeadItem({
                     </span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                         {(() => {
-                            const stageName = String(liveBackendScore?.stage || renderValue(getLookupValue('Stage', lead.stage), null) || 'New');
+                            const stageName = String(liveBackendScore?.stage || renderValue(getLookupValue('Stage', lead.stage), null) || 'Incoming Lead');
                             const stageInfo = STAGE_PIPELINE.find(s => s.label.toLowerCase() === stageName.toLowerCase()) || { color: '#94a3b8', icon: 'fa-circle', label: stageName };
                             return (
                                 <span style={{
@@ -1500,11 +1500,11 @@ const LeadItem = React.memo(function LeadItem({
                                     border: `1px solid ${stageInfo.color}40`,
                                     borderRadius: '5px',
                                     padding: '1px 6px',
-                                    fontSize: '0.55rem',
+                                    fontSize: ' stageInfo.color + 18' ? '0.55rem' : '0.55rem',
                                     fontWeight: 800,
                                 }}>
                                     <i className={`fas ${stageInfo.icon}`} style={{ fontSize: '0.5rem' }}></i>
-                                    {stageInfo.label.toUpperCase()}
+                                    📍 {stageInfo.label.toUpperCase()}
                                 </span>
                             );
                         })()}
@@ -1584,8 +1584,8 @@ const LeadItem = React.memo(function LeadItem({
                 </div>
             </div>
 
-            <div className="col-assignment" style={{ textAlign: 'right', paddingRight: '20px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', justifyContent: 'flex-end' }}>
+            <div className="col-assignment">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', justifyContent: 'flex-start' }}>
                     <div className="avatar-circle" style={{ 
                         width: '28px', 
                         height: '28px', 
@@ -1610,6 +1610,8 @@ const LeadItem = React.memo(function LeadItem({
                     </div>
                 </div>
             </div>
+
+
 
         </div>
     );
@@ -1808,19 +1810,20 @@ const LeadCard = React.memo(function LeadCard({
                 </span>
             </div>
 
-            <div style={{ padding: '10px 0', borderTop: '1px solid #f1f5f9', marginBottom: '12px' }}>
-                <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#9ca3af', marginBottom: '6px', textTransform: 'uppercase' }}>Assigned To</div>
+            <div style={{ padding: '10px 0', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <div className="avatar-circle" style={{ width: '28px', height: '28px', fontSize: '0.7rem', background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b' }}>
                         {getInitials(getUserName(lead.rawOwner || lead.owner))}
                     </div>
                     <div style={{ lineHeight: 1.2 }}>
-                        <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>{getUserName(lead.rawOwner || lead.owner)}</div>
-                        <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>{getTeamName(lead.team)}</div>
+                        <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>{renderValue(getUserName(lead.rawOwner || lead.owner))}</div>
+                        <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 700 }}>{renderValue(getTeamName(lead.team))}</div>
                     </div>
                 </div>
+                <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600 }}>
+                    {lead.updatedAt ? new Date(lead.updatedAt).toLocaleDateString() : ''}
+                </div>
             </div>
-
         </div>
     );
 });

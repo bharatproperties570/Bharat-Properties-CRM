@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { lookupsAPI } from '../utils/api';
 
 const LiveClock = () => {
     const [time, setTime] = useState(new Date());
@@ -43,8 +44,7 @@ const CreateGlobalConfigModal = ({ isOpen, onClose, onSave, initialConfig, savin
     useEffect(() => {
         const fetchStates = async () => {
             try {
-                const response = await fetch('/api/lookups?lookup_type=State');
-                const data = await response.json();
+                const data = await lookupsAPI.getStates();
                 if (data.status === 'success') setStates(data.data);
             } catch (e) { console.error(e); }
         };

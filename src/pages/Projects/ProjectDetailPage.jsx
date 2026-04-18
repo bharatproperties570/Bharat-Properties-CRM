@@ -304,7 +304,7 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onEditProject }) => 
                 </div>
 
                 {/* COLUMN 2: CENTER - DATA & OPERATIONS */}
-                <div className="no-scrollbar" style={{ flex: '1', display: 'flex', flexDirection: 'column', background: '#f8fafc', overflowY: 'auto', minWidth: '0', position: 'relative' }}>
+                <div className="no-scrollbar" style={{ flex: '1', display: 'flex', flexDirection: 'column', background: '#f8fafc', overflowY: 'auto', minWidth: '0', position: 'relative', paddingBottom: '20px' }}>
                     <div className="glass-card" style={{ 
                         background: '#fff',
                         borderRadius: '16px',

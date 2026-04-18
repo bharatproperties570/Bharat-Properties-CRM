@@ -34,6 +34,7 @@ function ProjectsPage({ onNavigate }) {
 
     const [editProjectData, setEditProjectData] = useState(null);
     const [initialModalTab, setInitialModalTab] = useState('Basic');
+    const [activeRowMenu, setActiveRowMenu] = useState(null);
 
     // Pagination State
     const [currentPage, setCurrentPage] = useState(1);
@@ -541,7 +542,8 @@ function ProjectsPage({ onNavigate }) {
                             <div>Blocks & Phases</div>
                             <div>Property Type</div>
                             <div>Launch Status</div>
-                            <div>Assignment</div>
+                            <div style={{ textAlign: 'center' }}>Assignment</div>
+                            <div style={{ textAlign: 'center' }}>Actions</div>
                         </div>
 
                         <div className="list-content">
@@ -652,6 +654,32 @@ function ProjectsPage({ onNavigate }) {
                                                     </div>
                                                 </div>
                                             </div>
+
+                                            {/* Col 8: Actions */}
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}>
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); onNavigate('project-detail', project._id); }}
+                                                    title="View Details"
+                                                    style={{ background: '#eff6ff', border: '1px solid #dbeafe', borderRadius: '8px', width: '32px', height: '32px', cursor: 'pointer', color: '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: '0.2s' }}
+                                                >
+                                                    <i className="fas fa-external-link-alt"></i>
+                                                </button>
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); setEditProjectData(project); setIsAddModalOpen(true); }}
+                                                    title="Edit Project"
+                                                    style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px', width: '32px', height: '32px', cursor: 'pointer', color: '#f59e0b', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: '0.2s' }}
+                                                >
+                                                    <i className="fas fa-edit"></i>
+                                                </button>
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); handleDeleteProject(project._id); }}
+                                                    title="Delete Project"
+                                                    style={{ background: '#fef2f2', border: '1px solid #fee2e2', borderRadius: '8px', width: '32px', height: '32px', cursor: 'pointer', color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: '0.2s' }}
+                                                >
+                                                    <i className="fas fa-trash-alt"></i>
+                                                </button>
+                                            </div>
+
                                         </div>
                                     ))}
                                 </div>

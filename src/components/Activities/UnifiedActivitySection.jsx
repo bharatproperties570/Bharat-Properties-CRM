@@ -425,27 +425,28 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                     background: '#fff',
                     boxShadow: '0 2px 10px rgba(0,0,0,0.02)'
                 }}>
-                    <div style={{ borderBottom: '1px solid #f1f5f9', display: 'flex', background: '#f8fafc', padding: '12px 20px', alignItems: 'center', justifyContent: 'space-between', position: 'relative' }} className="activity-dropdown-container">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            <span style={{ fontSize: '0.7rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Current Action:</span>
+                    <div style={{ borderBottom: '1px solid #f1f5f9', display: 'flex', background: 'linear-gradient(to right, #ffffff, #f9fafb)', padding: '14px 20px', alignItems: 'center', justifyContent: 'space-between', position: 'relative' }} className="activity-dropdown-container">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.8px', opacity: 0.8 }}>Current Action:</span>
                             <div style={{ position: 'relative' }}>
                                 <button
                                     onClick={() => setIsDropdownOpen(!isDropdownOpen)}
                                     style={{
-                                        padding: '8px 16px',
+                                        padding: '10px 18px',
                                         background: '#fff',
-                                        border: '1px solid #e2e8f0',
-                                        borderRadius: '10px',
+                                        border: '1.5px solid #eef2f6',
+                                        borderRadius: '12px',
                                         color: 'var(--premium-blue)',
-                                        fontSize: '0.8rem',
+                                        fontSize: '0.85rem',
                                         fontWeight: 800,
                                         cursor: 'pointer',
                                         display: 'flex',
                                         alignItems: 'center',
-                                        gap: '10px',
-                                        boxShadow: '0 2px 4px rgba(0,0,0,0.02)',
-                                        transition: 'all 0.2s'
+                                        gap: '12px',
+                                        boxShadow: '0 4px 6px -1px rgba(79, 70, 229, 0.08)',
+                                        transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
                                     }}
+                                    className="action-trigger-btn"
                                 >
                                     {(() => {
                                         const tabs = [
@@ -533,7 +534,21 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                             </div>
                         </div>
                         <div style={{ display: 'flex', gap: '8px' }}>
-                            <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b', background: '#f1f5f9', padding: '4px 8px', borderRadius: '4px' }}>
+                            <span style={{ 
+                                fontSize: '0.65rem', 
+                                fontWeight: 900, 
+                                color: '#4f46e5', 
+                                background: 'rgba(79, 70, 229, 0.08)', 
+                                padding: '6px 12px', 
+                                borderRadius: '20px',
+                                border: '1px solid rgba(79, 70, 229, 0.15)',
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.5px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px'
+                            }}>
+                                <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#4f46e5' }} className="pulse-mini"></div>
                                 STATUS: {composerData.status?.toUpperCase()}
                             </span>
                         </div>
@@ -659,22 +674,24 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                                 onClick={handleSaveActivity}
                                 disabled={composerLoading}
                                 style={{
-                                    padding: '10px 24px',
-                                    fontSize: '0.8rem',
-                                    borderRadius: '10px',
-                                    background: 'var(--premium-blue)',
+                                    padding: '12px 28px',
+                                    fontSize: '0.85rem',
+                                    borderRadius: '12px',
+                                    background: 'linear-gradient(135deg, #4f46e5 0%, #3730a3 100%)',
                                     color: '#fff',
                                     border: 'none',
-                                    fontWeight: 700,
+                                    fontWeight: 800,
                                     cursor: 'pointer',
-                                    boxShadow: '0 4px 12px rgba(79, 70, 229, 0.25)',
+                                    boxShadow: '0 10px 15px -3px rgba(79, 70, 229, 0.25)',
                                     display: 'flex',
                                     alignItems: 'center',
-                                    gap: '8px'
+                                    gap: '10px',
+                                    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
                                 }}
+                                className="save-activity-btn"
                             >
-                                {composerLoading ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-paper-plane"></i>}
-                                Save {composerTab === 'task' ? 'Tasks' : (composerTab.charAt(0).toUpperCase() + composerTab.slice(1))}
+                                {composerLoading ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-check-circle"></i>}
+                                <span>Save {composerTab === 'task' ? 'Tasks' : (composerTab.charAt(0).toUpperCase() + composerTab.slice(1))}</span>
                             </button>
                         </div>
                     </div>

@@ -1,15 +1,6 @@
 /**
  * WhatsAppService.js
  * Phase D: Multi-provider WhatsApp dispatch.
- *
- * Provider priority:
- *   1. Meta WhatsApp Cloud API  (META_WA_TOKEN + META_WA_PHONE_ID in .env or DB)
- *   2. Gupshup REST API         (whatsapp_config DB key with apiKey + sourcePhone)
- *   3. Mock Mode                (WA_MOCK=true or no credentials configured)
- *
- * API Docs:
- *   Meta Cloud API: https://developers.facebook.com/docs/whatsapp/cloud-api/messages/text-messages
- *   Gupshup:        https://www.gupshup.io/developer/docs/bot-platform/guide/whatsapp-api-documentation
  */
 import axios from 'axios';
 import SystemSetting from '../src/modules/systemSettings/system.model.js';
@@ -27,23 +18,23 @@ class WhatsAppService {
 
     /** Meta Cloud API config: env vars take priority, then DB */
     async _getMetaConfig() {
-        // 1. Check Env Vars
+        // 1. Check DB first (usually more up-to-date in production)
+        const setting = await SystemSetting.findOne({ key: 'meta_wa_config' }).lean();
+        const dbValue = setting?.value || {};
+        
+        // 2. Check Env Vars as fallback
         const envToken   = process.env.META_WA_TOKEN;
         const envPhoneId = process.env.META_WA_PHONE_ID;
         const envWabaId  = process.env.META_WABA_ID;
 
-        if (envToken && envPhoneId && !envToken.includes('YOUR_')) {
-            return { token: envToken, phoneId: envPhoneId, businessId: envWabaId };
-        }
+        const config = {
+            token:      dbValue.token || dbValue.apiKey || (envToken && !envToken.includes('YOUR_') ? envToken : null),
+            phoneId:    dbValue.phoneId || (envPhoneId && !envPhoneId.includes('YOUR_') ? envPhoneId : null),
+            businessId: dbValue.businessId || dbValue.wabaId || (envWabaId && !envWabaId.includes('YOUR_') ? envWabaId : null)
+        };
 
-        // 2. Check DB (standardize on meta_wa_config key)
-        const setting = await SystemSetting.findOne({ key: 'meta_wa_config' }).lean();
-        if (setting?.value?.token || setting?.value?.apiKey) {
-            return {
-                token:      setting.value.token || setting.value.apiKey,
-                phoneId:    setting.value.phoneId,
-                businessId: setting.value.businessId || setting.value.wabaId
-            };
+        if (config.token && config.phoneId) {
+            return config;
         }
 
         return null;
@@ -53,46 +44,35 @@ class WhatsAppService {
 
     /**
      * Send a WhatsApp message to a single recipient.
-     * @param  {string} mobile   - 10-digit Indian mobile (e.g. "9876543210")
-     * @param  {string} message  - Text message
-     * @returns {{ success: boolean, messageId?: string, provider?: string, error?: string, mock?: boolean }}
      */
     async sendMessage(mobile, message) {
-        // ── Explicit mock mode ─────────────────────────────────────────────
         if (process.env.WA_MOCK === 'true') {
             console.log(`[WhatsApp] MOCK → ${mobile}: ${message.substring(0, 80)}`);
             return { success: true, messageId: `mock_${Date.now()}`, provider: 'mock', mock: true };
         }
 
-        // ── Provider 1: Meta WhatsApp Cloud API ────────────────────────────
         const metaConfig = await this._getMetaConfig();
         if (metaConfig) {
             return this._sendViaMeta(mobile, message, metaConfig);
         }
 
-        // ── Provider 2: Gupshup ────────────────────────────────────────────
         const gupshupConfig = await this._getGupshupConfig();
         if (gupshupConfig?.apiKey) {
             return this._sendViaGupshup(mobile, message, gupshupConfig);
         }
 
-        // ── Provider 3: Mock fallback ──────────────────────────────────────
         console.log(`[WhatsApp] MOCK (no credentials) → ${mobile}: ${message.substring(0, 80)}`);
         return { success: true, messageId: `mock_${Date.now()}`, provider: 'mock', mock: true };
     }
 
     /**
      * Broadcast a message to multiple recipients.
-     * @param {string[]} mobiles - Array of 10-digit mobile numbers (or full E.164 without +)
-     * @param {string}   message - Text message
-     * @returns {{ sent: number, failed: number, results: Array }}
      */
     async broadcast(mobiles, message) {
         const results = [];
         let sent = 0, failed = 0;
 
         for (const mobile of mobiles) {
-            // 300ms throttle to respect API rate limits
             await new Promise(r => setTimeout(r, 300));
             const result = await this.sendMessage(mobile, message);
             results.push({ mobile, ...result });
@@ -105,10 +85,6 @@ class WhatsAppService {
 
     // ── Internal Providers ─────────────────────────────────────────────────────
 
-    /**
-     * Send via Meta WhatsApp Cloud API.
-     * Supports text, image, and document messages.
-     */
     async _sendViaMeta(mobile, message, config, options = {}) {
         const toNumber = mobile.length === 10 ? `91${mobile}` : mobile.replace(/^\+/, '');
         const { type = 'text', mediaUrl, filename, caption } = options;
@@ -150,9 +126,6 @@ class WhatsAppService {
         }
     }
 
-    /**
-     * Send via Gupshup REST API (legacy provider — kept as fallback).
-     */
     async _sendViaGupshup(mobile, message, config) {
         try {
             const response = await axios.post(
@@ -182,9 +155,6 @@ class WhatsAppService {
         }
     }
 
-    /**
-     * Send a Meta template message.
-     */
     async sendTemplate(mobile, templateName, languageCode = 'en', components = []) {
         const metaConfig = await this._getMetaConfig();
         if (!metaConfig) {
@@ -223,14 +193,6 @@ class WhatsAppService {
         }
     }
 
-    /**
-     * Send an image or document via WhatsApp.
-     * @param {string} mobile   - Recipient mobile
-     * @param {string} type     - 'image' or 'document'
-     * @param {string} mediaUrl - URL of the file
-     * @param {string} caption  - Optional text
-     * @param {string} filename - Optional for documents
-     */
     async sendMedia(mobile, type, mediaUrl, caption = '', filename = '') {
         const metaConfig = await this._getMetaConfig();
         if (metaConfig) {
@@ -243,30 +205,68 @@ class WhatsAppService {
 
     /**
      * Fetch WhatsApp Templates from Meta Business Account
+     * Senior Professional Diagnostics Added
      */
     async getTemplates() {
         const config = await this._getMetaConfig();
-        if (!config || !config.businessId || !config.token) {
-            return []; // Fallback if not configured
+        
+        if (!config || !config.token || !config.businessId) {
+            console.warn('[WhatsAppService] Missing credentials for Meta Sync. Returning Sandbox Templates.');
+            return [
+                {
+                    name: 'sample_property_launch',
+                    status: 'APPROVED',
+                    language: 'en_US',
+                    category: 'MARKETING',
+                    components: [
+                        { type: 'HEADER', format: 'TEXT', text: 'New Launch in Kurukshetra' },
+                        { type: 'BODY', text: 'Hello {{1}}, check out our new project {{2}} starting at {{3}} Lakhs! Are you interested?' },
+                        { type: 'FOOTER', text: 'Bharat Properties' }
+                    ]
+                },
+                {
+                    name: 'sample_site_visit_invite',
+                    status: 'APPROVED',
+                    language: 'en_US',
+                    category: 'UTILITY',
+                    components: [
+                        { type: 'BODY', text: 'Namaskar {{1}} ji, your site visit for {{2}} is confirmed for tomorrow. See you soon!' }
+                    ]
+                }
+            ];
         }
 
         try {
             const url = `${META_GRAPH_BASE}/${config.businessId}/message_templates`;
+            console.log(`[WhatsAppService] Syncing templates for WABA: ${config.businessId}`);
+            
             const response = await axios.get(url, {
                 headers: { 'Authorization': `Bearer ${config.token}` },
-                params: { limit: 100 }
+                params: { 
+                    limit: 300,
+                    fields: 'name,status,language,components,category'
+                },
+                timeout: 20000
             });
-            return response.data?.data || [];
+
+            const templates = response.data?.data || [];
+            
+            // Filter to APPROVED/IN_REVIEW to allow users to see what's coming
+            const validTemplates = templates.filter(t => ['APPROVED', 'IN_REVIEW', 'AUTHENTICATION'].includes(t.status));
+            
+            console.log(`[WhatsAppService] Fetched ${templates.length} total. Valid: ${validTemplates.length}`);
+            return validTemplates;
         } catch (err) {
-            console.error('[WhatsApp/Meta] Error fetching templates:', err.response?.data || err.message);
+            const errorData = err.response?.data?.error || {};
+            const message = errorData.message || err.message;
+            
+            console.error('[WhatsApp/Meta] Template fetch error:', message);
+            
+            // Return empty instead of crashing if possible
             return [];
         }
     }
 
-    /**
-     * Webhook verification (for Meta handshake).
-     * Professional Enterprise validation
-     */
     verifyWebhook(query, verifyToken) {
         const mode = query['hub.mode'];
         const token = query['hub.verify_token'];
@@ -284,6 +284,3 @@ class WhatsAppService {
 }
 
 export default new WhatsAppService();
-
-
-

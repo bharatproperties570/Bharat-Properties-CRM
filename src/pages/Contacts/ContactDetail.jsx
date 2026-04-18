@@ -18,6 +18,7 @@ import '../../index.css';
 import AddInventoryModal from '../../components/AddInventoryModal';
 import AddLeadModal from '../../components/AddLeadModal';
 import AddDealModal from '../../components/AddDealModal';
+import SendMessageModal from '../../components/SendMessageModal';
 import CreateActivityModal from '../../components/CreateActivityModal';
 import { parseBudget, parseSizeSqYard, calculateMatch } from '../../utils/matchingLogic';
 
@@ -599,7 +600,7 @@ const ContactDetail = ({ contactId, onBack }) => {
                 <div className="no-scrollbar" style={{ flex: 1, display: 'flex', gap: '16px', padding: '12px 24px', height: 'calc(100vh - 250px)', overflow: 'hidden', background: '#f8fafc' }}>
                     
                     {/* COLUMN 1: LEFT - Profile & Preferences */}
-                    <div className="no-scrollbar" style={{ flex: '0 0 400px', display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto', paddingBottom: '20px' }}>
+                    <div style={{ flex: '0 0 400px', display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto', minHeight: 0, paddingBottom: '20px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                             <i className="fas fa-id-card" style={{ color: '#4f46e5' }}></i>
                             <span style={{ fontSize: '0.7rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Contact Intelligence</span>
@@ -626,7 +627,7 @@ const ContactDetail = ({ contactId, onBack }) => {
                     </div>
 
                     {/* COLUMN 2: CENTER - Interaction Intelligence */}
-                    <div className="no-scrollbar" style={{ flex: '1', display: 'flex', flexDirection: 'column', minWidth: '0', position: 'relative' }}>
+                    <div style={{ flex: '1', display: 'flex', flexDirection: 'column', minWidth: '0', minHeight: 0, position: 'relative', overflowY: 'auto', paddingBottom: '20px' }}>
                         <div className="glass-card activity-timeline-container" style={{ 
                             background: '#fff',
                             borderRadius: '16px',
@@ -655,7 +656,7 @@ const ContactDetail = ({ contactId, onBack }) => {
                     </div>
 
                     {/* COLUMN 3: RIGHT - Secondary Dashboard */}
-                    <div className="no-scrollbar" style={{ flex: '0 0 400px', display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto', paddingBottom: '20px' }}>
+                    <div style={{ flex: '0 0 400px', display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto', minHeight: 0, paddingBottom: '20px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                             <i className="fas fa-chart-line" style={{ color: '#4f46e5' }}></i>
                             <span style={{ fontSize: '0.7rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Strategic Monitoring</span>

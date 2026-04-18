@@ -234,6 +234,20 @@ const leadPopulateFields = [
     { path: 'documents.documentType', select: 'lookup_value' },
 ];
 
+// 🏎️ SENIOR OPTIMIZATION: Lean population for summary list view
+const leadListPopulateFields = [
+    { path: 'requirement', select: 'lookup_value' },
+    { path: 'subRequirement', select: 'lookup_value' },
+    { path: 'location', select: 'lookup_value' },
+    { path: 'source', select: 'lookup_value' },
+    { path: 'stage', select: 'lookup_value' },
+    { path: 'propertyType', select: 'lookup_value' },
+    { path: 'subType', select: 'lookup_value' },
+    { path: 'project', select: 'name' },
+    { path: 'owner', select: 'fullName email name' },
+    { path: 'assignment.assignedTo', select: 'fullName' }
+];
+
 /**
  * @desc    Get all leads with pagination and search
  * @route   GET /leads
@@ -335,85 +349,99 @@ export const getLeads = async (req, res, next) => {
             }
         }
 
-        // Calculate Stats (Total, Today, Fresh, Hot)
-        const stats = await Lead.aggregate([
-            { $match: visibilityFilter },
-            {
-                $facet: {
-                    total: [{ $count: "count" }],
-                    today: [
-                        { $match: { createdAt: { $gte: new Date(new Date().setHours(0,0,0,0)) } } },
-                        { $count: "count" }
-                    ],
-                    fresh: [
-                        { $lookup: { from: "lookups", localField: "stage", foreignField: "_id", as: "stageDoc" } },
-                        { $unwind: "$stageDoc" },
-                        { $match: { "stageDoc.lookup_value": { $regex: /^(New|Lead Created|Open|Prospect)$/i } } },
-                        { $count: "count" }
-                    ],
-                    hot: [
-                        { $lookup: { from: "lookups", localField: "stage", foreignField: "_id", as: "stageDoc" } },
-                        { $unwind: "$stageDoc" },
-                        { $match: { "stageDoc.lookup_value": { $regex: /^(Qualified|Opportunity|Negotiation|Booked|Closed Won)$/i } } },
-                        { $count: "count" }
-                    ],
-                    incoming: [
-                        { $lookup: { from: "lookups", localField: "stage", foreignField: "_id", as: "stageDoc" } },
-                        { $unwind: "$stageDoc" },
-                        { $match: { "stageDoc.lookup_value": { $regex: /^(New|Lead Created|Open)$/i } } },
-                        { $count: "count" }
-                    ],
-                    prospect: [
-                        { $lookup: { from: "lookups", localField: "stage", foreignField: "_id", as: "stageDoc" } },
-                        { $unwind: "$stageDoc" },
-                        { $match: { "stageDoc.lookup_value": { $regex: /^(Prospect|Qualified)$/i } } },
-                        { $count: "count" }
-                    ],
-                    opportunity: [
-                        { $lookup: { from: "lookups", localField: "stage", foreignField: "_id", as: "stageDoc" } },
-                        { $unwind: "$stageDoc" },
-                        { $match: { "stageDoc.lookup_value": { $regex: /^(Opportunity)$/i } } },
-                        { $count: "count" }
-                    ],
-                    negotiation: [
-                        { $lookup: { from: "lookups", localField: "stage", foreignField: "_id", as: "stageDoc" } },
-                        { $unwind: "$stageDoc" },
-                        { $match: { "stageDoc.lookup_value": { $regex: /^(Negotiation|Booked)$/i } } },
-                        { $count: "count" }
-                    ],
-                    won: [
-                        { $lookup: { from: "lookups", localField: "stage", foreignField: "_id", as: "stageDoc" } },
-                        { $unwind: "$stageDoc" },
-                        { $match: { "stageDoc.lookup_value": { $regex: /^(Closed Won)$/i } } },
-                        { $count: "count" }
-                    ],
-                    lost: [
-                        { $lookup: { from: "lookups", localField: "stage", foreignField: "_id", as: "stageDoc" } },
-                        { $unwind: "$stageDoc" },
-                        { $match: { "stageDoc.lookup_value": { $regex: /^(Closed Lost|Stalled)$/i } } },
-                        { $count: "count" }
-                    ]
-                }
-            }
-        ]);
-
-        const statsObj = {
-            total: stats[0]?.total[0]?.count || 0,
-            today: stats[0]?.today[0]?.count || 0,
-            fresh: stats[0]?.fresh[0]?.count || 0,
-            hot: stats[0]?.hot[0]?.count || 0,
-            pipeline: {
-                incoming: stats[0]?.incoming[0]?.count || 0,
-                prospect: stats[0]?.prospect[0]?.count || 0,
-                opportunity: stats[0]?.opportunity[0]?.count || 0,
-                negotiation: stats[0]?.negotiation[0]?.count || 0,
-                won: stats[0]?.won[0]?.count || 0,
-                lost: stats[0]?.lost[0]?.count || 0
-            }
+        // ─── PERFORMANCE FIX: Pre-resolve Lookup IDs for Stats to avoid $lookup in aggregate ───
+        const stageBuckets = {
+            fresh: ['New', 'Lead Created', 'Open', 'Prospect'],
+            hot: ['Qualified', 'Opportunity', 'Negotiation', 'Booked', 'Closed Won'],
+            incoming: ['New', 'Lead Created', 'Open'],
+            prospect: ['Prospect', 'Qualified'],
+            opportunity: ['Opportunity'],
+            negotiation: ['Negotiation', 'Booked'],
+            won: ['Closed Won'],
+            lost: ['Closed Lost', 'Stalled']
         };
 
-        // Enable population for key fields
-        const results = await paginate(Lead, query, Number(page), Number(limit), { updatedAt: -1 }, leadPopulateFields);
+        const allTargetStages = [...new Set(Object.values(stageBuckets).flat())];
+        const resolvedStages = await Lookup.find({ 
+            lookup_type: 'Stage', 
+            lookup_value: { $in: allTargetStages.map(s => new RegExp(`^${s}$`, 'i')) } 
+        }).select('_id lookup_value').lean();
+
+        const stageToId = new Map();
+        resolvedStages.forEach(s => stageToId.set(s.lookup_value.toLowerCase(), s._id));
+
+        const bucketToIds = {};
+        Object.entries(stageBuckets).forEach(([bucket, labels]) => {
+            bucketToIds[bucket] = labels.map(l => stageToId.get(l.toLowerCase())).filter(Boolean);
+        });
+
+        // Calculate Stats (Total, Today, Fresh, Hot, and Pipeline) in a optimized way
+        // SENIOR OPTIMIZATION: Only calculate stats on Page 1 to save DB resources on scroll
+        let statsObj: any = null;
+        if (Number(page) === 1) {
+            const stats = await Lead.aggregate([
+                { $match: visibilityFilter },
+                {
+                    $facet: {
+                        total: [{ $count: "count" }],
+                        today: [
+                            { $match: { createdAt: { $gte: new Date(new Date().setHours(0,0,0,0)) } } },
+                            { $count: "count" }
+                        ],
+                        fresh: [
+                            { $match: { stage: { $in: bucketToIds.fresh || [] } } },
+                            { $count: "count" }
+                        ],
+                        hot: [
+                            { $match: { stage: { $in: bucketToIds.hot || [] } } },
+                            { $count: "count" }
+                        ],
+                        incoming: [
+                            { $match: { stage: { $in: bucketToIds.incoming || [] } } },
+                            { $count: "count" }
+                        ],
+                        prospect: [
+                            { $match: { stage: { $in: bucketToIds.prospect || [] } } },
+                            { $count: "count" }
+                        ],
+                        opportunity: [
+                            { $match: { stage: { $in: bucketToIds.opportunity || [] } } },
+                            { $count: "count" }
+                        ],
+                        negotiation: [
+                            { $match: { stage: { $in: bucketToIds.negotiation || [] } } },
+                            { $count: "count" }
+                        ],
+                        won: [
+                            { $match: { stage: { $in: bucketToIds.won || [] } } },
+                            { $count: "count" }
+                        ],
+                        lost: [
+                            { $match: { stage: { $in: bucketToIds.lost || [] } } },
+                            { $count: "count" }
+                        ]
+                    }
+                }
+            ]);
+
+            statsObj = {
+                total: stats[0]?.total[0]?.count || 0,
+                today: stats[0]?.today[0]?.count || 0,
+                fresh: stats[0]?.fresh[0]?.count || 0,
+                hot: stats[0]?.hot[0]?.count || 0,
+                pipeline: {
+                    incoming: stats[0]?.incoming[0]?.count || 0,
+                    prospect: stats[0]?.prospect[0]?.count || 0,
+                    opportunity: stats[0]?.opportunity[0]?.count || 0,
+                    negotiation: stats[0]?.negotiation[0]?.count || 0,
+                    won: stats[0]?.won[0]?.count || 0,
+                    lost: stats[0]?.lost[0]?.count || 0
+                }
+            };
+        }
+
+        // Enable population for key fields (Use lean population for list view)
+        const results = await paginate(Lead, query, Number(page), Number(limit), { updatedAt: -1 }, leadListPopulateFields);
         results.stats = statsObj;
 
         // Attach Interaction Data (Activity Counts & Recent Activities)
@@ -608,26 +636,29 @@ export const updateLead = async (req, res, next) => {
         const updateData = { ...req.body };
         await resolveAllReferenceFields(updateData);
 
-        // ━━ Stage History: auto-track if stage is changing ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        if (updateData.stage) {
-            const existing = await Lead.findById(req.params.id).select('stage stageHistory stageChangedAt createdAt').lean();
-            if (existing) {
+        // ━━ Stage & Assignment History: auto-track changes ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        const existing = await Lead.findById(req.params.id)
+            .select('stage stageHistory stageChangedAt createdAt owner assignment firstName lastName')
+            .lean();
+
+        if (existing) {
+            const now = new Date();
+            const historyUpdate = {};
+            let requiresHistoryUpdate = false;
+
+            // 1. Stage History
+            if (updateData.stage) {
                 // Resolve current stage to a string label
                 let currentStageStr = 'New';
                 if (existing.stage) {
                     const existingLookup = await Lookup.findById(existing.stage).select('lookup_value').lean();
                     currentStageStr = existingLookup?.lookup_value || 'New';
                 }
-                // Resolve new stage to a string label (updateData.stage is now an ObjectId)
                 const newLookup = await Lookup.findById(updateData.stage).select('lookup_value').lean();
                 const newStageStr = newLookup?.lookup_value || String(updateData.stage);
 
-                // Only write history if stage actually changed
                 if (currentStageStr !== newStageStr) {
-                    const now = new Date();
-                    const historyUpdate = {};
-
-                    // Close previous open entry
+                    requiresHistoryUpdate = true;
                     if (existing.stageHistory?.length > 0) {
                         const lastIdx = existing.stageHistory.length - 1;
                         const last = existing.stageHistory[lastIdx];
@@ -638,38 +669,64 @@ export const updateLead = async (req, res, next) => {
                             historyUpdate[`stageHistory.${lastIdx}.daysInStage`] = daysInStage;
                         }
                     }
+                    historyUpdate.$push = historyUpdate.$push || {};
+                    historyUpdate.$push.stageHistory = {
+                        stage: newStageStr,
+                        enteredAt: now,
+                        triggeredBy: updateData.triggeredBy || 'manual_override',
+                        activityType: updateData.activityType || null,
+                        outcome: updateData.outcome || null,
+                        reason: updateData.reason || null
+                    };
+                    updateData.stageChangedAt = now;
 
-                    // Push new history entry
-                    const triggeredBy = updateData.triggeredBy || 'activity';
-                    const leadUpdateRes = await Lead.findByIdAndUpdate(req.params.id, {
-                        $set: historyUpdate,
-                        $push: {
-                            stageHistory: {
-                                stage: newStageStr,
-                                enteredAt: now,
-                                triggeredBy,
-                                activityType: updateData.activityType || null,
-                                outcome: updateData.outcome || null,
-                                reason: updateData.reason || null
-                            }
-                        }
-                    }, { new: true }); // Need new data for AuditLog name
-
-                    // Ensure AuditLog captures this transition for the Timeline
+                    // Audit Log Transition
                     const AuditLog = mongoose.model('AuditLog');
                     await AuditLog.logEntityUpdate(
                         'stage_changed',
                         'lead',
                         req.params.id,
-                        `${leadUpdateRes?.firstName || ''} ${leadUpdateRes?.lastName || ''}`.trim(),
-                        req.user?.id || null, // Best effort actor
+                        `${existing.firstName || ''} ${existing.lastName || ''}`.trim(),
+                        req.user?.id || null,
                         { before: currentStageStr, after: newStageStr },
                         `Lead stage shifted from ${currentStageStr} to ${newStageStr}${updateData.reason ? ' - ' + updateData.reason : ''}`
                     );
-
-                    // Set stageChangedAt
-                    updateData.stageChangedAt = now;
                 }
+            }
+
+            // 2. Assignment History
+            const newOwner = updateData.owner || updateData.assignment?.assignedTo || updateData['assignment.assignedTo'];
+            const oldOwner = existing.owner || existing.assignment?.assignedTo;
+            if (newOwner && String(newOwner) !== String(oldOwner)) {
+                requiresHistoryUpdate = true;
+                historyUpdate.$push = historyUpdate.$push || {};
+                historyUpdate.$push['assignment.history'] = {
+                    assignedTo: newOwner,
+                    assignedBy: req.user?.id,
+                    assignedAt: now,
+                    notes: updateData.assignmentNote || updateData.reason || "Lead reassigned"
+                };
+
+                // Audit Log Assignment
+                const AuditLog = mongoose.model('AuditLog');
+                await AuditLog.logEntityUpdate(
+                    'assignment_changed',
+                    'lead',
+                    req.params.id,
+                    `${existing.firstName || ''} ${existing.lastName || ''}`.trim(),
+                    req.user?.id || null,
+                    { before: oldOwner, after: newOwner },
+                    `Lead reassigned to a new owner.`
+                );
+            }
+
+            if (requiresHistoryUpdate) {
+                const atomicUpdate = { ...historyUpdate };
+                delete atomicUpdate.$push; // Move $push to top level if needed
+                await Lead.findByIdAndUpdate(req.params.id, { 
+                    $set: atomicUpdate, 
+                    $push: historyUpdate.$push 
+                });
             }
         }
 
@@ -732,22 +789,98 @@ export const deleteLead = async (req, res, next) => {
 export const getLeadById = async (req, res, next) => {
     try {
         const { id } = req.params;
-        let lead;
+        const leadPopulateReduced = [
+            { path: 'project', select: 'name' },
+            { path: 'owner', select: 'fullName email name' },
+            {
+                path: 'contactDetails',
+                populate: [
+                    { path: 'title', select: 'lookup_value' },
+                    { path: 'source', select: 'lookup_value' },
+                    { path: 'personalAddress.location', select: 'lookup_value' },
+                    { path: 'correspondenceAddress.city', select: 'lookup_value' },
+                    { path: 'correspondenceAddress.state', select: 'lookup_value' },
+                    { path: 'correspondenceAddress.country', select: 'lookup_value' },
+                    { path: 'correspondenceAddress.location', select: 'lookup_value' },
+                    { path: 'professionCategory', select: 'lookup_value' },
+                    { path: 'professionSubCategory', select: 'lookup_value' },
+                    { path: 'designation', select: 'lookup_value' },
+                    { path: 'subSource', select: 'lookup_value' },
+                    { path: 'campaign', select: 'lookup_value' },
+                    { path: 'educations.education', select: 'lookup_value' },
+                    { path: 'educations.degree', select: 'lookup_value' },
+                    { path: 'loans.loanType', select: 'lookup_value' },
+                    { path: 'loans.bank', select: 'lookup_value' },
+                    { path: 'incomes.incomeType', select: 'lookup_value' }
+                ]
+            },
+            { path: 'assignment.assignedTo', select: 'fullName email name' },
+            { path: 'assignment.team', select: 'name' },
+            { path: 'teams', select: 'name' }
+        ];
 
         // Check if ID is a valid MongoDB ObjectId
+        let lead;
         if (id.match(/^[0-9a-fA-F]{24}$/)) {
-            lead = await Lead.findById(id);
+            lead = await Lead.findById(id).populate(leadPopulateReduced);
         } else {
             // Fallback: search by mobile number
-            lead = await Lead.findOne({ mobile: id });
+            lead = await Lead.findOne({ mobile: id }).populate(leadPopulateReduced);
         }
 
         if (!lead) {
             return res.status(404).json({ success: false, message: "Lead not found" });
         }
 
-        // Populate lead
-        await lead.populate(leadPopulateFields);
+        // Manual Enrichment for Mixed fields that might be strings (preventing CastErrors)
+        const leadData = lead.toObject();
+        
+        const mixedFields = [
+            { field: 'requirement', type: 'Requirement' },
+            { field: 'subRequirement', type: 'SubRequirement' },
+            { field: 'budget', type: 'Budget' },
+            { field: 'location', type: 'Location' },
+            { field: 'source', type: 'Source' },
+            { field: 'status', type: 'Status' },
+            { field: 'stage', type: 'Stage' },
+            { field: 'subSource', type: 'SubSource' },
+            { field: 'campaign', type: 'Campaign' }
+        ];
+
+        const arrayMixedFields = [
+            { field: 'propertyType', type: 'PropertyType' },
+            { field: 'subType', type: 'SubType' },
+            { field: 'unitType', type: 'UnitType' },
+            { field: 'facing', type: 'Facing' },
+            { field: 'roadWidth', type: 'RoadWidth' },
+            { field: 'direction', type: 'Direction' }
+        ];
+
+        for (const { field, type } of mixedFields) {
+            const val = leadData[field];
+            if (val && typeof val === 'string' && !mongoose.Types.ObjectId.isValid(val)) {
+                const lookup = await Lookup.findOne({ lookup_type: type, lookup_value: val }).lean();
+                leadData[field] = lookup || { lookup_value: val };
+            } else if (val && mongoose.Types.ObjectId.isValid(val)) {
+                const lookup = await Lookup.findById(val).lean();
+                leadData[field] = lookup || { _id: val };
+            }
+        }
+
+        for (const { field, type } of arrayMixedFields) {
+            if (Array.isArray(leadData[field])) {
+                leadData[field] = await Promise.all(leadData[field].map(async (v) => {
+                    if (typeof v === 'string' && !mongoose.Types.ObjectId.isValid(v)) {
+                        const lookup = await Lookup.findOne({ lookup_type: type, lookup_value: v }).lean();
+                        return lookup || { lookup_value: v };
+                    } else if (mongoose.Types.ObjectId.isValid(v)) {
+                        const lookup = await Lookup.findById(v).lean();
+                        return lookup || { _id: v };
+                    }
+                    return v;
+                }));
+            }
+        }
 
         // Attach Recent Activities and Interaction Counts
         const leadIdStr = id.toString();
@@ -789,7 +922,6 @@ export const getLeadById = async (req, res, next) => {
             else if (t.includes('whatsapp') || t.includes('messaging')) interactionCounts.whatsapp += stat.count;
         });
 
-        const leadData = lead.toObject();
         leadData.activities = recentActivities;
         leadData.interactionCounts = interactionCounts;
         const latest = recentActivities[0];
@@ -1002,22 +1134,41 @@ export const matchLeads = async (req, res) => {
         const sFlex = parseFloat(sizeFlexibility) / 100;
 
         const deal = await Deal.findById(dealId)
-            .populate('category', 'lookup_value')
-            .populate('intent', 'lookup_value')
-            .populate('subCategory', 'lookup_value')
             .populate('inventoryId')
+            .populate('associatedContact')
             .lean();
             
         if (!deal) {
             return res.status(404).json({ success: false, error: "Deal not found" });
         }
 
+        // Manual Robust Population for Deal Lookups to prevent CastError
+        const dealLookups = await Lookup.find({ 
+            lookup_type: { $in: ['Category', 'Intent', 'SubCategory'] } 
+        }).lean();
+        const dealLookupMap = new Map(dealLookups.map(l => [String(l._id), l]));
+        const dealLookupValueMap = new Map(dealLookups.map(l => [String(l.lookup_value).toLowerCase(), l]));
+
+        const enrichItemWithLookup = (item, field) => {
+            if (!item) return;
+            const val = item[field];
+            if (!val) return;
+            if (mongoose.Types.ObjectId.isValid(val)) {
+                item[field] = dealLookupMap.get(String(val)) || val;
+            } else if (typeof val === 'string') {
+                item[field] = dealLookupValueMap.get(val.toLowerCase()) || { lookup_value: val };
+            }
+        };
+
+        enrichItemWithLookup(deal, 'category');
+        enrichItemWithLookup(deal, 'intent');
+        enrichItemWithLookup(deal, 'subCategory');
+
         const dealIntent = String(deal.intent?.lookup_value || deal.intent || "").toLowerCase();
         const dealCategory = String(deal.category?.lookup_value || deal.category || "").toLowerCase();
 
         // 1. Fetch potential leads
         const excludedStatusNames = ["Lost", "Closed", "Rejected", "Dormant"];
-        // Resolve statuses to IDs to avoid CastError (since status is an ObjectId ref)
         const excludedStatusIds = await Promise.all(
             excludedStatusNames.map(name => resolveLookup('Status', name, false))
         );
@@ -1033,122 +1184,122 @@ export const matchLeads = async (req, res) => {
             .populate('location', 'lookup_value')
             .lean();
 
+        // 3. ENHANCEMENT: Fetch Dispatch Proof (Recent Activities for THIS deal)
+        const invId = String(deal.inventoryId?._id || deal.inventoryId || "");
+        const dispatchActivities = await Activity.find({
+            type: 'Marketing',
+            status: 'Completed',
+            'details.inventoryId': invId
+        }).sort({ performedAt: -1 }).lean();
+
+        const dispatchMap = new Map();
+        dispatchActivities.forEach(act => {
+            const leadIdStr = String(act.entityId || "");
+            if (leadIdStr && !dispatchMap.has(leadIdStr)) {
+                dispatchMap.set(leadIdStr, {
+                    date: act.performedAt,
+                    channels: act.details?.results?.filter(r => r.status === 'success').map(r => r.channel) || []
+                });
+            }
+        });
+
         // 2. Filter and Score
         const matchingLeads = leads.filter(lead => {
-            // --- STAGE 1: HARD FILTERS ---
+            // ALWAYS include associated contact if it exists
+            if (deal.associatedContact && String(lead._id) === String(deal.associatedContact._id)) return true;
+
             const leadReq = String(lead.requirement?.lookup_value || lead.requirement || "").toLowerCase();
             const leadCats = (Array.isArray(lead.propertyType) ? lead.propertyType : [])
                 .map(c => String(c?.lookup_value || c || "").toLowerCase())
                 .filter(Boolean);
 
-            // A. Intent Symmetry
             let intentMatched = false;
-            if (dealIntent.includes("sell") && (leadReq.includes("buy") || leadReq.includes("purchase"))) intentMatched = true;
+            // Liberal matching if data is missing or strictly correlated
+            if (!dealIntent || !leadReq) intentMatched = true; 
+            else if (dealIntent.includes("sell") && (leadReq.includes("buy") || leadReq.includes("purchase"))) intentMatched = true;
             else if (dealIntent.includes("rent") && (leadReq.includes("rent") || leadReq.includes("lease"))) intentMatched = true;
             else if (dealIntent.includes("lease") && (leadReq.includes("lease") || leadReq.includes("rent"))) intentMatched = true;
             else if ((dealIntent.includes("buy") || dealIntent.includes("purchase")) && leadReq.includes("sell")) intentMatched = true;
+            else if (dealIntent === leadReq) intentMatched = true; 
 
             if (!intentMatched) return false;
 
-            // B. Category Alignment
             let catMatched = false;
-            if (dealCategory.includes("res") && leadCats.some(c => c && c.includes("res"))) catMatched = true;
+            if (!dealCategory || (leadCats.length === 0)) catMatched = true;
+            else if (dealCategory.includes("res") && leadCats.some(c => c && c.includes("res"))) catMatched = true;
             else if (dealCategory.includes("comm") && leadCats.some(c => c && c.includes("comm"))) catMatched = true;
             else if (dealCategory.includes("ind") && leadCats.some(c => c && c.includes("ind"))) catMatched = true;
-            else if (!dealCategory || (leadCats.length === 0)) catMatched = true;
+            else catMatched = leadCats.some(c => c && (c.includes(dealCategory) || dealCategory.includes(c)));
 
-            if (!catMatched) return false;
-
-            return true;
+            return catMatched;
         }).map(lead => {
-            // --- STAGE 2: WEIGHTED SCORING ---
             let score = 0;
             const matchDetails = [];
 
-            // 1. Sub-Category / Type (Weight: type)
+            // Base Score for Associated Contact
+            if (deal.associatedContact && String(lead._id) === String(deal.associatedContact._id)) {
+                score = 100;
+                matchDetails.push("Currently Associated Person");
+            }
+
             const dealSub = (deal.subCategory?.lookup_value || "").toLowerCase();
             const leadSubs = (lead.subType || []).filter(Boolean).map(s => String(s.lookup_value || s || "").toLowerCase());
             if (dealSub && leadSubs.some(s => s && s.includes(dealSub))) {
                 score += (weights.type || 20);
-                matchDetails.push("Unit Type Match");
+                matchDetails.push("Unit Type Correlation");
             }
 
-            // 2. Budget / Price (Weight: budget)
             const dealPrice = deal.price || deal.quotePrice || 0;
             if (dealPrice > 0) {
                 const min = lead.budgetMin || 0;
                 const max = lead.budgetMax || Infinity;
                 if (dealPrice >= min && dealPrice <= max) {
                     score += (weights.budget || 25);
-                    matchDetails.push("Budget Match");
+                    matchDetails.push("Budget Alignment");
                 } else if (dealPrice >= min * (1 - bFlex) && dealPrice <= max * (1 + bFlex)) {
                     score += (weights.budget || 25) * 0.6;
                     matchDetails.push("Approximate Budget Match");
                 }
             }
 
-            // 3. Location (Weight: location)
             const dealLoc = String(deal.location?.lookup_value || deal.location?._id || deal.location || deal.projectName || "").toLowerCase();
             const leadLocArea = String(lead.locArea || "").toLowerCase();
             const leadSelectedLoc = String(lead.location?.lookup_value || lead.location?._id || lead.location || "").toLowerCase();
-            const leadCity = String(lead.locCity || "").toLowerCase();
-            const leadSector = String(lead.sector || "").toLowerCase();
             const leadProjects = Array.isArray(lead.projectName) ? lead.projectName : [];
-
             let locScore = 0;
             const locWeight = (weights.location || 30);
-
-            // Tier 1: Project Match
             if (deal.projectName && typeof deal.projectName === 'string' && leadProjects.some(p => p && typeof p === 'string' && deal.projectName.toLowerCase().includes(p.toLowerCase()))) {
                 locScore = locWeight;
-                matchDetails.push("Exact Project Match");
-            } 
-            // Tier 2: Area Match
-            else if ((leadLocArea && dealLoc.includes(leadLocArea)) || (leadSelectedLoc && dealLoc.includes(leadSelectedLoc))) {
+                matchDetails.push("Target Project Match");
+            } else if ((leadLocArea && dealLoc.includes(leadLocArea)) || (leadSelectedLoc && dealLoc.includes(leadSelectedLoc))) {
                 locScore = locWeight;
-                matchDetails.push("Location Match");
-            }
-            else {
-                // Tier 3: Sector/City Match
+                matchDetails.push("Location Correlation");
+            } else {
                 let addressPoints = 0;
                 const dealSector = (deal.inventoryId?.sector || "").toLowerCase();
-                if (leadSector && (dealSector.includes(leadSector) || leadSector.includes(dealSector))) {
-                    addressPoints += locWeight * 0.7;
-                    matchDetails.push("Sector Correlation");
-                }
+                if (lead.sector && dealSector.includes(String(lead.sector).toLowerCase())) addressPoints += locWeight * 0.7;
                 const dealCity = (deal.inventoryId?.city || "").toLowerCase();
-                if (leadCity && (dealCity.includes(leadCity) || leadCity.includes(dealCity))) {
-                    addressPoints += locWeight * 0.3;
-                    matchDetails.push("City match");
-                }
+                if (lead.locCity && dealCity.includes(String(lead.locCity).toLowerCase())) addressPoints += locWeight * 0.3;
                 locScore = Math.min(addressPoints, locWeight);
             }
             score += locScore;
-
-            // 4. Orientation / Size / Specs (Weight: size)
-            let extraMatchPoints = 0;
-            const sizeWeight = (weights.size || 25);
 
             if (deal.inventoryId) {
                 const inv = deal.inventoryId;
                 const lFacing = (lead.facing || []).filter(Boolean).map(f => String(f._id || f));
                 const lDir = (lead.direction || []).filter(Boolean).map(d => String(d._id || d));
-                
-                if (lFacing.includes(String(inv.facing))) extraMatchPoints += 5;
-                if (lDir.includes(String(inv.direction))) extraMatchPoints += 5;
-                if (lead.transactionType && inv.ownership && lead.transactionType === inv.ownership) extraMatchPoints += 5;
+                if (lFacing.includes(String(inv.facing))) score += 5;
+                if (lDir.includes(String(inv.direction))) score += 5;
             }
-            
-            if (extraMatchPoints > 0) {
-                score += Math.min(extraMatchPoints, sizeWeight);
-                matchDetails.push("Orientation & Specs Correlation");
-            }
+
+            const lastDispatch = dispatchMap.get(String(lead._id)) || null;
 
             return {
                 ...lead,
                 name: `${lead.firstName} ${lead.lastName || ""}`.trim(),
                 score: Math.min(score, 100),
-                matchDetails
+                matchDetails,
+                lastDispatch
             };
         });
 

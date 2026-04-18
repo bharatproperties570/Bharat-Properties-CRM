@@ -8,7 +8,9 @@ import {
     getRecentDeals,
     runMarketingAgent,
     generateWithModel,
+    getAudienceCount,
     sendCampaign,
+    sendManualMatch,
     activateDrip,
     getJobStatus,
     getMarketingContent,
@@ -17,6 +19,7 @@ import {
     publishMarketingContent,
     broadcastToHub
 } from '../controllers/marketing.controller.js';
+import { getWhatsAppTemplates } from '../controllers/social.controller.js';
 import { 
     getLinkedInAuthUrl,
     handleLinkedInCallback, 
@@ -47,13 +50,16 @@ router.post('/run-agent',       runMarketingAgent);
 
 // ── Phase C + D: Full Campaign Engine ────────────────────────────────────────
 router.post('/generate-with-model', generateWithModel);   // Real Gemini/GPT-4o
+router.post('/audience-count',      getAudienceCount);
 router.post('/send-campaign',       sendCampaign);        // BullMQ blast job
+router.post('/send-manual',         sendManualMatch);     // Manual individual share
 router.post('/activate-drip',       activateDrip);        // BullMQ drip job
 router.get('/job-status/:jobId',    getJobStatus);        // Poll job progress
 
 // ── Neural Persistence (Content CRUD) ────────────────────────────────────────
 router.get('/content',      getMarketingContent);
 router.post('/content',     saveMarketingContent);
+router.get('/whatsapp/templates', getWhatsAppTemplates);
 router.delete('/content/:id', deleteMarketingContent);
 router.post('/publish',        publishMarketingContent);
 console.log('[MarketingRoutes] Mapping /broadcast to:', typeof broadcastToHub);

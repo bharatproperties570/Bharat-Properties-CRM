@@ -62,6 +62,7 @@ const app = express();
 // Robust CORS Mirror
 app.use(cors({
     origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps or curl)
         if (!origin) return callback(null, true);
         
         const isAllowed = 
@@ -69,17 +70,19 @@ app.use(cors({
             origin.includes('localhost') || 
             origin.includes('127.0.0.1') || 
             origin.includes('192.168.') ||
+            origin.includes('10.0.') || // Emulators
             origin.endsWith('.loca.lt') ||
             origin.endsWith('.vercel.app');
 
         if (isAllowed) {
             callback(null, true);
         } else {
+            console.warn(`[CORS] Rejected Origin: ${origin}`);
             callback(null, false);
         }
     },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-API-KEY', 'X-Requested-With', 'bypass-tunnel-reminder'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-API-KEY', 'X-Requested-With', 'bypass-tunnel-reminder', 'Origin'],
     credentials: true,
     preflightContinue: false,
     optionsSuccessStatus: 204

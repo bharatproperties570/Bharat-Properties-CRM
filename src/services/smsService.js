@@ -1,8 +1,6 @@
-import axios from 'axios';
+import { api } from '../utils/api';
 
-import { API_BASE_URL as BASE_URL } from '../utils/api';
-
-const API_BASE_URL = `${BASE_URL}/sms-gateway`;
+const API_BASE_URL = '/sms-gateway';
 
 const smsService = {
     /**
@@ -10,7 +8,7 @@ const smsService = {
      */
     async getProviders() {
         try {
-            const response = await axios.get(API_BASE_URL);
+            const response = await api.get(API_BASE_URL);
             return response.data;
         } catch (error) {
             console.error('Error fetching SMS providers:', error);
@@ -23,7 +21,7 @@ const smsService = {
      */
     async getStatus() {
         try {
-            const response = await axios.get(`${API_BASE_URL}/status`);
+            const response = await api.get(`${API_BASE_URL}/status`);
             return response.data;
         } catch (error) {
             console.error('Error fetching SMS status:', error);
@@ -36,7 +34,7 @@ const smsService = {
      */
     async updateConfig(provider, config) {
         try {
-            const response = await axios.post(`${API_BASE_URL}/config`, {
+            const response = await api.post(`${API_BASE_URL}/config`, {
                 provider,
                 config
             });
@@ -52,7 +50,7 @@ const smsService = {
      */
     async activateProvider(provider) {
         try {
-            const response = await axios.patch(`${API_BASE_URL}/activate/${provider}`);
+            const response = await api.patch(`${API_BASE_URL}/activate/${provider}`);
             return response.data;
         } catch (error) {
             console.error(`Error activating ${provider}:`, error);
@@ -65,7 +63,7 @@ const smsService = {
      */
     async testConnection(provider, phone, message, config = null) {
         try {
-            const response = await axios.post(`${API_BASE_URL}/test`, {
+            const response = await api.post(`${API_BASE_URL}/test`, {
                 provider,
                 phone,
                 message,
@@ -83,7 +81,7 @@ const smsService = {
      */
     async sendMessage(payload) {
         try {
-            const response = await axios.post(`${API_BASE_URL}/send`, payload);
+            const response = await api.post(`${API_BASE_URL}/send`, payload);
             return response.data;
         } catch (error) {
             console.error(`Error sending message:`, error);
@@ -96,7 +94,7 @@ const smsService = {
      */
     async getTemplates() {
         try {
-            const response = await axios.get(`${API_BASE_URL}/templates`);
+            const response = await api.get(`${API_BASE_URL}/templates`);
             return response.data;
         } catch (error) {
             console.error('Error fetching SMS templates:', error);
@@ -109,7 +107,7 @@ const smsService = {
      */
     async saveTemplate(templateData) {
         try {
-            const response = await axios.post(`${API_BASE_URL}/templates`, templateData);
+            const response = await api.post(`${API_BASE_URL}/templates`, templateData);
             return response.data;
         } catch (error) {
             console.error('Error saving SMS template:', error);
@@ -122,7 +120,7 @@ const smsService = {
      */
     async deleteTemplate(id) {
         try {
-            const response = await axios.delete(`${API_BASE_URL}/templates/${id}`);
+            const response = await api.delete(`${API_BASE_URL}/templates/${id}`);
             return response.data;
         } catch (error) {
             console.error('Error deleting SMS template:', error);
@@ -135,7 +133,7 @@ const smsService = {
      */
     async getLogs(params = {}) {
         try {
-            const response = await axios.get(`${API_BASE_URL}/logs`, { params });
+            const response = await api.get(`${API_BASE_URL}/logs`, { params });
             return response.data;
         } catch (error) {
             console.error('Error fetching SMS logs:', error);

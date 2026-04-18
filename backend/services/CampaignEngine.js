@@ -116,9 +116,9 @@ class CampaignEngine {
 
             const results = await Promise.allSettled(dispatches);
 
-            // 6. Summarise results
+            // 6. Summarise results with correct channel labels
             const summary = results.map((r, i) => ({
-                channel: ['WhatsApp', 'Email', 'SMS'][i],
+                channel: dispatches[i]?.label || 'Unknown',
                 status:  r.status,
                 value:   r.value,
             }));

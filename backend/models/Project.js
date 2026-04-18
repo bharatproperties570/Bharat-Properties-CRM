@@ -70,9 +70,13 @@ const ProjectSchema = new mongoose.Schema({
     // Documents & Media
     projectDocuments: [{
         documentName: String,
+        documentCategory: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+        documentType: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
         approvalAuthority: String,
         registrationNo: String,
-        date: Date
+        documentNumber: String,
+        date: Date,
+        url: String
     }],
     projectImages: [{
         title: String,

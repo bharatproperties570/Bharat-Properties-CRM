@@ -283,17 +283,34 @@ class SocialCommentService {
                 }
                 // WhatsApp message event (Meta Cloud API)
                 const waValue = entry.changes?.[0]?.value || {};
-                if (waValue.messaging_product === 'whatsapp' && waValue.messages) {
-                    for (const msg of waValue.messages) {
-                        events.push({
-                            platform: 'whatsapp',
-                            type: 'message',
-                            senderId: msg.from, // Customer's phone number
-                            text:     msg.text?.body || (msg.type === 'location' ? '[Location Sent]' : '[Media Attachment]'),
-                            messageId: msg.id,
-                            timestamp: new Date(parseInt(msg.timestamp) * 1000).toISOString(),
-                            raw: msg
-                        });
+                if (waValue.messaging_product === 'whatsapp') {
+                    // Incoming Messages
+                    if (waValue.messages) {
+                        for (const msg of waValue.messages) {
+                            events.push({
+                                platform: 'whatsapp',
+                                type: 'message',
+                                senderId: msg.from, // Customer's phone number
+                                text:     msg.text?.body || (msg.type === 'location' ? '[Location Sent]' : '[Media Attachment]'),
+                                messageId: msg.id,
+                                timestamp: new Date(parseInt(msg.timestamp) * 1000).toISOString(),
+                                raw: msg
+                            });
+                        }
+                    }
+                    // Delivery Status Updates
+                    if (waValue.statuses) {
+                        for (const stat of waValue.statuses) {
+                            events.push({
+                                platform: 'whatsapp',
+                                type: 'status_update',
+                                messageId: stat.id,
+                                status: stat.status, // sent, delivered, read, failed
+                                recipientId: stat.recipient_id,
+                                timestamp: new Date(parseInt(stat.timestamp) * 1000).toISOString(),
+                                error: stat.errors?.[0] || null
+                            });
+                        }
                     }
                 }
             }

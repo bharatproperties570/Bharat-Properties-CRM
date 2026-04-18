@@ -24,7 +24,7 @@ const OWNER_EMAIL = 'bharatproperties570@gmail.com';
  * Main permission hook
  */
 export const usePermissions = () => {
-    const { currentUser } = useUserContext();
+    const { currentUser, roles, loading } = useUserContext();
 
     const permissions = useMemo(() => {
         if (!currentUser) {
@@ -33,7 +33,8 @@ export const usePermissions = () => {
                 isElevated: false,
                 dataScope: 'assigned',
                 role: null,
-                currentUser: null
+                currentUser: null,
+                isLoading: loading
             };
         }
 
@@ -49,9 +50,16 @@ export const usePermissions = () => {
             if (elevated) return true;
 
             // role may be an object (populated) or just an ID string
-            const role = currentUser.role;
+            let role = currentUser.role;
+            
+            // If role is a string ID, try to find it in the global roles array from context
+            if (role && typeof role === 'string' && roles?.length > 0) {
+                const foundRole = roles.find(r => r._id === role || r.id === role);
+                if (foundRole) role = foundRole;
+            }
+
             if (!role || typeof role !== 'object') {
-                // Role not populated — deny by default (safe)
+                // Role not yet available/populated — deny by default until state updates
                 return false;
             }
 
@@ -75,9 +83,10 @@ export const usePermissions = () => {
             dataScope: currentUser.dataScope || 'assigned',
             department: currentUser.department || null,
             role: currentUser.role?.name || currentUser.role || null,
-            currentUser
+            currentUser,
+            isLoading: loading
         };
-    }, [currentUser]);
+    }, [currentUser, roles, loading]);
 
     return permissions;
 };

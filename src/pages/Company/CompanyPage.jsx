@@ -142,6 +142,26 @@ function CompanyPage({ onEdit, onNavigate }) {
         setSelectedIds([]); // Clear selection
     };
 
+    const handleOneDelete = async (id) => {
+        if (window.confirm(`Are you sure you want to delete this company?`)) {
+            setLoading(true);
+            try {
+                const response = await api.delete(`companies/${id}`);
+                if (response.data && response.data.success) {
+                    toast.success("Company deleted successfully");
+                    fetchData();
+                } else {
+                    toast.error(response.data.error || "Failed to delete company");
+                }
+            } catch (error) {
+                console.error("Error deleting company:", error);
+                toast.error("An error occurred during deletion");
+            } finally {
+                setLoading(false);
+            }
+        }
+    };
+
     const handleUpdateTags = async (payload) => {
         // Implement tag update logic here
         console.log('Updating tags:', payload);
@@ -442,8 +462,8 @@ function CompanyPage({ onEdit, onNavigate }) {
                             <div>ADDRESS</div>
                             <div>EMPLOYEES</div>
                             <div>CATEGORY</div>
-                            <div>SOURCE</div>
-                            <div>Assignment</div>
+                             <div>SOURCE</div>
+                             <div>Assignment</div>
                         </div>
                     )}
 
@@ -455,7 +475,7 @@ function CompanyPage({ onEdit, onNavigate }) {
                                     key={company._id}
                                     className="list-item"
                                     style={{
-                                        display: 'grid',
+                                         display: 'grid',
                                         gridTemplateColumns: '40px 2fr 1.5fr 1fr 1.25fr 1fr 1fr',
                                         padding: '16px 2rem',
                                         borderBottom: '1px solid #f1f5f9',

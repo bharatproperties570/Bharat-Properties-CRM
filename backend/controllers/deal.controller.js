@@ -16,6 +16,34 @@ import Project from "../models/Project.js"; // Added to resolve [matchDeals] pop
 // --- OPTIMIZATION: In-Memory Lookup Cache (Process Scoped) ---
 const _lookupResolveCache = new Map();
 
+const escapeRegExp = (string) => {
+    if (!string) return '';
+    return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+};
+
+const resolveLookup = async (type, value, createIfMissing = true) => {
+    if (!value) return null;
+    if (mongoose.Types.ObjectId.isValid(value)) return new mongoose.Types.ObjectId(value.toString());
+
+    const cacheKey = `${type}:${String(value).toLowerCase()}`;
+    if (_lookupResolveCache.has(cacheKey)) return _lookupResolveCache.get(cacheKey);
+
+    const escapedValue = escapeRegExp(value);
+    const re = new RegExp(`^${escapedValue}$`, 'i');
+    let lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: re } });
+
+    if (!lookup && createIfMissing) {
+        lookup = await Lookup.create({ lookup_type: type, lookup_value: value });
+    }
+
+    if (lookup) {
+        if (_lookupResolveCache.size > 200) _lookupResolveCache.clear();
+        _lookupResolveCache.set(cacheKey, lookup._id);
+        return lookup._id;
+    }
+    return null;
+};
+
 export const matchDeals = async (req, res) => {
     try {
         const { 
@@ -78,138 +106,147 @@ export const matchDeals = async (req, res) => {
             stage: { $nin: ["Cancelled", "Closed Lost", "Sold Out"] }
         };
 
+        // Note: category, intent, subCategory are Mixed and might contain strings instead of ObjectIds
+        // Attempting to populate these can cause a CastError if the value is "Sell", "Buy", etc.
         const deals = await Deal.find(query)
             .populate('inventoryId')
             .populate('projectId')
-            .populate('category', 'lookup_value', 'Lookup')
-            .populate('intent', 'lookup_value', 'Lookup')
-            .populate('subCategory', 'lookup_value', 'Lookup')
             .lean();
 
-        // 2. Filter and Score
-        const matchingDeals = deals.filter(deal => {
-            // --- STAGE 1: HARD FILTERS ---
-            const dealIntent = String(deal.intent?.lookup_value || deal.intent || "").toLowerCase();
-            const dealCategory = String(deal.category?.lookup_value || deal.category || "").toLowerCase();
+        // Manual Robust Population for Lookups to prevent CastError
+        const allLookups = await Lookup.find({ 
+            lookup_type: { $in: ['Category', 'Intent', 'SubCategory', 'Status', 'Facing', 'Direction'] } 
+        }).lean();
+        const lookupMap = new Map(allLookups.map(l => [String(l._id), l]));
+        const lookupValueMap = new Map(allLookups.map(l => [String(l.lookup_value).toLowerCase(), l]));
 
-            // A. Intent Symmetry
-            let intentMatched = false;
-            if (dealIntent.includes("sell") && (leadReq.includes("buy") || leadReq.includes("purchase"))) intentMatched = true;
-            else if (dealIntent.includes("rent") && (leadReq.includes("rent") || leadReq.includes("lease"))) intentMatched = true;
-            else if (dealIntent.includes("lease") && (leadReq.includes("lease") || leadReq.includes("rent"))) intentMatched = true;
-            else if ((dealIntent.includes("buy") || dealIntent.includes("purchase")) && leadReq.includes("sell")) intentMatched = true;
-
-            if (!intentMatched) return false;
-
-            // B. Category Alignment
-            let catMatched = false;
-            if (dealCategory.includes("res") && leadCats.some(c => c && c.includes("res"))) catMatched = true;
-            else if (dealCategory.includes("comm") && leadCats.some(c => c && c.includes("comm"))) catMatched = true;
-            else if (dealCategory.includes("ind") && leadCats.some(c => c && c.includes("ind"))) catMatched = true;
-            else if (!dealCategory || (leadCats.length === 0)) catMatched = true;
-
-            if (!catMatched) return false;
-
-            return true;
-        }).map(deal => {
-            // --- STAGE 2: WEIGHTED SCORING ---
-            let score = 0;
-            const matchDetails = [];
-
-            // 1. Sub-Category / Type (Weight: type)
-            const dealSub = (deal.subCategory?.lookup_value || "").toLowerCase();
-            const leadSubs = (lead.subType || []).filter(Boolean).map(s => String(s.lookup_value || s || "").toLowerCase());
-            if (dealSub && leadSubs.some(s => s && s.includes(dealSub))) {
-                score += (weights.type || 20);
-                matchDetails.push("Unit Type Match");
+        const enrichWithLookup = (item, field) => {
+            const val = item[field];
+            if (!val) return;
+            if (mongoose.Types.ObjectId.isValid(val)) {
+                item[field] = lookupMap.get(String(val)) || val;
+            } else if (typeof val === 'string') {
+                item[field] = lookupValueMap.get(val.toLowerCase()) || { lookup_value: val };
             }
+        };
 
-            // 2. Budget / Price (Weight: budget)
-            const dealPrice = deal.price || deal.quotePrice || 0;
-            if (dealPrice > 0) {
-                const min = lead.budgetMin || 0;
-                const max = lead.budgetMax || Infinity;
-                if (dealPrice >= min && dealPrice <= max) {
-                    score += (weights.budget || 25);
-                    matchDetails.push("Budget Match");
-                } else if (dealPrice >= min * (1 - bFlex) && dealPrice <= max * (1 + bFlex)) {
-                    score += (weights.budget || 25) * 0.6;
-                    matchDetails.push("Approximate Budget Match");
-                }
+        // 3. ENHANCEMENT: Fetch Dispatch Proof (Recent Activities)
+        const dispatchActivities = await Activity.find({
+            entityId: leadId,
+            type: 'Marketing',
+            status: 'Completed'
+        }).sort({ performedAt: -1 }).lean();
+
+        const dispatchMap = new Map();
+        dispatchActivities.forEach(act => {
+            const invId = String(act.details?.inventoryId || "");
+            if (invId && !dispatchMap.has(invId)) {
+                dispatchMap.set(invId, {
+                    date: act.performedAt,
+                    channels: act.details?.results?.filter(r => r.status === 'success').map(r => r.channel) || []
+                });
             }
-
-            // 3. Location (Weight: location)
-            const dealLoc = String(deal.location?.lookup_value || deal.location?._id || deal.location || deal.projectName || "").toLowerCase();
-            const leadLocArea = String(lead.locArea || "").toLowerCase();
-            const leadSelectedLoc = String(lead.location?.lookup_value || lead.location?._id || lead.location || "").toLowerCase();
-            const leadCity = String(lead.locCity || "").toLowerCase();
-            const leadSector = String(lead.sector || "").toLowerCase();
-            const leadProjects = Array.isArray(lead.projectName) ? lead.projectName : [];
-
-            let locScore = 0;
-            const locWeight = (weights.location || 30);
-
-            // Tier 1: Project/ProjectName Match (Highest)
-            if (deal.projectName && typeof deal.projectName === 'string' && leadProjects.some(p => p && typeof p === 'string' && deal.projectName.toLowerCase().includes(p.toLowerCase()))) {
-                locScore = locWeight;
-                matchDetails.push("Exact Project Match");
-            } 
-            // Tier 2: General Area Match
-            else if ((leadLocArea && dealLoc.includes(leadLocArea)) || (leadSelectedLoc && dealLoc.includes(leadSelectedLoc))) {
-                locScore = locWeight;
-                matchDetails.push("Location Match");
-            }
-            else {
-                // Tier 3: Granular Address Matching
-                let addressPoints = 0;
-                
-                // Check Sector
-                const dealSector = (deal.inventoryId?.sector || "").toLowerCase();
-                if (leadSector && (dealSector.includes(leadSector) || leadSector.includes(dealSector))) {
-                    addressPoints += locWeight * 0.7;
-                    matchDetails.push("Sector Correlation");
-                }
-                
-                // Check City
-                const dealCity = (deal.inventoryId?.city || "").toLowerCase();
-                if (leadCity && (dealCity.includes(leadCity) || leadCity.includes(dealCity))) {
-                    addressPoints += locWeight * 0.3;
-                    matchDetails.push("City match");
-                }
-                
-                locScore = Math.min(addressPoints, locWeight);
-            }
-            
-            score += locScore;
-
-            // 4. Orientation / Size / Specs (Weight: size/orientation/specs)
-            // For now, mapping orientation/specs/size under the 'size' weight for UI consistency
-            let extraMatchPoints = 0;
-            const sizeWeight = (weights.size || weights.orientation || 25);
-
-            if (deal.inventoryId) {
-                const inv = deal.inventoryId;
-                const lFacing = (lead.facing || []).filter(Boolean).map(f => String(f._id || f));
-                const lDir = (lead.direction || []).filter(Boolean).map(d => String(d._id || d));
-                
-                if (lFacing.includes(String(inv.facing))) extraMatchPoints += 5;
-                if (lDir.includes(String(inv.direction))) extraMatchPoints += 5;
-                
-                // Transaction Type / Ownership match
-                if (lead.transactionType && inv.ownership && lead.transactionType === inv.ownership) extraMatchPoints += 5;
-            }
-            
-            if (extraMatchPoints > 0) {
-                score += Math.min(extraMatchPoints, sizeWeight);
-                matchDetails.push("Orientation & Specs Correlation");
-            }
-
-            return {
-                ...deal,
-                score: Math.min(score, 100),
-                matchDetails
-            };
         });
+
+
+        // 4. Score and Map
+        const matchingDeals = deals
+            .map(deal => {
+                // Enrich deals with manual lookup data before filtering
+                enrichWithLookup(deal, 'category');
+                enrichWithLookup(deal, 'intent');
+                enrichWithLookup(deal, 'subCategory');
+                return deal;
+            })
+            .filter(deal => {
+                const dealIntent = String(deal.intent?.lookup_value || deal.intent || "").toLowerCase();
+                const dealCategory = String(deal.category?.lookup_value || deal.category || "").toLowerCase();
+
+                let intentMatched = false;
+                if (dealIntent.includes("sell") && (leadReq.includes("buy") || leadReq.includes("purchase"))) intentMatched = true;
+                else if (dealIntent.includes("rent") && (leadReq.includes("rent") || leadReq.includes("lease"))) intentMatched = true;
+                else if (dealIntent.includes("lease") && (leadReq.includes("lease") || leadReq.includes("rent"))) intentMatched = true;
+                else if ((dealIntent.includes("buy") || dealIntent.includes("purchase")) && leadReq.includes("sell")) intentMatched = true;
+
+                if (!intentMatched) return false;
+
+                let catMatched = false;
+                if (dealCategory.includes("res") && leadCats.some(c => c && c.includes("res"))) catMatched = true;
+                else if (dealCategory.includes("comm") && leadCats.some(c => c && c.includes("comm"))) catMatched = true;
+                else if (dealCategory.includes("ind") && leadCats.some(c => c && c.includes("ind"))) catMatched = true;
+                else if (!dealCategory || (leadCats.length === 0)) catMatched = true;
+
+                return catMatched;
+            })
+            .map(deal => {
+                let score = 0;
+                const matchDetails = [];
+
+                // Scoring: Sub-Category (20%)
+                const dealSub = (deal.subCategory?.lookup_value || "").toLowerCase();
+                const leadSubs = (lead.subType || []).filter(Boolean).map(s => String(s.lookup_value || s || "").toLowerCase());
+                if (dealSub && leadSubs.some(s => s && s.includes(dealSub))) {
+                    score += (weights.type || 20);
+                    matchDetails.push("Unit Type Correlation");
+                }
+
+                // Scoring: Budget (25%)
+                const dealPrice = deal.price || deal.quotePrice || 0;
+                if (dealPrice > 0) {
+                    const min = lead.budgetMin || 0;
+                    const max = lead.budgetMax || Infinity;
+                    if (dealPrice >= min && dealPrice <= max) {
+                        score += (weights.budget || 25);
+                        matchDetails.push("Budget Alignment");
+                    } else if (dealPrice >= min * (1 - bFlex) && dealPrice <= max * (1 + bFlex)) {
+                        score += (weights.budget || 25) * 0.6;
+                        matchDetails.push("Approximate Budget Match");
+                    }
+                }
+
+                // Scoring: Location (30%)
+                const dealLoc = String(deal.location?.lookup_value || deal.location?._id || deal.location || deal.projectName || "").toLowerCase();
+                const leadLocArea = String(lead.locArea || "").toLowerCase();
+                const leadSelectedLoc = String(lead.location?.lookup_value || lead.location?._id || lead.location || "").toLowerCase();
+                const leadProjects = Array.isArray(lead.projectName) ? lead.projectName : [];
+
+                let locScore = 0;
+                const locWeight = weights.location || 30;
+                if (deal.projectName && typeof deal.projectName === 'string' && leadProjects.some(p => p && typeof p === 'string' && deal.projectName.toLowerCase().includes(p.toLowerCase()))) {
+                    locScore = locWeight;
+                    matchDetails.push("Target Project Match");
+                } else if ((leadLocArea && dealLoc.includes(leadLocArea)) || (leadSelectedLoc && dealLoc.includes(leadSelectedLoc))) {
+                    locScore = locWeight;
+                    matchDetails.push("Location Correlation");
+                } else {
+                    let addressPoints = 0;
+                    const dealSector = (deal.inventoryId?.sector || "").toLowerCase();
+                    if (lead.sector && dealSector.includes(String(lead.sector).toLowerCase())) addressPoints += locWeight * 0.7;
+                    const dealCity = (deal.inventoryId?.city || "").toLowerCase();
+                    if (lead.locCity && dealCity.includes(String(lead.locCity).toLowerCase())) addressPoints += locWeight * 0.3;
+                    locScore = Math.min(addressPoints, locWeight);
+                }
+                score += locScore;
+
+                // Scoring: Specs (25%)
+                if (deal.inventoryId) {
+                    const inv = deal.inventoryId;
+                    const lFacing = (lead.facing || []).filter(Boolean).map(f => String(f._id || f));
+                    const lDir = (lead.direction || []).filter(Boolean).map(d => String(d._id || d));
+                    if (lFacing.includes(String(inv.facing))) score += 5;
+                    if (lDir.includes(String(inv.direction))) score += 5;
+                }
+
+                const invId = String(deal.inventoryId?._id || deal.inventoryId || "");
+                const lastDispatch = dispatchMap.get(invId) || null;
+
+                return {
+                    ...deal,
+                    score: Math.min(score, 100),
+                    matchDetails,
+                    lastDispatch
+                };
+            });
 
         const sorted = matchingDeals.sort((a,b) => b.score - a.score).slice(0, 50);
         return res.status(200).json({ success: true, count: sorted.length, data: sorted });
@@ -370,39 +407,54 @@ export const getDeals = async (req, res) => {
             { path: 'team', select: 'name' },
             { path: 'teams', select: 'name' }
         ];
-        const results = await paginate(Deal, query, Number(page), Number(limit), { updatedAt: -1 }, populateFields);
 
-        // --- OPTIMIZATION 11: Single Aggregation for Category Counts ---
-        const categoryStatsAgg = await Deal.aggregate([
-            { $match: { ...query } },
-            {
-                $lookup: {
-                    from: 'inventories',
-                    localField: 'inventoryId',
-                    foreignField: '_id',
-                    as: 'inventory'
-                }
-            },
-            { $unwind: { path: '$inventory', preserveNullAndEmptyArrays: true } },
-            {
-                $project: {
-                    activeCategory: { $ifNull: ["$category", "$inventory.category"] }
-                }
-            },
-            {
-                $group: {
-                    _id: "$activeCategory",
-                    count: { $sum: 1 }
-                }
-            }
-        ]);
+        // 🏎️ SENIOR OPTIMIZATION: Lean population for summary list view
+        const dealListPopulateFields = [
+            { path: 'inventoryId', select: 'projectName unitNo block city location' },
+            { path: 'projectId', select: 'name' },
+            { path: 'owner', select: 'name phones', model: 'Contact' },
+            { path: 'category', select: 'lookup_value' },
+            { path: 'intent', select: 'lookup_value' },
+            { path: 'status', select: 'lookup_value' },
+            { path: 'assignedTo', select: 'fullName' }
+        ];
 
-        const categoryMapStats = new Map(categoryStatsAgg.map(s => [String(s._id), s.count]));
-        const categories = await Lookup.find({ lookup_type: 'Category' }).lean();
-        const categoryCounts = categories.map(cat => ({
-            name: cat.lookup_value,
-            count: categoryMapStats.get(String(cat._id)) || categoryMapStats.get(cat.lookup_value) || 0
-        }));
+        const results = await paginate(Deal, query, Number(page), Number(limit), { updatedAt: -1 }, dealListPopulateFields);
+
+        // --- OPTIMIZATION: Only calculate category stats on Page 1 ---
+        let categoryCounts = [];
+        if (Number(page) === 1) {
+            const categoryStatsAgg = await Deal.aggregate([
+                { $match: { ...query } },
+                {
+                    $lookup: {
+                        from: 'inventories',
+                        localField: 'inventoryId',
+                        foreignField: '_id',
+                        as: 'inventory'
+                    }
+                },
+                { $unwind: { path: '$inventory', preserveNullAndEmptyArrays: true } },
+                {
+                    $project: {
+                        activeCategory: { $ifNull: ["$category", "$inventory.category"] }
+                    }
+                },
+                {
+                    $group: {
+                        _id: "$activeCategory",
+                        count: { $sum: 1 }
+                    }
+                }
+            ]);
+
+            const categoryMapStats = new Map(categoryStatsAgg.map(s => [String(s._id), s.count]));
+            const categories = await Lookup.find({ lookup_type: 'Category' }).lean();
+            categoryCounts = categories.map(cat => ({
+                name: cat.lookup_value,
+                count: categoryMapStats.get(String(cat._id)) || categoryMapStats.get(cat.lookup_value) || 0
+            }));
+        }
 
         // Fetch latest activities for owners and associates
         const contactIds = results.records.reduce((acc, deal) => {
@@ -435,37 +487,26 @@ export const getDeals = async (req, res) => {
             inventories.forEach(inv => inventoryMap.set(String(inv._id), inv));
         }
 
-        // Attach last activity and live owner to each deal
+        // --- [ENTERPRISE HARDENING]: Live Multi-Source Sync ---
         const enrichedRecords = results.records.map((deal) => {
             const dealObj = deal.toObject ? deal.toObject() : deal;
+            const invId = dealObj.inventoryId?._id || dealObj.inventoryId;
+            const inventory = inventoryMap.get(String(invId));
 
-            // Live Owner Sync: Use batched inventory data
-            if (!dealObj.closingDetails?.isClosed && dealObj.inventoryId) {
-                const invId = dealObj.inventoryId?._id || dealObj.inventoryId;
-                const inventory = inventoryMap.get(String(invId));
-                if (inventory) {
-                    if (inventory.owners && inventory.owners.length > 0) {
-                        const invOwner = inventory.owners[0];
-                        // Only overwrite if it's a valid populated object (Contact)
-                        if (invOwner && typeof invOwner === 'object' && (invOwner.name || invOwner.fullName || invOwner.lookup_value)) {
-                            dealObj.owner = invOwner;
-                        }
-                    }
-                    if (inventory.associates && inventory.associates.length > 0) {
-                        const invAssoc = inventory.associates[0].contact;
-                        // Sync if empty OR if it's just an ID string (failed population)
-                        if (!dealObj.associatedContact || typeof dealObj.associatedContact === 'string') {
-                            if (invAssoc && typeof invAssoc === 'object' && (invAssoc.name || invAssoc.fullName)) {
-                                dealObj.associatedContact = invAssoc;
-                            }
-                        }
-                    }
-                }
+            // Favor Live Inventory Data if available
+            if (inventory) {
+                if (inventory.owners?.[0]) dealObj.owner = inventory.owners[0];
+                if (inventory.associates?.[0]?.contact) dealObj.associatedContact = inventory.associates[0].contact;
+                
+                // Metadata labels should always be live
+                dealObj.projectName = inventory.projectName || dealObj.projectName;
+                dealObj.block = inventory.block || dealObj.block;
+                dealObj.unitNo = inventory.unitNo || inventory.unitNumber || dealObj.unitNo;
+                dealObj.location = inventory.location || inventory.address?.locality || dealObj.location;
             }
-
-            // Pick the latest between owner and associate activity
-            const ownerId = deal.owner && typeof deal.owner === 'object' ? deal.owner._id : deal.owner;
-            const assocId = deal.associatedContact && typeof deal.associatedContact === 'object' ? deal.associatedContact._id : deal.associatedContact;
+            
+            const ownerId = dealObj.owner?._id || dealObj.owner;
+            const assocId = dealObj.associatedContact?._id || dealObj.associatedContact;
 
             const ownerActivity = ownerId ? activityMap[ownerId.toString()] : null;
             const associateActivity = assocId ? activityMap[assocId.toString()] : null;
@@ -500,21 +541,63 @@ export const getDealById = async (req, res) => {
             { path: 'partyStructure.buyer', model: 'Contact' },
             { path: 'partyStructure.channelPartner', model: 'Contact' },
             { path: 'partyStructure.internalRM' },
-            { path: 'category', select: 'lookup_value', model: 'Lookup' },
-            { path: 'subCategory', select: 'lookup_value', model: 'Lookup' },
-            { path: 'intent', select: 'lookup_value', model: 'Lookup' },
-            { path: 'status', select: 'lookup_value', model: 'Lookup' },
             { path: 'team' },
             { path: 'teams' }
         ];
-        const deal = await Deal.findById(req.params.id).populate(populateFields);
+
+        let deal = await Deal.findById(req.params.id).populate(populateFields);
         if (!deal) {
             return res.status(404).json({ success: false, error: "Deal not found" });
         }
+
+        // Manual Enrichment for Mixed fields that might be strings (preventing CastErrors)
+        const enrichWithLookup = async (doc) => {
+            const fields = ['category', 'subCategory', 'intent', 'status'];
+            for (const field of fields) {
+                const val = doc[field];
+                if (val && typeof val === 'string' && !mongoose.Types.ObjectId.isValid(val)) {
+                    // It's a raw string, find or create the lookup
+                    const lookupType = field === 'category' ? 'Category' : 
+                                     field === 'subCategory' ? 'SubCategory' :
+                                     field === 'intent' ? 'Intent' : 'Status';
+                    const lookupId = await resolveLookup(lookupType, val);
+                    const lookup = await Lookup.findById(lookupId).lean();
+                    doc[field] = lookup || { _id: lookupId, lookup_value: val };
+                } else if (val && (mongoose.Types.ObjectId.isValid(val) || (typeof val === 'object' && val._id))) {
+                    // It's an ID or already an object, attempt to populate if not already
+                    if (!val.lookup_value) {
+                        const lookup = await Lookup.findById(val).lean();
+                        if (lookup) doc[field] = lookup;
+                    }
+                }
+            }
+        };
+
+        const dealObj = deal.toObject();
+        await enrichWithLookup(dealObj);
+
+        // --- [ENTERPRISE HARDENING]: Live Multi-Source Sync (Detail View) ---
+        if (deal.inventoryId) {
+            const Inventory = mongoose.model('Inventory');
+            const inventory = await Inventory.findById(deal.inventoryId)
+                .populate({ path: 'owners', model: 'Contact' })
+                .populate({ path: 'associates.contact', model: 'Contact' })
+                .lean();
+            
+            if (inventory) {
+                if (inventory.owners?.[0]) dealObj.owner = inventory.owners[0];
+                if (inventory.associates?.[0]?.contact) dealObj.associatedContact = inventory.associates[0].contact;
+                
+                dealObj.projectName = inventory.projectName || dealObj.projectName;
+                dealObj.block = inventory.block || dealObj.block;
+                dealObj.unitNo = inventory.unitNo || inventory.unitNumber || dealObj.unitNo;
+            }
+        }
+
         res.json({
             success: true,
-            data: deal,
-            deal: deal // Backward compatibility
+            data: dealObj,
+            deal: dealObj
         });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -528,27 +611,25 @@ const sanitizeData = (data) => {
     const refFields = [
         'inventoryId', 'projectId', 'unitType', 'propertyType', 'location', 'intent',
         'status', 'dealType', 'transactionType', 'source', 'owner', 'associatedContact',
-        'category', 'subCategory', 'assignedTo', 'team', 'partyStructure.owner',
-        'partyStructure.buyer', 'partyStructure.channelPartner', 'partyStructure.internalRM'
+        'category', 'subCategory', 'assignedTo', 'team', 
+        'partyStructure.owner', 'partyStructure.buyer', 'partyStructure.channelPartner', 'partyStructure.internalRM',
+        'assignment.assignedTo'
     ];
     const sanitized = { ...data };
 
-    // Recursive sanitizer for nested objects like partyStructure
     const sanitizeValue = (val) => {
         if (val === "" || val === undefined || val === null) return null;
         if (typeof val === 'object' && !Array.isArray(val)) {
-            // Reference fields MUST be ObjectIds. 
-            // If we have an object, try to get _id. If no _id, return null to avoid CastError.
             return val._id || null;
         }
         return val;
     };
 
-
     refFields.forEach(field => {
         if (field.includes('.')) {
             const parts = field.split('.');
-            if (sanitized[parts[0]]) {
+            if (sanitized[parts[0]] && typeof sanitized[parts[0]] === 'object') {
+                sanitized[parts[0]] = { ...sanitized[parts[0]] };
                 sanitized[parts[0]][parts[1]] = sanitizeValue(sanitized[parts[0]][parts[1]]);
             }
         } else {
@@ -575,25 +656,56 @@ export const addDeal = async (req, res) => {
                 query.intent = sanitizedData.intent;
             }
 
-            const existingDeals = await Deal.find(query);
+            // --- [ENTERPRISE HARDENING]: Coordinate-Based Duplicate Check ---
+            // Fetch policy from SystemSettings (Default: strict)
+            const SystemSetting = mongoose.model('SystemSetting');
+            const dupPolicy = await SystemSetting.findOne({ key: 'crm_duplicate_policy' }).lean();
+            const isStrict = dupPolicy ? (dupPolicy.value === 'strict') : true;
 
-            // 1. If any deal of this type is already 'Closed' or 'Won', lock the type permanently
-            const hasClosed = existingDeals.some(d => ['Closed', 'Closed Won', 'Won'].includes(d.stage));
-            if (hasClosed) {
-                return res.status(400).json({
-                    success: false,
-                    error: `This inventory unit has already been Closed/Won for this transaction type. No further deals are allowed.`
-                });
+            if (isStrict) {
+                const coordQuery = {
+                    $or: [
+                        { inventoryId: sanitizedData.inventoryId },
+                        { 
+                            projectName: sanitizedData.projectName,
+                            block: sanitizedData.block,
+                            unitNo: sanitizedData.unitNo
+                        }
+                    ],
+                    stage: { $nin: ['Cancelled', 'Closed Lost', 'Closed', 'Closed Won', 'Sold Out'] }
+                };
+
+                const duplicateDeal = await Deal.findOne(coordQuery);
+                if (duplicateDeal) {
+                    return res.status(400).json({
+                        success: false,
+                        error: `DUPLICATE DEAL DETECTED: An active deal (#${duplicateDeal.dealId || duplicateDeal._id}) already exists for this unit coordinates (${sanitizedData.projectName}, ${sanitizedData.block}-${sanitizedData.unitNo}). Duplicate deals are restricted to maintain professional pipeline integrity.`
+                    });
+                }
             }
+        }
 
-            // 2. If any deal is active (Open, Quote, Negotiation, Booked), block new ones
-            const activeDeal = existingDeals.find(d => ['Open', 'Quote', 'Negotiation', 'Booked'].includes(d.stage));
-            if (activeDeal) {
-                const intentName = typeof activeDeal.intent === 'object' ? activeDeal.intent?.lookup_value : (activeDeal.intent || 'active');
-                return res.status(400).json({
-                    success: false,
-                    error: `An active ${intentName} deal already exists for this inventory unit (#${activeDeal.dealId || activeDeal._id}). Please close or cancel the existing deal first.`
-                });
+        // [ENTERPRISE HARDENING]: Persistence Layer
+        // If owner/associate are missing but inventoryId is present, snapshot them from Inventory
+        if (sanitizedData.inventoryId && (!sanitizedData.owner || !sanitizedData.associatedContact)) {
+            const inventory = await Inventory.findById(sanitizedData.inventoryId)
+                .populate({ path: 'owners', model: 'Contact' })
+                .populate({ path: 'associates.contact', model: 'Contact' });
+            
+            if (inventory) {
+                if (!sanitizedData.owner && inventory.owners?.[0]) {
+                    sanitizedData.owner = inventory.owners[0]._id;
+                    if (!sanitizedData.partyStructure) sanitizedData.partyStructure = {};
+                    sanitizedData.partyStructure.owner = inventory.owners[0]._id;
+                }
+                if (!sanitizedData.associatedContact && inventory.associates?.[0]?.contact) {
+                    sanitizedData.associatedContact = inventory.associates[0].contact._id;
+                }
+                
+                // Also snapshot location/unit details for permanence
+                if (!sanitizedData.projectName) sanitizedData.projectName = inventory.projectName;
+                if (!sanitizedData.unitNo) sanitizedData.unitNo = inventory.unitNo;
+                if (!sanitizedData.location) sanitizedData.location = inventory.location || inventory.address?.locality;
             }
         }
 
@@ -691,14 +803,20 @@ export const updateDeal = async (req, res) => {
     try {
         const sanitizedData = sanitizeData(req.body);
 
-        // ━━ Stage History: auto-track if stage is changing ━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        if (sanitizedData.stage) {
-            const existing = await Deal.findById(req.params.id).select('stage stageHistory stageChangedAt createdAt').lean();
-            if (existing && existing.stage !== sanitizedData.stage) {
-                const now = new Date();
-                const historyUpdate = {};
+        // ━━ Stage & Assignment History: auto-track changes ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        const existing = await Deal.findById(req.params.id)
+            .select('stage stageHistory stageChangedAt createdAt assignedTo assignment projectName')
+            .lean();
 
-                // Close previous open entry
+        if (existing) {
+            const now = new Date();
+            const historyUpdate = {};
+            let requiresHistoryUpdate = false;
+
+            // 1. Stage History
+            const newStage = sanitizedData.stage;
+            if (newStage && newStage !== existing.stage) {
+                requiresHistoryUpdate = true;
                 if (existing.stageHistory?.length > 0) {
                     const lastIdx = existing.stageHistory.length - 1;
                     const last = existing.stageHistory[lastIdx];
@@ -709,20 +827,97 @@ export const updateDeal = async (req, res) => {
                         historyUpdate[`stageHistory.${lastIdx}.daysInStage`] = daysInStage;
                     }
                 }
-
-                await Deal.findByIdAndUpdate(req.params.id, {
-                    $set: historyUpdate,
-                    $push: {
-                        stageHistory: {
-                            stage: sanitizedData.stage,
-                            enteredAt: now,
-                            triggeredBy: sanitizedData.triggeredBy || 'system',
-                            reason: sanitizedData.stageSyncReason || null
-                        }
-                    }
-                });
-
+                historyUpdate.$push = historyUpdate.$push || {};
+                historyUpdate.$push.stageHistory = {
+                    stage: newStage,
+                    enteredAt: now,
+                    triggeredBy: sanitizedData.triggeredBy || 'manual_override',
+                    reason: sanitizedData.stageSyncReason || sanitizedData.reason || "Stage manually updated"
+                };
                 sanitizedData.stageChangedAt = now;
+            }
+
+            // 2. Assignment History
+            const newRM = sanitizedData.assignedTo || sanitizedData.assignment?.assignedTo;
+            const oldRM = existing.assignedTo || existing.assignment?.assignedTo;
+            if (newRM && String(newRM) !== String(oldRM)) {
+                requiresHistoryUpdate = true;
+                historyUpdate.$push = historyUpdate.$push || {};
+                historyUpdate.$push['assignment.history'] = {
+                    assignedTo: newRM,
+                    assignedBy: req.user?.id,
+                    assignedAt: now,
+                    notes: sanitizedData.assignmentNote || sanitizedData.reason || "Deal reassigned"
+                };
+
+                // Audit Log Assignment
+                const AuditLog = mongoose.model('AuditLog');
+                await AuditLog.logEntityUpdate(
+                    'assignment_changed',
+                    'deal',
+                    req.params.id,
+                    existing.projectName || 'Active Deal',
+                    req.user?.id || null,
+                    { before: oldRM, after: newRM },
+                    `Deal reassigned to a new owner.`
+                );
+            }
+
+            if (requiresHistoryUpdate) {
+                const atomicUpdate = { ...historyUpdate };
+                delete atomicUpdate.$push;
+                await Deal.findByIdAndUpdate(req.params.id, { 
+                    $set: atomicUpdate, 
+                    $push: historyUpdate.$push 
+                });
+            }
+        }
+
+        // [ENTERPRISE HARDENING]: coordinate-based duplicate check (Update Phase)
+        if (sanitizedData.inventoryId || sanitizedData.unitNo) {
+            const current = await Deal.findById(req.params.id).lean();
+            const projectName = sanitizedData.projectName || current.projectName;
+            const block = sanitizedData.block || current.block;
+            const unitNo = sanitizedData.unitNo || current.unitNo;
+
+            const coordQuery = {
+                _id: { $ne: req.params.id },
+                projectName,
+                block,
+                unitNo,
+                stage: { $nin: ['Cancelled', 'Closed Lost', 'Closed', 'Closed Won', 'Sold Out'] }
+            };
+
+            const duplicateDeal = await Deal.findOne(coordQuery);
+            if (duplicateDeal) {
+                return res.status(400).json({
+                    success: false,
+                    error: `DUPLICATE PROTECTION: An active deal (#${duplicateDeal.dealId || duplicateDeal._id}) already exists for unit ${projectName} (${block}-${unitNo}). Please resolve the existing deal before creating or moving another deal to these coordinates.`
+                });
+            }
+        }
+
+        // [ENTERPRISE HARDENING]: Update-time Snapshotting
+        if (sanitizedData.inventoryId) {
+            const existingDeal = await Deal.findById(req.params.id);
+            // If inventory is changing OR if deal currently has missing owner data
+            if (existingDeal && (String(existingDeal.inventoryId) !== String(sanitizedData.inventoryId) || !existingDeal.owner)) {
+                const inventory = await Inventory.findById(sanitizedData.inventoryId)
+                    .populate({ path: 'owners', model: 'Contact' })
+                    .populate({ path: 'associates.contact', model: 'Contact' });
+                
+                if (inventory) {
+                    if (!sanitizedData.owner && inventory.owners?.[0]) {
+                        sanitizedData.owner = inventory.owners[0]._id;
+                    }
+                    if (!sanitizedData.associatedContact && inventory.associates?.[0]?.contact) {
+                        sanitizedData.associatedContact = inventory.associates[0].contact._id;
+                    }
+                    
+                    // Snapshot metadata labels
+                    if (!sanitizedData.projectName) sanitizedData.projectName = inventory.projectName;
+                    if (!sanitizedData.unitNo) sanitizedData.unitNo = inventory.unitNo;
+                }
             }
         }
 

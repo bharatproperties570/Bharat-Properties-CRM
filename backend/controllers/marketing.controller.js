@@ -1,16 +1,10 @@
 /**
  * marketing.controller.js
  * Phase D — Real AI (Gemini 1.5 Pro + GPT-4o) with BullMQ job queuing.
- *
- * Changes from Phase C:
- *   - generateWithModel: Removed broken @google/generative-ai dynamic import.
- *     Now routes through GeminiService._callGemini (axios) and OpenAIService._callOpenAI.
- *   - sendCampaign:  Now enqueues a real BullMQ 'blast' job (not just console.log).
- *   - activateDrip:  Now enqueues a real BullMQ 'drip' job.
- *   - getJobStatus:  New endpoint — polls BullMQ job state for UI progress tracking.
+ * 
+ * Version 2.0: Integrated MarketingAudienceService for 360-degree source control.
  */
-console.log('--- MARKETING CONTROLLER LOADED v3 ---');
-
+import mongoose from 'mongoose';
 import marketingService from '../services/MarketingService.js';
 import marketingPublishingService from '../services/MarketingPublishingService.js';
 import geminiService    from '../services/GeminiService.js';
@@ -19,13 +13,13 @@ import publishService from '../services/PublishService.js';
 import Deal from '../models/Deal.js';
 import Project from '../models/Project.js';
 import Lead  from '../models/Lead.js';
+import Inventory from '../models/Inventory.js';
 import MarketingContent from '../models/MarketingContent.js';
 import NurtureBot from '../services/NurtureBot.js';
-import fs from 'fs';
-import path from 'path';
+import marketingAudienceService from '../services/MarketingAudienceService.js';
+import { normalizePhone } from '../utils/normalization.js';
 
-// Lazy-import the marketing queue (avoids Redis connection at module load
-// if Redis is not yet running)
+// Lazy-import the marketing queue
 let _marketingQueue = null;
 const getMarketingQueue = async () => {
     if (!_marketingQueue) {
@@ -37,10 +31,6 @@ const getMarketingQueue = async () => {
 
 // ── Dashboard & Analytics ─────────────────────────────────────────────────────
 
-/**
- * GET /api/marketing/stats
- * Marketing Dashboard Stats — powered by NurtureBot.
- */
 export const getMarketingStats = async (req, res) => {
     try {
         const stats = await NurtureBot.getMarketingStats();
@@ -50,68 +40,98 @@ export const getMarketingStats = async (req, res) => {
     }
 };
 
-/**
- * GET /api/marketing/campaign-runs
- * Historical Campaign Runs.
- */
 export const getCampaignRuns = async (req, res) => {
     try {
-        // Fetch real Deal campaign runs from DB where available
-        const deals = await Deal.find({ 'campaignRuns.0': { $exists: true } })
-            .select('unitNo projectName campaignRuns')
-            .sort({ updatedAt: -1 })
-            .limit(10)
-            .lean();
+        const Activity = mongoose.model('Activity');
+        
+        // Fetch all marketing activities from last 30 days
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-        const runs = deals.flatMap(deal =>
-            (deal.campaignRuns || []).map((run, i) => ({
-                id:           `${deal._id}_${i}`,
-                name:         `${deal.unitNo || deal.projectName || 'Deal'} Campaign`,
-                date:         run.launchedAt,
-                leadsTargeted: run.leadsTargeted,
-                channels:     run.channels,
-                status:       'Completed',
-            }))
-        );
+        const activities = await Activity.find({ 
+            type: 'Marketing',
+            createdAt: { $gte: thirtyDaysAgo }
+        }).lean();
 
-        // If no real data yet, return helpful placeholder
-        if (runs.length === 0) {
+        if (activities.length === 0) {
             return res.json({
                 success: true,
                 data: [
-                    { id: 'placeholder_1', name: 'No campaigns run yet — create a Deal to auto-trigger', date: new Date(), status: 'Info' }
-                ],
-                message: 'No campaign history available yet. Campaigns are auto-triggered when Deals are created.',
+                    { id: 'placeholder_1', name: 'No campaigns run yet', date: new Date(), status: 'Info', sent: 0, delivered: 0, read: 0 }
+                ]
             });
         }
 
+        // Group by campaign name
+        const campaignGroups = {};
+        activities.forEach(act => {
+            const cName = act.details?.campaignName || 'Unnamed Campaign';
+            if (!campaignGroups[cName]) {
+                campaignGroups[cName] = {
+                    name: cName,
+                    date: act.createdAt,
+                    sent: 0,
+                    delivered: 0,
+                    read: 0,
+                    failed: 0,
+                    channels: new Set()
+                };
+            }
+
+            if (act.details?.channel) campaignGroups[cName].channels.add(act.details.channel);
+            
+            // Increment counts based on status
+            const status = (act.status || '').toLowerCase();
+            campaignGroups[cName].sent++; // Total sent
+            if (status === 'delivered') campaignGroups[cName].delivered++;
+            if (status === 'read') {
+                campaignGroups[cName].delivered++;
+                campaignGroups[cName].read++;
+            }
+            if (status === 'failed') {
+                campaignGroups[cName].failed++;
+                campaignGroups[cName].sent--; // Adjust sent to successfully dispatched
+            }
+
+            // Update latest date
+            if (act.createdAt > campaignGroups[cName].date) {
+                campaignGroups[cName].date = act.createdAt;
+            }
+        });
+
+        // Convert to array and sort
+        const runs = Object.values(campaignGroups).map((c, i) => ({
+            id: `campaign_${i}`,
+            name: c.name,
+            date: c.date,
+            channels: Array.from(c.channels).join(', '),
+            leadsTargeted: c.sent + c.failed,
+            sent: c.sent,
+            delivered: c.delivered,
+            read: c.read,
+            failed: c.failed,
+            status: c.failed > 0 && c.sent === 0 ? 'Failed' : 'Completed'
+        })).sort((a, b) => new Date(b.date) - new Date(a.date));
+
         res.json({ success: true, data: runs });
     } catch (error) {
+        console.error('[MarketingController] getCampaignRuns error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 };
 
 // ── AI Content Generation ──────────────────────────────────────────────────────
 
-/**
- * POST /api/marketing/generate-social
- * Generate AI social media content for a deal.
- */
 export const generateSocialContent = async (req, res) => {
     try {
         const { dealId, platform } = req.body;
-
-        if (!dealId || !platform) {
-            return res.status(400).json({ success: false, error: 'Deal ID and platform are required' });
-        }
+        if (!dealId || !platform) return res.status(400).json({ success: false, error: 'Deal ID and platform are required' });
 
         const deal = await Deal.findById(dealId);
         if (!deal) return res.status(404).json({ success: false, error: 'Deal not found' });
 
         const content = await marketingService.generateSocialPost(deal, platform.toLowerCase());
 
-        // ── PERSIST DRAFT (Phase D Integration) ──────────────────────────
-        // Save to Database immediately so it appears on the calendar
         const post = await MarketingContent.create({
             title: `${deal.unitNo || 'Property'} ${platform} Post`,
             content: content,
@@ -120,99 +140,50 @@ export const generateSocialContent = async (req, res) => {
             date: new Date().toISOString().split('T')[0],
             status: 'draft',
             dealId: deal._id,
-            author: req.user?.id,
-            metadata: {
-                provider: 'unified',
-                model: 'auto'
-            }
+            author: req.user?.id
         });
 
-        res.json({
-            success: true,
-            platform,
-            content,
-            dealTitle: deal.unitNo,
-            postId: post._id
-        });
+        res.json({ success: true, platform, content, dealTitle: deal.unitNo, postId: post._id });
     } catch (error) {
-        console.error('[MarketingController] generateSocialContent Error:', error.message);
         res.status(500).json({ success: false, error: error.message });
     }
 };
 
-/**
- * POST /api/marketing/generate-email
- * Generate AI email campaign content.
- */
 export const generateEmailCampaign = async (req, res) => {
     try {
         const { dealId, audience } = req.body;
-
         const deal = await Deal.findById(dealId);
         if (!deal) return res.status(404).json({ success: false, error: 'Deal not found' });
-
         const campaign = await marketingService.generateEmailCampaign(deal, audience);
-
         res.json({ success: true, campaign });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
 
-/**
- * GET /api/marketing/recent-deals
- * Get recent Open deals for content generation.
- */
 export const getRecentDeals = async (req, res) => {
     try {
-        const deals = await Deal.find({ stage: 'Open' })
-            .sort({ createdAt: -1 })
-            .limit(5);
-
+        const deals = await Deal.find({ stage: 'Open' }).sort({ createdAt: -1 }).limit(5);
         res.json({ success: true, data: deals });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
 
-/**
- * POST /api/marketing/run-agent
- * Run the AI Nurture Agent manually.
- */
 export const runMarketingAgent = async (req, res) => {
     try {
         const advancedCount = await NurtureBot.processPendingLeads();
-        res.json({
-            success: true,
-            advancedCount,
-            message: `AI Agent successfully processed and advanced ${advancedCount} leads.`,
-        });
+        res.json({ success: true, advancedCount, message: `AI Agent successfully processed and advanced ${advancedCount} leads.` });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
 
-// ── Phase D: Real AI Model Routing ────────────────────────────────────────────
-
-/**
- * POST /api/marketing/generate-with-model
- * Phase D: Real Gemini 1.5 Pro or GPT-4o generation.
- *
- * Body: { agentName, provider, model, prompt, systemPrompt, context }
- *
- * Providers:
- *   'google'  / 'gemini'  → GeminiService.generateWithSystem() (uses v1beta + systemInstruction)
- *   'openai'              → OpenAIService.generateWithSystem() (uses system role message)
- */
 export const generateWithModel = async (req, res) => {
     try {
         const { agentName, provider, model, prompt, systemPrompt, context } = req.body;
+        if (!prompt) return res.status(400).json({ success: false, error: 'prompt is required' });
 
-        if (!prompt) {
-            return res.status(400).json({ success: false, error: 'prompt is required' });
-        }
-
-        // Build the user-facing prompt (optionally enrich with structured context)
         const userPrompt = context && Object.keys(context).length > 0
             ? `${prompt}\n\nContext Data:\n${JSON.stringify(context, null, 2)}`
             : prompt;
@@ -221,344 +192,271 @@ export const generateWithModel = async (req, res) => {
         const normalizedProvider = (provider || 'google').toLowerCase();
 
         if (normalizedProvider === 'openai') {
-            // ── REAL GPT-4o call ────────────────────────────────────────────
-            console.log(`[MarketingController] Routing to OpenAI GPT-4o (model=${model || 'gpt-4o'}) for agent: ${agentName}`);
-            result = await openAIService.generateWithSystem(
-                systemPrompt || '',
-                userPrompt,
-                { model: model || 'gpt-4o', temperature: 0.7, maxTokens: 2048 }
-            );
+            result = await openAIService.generateWithSystem(systemPrompt || '', userPrompt, { model: model || 'gpt-4o' });
         } else {
-            // ── REAL Gemini 1.5 Pro call ────────────────────────────────────
-            console.log(`[MarketingController] Routing to Gemini (model=${model || 'gemini-1.5-pro'}) for agent: ${agentName}`);
-            result = await geminiService.generateWithSystem(
-                systemPrompt || '',
-                userPrompt,
-                { model: model || 'gemini-1.5-pro', temperature: 0.7, maxTokens: 2048 }
-            );
+            result = await geminiService.generateWithSystem(systemPrompt || '', userPrompt, { model: model || 'gemini-1.5-pro' });
         }
 
-        res.json({
-            success:   true,
-            content:   result,
-            agentName,
-            provider:  normalizedProvider,
-            model:     model || (normalizedProvider === 'openai' ? 'gpt-4o' : 'gemini-1.5-pro'),
-            tokens:    result?.length ? Math.ceil(result.length / 4) : 0,
-        });
-
+        res.json({ success: true, content: result });
     } catch (error) {
-        console.error('[MarketingController] generateWithModel Error:', error.message);
-        res.status(500).json({
-            success:  false,
-            error:    error.message,
-            fallback: `AI generation failed: ${error.message.substring(0, 120)}`,
-        });
+        res.status(500).json({ success: false, error: error.message });
     }
 };
 
-// ── Phase D: BullMQ Campaign Queuing ──────────────────────────────────────────
+// ── Campaign Dispatch & Audience Engine ────────────────────────────────────────
+
+/**
+ * POST /api/marketing/audience-count
+ */
+export const getAudienceCount = async (req, res) => {
+    try {
+        const config = req.body;
+        if (!config || !config.source) return res.status(400).json({ success: false, error: 'Source is required' });
+        
+        console.log('[MarketingController] Fetching count for:', config);
+        const recipients = await marketingAudienceService.getAudience(config);
+        
+        res.json({ success: true, count: recipients.length });
+    } catch (error) {
+        console.error('[MarketingController] getAudienceCount EXCEPTION:', error.stack || error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
 
 /**
  * POST /api/marketing/send-campaign
- * Phase D: Enqueues a real BullMQ 'blast' job instead of logging.
- *
- * Body: { channel: 'email'|'wa'|'sms', segment, name, subject, content, html }
  */
 export const sendCampaign = async (req, res) => {
     try {
-        const { channel, segment, name, subject, content, html } = req.body;
+        const { channel, segment, name, subject, content, html, waMapping, audienceConfig } = req.body;
 
-        if (!channel) {
-            return res.status(400).json({ success: false, error: 'channel is required' });
+        if (!channel) return res.status(400).json({ success: false, error: 'channel is required' });
+
+        let recipients = [];
+        if (audienceConfig && audienceConfig.source) {
+            recipients = await marketingAudienceService.getAudience(audienceConfig);
+        } else {
+            // Legacy fallback
+            const segmentQuery = segment && segment !== 'all' ? { stage: { $regex: new RegExp(segment, 'i') } } : {};
+            const leads = await Lead.find({ ...segmentQuery, mobile: { $exists: true, $ne: '' } }).limit(1000).lean();
+            recipients = leads.map(l => ({
+                id: l._id,
+                name: l.fullName || `${l.firstName || ''} ${l.lastName || ''}`.trim(),
+                mobile: normalizePhone(l.mobile),
+                email: l.email,
+                context: { ...l, originalType: 'Lead' }
+            }));
         }
 
-        // Build recipient list for the segment
-        const segmentQuery = segment && segment !== 'all'
-            ? { stage: { $regex: new RegExp(segment, 'i') } }
-            : {};
+        if (recipients.length === 0) return res.json({ success: true, leadCount: 0, message: 'No recipients found.' });
 
-        const leads = await Lead.find({
-            ...segmentQuery,
-            mobile: { $exists: true, $ne: '' },
-        })
-        .select('mobile email firstName lastName')
-        .limit(1000)
-        .lean();
+        const mobiles = recipients.map(r => r.mobile).filter(Boolean);
+        const emails  = recipients.map(r => r.email).filter(Boolean);
 
-        const mobiles = leads.map(l => l.mobile).filter(Boolean);
-        const emails  = leads.map(l => l.email).filter(Boolean);
-
-        if (leads.length === 0) {
-            return res.json({
-                success: true,
-                channel,
-                leadCount: 0,
-                message: `No leads found for segment "${segment || 'all'}". Campaign not queued.`,
-            });
+        let activeMapping = waMapping;
+        if (!activeMapping || Object.keys(activeMapping).length === 0) {
+            const SystemSetting = mongoose.model('SystemSetting');
+            const registrySetting = await SystemSetting.findOne({ key: 'messaging_variable_registry' }).lean();
+            if (registrySetting && registrySetting.value) activeMapping = registrySetting.value;
         }
 
-        // ── Enqueue real BullMQ job ────────────────────────────────────────
-        let job;
-        try {
-            const queue = await getMarketingQueue();
-            job = await queue.add('blast', {
-                channel,
-                segment,
-                name:    name || 'Marketing Campaign',
-                subject: subject || `Bharat Properties — ${name || 'Update'}`,
-                message: content || '',
-                html:    html    || '',
-                mobiles,
-                emails,
-                leadIds: leads.map(l => l._id.toString()),
-                queuedAt: new Date().toISOString(),
-            });
-            console.log(`[MarketingOS] Blast job queued: id=${job.id} channel=${channel} leads=${leads.length}`);
-        } catch (queueErr) {
-            // Redis offline — fall back to synchronous fire (non-blocking)
-            console.warn('[MarketingOS] BullMQ unavailable, switching to sync dispatch:', queueErr.message);
-        }
-
-        res.json({
-            success:   true,
+        const queue = await getMarketingQueue();
+        const job = await queue.add('blast', {
             channel,
-            segment,
-            leadCount: leads.length,
-            jobId:     job?.id || null,
-            status:    job ? 'queued' : 'dispatching',
-            message:   `${channel.toUpperCase()} campaign "${name || 'Campaign'}" queued for ${leads.length} contacts in segment "${segment || 'all'}".`,
-            queuedAt:  new Date().toISOString(),
+            name:    name || 'Campaign',
+                    subject: subject || 'Update',
+            message: content || '',
+            html:    html    || '',
+            templateName: req.body.templateName,
+            waMapping: activeMapping,
+            mobiles,
+            emails,
+            leads: recipients,
+            queuedAt: new Date().toISOString(),
         });
 
+        res.json({ success: true, leadCount: recipients.length, jobId: job.id });
     } catch (error) {
-        console.error('[MarketingController] sendCampaign Error:', error.message);
         res.status(500).json({ success: false, error: error.message });
     }
 };
 
-/**
- * POST /api/marketing/activate-drip
- * Phase D: Enqueues a real BullMQ 'drip' job.
- *
- * Body: { leadId, sequenceId, delayMs? }
- */
+export const sendManualMatch = async (req, res) => {
+    console.log('[ManualDispatch] Incoming Request:', { body: req.body, user: req.user?._id });
+    try {
+        let { dealId, leadId, dealIds, leadIds, toggles } = req.body;
+        
+        // Normalize to arrays
+        const finalDealIds = Array.isArray(dealIds) ? dealIds : (dealId ? [dealId] : []);
+        const finalLeadIds = Array.isArray(leadIds) ? leadIds : (leadId ? [leadId] : []);
+
+        if (finalDealIds.length === 0 || finalLeadIds.length === 0) {
+            console.error('[ManualDispatch] Bad Request: Missing IDs');
+            return res.status(400).json({ success: false, error: 'Deal IDs and Lead IDs are required' });
+        }
+
+        // 1. Load Services & Templates
+        const { buildWhatsAppTemplate, buildEmailTemplate, buildSmsTemplate } = await import('../services/CampaignConfig.js');
+        const waService = (await import('../services/WhatsAppService.js')).default;
+        const smsSvc = (await import('../services/SmsService.js')).default;
+        const eSvc = (await import('../services/email.service.js')).default;
+        const Activity = mongoose.model('Activity');
+
+        const overallResults = [];
+
+        // 2. Iterate through cross-product (or usually it's 1-to-N or N-to-1)
+        for (const dId of finalDealIds) {
+            // Fetch Property/Deal (Polymorphic)
+            let propertyData = await Inventory.findById(dId).lean();
+            let isInventory = true;
+            if (!propertyData) {
+                propertyData = await Deal.findById(dId).lean();
+                isInventory = false;
+            }
+            if (!propertyData) continue;
+
+            const mockInv = isInventory ? propertyData : (propertyData.inventoryId ? await Inventory.findById(propertyData.inventoryId).lean() : null);
+
+            for (const lId of finalLeadIds) {
+                const lead = await Lead.findById(lId).lean();
+                if (!lead) continue;
+
+                console.log(`[ManualDispatch] Processing Match: Prop:${dId} -> Lead:${lId}`);
+                const matchResults = [];
+
+                // Dispatch WhatsApp
+                if (toggles?.whatsapp && (lead.mobile || lead.phones?.[0])) {
+                    const mobile = lead.mobile || lead.phones?.[0]?.number || lead.phones?.[0];
+                    const template = buildWhatsAppTemplate(propertyData, mockInv);
+                    try {
+                        const res = await waService.sendMessage(mobile, template.message);
+                        matchResults.push({ channel: 'whatsapp', status: res.success ? 'success' : 'failed' });
+                    } catch (err) { matchResults.push({ channel: 'whatsapp', status: 'failed', error: err.message }); }
+                }
+
+                // Dispatch Email
+                const emailAddr = lead.email || (Array.isArray(lead.emails) ? (lead.emails[0]?.address || lead.emails[0]) : null);
+                if (toggles?.email && emailAddr) {
+                    const template = buildEmailTemplate(propertyData, mockInv);
+                    try {
+                        await eSvc.sendEmail(emailAddr, template.subject, template.text, template.html);
+                        matchResults.push({ channel: 'email', status: 'success' });
+                    } catch (err) { matchResults.push({ channel: 'email', status: 'failed', error: err.message }); }
+                }
+
+                // Dispatch SMS
+                if (toggles?.sms && (lead.mobile || lead.phones?.[0])) {
+                    const mobile = lead.mobile || lead.phones?.[0]?.number || lead.phones?.[0];
+                    const template = buildSmsTemplate(propertyData, mockInv);
+                    try {
+                        const res = await smsSvc.sendSms(mobile, template.message);
+                        matchResults.push({ channel: 'sms', status: res.success ? 'success' : 'failed' });
+                    } catch (err) { matchResults.push({ channel: 'sms', status: 'failed', error: err.message }); }
+                }
+
+                // Log Activity
+                try {
+                    await Activity.create({
+                        type: 'Marketing',
+                        subject: `Manual Property Share: ${propertyData.projectName || propertyData.unitNo || 'Property'}`,
+                        entityType: 'Lead',
+                        entityId: lead._id,
+                        dueDate: new Date(),
+                        performedAt: new Date(),
+                        status: 'Completed',
+                        description: `Dispatched details to ${lead.fullName || lead.firstName} via ${matchResults.filter(r => r.status === 'success').map(r => r.channel).join(', ') || 'none'}`,
+                        details: { results: matchResults, toggles, inventoryId: isInventory ? dId : (propertyData.inventoryId || null) },
+                        performedBy: req.user?.firstName || 'System',
+                        assignedTo: req.user?._id
+                    });
+                } catch (logErr) { console.error('[ManualDispatch] Activity Log Error:', logErr.message); }
+
+                overallResults.push({ dealId: dId, leadId: lId, results: matchResults });
+            }
+        }
+
+        res.json({ success: true, results: overallResults });
+    } catch (error) {
+        console.error('[ManualDispatch] FATAL ERROR:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
 export const activateDrip = async (req, res) => {
     try {
         const { leadId, sequenceId, delayMs = 0 } = req.body;
-
-        if (!leadId) {
-            return res.status(400).json({ success: false, error: 'leadId is required' });
-        }
-
-        const lead = await Lead.findById(leadId).catch(() => null);
-        const leadName = lead
-            ? `${lead.firstName || ''} ${lead.lastName || ''}`.trim() || 'Lead'
-            : leadId;
-
-        // ── Enqueue real BullMQ drip job ──────────────────────────────────
-        let job;
-        try {
-            const queue = await getMarketingQueue();
-            job = await queue.add('drip', {
-                leadId,
-                leadName,
-                sequenceId: sequenceId || 'default-nurture',
-                step: 1,
-                startedAt: new Date().toISOString(),
-            }, {
-                delay: parseInt(delayMs, 10) || 0,
-            });
-            console.log(`[MarketingOS] Drip job queued: id=${job.id} lead=${leadName} seq=${sequenceId}`);
-        } catch (queueErr) {
-            console.warn('[MarketingOS] BullMQ unavailable for drip:', queueErr.message);
-        }
-
-        res.json({
-            success:    true,
-            leadId,
-            leadName,
-            sequenceId: sequenceId || 'default-nurture',
-            jobId:      job?.id   || null,
-            status:     job ? 'queued' : 'pending',
-            message:    `Drip sequence activated for ${leadName}.`,
-            startedAt:  new Date().toISOString(),
-        });
-
+        const queue = await getMarketingQueue();
+        const job = await queue.add('drip', { leadId, sequenceId, step: 1 }, { delay: parseInt(delayMs) });
+        res.json({ success: true, jobId: job.id });
     } catch (error) {
-        console.error('[MarketingController] activateDrip Error:', error.message);
         res.status(500).json({ success: false, error: error.message });
     }
 };
 
-/**
- * GET /api/marketing/job-status/:jobId
- * Phase D: Poll BullMQ job state for UI progress tracking.
- */
 export const getJobStatus = async (req, res) => {
     try {
         const { jobId } = req.params;
-        if (!jobId) return res.status(400).json({ success: false, error: 'jobId is required' });
-
         const queue = await getMarketingQueue();
-        const job   = await queue.getJob(jobId);
-
-        if (!job) {
-            return res.status(404).json({ success: false, error: `Job ${jobId} not found` });
-        }
-
-        const state    = await job.getState();   // 'active'|'waiting'|'completed'|'failed'|'delayed'
-        const progress = job.progress || 0;
-        const logs     = await job.getLogs();
-        const result   = job.returnvalue;
-
-        res.json({
-            success: true,
-            jobId,
-            name:     job.name,
-            state,
-            progress,
-            logs:     logs.logs || [],
-            result:   result || null,
-            failedReason: job.failedReason || null,
-            processedOn:  job.processedOn  ? new Date(job.processedOn).toISOString()  : null,
-            finishedOn:   job.finishedOn   ? new Date(job.finishedOn).toISOString()   : null,
-        });
+        const job = await queue.getJob(jobId);
+        if (!job) return res.status(404).json({ success: false, error: 'Job not found' });
+        const state = await job.getState();
+        res.json({ success: true, jobId, state, progress: job.progress, result: job.returnvalue });
     } catch (error) {
-        console.error('[MarketingController] getJobStatus Error:', error.message);
         res.status(500).json({ success: false, error: error.message });
     }
 };
 
-// ── Marketing Content CRUD (Neural Persistence) ───────────────────────────────
+// ── Marketing Content CRUD ───────────────────────────────────────────────────
 
-/**
- * GET /api/marketing/content
- * Fetch all persistent marketing content (for Calendar/List).
- */
 export const getMarketingContent = async (req, res) => {
     try {
-        const { platform, status, date } = req.query;
-        const query = {};
-        if (platform) query.platform = platform;
-        if (status) query.status = status;
-        if (date) query.date = date;
-
-        const content = await MarketingContent.find(query)
-            .sort({ date: 1, time: 1 })
-            .populate('dealId', 'unitNo projectName')
-            .lean();
-
+        const content = await MarketingContent.find(req.query).sort({ date: 1 }).populate('dealId', 'unitNo').lean();
         res.json({ success: true, data: content });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
 
-/**
- * POST /api/marketing/content
- * Create or Update marketing content.
- */
 export const saveMarketingContent = async (req, res) => {
     try {
         const { id, ...data } = req.body;
-        
-        // Ensure date format is correct
-        if (data.date && data.date.includes('T')) {
-            data.date = data.date.split('T')[0];
-        }
-
-        let content;
-        if (id) {
-            content = await MarketingContent.findByIdAndUpdate(id, data, { new: true });
-        } else {
-            content = await MarketingContent.create({
-                ...data,
-                author: req.user?.id
-            });
-        }
-
+        const content = id ? await MarketingContent.findByIdAndUpdate(id, data, { new: true }) : await MarketingContent.create({ ...data, author: req.user?.id });
         res.json({ success: true, data: content });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
 
-/**
- * DELETE /api/marketing/content/:id
- */
 export const deleteMarketingContent = async (req, res) => {
     try {
         await MarketingContent.findByIdAndDelete(req.params.id);
-        res.json({ success: true, message: 'Content deleted successfully' });
+        res.json({ success: true });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 };
 
-/**
- * POST /api/marketing/publish
- * Deploy content to external platforms (IG/FB/WA).
- */
 export const publishMarketingContent = async (req, res) => {
     try {
         const { contentId, phoneNumber } = req.body;
-        if (!contentId) return res.status(400).json({ success: false, error: 'contentId is required' });
-
         const content = await MarketingContent.findById(contentId);
         if (!content) return res.status(404).json({ success: false, error: 'Content not found' });
-
-        let result;
-        if (content.platform?.toLowerCase() === 'whatsapp') {
-            if (!phoneNumber) return res.status(400).json({ success: false, error: 'Phone number required for WhatsApp' });
-            result = await marketingPublishingService.publishToWhatsApp(contentId, phoneNumber);
-        } else {
-            result = await marketingPublishingService.publishToSocial(contentId);
-        }
-
-        res.json({ 
-            success: true, 
-            message: result.message || 'Content successfully deployed',
-            mode: result.mode
-        });
+        let result = content.platform?.toLowerCase() === 'whatsapp' ? await marketingPublishingService.publishToWhatsApp(contentId, phoneNumber) : await marketingPublishingService.publishToSocial(contentId);
+        res.json({ success: true, message: result.message });
     } catch (error) {
-        console.error('[MarketingController] publish Error:', error.message);
         res.status(500).json({ success: false, error: error.message });
     }
 };
 
-/**
- * Broadcast a Property or Deal to multiple platforms
- */
 export const broadcastToHub = async (req, res) => {
     try {
         const { id, type, platforms, privacy } = req.body;
-        console.log('[BroadcastHub] Broadcasting:', { id, type, platforms });
-
-        // Fetch the actual data
         const Model = type === 'deal' ? Deal : Project;
         const data = await Model.findById(id).lean();
-
-        if (!data) {
-            console.error('[BroadcastHub] Item not found in DB:', { id, type });
-            return res.status(404).json({ success: false, message: 'Item not found in database' });
-        }
-
-        const results = await publishService.publish(data, {
-            platforms,
-            privacy,
-            itemType: type
-        });
-
-        res.json({
-            success: true,
-            message: 'Broadcast task processed',
-            results
-        });
+        if (!data) return res.status(404).json({ success: false, message: 'Item not found' });
+        const results = await publishService.publish(data, { platforms, privacy, itemType: type });
+        res.json({ success: true, results });
     } catch (error) {
-        console.error('[BroadcastHub] Error:', error);
         res.status(500).json({ success: false, message: error.message });
     }
-}
-
-
+};

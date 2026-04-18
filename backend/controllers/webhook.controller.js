@@ -193,8 +193,45 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
         const body = req.body;
 
         if (body.object) {
-            if (body.entry && body.entry[0].changes && body.entry[0].changes[0] && body.entry[0].changes[0].value.messages && body.entry[0].changes[0].value.messages[0]) {
-                const messageObj = body.entry[0].changes[0].value.messages[0];
+            const entryValue = body.entry?.[0]?.changes?.[0]?.value;
+            if (!entryValue) return res.sendStatus(200);
+
+            // ── HANDLE MESSAGE STATUS UPDATES (Sent, Delivered, Read, Failed) ──
+            if (entryValue.statuses && entryValue.statuses[0]) {
+                const statusUpdate = entryValue.statuses[0];
+                const wamid = statusUpdate.id;
+                const status = statusUpdate.status; // 'delivered', 'read', 'failed', 'sent'
+                
+                let activityStatus = 'Sent';
+                if (status === 'delivered') activityStatus = 'Delivered';
+                if (status === 'read') activityStatus = 'Read';
+                if (status === 'failed') activityStatus = 'Failed';
+
+                console.log(`[WhatsApp Webhook] Status Update: ${status} for MSG: ${wamid}`);
+
+                // Update the Activity that matches this msgId
+                // We use findOneAndUpdate to find by the details.msgId nested field
+                const updatedActivity = await Activity.findOneAndUpdate(
+                    { 'details.msgId': wamid },
+                    { 
+                        $set: { 
+                            status: activityStatus,
+                            'details.lastStatusUpdate': new Date(),
+                            'details.actualStatus': status // Store raw Meta status for precision
+                        } 
+                    },
+                    { new: true }
+                );
+
+                if (updatedActivity) {
+                    console.log(`[WhatsApp Webhook] ✅ Updated Activity ${updatedActivity._id} to ${activityStatus}`);
+                }
+                return res.sendStatus(200);
+            }
+
+            // ── HANDLE INCOMING MESSAGES ──
+            if (entryValue.messages && entryValue.messages[0]) {
+                const messageObj = entryValue.messages[0];
                 const fromNumber = messageObj.from;
                 const messageText = messageObj.text?.body || '';
 

@@ -10,6 +10,7 @@ import mongoose from "mongoose";
 import { getVisibilityFilter } from "../utils/visibility.js";
 
 import DuplicationRule from "../models/DuplicationRule.js";
+import Deal from "../models/Deal.js"; // Explicitly load to prevent registration errors
 import { syncDocumentsToContact } from "../utils/sync.js";
 
 
@@ -393,20 +394,117 @@ export const getInventory = async (req, res) => {
 
 export const getInventoryById = async (req, res) => {
     try {
+        const { id } = req.params;
+
+        // 🛡️ [HARDENING] Validate ID format before DB call to prevent 500 CastErrors
+        if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+            console.warn(`[DIAGNOSTIC] ⚠️ Invalid Inventory ID requested: "${id}"`);
+            return res.status(400).json({ success: false, error: "Invalid Inventory ID format" });
+        }
+
         // [SECURITY] Enforce visibility — scoped users cannot bypass via direct ID lookup
+        console.log(`[DIAGNOSTIC] 🔍 Fetching Inventory: ${id} | User: ${req.user?.email}`);
         const visibilityFilter = await getVisibilityFilter(req.user);
-        const inventory = await Inventory.findOne({
-            _id: req.params.id,
+        
+        const populateFieldsReduced = [
+            { path: "owners", select: "name phones emails title personalAddress" },
+            {
+                path: "associates.contact",
+                model: 'Contact',
+                select: "name phones emails title"
+            },
+            { path: "projectId" },
+            { path: "team", select: "name" },
+            { path: "assignedTo", select: "fullName name team" },
+            { path: "teams", select: "name" }
+        ];
+
+        let inventory = await Inventory.findOne({
+            _id: id,
             ...visibilityFilter
-        }).populate(populateFields);
+        }).populate(populateFieldsReduced);
 
         if (!inventory) {
+            console.warn(`[DIAGNOSTIC] ⛔ Inventory ${id} NOT FOUND or ACCESS DENIED for ${req.user?.email}`);
             return res.status(404).json({ success: false, error: "Inventory item not found or access denied" });
         }
 
-        const deals = await mongoose.model('Deal').find({ inventoryId: inventory._id }).lean();
-        res.status(200).json({ success: true, data: { ...inventory.toObject(), deals } });
+        // 🚀 Hydrate related deals for intelligence
+        const deals = await Deal.find({ inventoryId: inventory._id }).lean();
+
+        // Manual Enrichment for Mixed fields that might be strings (preventing CastErrors)
+        const inventoryData = inventory.toObject();
+        
+        const mixedFields = [
+            { field: 'category', type: 'Category' },
+            { field: 'subCategory', type: 'SubCategory' },
+            { field: 'status', type: 'Status' },
+            { field: 'unitType', type: 'Size' },
+            { field: 'facing', type: 'Facing' },
+            { field: 'direction', type: 'Direction' },
+            { field: 'orientation', type: 'Orientation' },
+            { field: 'intent', type: 'Intent' },
+            { field: 'builtupType', type: 'BuiltupType' },
+            { field: 'roadWidth', type: 'RoadWidth' }
+        ];
+
+        for (const { field, type } of mixedFields) {
+            let val = inventoryData[field];
+            if (!val) continue;
+
+            // Handle arrays (like intent)
+            if (Array.isArray(val)) {
+                inventoryData[field] = await Promise.all(val.map(async (v) => {
+                    if (typeof v === 'string' && !mongoose.Types.ObjectId.isValid(v)) {
+                         const lookup = await Lookup.findOne({ lookup_type: type, lookup_value: v }).lean();
+                         return lookup || { lookup_value: v };
+                    } else if (mongoose.Types.ObjectId.isValid(v)) {
+                         const lookup = await Lookup.findById(v).lean();
+                         return lookup || { _id: v };
+                    }
+                    return v;
+                }));
+            } else if (typeof val === 'string' && !mongoose.Types.ObjectId.isValid(val)) {
+                const lookup = await Lookup.findOne({ lookup_type: type, lookup_value: val }).lean();
+                inventoryData[field] = lookup || { lookup_value: val };
+            } else if (mongoose.Types.ObjectId.isValid(val)) {
+                const lookup = await Lookup.findById(val).lean();
+                inventoryData[field] = lookup || { _id: val };
+            }
+        }
+
+        // Handle address components
+        if (inventoryData.address) {
+            const addrFields = [
+                { field: 'city', type: 'City' },
+                { field: 'state', type: 'State' },
+                { field: 'locality', type: 'Area' },
+                { field: 'area', type: 'Area' },
+                { field: 'location', type: 'Area' }
+            ];
+            for (const { field, type } of addrFields) {
+                let val = inventoryData.address[field];
+                if (val && typeof val === 'string' && !mongoose.Types.ObjectId.isValid(val)) {
+                    const lookup = await Lookup.findOne({ lookup_type: type, lookup_value: val }).lean();
+                    inventoryData.address[field] = lookup || { lookup_value: val };
+                } else if (val && mongoose.Types.ObjectId.isValid(val)) {
+                    const lookup = await Lookup.findById(val).lean();
+                    inventoryData.address[field] = lookup || { _id: val };
+                }
+            }
+        }
+        inventoryData.media = [
+            ...(inventory.inventoryImages || []).map(i => ({ ...i, type: 'image' })),
+            ...(inventory.inventoryVideos || []).map(v => ({ ...v, type: 'video' })),
+            ...(inventory.inventoryDocuments || []).map(d => ({ ...d, type: 'document', title: d.documentName }))
+        ];
+        // Legacy support for older mobile versions
+        inventoryData.images = inventory.inventoryImages;
+
+        console.log(`[DIAGNOSTIC] ✅ Success: ${inventory.projectName} | Deals found: ${deals.length} | Media: ${inventoryData.media.length}`);
+        res.status(200).json({ success: true, data: { ...inventoryData, deals } });
     } catch (error) {
+        console.error(`[DIAGNOSTIC] ❌ getInventoryById CRASH:`, error.message);
         res.status(500).json({ success: false, error: error.message });
     }
 };
@@ -509,6 +607,24 @@ export const updateInventory = async (req, res) => {
         else if (data.team) data.team = await resolveTeam(data.team);
 
         if (data.owners) data.owners = sanitizeIds(data.owners);
+        
+        // 🚀 [MEDIA ENGINE] Handle 'media' field from mobile clients for strict schema compatibility
+        if (data.media && Array.isArray(data.media)) {
+            console.log(`[DIAGNOSTIC] 📁 Processing ${data.media.length} media items from mobile upload...`);
+            
+            // Map incoming generic media to specific schema arrays
+            const images = data.media.filter(m => m.url && (m.url.match(/\.(jpg|jpeg|png|webp|gif)$/i) || m.type?.startsWith('image')));
+            const videos = data.media.filter(m => m.url && (m.url.match(/\.(mp4|mov|wmv|avi)$/i) || m.type?.startsWith('video')));
+            const docs = data.media.filter(m => m.url && !images.includes(m) && !videos.includes(m));
+
+            if (images.length > 0) data.inventoryImages = images.map(i => ({ title: i.title || 'Image', url: i.url, category: i.category || 'General' }));
+            if (videos.length > 0) data.inventoryVideos = videos.map(v => ({ title: v.title || 'Video', url: v.url, type: v.type || 'Video' }));
+            if (docs.length > 0) data.inventoryDocuments = docs.map(d => ({ documentName: d.title || d.documentName || 'Document', url: d.url, documentType: d.type || 'Other' }));
+
+            // Clean up mobile-specific field to avoid strict schema warnings
+            delete data.media;
+        }
+
         if (data.associates) {
             data.associates = data.associates.map(assoc => {
                 if (typeof assoc === 'string') return { contact: assoc };

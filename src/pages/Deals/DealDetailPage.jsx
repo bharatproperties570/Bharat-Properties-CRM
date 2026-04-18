@@ -143,11 +143,34 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                 const dealData = res.data.data;
                 setDeal(dealData);
 
-                // Fetch Inventory if available
+                // --- [ENTERPRISE HARDENING]: Instant Data Initialization ---
+                // If the deal already has enriched inventory data from the backend, 
+                // use it immediately to prevent UI flicker or "disappearing" owners.
+                if (dealData.inventoryId && typeof dealData.inventoryId === 'object') {
+                    setInventory(prev => ({
+                        ...dealData.inventoryId,
+                        // Priority merge: Ensure owners and associates from Deal enrichment are used
+                        owners: dealData.owner ? [dealData.owner] : (dealData.inventoryId.owners || []),
+                        associates: dealData.associatedContact ? [{ contact: dealData.associatedContact }] : (dealData.inventoryId.associates || [])
+                    }));
+                }
+
+                // Fetch full Inventory for technical specs only if available
                 const invId = dealData.inventoryId?._id || (typeof dealData.inventoryId === 'string' ? dealData.inventoryId : null);
                 if (invId) {
                     api.get(`inventory/${invId}`)
-                        .then(invRes => { if (invRes.data?.success) setInventory(invRes.data.data); })
+                        .then(invRes => { 
+                            if (invRes.data?.success) {
+                                // Merge full technical details (built-up, specs) but keep owners stable
+                                setInventory(prev => ({
+                                    ...prev,
+                                    ...invRes.data.data,
+                                    // Preserve stable owner/associate data from Deal or initialization
+                                    owners: (prev?.owners?.length > 0) ? prev.owners : (invRes.data.data.owners || []),
+                                    associates: (prev?.associates?.length > 0) ? prev.associates : (invRes.data.data.associates || [])
+                                }));
+                            }
+                        })
                         .catch(err => console.error("Error fetching inventory for sidebar:", err));
                 }
             } else {
@@ -389,7 +412,7 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
             <div style={{ maxWidth: '100%', margin: '12px auto', padding: '0 24px', display: 'flex', gap: '16px', height: 'calc(100vh - 120px)', overflow: 'hidden' }}>
                 
                 {/* COLUMN 1: LEFT - UNIT & LOCATION INTELLIGENCE (400px) */}
-                <div className="no-scrollbar" style={{ flex: '0 0 400px', display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto', paddingBottom: '20px' }}>
+                <div style={{ flex: '0 0 400px', display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto', minHeight: 0, paddingBottom: '20px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                         <i className="fas fa-building" style={{ color: '#4f46e5' }}></i>
                         <span style={{ fontSize: '0.7rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Unit & Location Intelligence</span>
@@ -437,7 +460,7 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                 </div>
 
                 {/* COLUMN 2: CENTER - INTERACTION INTELLIGENCE */}
-                <div className="no-scrollbar" style={{ flex: '1', display: 'flex', flexDirection: 'column', background: '#f8fafc', overflowY: 'auto', minWidth: '0', position: 'relative' }}>
+                <div style={{ flex: '1', display: 'flex', flexDirection: 'column', background: '#f8fafc', overflowY: 'auto', minHeight: 0, minWidth: '0', position: 'relative', paddingBottom: '20px' }}>
                     <div className="glass-card" style={{ 
                         background: '#fff',
                         borderRadius: '16px',
@@ -476,7 +499,6 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                                         entityType="Deal" 
                                         entityData={deal}
                                         onActivitySaved={fetchDealDetails}
-                                        hideComposer={true}
                                         relatedEntities={relatedEntities}
                                     />
                                 );
@@ -486,7 +508,7 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                 </div>
 
                 {/* COLUMN 3: RIGHT - PRICING & LOGISTICS */}
-                <div className="no-scrollbar" style={{ flex: '0 0 400px', display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto', paddingBottom: '20px' }}>
+                <div style={{ flex: '0 0 400px', display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto', minHeight: 0, paddingBottom: '20px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                         <i className="fas fa-file-invoice-dollar" style={{ color: '#4f46e5' }}></i>
                         <span style={{ fontSize: '0.7rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Pricing & Logistics</span>
@@ -643,6 +665,8 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                     entityType="Inventory"
                     entityId={inventory?._id || inventory?.id}
                     onUploaded={fetchDealDetails}
+                    project={inventory}
+                    type="property"
                 />
             )}
 
@@ -671,6 +695,7 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                     onClose={() => setIsDocumentModalOpen(false)}
                     inventoryId={deal.inventoryId?._id || deal.inventoryId}
                     onSaved={fetchDealDetails}
+                    project={inventory}
                 />
             )}
 
@@ -760,7 +785,7 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                     location: deal.location || deal.address?.location || inventory?.address?.location || 'Prime Location',
                     price: deal.price ? formatIndianCurrency(deal.price) : (inventory?.price ? formatIndianCurrency(inventory.price) : "Contact for Price"),
                     description: deal.notes || inventory?.description || `Excited to showcase this high-potential listing at ${deal.projectName || 'our latest project'}. View details of Unit ${deal.unitNo} now!`,
-                    imageUrl: deal.primaryImage || (inventory?.media?.[0]?.url) || (inventory?.images?.[0]) || project?.primaryImage
+                    imageUrl: deal.primaryImage || (inventory?.media?.[0]?.url) || (inventory?.images?.[0]) || deal.projectId?.primaryImage
                 } : null}
             />
         </div>

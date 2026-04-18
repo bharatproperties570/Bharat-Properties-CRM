@@ -73,6 +73,16 @@ function DealsPage({ onNavigate, onAddActivity }) {
     const [refreshTrigger, setRefreshTrigger] = useState(0);
     const [isSocialModalOpen, setIsSocialModalOpen] = useState(false);
     const [selectedSocialData, setSelectedSocialData] = useState(null);
+    const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+    const [isDocumentModalOpen, setIsDocumentModalOpen] = useState(false);
+    const [isSendMailOpen, setIsSendMailOpen] = useState(false);
+    const [isSendMessageOpen, setIsSendMessageOpen] = useState(false);
+    const [isManageTagsOpen, setIsManageTagsOpen] = useState(false);
+    const [isAddBookingOpen, setIsAddBookingOpen] = useState(false);
+    const [selectedDealsForMail, setSelectedDealsForMail] = useState([]);
+    const [selectedDealsForMessage, setSelectedDealsForMessage] = useState([]);
+    const [selectedDealsForTags, setSelectedDealsForTags] = useState([]);
+    const [selectedDealState, setSelectedDealState] = useState(null);
 
     // ── STAGE ENGINE SYNC ──────────────────────────────────────────
     useEffect(() => {
@@ -203,21 +213,6 @@ function DealsPage({ onNavigate, onAddActivity }) {
         fetchDeals();
     }, [fetchDeals, refreshTrigger]);
 
-    // Action Modal States
-    const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-    const [isDocumentModalOpen, setIsDocumentModalOpen] = useState(false);
-    const [selectedDealState, setSelectedDealState] = useState(null);
-
-    const [isSendMailOpen, setIsSendMailOpen] = useState(false);
-    const [selectedDealsForMail, setSelectedDealsForMail] = useState([]);
-
-    const [isSendMessageOpen, setIsSendMessageOpen] = useState(false);
-    const [selectedDealsForMessage, setSelectedDealsForMessage] = useState([]);
-
-    const [isManageTagsOpen, setIsManageTagsOpen] = useState(false);
-    const [selectedDealsForTags, setSelectedDealsForTags] = useState([]);
-
-    const [isAddBookingOpen, setIsAddBookingOpen] = useState(false);
 
     // Filter Removal Handlers
     const handleRemoveFilter = (key) => {
@@ -499,11 +494,75 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                         <button className="action-btn" title="View Quote" onClick={handleQuoteClick}><i className="fas fa-file-invoice-dollar"></i> Quote</button>
                                         <button
                                             className="action-btn"
+                                            title="Edit Deal"
+                                            style={{ background: '#fffbeb', color: '#b45309', borderColor: '#fef3c7' }}
+                                            onClick={() => {
+                                                const deal = getSelectedDeal();
+                                                if (deal) {
+                                                    setEditingDeal(deal);
+                                                    setIsAddModalOpen(true);
+                                                }
+                                            }}
+                                        >
+                                            <i className="fas fa-edit"></i> Edit
+                                        </button>
+
+                                        <button
+                                            className="action-btn"
+                                            title="Quote"
+                                            onClick={() => {
+                                                const deal = getSelectedDeal();
+                                                if (deal) {
+                                                    setEditingDeal(deal);
+                                                    setIsQuoteModalOpen(true);
+                                                }
+                                            }}
+                                        >
+                                            <i className="fas fa-file-invoice"></i> Quote
+                                        </button>
+
+                                        <button
+                                            className="action-btn"
+                                            title="Offer"
+                                            onClick={() => {
+                                                const deal = getSelectedDeal();
+                                                if (deal) {
+                                                    setEditingDeal(deal);
+                                                    setIsOfferModalOpen(true);
+                                                }
+                                            }}
+                                        >
+                                            <i className="fas fa-handshake"></i> Offer
+                                        </button>
+
+                                        <button
+                                            className="action-btn"
                                             title="Book Deal"
                                             style={{ background: '#ecfdf5', color: '#059669', borderColor: '#d1fae5' }}
                                             onClick={() => setIsAddBookingOpen(true)}
                                         >
                                             <i className="fas fa-bookmark"></i> Book
+                                        </button>
+                                        
+                                        <button
+                                            className="action-btn"
+                                            title="Share Deal"
+                                            onClick={() => {
+                                                const d = getSelectedDeal();
+                                                if (d) {
+                                                    setSelectedSocialData({
+                                                        id: d._id,
+                                                        unitNo: d.unitNo,
+                                                        projectName: d.projectName,
+                                                        price: d.price,
+                                                        location: getLookupValue('Locality', d.location) || getLookupValue('Area', d.location) || getLookupValue('Location', d.location),
+                                                        images: d.propertyImages || []
+                                                    });
+                                                    setIsSocialModalOpen(true);
+                                                }
+                                            }}
+                                        >
+                                            <i className="fas fa-share-alt"></i> Share
                                         </button>
                                     </>
                                 )}
@@ -688,7 +747,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                             <div>Associate</div>
                             <div>Status</div>
                             <div>Interaction</div>
-                            <div>Assignment</div>
+                            <div style={{ textAlign: 'center' }}>Assignment</div>
                         </div>
                     )}
 
@@ -720,6 +779,20 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                                     images: d.propertyImages || []
                                                 });
                                                 setIsSocialModalOpen(true);
+                                            }
+                                            if (type === 'edit') {
+                                                setEditingDeal(d);
+                                                setIsAddModalOpen(true);
+                                            }
+                                            if (type === 'delete') {
+                                                if (window.confirm('Are you sure you want to delete this deal?')) {
+                                                    api.delete(`deals/${d._id}`).then(() => {
+                                                        toast.success('Deal deleted successfully');
+                                                        fetchDeals();
+                                                    }).catch(err => {
+                                                        toast.error('Failed to delete deal');
+                                                    });
+                                                }
                                             }
                                             setActiveRowMenu(null);
                                         }}
@@ -1193,53 +1266,7 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
                 </div>
             </div>
 
-            {/* Col 11: Actions */}
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', marginLeft: 'auto' }}>
-                <button
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        setActiveRowMenu(activeRowMenu === deal._id ? null : deal._id);
-                    }}
-                    style={{
-                        background: 'none', border: '1px solid #e2e8f0', borderRadius: '8px',
-                        width: '32px', height: '32px', cursor: 'pointer', color: '#64748b',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center'
-                    }}
-                >
-                    <i className="fas fa-ellipsis-v"></i>
-                </button>
 
-                {activeRowMenu === deal._id && (
-                    <div style={{
-                        position: 'absolute', right: '40px', bottom: '0',
-                        background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px',
-                        boxShadow: '0 10px 25px rgba(0,0,0,0.1)', zIndex: 100, minWidth: '150px',
-                        padding: '8px 0', overflow: 'hidden'
-                    }}>
-                        <button
-                            onClick={() => onAction('quote', deal)}
-                            style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.75rem', fontWeight: 700, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-                            className="hover:bg-slate-50"
-                        >
-                            <i className="fas fa-file-invoice text-blue-500" style={{ width: '14px' }}></i> Quote
-                        </button>
-                        <button
-                            onClick={() => onAction('offer', deal)}
-                            style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.75rem', fontWeight: 700, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-                            className="hover:bg-slate-50"
-                        >
-                            <i className="fas fa-handshake text-indigo-500" style={{ width: '14px' }}></i> Offer
-                        </button>
-                        <button
-                            onClick={() => onAction('share', deal)}
-                            style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.75rem', fontWeight: 700, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-                            className="hover:bg-slate-50"
-                        >
-                            <i className="fas fa-share-alt" style={{ width: '14px', color: '#10b981' }}></i> Share
-                        </button>
-                    </div>
-                )}
-            </div>
         </div>
     );
 });

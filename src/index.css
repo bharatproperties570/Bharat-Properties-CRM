@@ -1397,13 +1397,13 @@ body {
 /* Hardened Action Bar & Grid Optimization */
 .contact-list-grid {
     display: grid;
-    /* Explicitly sizing columns for platform consistency - 1st col 48px fixed */
-    grid-template-columns: 48px 250px 280px 170px 140px 170px 180px 160px;
-    gap: 16px;
+    /* Optimized Grid: Check | Personal | Location | Professional | Source | CRM | Interaction | Assignment */
+    grid-template-columns: 48px minmax(220px, 1.2fr) minmax(180px, 1.1fr) minmax(150px, 1fr) minmax(130px, 0.9fr) 120px 120px 160px;
+    gap: 12px;
     align-items: center;
-    padding: 12px var(--row-padding);
-    min-width: 1420px;
+    padding: 12px 2rem;
     transition: background 0.2s ease;
+    white-space: nowrap;
 }
 
 /* Precise Checkbox Alignment */
@@ -1422,18 +1422,18 @@ body {
 
 .lead-list-grid {
     display: grid;
-    /* Grid: Check | Profile | Match | Req+Budget | Loc | Status+Source | Interaction | Assignment */
-    grid-template-columns: 40px 2.2fr 0.7fr 1.6fr 2.8fr 1.2fr 0.9fr 1.5fr;
-    gap: 12px;
-    align-items: start;
-    padding: 12px 20px;
+    /* Optimized Grid: Shifting Match slightly Left */
+    grid-template-columns: 32px minmax(220px, 1.4fr) 85px minmax(180px, 1.2fr) minmax(300px, 1.2fr) minmax(160px, 1.1fr) 130px 140px;
+    gap: 15px;
+    align-items: center;
+    padding: 12px 1.5rem 12px 0.75rem;
     border-bottom: 1px solid #f1f5f9;
     width: 100%;
 }
 /* Center checkbox in its column */
 .lead-list-grid > div:first-child {
     display: flex;
-    justify-content: center;
+    justify-content: flex-start;
     align-items: center;
 }
     /* duplicate .lead-list-grid block removed */
@@ -2792,9 +2792,7 @@ body {
 }
 
 /* Projects Module Specialized Grid */
-.project-list-grid {
-    grid-template-columns: 40px 40px 180px 250px 180px 300px 80px 120px;
-}
+/* Removed redundant project-list-grid */
 
 /* Inventory Module Optimized Grid (Split Version) */
 .inventory-list-grid {
@@ -3096,12 +3094,12 @@ body {
     text-align: center;
 }
 
-/* Projects Grid - 7 Column Layout (Fixed Overlaps) */
+/* Projects Grid - 8 Column Layout with Actions */
 .project-list-grid {
     display: grid;
-    /* Columns: Checkbox | Identity | Location | Blocks | Category | Status | Management */
-    grid-template-columns: 40px minmax(260px, 1.6fr) minmax(220px, 1.4fr) minmax(130px, 0.9fr) minmax(150px, 1fr) 150px 150px;
-    gap: 1.2rem;
+    /* Columns: Checkbox | Identity | Location | Blocks | Category | Status | Assignment | Actions */
+    grid-template-columns: 48px minmax(220px, 1.4fr) minmax(180px, 1.1fr) minmax(110px, 0.7fr) minmax(120px, 0.8fr) 130px 130px 100px;
+    gap: 1rem;
     align-items: center;
 }
 

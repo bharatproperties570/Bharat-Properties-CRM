@@ -172,6 +172,9 @@ export const getContacts = async (req, res, next) => {
 
 export const getContact = async (req, res, next) => {
     try {
+        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+            return res.status(400).json({ success: false, error: "Invalid Contact ID format" });
+        }
         const contact = await Contact.findById(req.params.id).populate(populateFields);
         if (!contact) return res.status(404).json({ success: false, error: "Contact not found" });
 

@@ -1,8 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { whatsappTemplates, smsTemplates, rcsTemplates } from '../../../constants/templates';
 import Swal from 'sweetalert2';
 import { toast } from 'react-hot-toast';
+import { Sparkles, ShieldCheck, MessageSquare, Clock, Globe, Settings, Database, History, Ban } from 'lucide-react';
 import smsService from '../../../services/smsService';
+import { systemSettingsAPI } from '../../../utils/api';
+
 
 // --- Sub-Components ---
 
@@ -418,6 +421,384 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
     );
 };
 
+
+const VariableRegistryTab = () => {
+    const [variables, setVariables] = useState({});
+    const [isSaving, setIsSaving] = useState(false);
+    const [isLoading, setIsLoading] = useState(true);
+
+    const fieldOptions = [
+        {
+            category: 'Contact & Names',
+            options: [
+                { id: 'fullName', label: 'Full Name (Lead)' },
+                { id: 'firstName', label: 'First Name only' },
+                { id: 'lastName', label: 'Last Name only' },
+                { id: 'salutation', label: 'Salutation (Mr./Ms.)' },
+                { id: 'mobile', label: 'Mobile Number' },
+                { id: 'email', label: 'Email Address' },
+                { id: 'agentMobile', label: 'Assigned RM Mobile' }
+            ]
+        },
+        {
+            category: 'Unit Specifications',
+            options: [
+                { id: 'unitNo', label: 'Unit/Plot Number' },
+                { id: 'floor', label: 'Floor Level' },
+                { id: 'facing', label: 'Facing (N/S/E/W)' },
+                { id: 'direction', label: 'Entry Direction' },
+                { id: 'carpetArea', label: 'Carpet Area' },
+                { id: 'builtUpArea', label: 'Built-up Area' },
+                { id: 'totalSaleableArea', label: 'Super Area' },
+                { id: 'subCategory', label: 'Property Sub-Category (Plot/Flat)' },
+                { id: 'sizeType', label: 'Size (10 Marla / 3 BHK / 1500 Sqft)' },
+                { id: 'unitType', label: 'Unit Category (Corner / PLC / Ordinary)' },
+                { id: 'road', label: 'Road Width (ft)' },
+                { id: 'furnishType', label: 'Furnishing (Semi/Full)' },
+                { id: 'ageOfConstruction', label: 'Construction Age' }
+            ]
+        },
+        {
+            category: 'Project Deep-Dive',
+            options: [
+                { id: 'projectName', label: 'Project Name' },
+                { id: 'developerName', label: 'Developer/Builder' },
+                { id: 'reraNumber', label: 'RERA Registration No' },
+                { id: 'projectCity', label: 'Project City' },
+                { id: 'projectLocality', label: 'Project Locality' },
+                { id: 'projectArea', label: 'Project Sector/Area' },
+                { id: 'totalUnits', label: 'Total Units in Project' },
+                { id: 'totalBlocks', label: 'Total Towers/Blocks' },
+                { id: 'totalFloors', label: 'Max Project Floors' },
+                { id: 'landArea', label: 'Project Land Size' },
+                { id: 'approvedBank', label: 'Bank Approvals' },
+                { id: 'amenities', label: 'Amenities List' }
+            ]
+        },
+        {
+            category: 'Pricing & Financials',
+            options: [
+                { id: 'price', label: 'Basic Sale Price' },
+                { id: 'totalCost', label: 'All-Inclusive Cost' },
+                { id: 'rentPrice', label: 'Monthly Rent' },
+                { id: 'maintenanceAmount', label: 'Maintenance Charges' },
+                { id: 'gstStatus', label: 'GST Logic (Inc/Exc)' },
+                { id: 'paymentPlan', label: 'Default Payment Plan' },
+                { id: 'tokenAmount', label: 'Booking Amount' },
+                { id: 'agreementAmount', label: 'Agreement Value' }
+            ]
+        },
+        {
+            category: 'CRM Status & Activity',
+            options: [
+                { id: 'leadId', label: 'CRM Lead ID' },
+                { id: 'source', label: 'Lead Source' },
+                { id: 'stage', label: 'Sales Stage' },
+                { id: 'priority', label: 'Priority' },
+                { id: 'remark', label: 'Latest Remarks' },
+                { id: 'visitDate', label: 'Last Visit Date' },
+                { id: 'bookingDate', label: 'Unit Booking Date' },
+                { id: 'followUpDate', label: 'Next Follow-up' }
+            ]
+        },
+        {
+            category: 'AI Insights & Scoring',
+            options: [
+                { id: 'intentSummary', label: 'AI Intent Summary' },
+                { id: 'aiClosingProbability', label: 'AI Closing Prob. (%)' },
+                { id: 'customPrompt', label: 'AI Custom Content' }
+            ]
+        },
+        {
+            category: 'System & Branding',
+            options: [
+                { id: 'companyName', label: 'Company Name' },
+                { id: 'officeAddress', label: 'Office Address' },
+                { id: 'customerSupportNo', label: 'Support Number' },
+                { id: 'currentDate', label: "Today's Date" },
+                { id: 'crmLink', label: 'Portal Link' },
+                { id: 'agentName', label: 'Current User/Agent Name' }
+            ]
+        },
+        {
+            category: 'Dynamic Outcome Context',
+            options: [
+                { id: 'currentOutcome', label: 'Target Outcome Name' },
+                { id: 'nextFollowUpDate', label: 'Next Follow-up Date/Time' },
+                { id: 'outcomeNotes', label: 'Latest Outcome Notes' },
+                { id: 'visitLocation', label: 'Site Visit Location Link' },
+                { id: 'feedbackLink', label: 'Customer Feedback Link' }
+            ]
+        }
+    ];
+
+    const fetchVariables = async () => {
+        try {
+            const res = await systemSettingsAPI.getByKey('messaging_variable_registry');
+            if (res.success && res.data?.value) {
+                setVariables(res.data.value);
+            }
+        } catch (err) {
+            console.warn('No variable registry found, using defaults.');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchVariables();
+    }, []);
+
+    const handleSave = async () => {
+        setIsSaving(true);
+        try {
+            await systemSettingsAPI.upsert('messaging_variable_registry', {
+                category: 'messaging',
+                value: variables,
+                description: 'Global mapping for messaging template variables {{1}}, {{2}} etc.',
+                isPublic: true
+            });
+            toast.success('Variable registry updated successfully');
+        } catch (err) {
+            toast.error('Failed to save variables: ' + err.message);
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    if (isLoading) return <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text3)' }}><span className="spinner-sm"></span> Loading variable configuration...</div>;
+
+    return (
+        <div style={{ animation: 'fadeIn 0.3s ease-out' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', background: 'rgba(255,255,255,0.03)', padding: '20px', borderRadius: '12px', border: '1px solid #f1f5f9' }}>
+                <div>
+                    <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#1e293b' }}>Variable Mapping Registry</div>
+                    <div style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '4px' }}>Map indices like {"{{1}}"}, {"{{2}}"} to CRM fields globally for Meta, SMS & RCS.</div>
+                </div>
+                <div style={{ display: 'flex', gap: '12px' }}>
+                    <button 
+                        className="btn-secondary" 
+                        onClick={() => {
+                            if (window.confirm('Reset all variable mappings to empty?')) {
+                                setVariables({});
+                            }
+                        }}
+                        style={{ border: '1px solid #e2e8f0', background: '#fff', color: '#64748b' }}
+                    >
+                        Reset
+                    </button>
+                    <button className="btn-primary" onClick={handleSave} disabled={isSaving}>
+                        {isSaving ? 'Saving...' : 'Save Configuration'}
+                    </button>
+                </div>
+
+            </div>
+
+            <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)', minHeight: '400px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                    <thead>
+                        <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                            <th style={{ padding: '16px', textAlign: 'left', width: '60px' }}>#</th>
+                            <th style={{ padding: '16px', textAlign: 'left', width: '120px' }}>Variable</th>
+                            <th style={{ padding: '16px', textAlign: 'left' }}>CRM Field Data Source</th>
+                            <th style={{ padding: '16px', textAlign: 'left' }}>Default Instruction / Note</th>
+                        </tr>
+                    </thead>
+                    <tbody style={{ borderTop: 'none' }}>
+                        {Array.from({ length: 30 }).map((_, i) => {
+                            const idx = i + 1;
+                            const currentVal = variables[idx] || '';
+                            let label = 'Will require manual mapping if found in template.';
+                            fieldOptions.forEach(cat => {
+                                const found = cat.options.find(o => o.id === currentVal);
+                                if (found) label = `Automatically pull ${found.label}`;
+                            });
+
+                            return (
+                                <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                    <td style={{ padding: '12px 16px', color: '#94a3b8', fontWeight: 600, fontSize: '0.8rem' }}>
+                                        {idx}
+                                    </td>
+                                    <td style={{ padding: '12px 16px' }}>
+                                        <span style={{ 
+                                            background: 'linear-gradient(135deg, #fbbf24, #d97706)', 
+                                            color: '#fff', 
+                                            padding: '4px 10px', 
+                                            borderRadius: '6px', 
+                                            fontWeight: 800, 
+                                            fontSize: '0.75rem',
+                                            fontFamily: 'monospace',
+                                            boxShadow: '0 2px 4px rgba(217, 119, 6, 0.2)'
+                                        }}>
+                                            {`{{${idx}}}`}
+                                        </span>
+                                    </td>
+                                    <td style={{ padding: '12px 16px' }}>
+                                        <select 
+                                            value={currentVal} 
+                                            onChange={e => setVariables(p => ({ ...p, [idx]: e.target.value }))}
+                                            style={{ width: '100%', padding: '10px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.85rem', color: currentVal ? '#1e293b' : '#94a3b8' }}
+                                        >
+                                            <option value="">-- No Default Mapping --</option>
+                                            {fieldOptions.map(cat => (
+                                                <optgroup key={cat.category} label={cat.category}>
+                                                    {cat.options.map(opt => (
+                                                        <option key={opt.id} value={opt.id}>{opt.label}</option>
+                                                    ))}
+                                                </optgroup>
+                                            ))}
+                                        </select>
+                                    </td>
+                                    <td style={{ padding: '12px 16px', color: '#64748b', fontStyle: 'italic' }}>
+                                        {label}
+                                    </td>
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+};
+
+const SmartOutcomeTemplatesTab = () => {
+    const [smartTemplates, setSmartTemplates] = useState({});
+    const [isLoading, setIsLoading] = useState(true);
+    const [isSaving, setIsSaving] = useState(false);
+
+    const outcomes = [
+        { id: 'Interested', label: 'Call: Interested', icon: 'fa-thumbs-up', color: '#10b981' },
+        { id: 'Follow-up', label: 'Call: Follow-up', icon: 'fa-clock', color: '#3b82f6' },
+        { id: 'Not Picked', label: 'Call: Not Picked', icon: 'fa-phone-slash', color: '#f59e0b' },
+        { id: 'Visit Scheduled', label: 'Task: Site Visit', icon: 'fa-map-marker-alt', color: '#8b5cf6' },
+        { id: 'Meeting Done', label: 'Task: Meeting Done', icon: 'fa-handshake', color: '#ec4899' },
+        { id: 'Not Interested', label: 'Call: Junk/Not Interested', icon: 'fa-times-circle', color: '#ef4444' }
+    ];
+
+    const fetchSmartTemplates = async () => {
+        try {
+            const res = await systemSettingsAPI.getByKey('smart_outcome_templates');
+            if (res.success && res.data?.value) {
+                setSmartTemplates(res.data.value);
+            } else {
+                setSmartTemplates({
+                    'Interested': {
+                        whatsapp: 'Hi {{fullName}}, thank you for your interest in {{projectName}}. Our senior consultant {{agentName}} will call you soon with floor plans.',
+                        sms: 'Thanks for inquiring about {{projectName}}, {{fullName}}. We have shared details on your WhatsApp. Regards, Bharat Properties.',
+                        email: 'Dear {{fullName}},\n\nIt was a pleasure speaking with you regarding {{projectName}}. As discussed, please find the attached brochure and pricing details.\n\nRegards,\n{{agentName}}'
+                    },
+                    'Visit Scheduled': {
+                        whatsapp: 'Hi {{fullName}}, site visit for {{projectName}} is confirmed for {{nextFollowUpDate}}. Location: https://maps.google.com/?q={{projectArea}}. See you there!',
+                        sms: 'Site Visit Confirmed! {{projectName}} on {{nextFollowUpDate}}. Our team is ready to assist you. Location link shared on WhatsApp.',
+                        email: 'Site Visit Confirmation: {{projectName}}\n\nDear {{fullName}},\n\nYour visit is scheduled for {{nextFollowUpDate}}. Please contact {{customerSupportNo}} if you need direction help.'
+                    }
+                });
+            }
+        } catch (err) {
+            console.warn('Failed to fetch smart templates');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchSmartTemplates();
+    }, []);
+
+    const handleSave = async () => {
+        setIsSaving(true);
+        try {
+            await systemSettingsAPI.upsert('smart_outcome_templates', {
+                category: 'messaging',
+                value: smartTemplates,
+                description: 'Automated templates triggered by call/task outcomes.',
+                isPublic: true
+            });
+            toast.success('Smart outcome templates updated');
+        } catch (err) {
+            toast.error('Failed to save: ' + err.message);
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const updateTemplate = (outcomeId, channel, value) => {
+        setSmartTemplates(prev => ({
+            ...prev,
+            [outcomeId]: {
+                ...(prev[outcomeId] || {}),
+                [channel]: value
+            }
+        }));
+    };
+
+    if (isLoading) return <div style={{ padding: '40px', textAlign: 'center' }}><span className="spinner-sm"></span> Loading Smart Ecosystem...</div>;
+
+    return (
+        <div style={{ animation: 'fadeIn 0.3s ease-out' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', background: 'rgba(255,255,255,0.03)', padding: '20px', borderRadius: '12px', border: '1px solid #f1f5f9' }}>
+                <div>
+                    <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#1e293b' }}>Smart Outcome Templates</div>
+                    <div style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '4px' }}>Automated professional responses suggested/sent instantly after logging an outcome.</div>
+                </div>
+                <button className="btn-primary" onClick={handleSave} disabled={isSaving}>
+                    {isSaving ? 'Syncing...' : 'Save Smart Flow'}
+                </button>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(400px, 1fr))', gap: '20px' }}>
+                {outcomes.map(outcome => (
+                    <div key={outcome.id} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', overflow: 'hidden', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}>
+                        <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: '12px', background: `${outcome.color}08` }}>
+                            <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: outcome.color, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <i className={`fas ${outcome.icon}`}></i>
+                            </div>
+                            <div style={{ fontWeight: 800, color: '#1e293b', fontSize: '0.95rem' }}>{outcome.label}</div>
+                        </div>
+
+                        <div style={{ padding: '20px' }}>
+                            <div style={{ marginBottom: '16px' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', fontWeight: 800, color: '#059669', marginBottom: '8px', textTransform: 'uppercase' }}>
+                                    <i className="fab fa-whatsapp"></i> WhatsApp Automation
+                                </label>
+                                <textarea 
+                                    style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.85rem', minHeight: '60px' }}
+                                    value={smartTemplates[outcome.id]?.whatsapp || ''}
+                                    onChange={e => updateTemplate(outcome.id, 'whatsapp', e.target.value)}
+                                    placeholder="Enter WhatsApp message..."
+                                />
+                            </div>
+                            <div style={{ marginBottom: '16px' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', fontWeight: 800, color: '#3b82f6', marginBottom: '8px', textTransform: 'uppercase' }}>
+                                    <i className="fas fa-sms"></i> SMS Transactional
+                                </label>
+                                <textarea 
+                                    style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.85rem', minHeight: '60px' }}
+                                    value={smartTemplates[outcome.id]?.sms || ''}
+                                    onChange={e => updateTemplate(outcome.id, 'sms', e.target.value)}
+                                    placeholder="Enter SMS text..."
+                                />
+                            </div>
+                            <div>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', fontWeight: 800, color: '#4b5563', marginBottom: '8px', textTransform: 'uppercase' }}>
+                                    <i className="fas fa-envelope"></i> Professional Email
+                                </label>
+                                <textarea 
+                                    style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.85rem', minHeight: '60px' }}
+                                    value={smartTemplates[outcome.id]?.email || ''}
+                                    onChange={e => updateTemplate(outcome.id, 'email', e.target.value)}
+                                    placeholder="Draft a professional email..."
+                                />
+                            </div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
 const MessagingSettingsPage = () => {
     const [subTab, setSubTab] = useState('templates');
     const [templateType, setTemplateType] = useState('whatsapp'); // Default to whatsapp
@@ -515,9 +896,13 @@ const MessagingSettingsPage = () => {
 
     const tabs = [
         { id: 'templates', label: 'Templates' },
+        { id: 'smart-templates', label: <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Sparkles size={14} color="var(--gold)" /> Smart Templates</span> },
+        { id: 'variables', label: 'Variables' },
         { id: 'block-list', label: 'Block list' },
         { id: 'logs', label: 'Logs' }
     ];
+
+    const renderSmartTemplates = () => <SmartOutcomeTemplatesTab />;
 
     const renderTabs = () => (
         <div style={{ display: 'flex', gap: '24px', borderBottom: '1px solid #f1f5f9', marginBottom: '32px' }}>
@@ -613,6 +998,8 @@ const MessagingSettingsPage = () => {
         );
     };
 
+
+
     const renderBlocklist = () => (
         <div>
             <div style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b', marginBottom: '8px' }}>Block Messaging</div>
@@ -655,7 +1042,11 @@ const MessagingSettingsPage = () => {
                 {renderTabs()}
 
                 {subTab === 'templates' && renderTemplates()}
+                {subTab === 'smart-templates' && renderSmartTemplates()}
+                {subTab === 'variables' && <VariableRegistryTab />}
                 {subTab === 'block-list' && renderBlocklist()}
+
+
                 {subTab === 'logs' && (
                     <div style={{ padding: '80px', textAlign: 'center', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #cbd5e1' }}>
                         <i className="fas fa-comment-alt-lines" style={{ fontSize: '3rem', color: '#cbd5e1', marginBottom: '20px' }}></i>

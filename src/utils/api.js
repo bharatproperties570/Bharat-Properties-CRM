@@ -24,6 +24,12 @@ export const marketingAPI = {
     // ── Campaign Launchers (Email / WhatsApp / SMS / RCS) ──
     sendCampaign: (channel, data) =>
         api.post('/marketing/send-campaign', { channel, ...data }).then(res => res.data),
+    
+    getWhatsAppTemplates: () =>
+        api.get('/marketing/whatsapp/templates').then(res => res.data),
+
+    getAudienceCount: (config) =>
+        api.post('/marketing/audience-count', config).then(res => res.data),
 
     // ── Drip / Sequence Activation ──
     activateDrip: (leadId, sequenceId) =>
@@ -85,15 +91,66 @@ api.interceptors.request.use(
     }
 );
 
-// Add a response interceptor to handle 401 errors
+// Add a response interceptor to handle 401 errors with Silent Refresh
+let isRefreshing = false;
+let refreshSubscribers = [];
+
+const subscribeTokenRefresh = (cb) => {
+    refreshSubscribers.push(cb);
+};
+
+const onRefreshed = (token) => {
+    refreshSubscribers.map((cb) => cb(token));
+    refreshSubscribers = [];
+};
+
 api.interceptors.response.use(
     (response) => response,
-    (error) => {
-        if (error.response?.status === 401) {
-            console.warn('Unauthorized request detected. Clearing session...');
-            localStorage.removeItem('authToken');
-            // Dispatch custom event to notify listeners (like UserContext)
-            window.dispatchEvent(new CustomEvent('unauthorized-token'));
+    async (error) => {
+        const { config, response } = error;
+        const originalRequest = config;
+
+        if (response?.status === 401 && !originalRequest._retry) {
+            if (originalRequest.url.includes('/auth/refresh')) {
+                // If the refresh token call itself fails, we must logout
+                console.warn('Refresh token expired. Logging out...');
+                localStorage.removeItem('authToken');
+                window.dispatchEvent(new CustomEvent('unauthorized-token'));
+                return Promise.reject(error);
+            }
+
+            if (isRefreshing) {
+                return new Promise((resolve) => {
+                    subscribeTokenRefresh((token) => {
+                        originalRequest.headers.Authorization = `Bearer ${token}`;
+                        resolve(api(originalRequest));
+                    });
+                });
+            }
+
+            originalRequest._retry = true;
+            isRefreshing = true;
+
+            try {
+                console.log('Attempting silent token refresh...');
+                const res = await axios.post(`${API_BASE_URL}/auth/refresh`, {}, { withCredentials: true });
+                if (res.data.success && res.data.token) {
+                    const newToken = res.data.token;
+                    localStorage.setItem('authToken', newToken);
+                    isRefreshing = false;
+                    onRefreshed(newToken);
+                    
+                    // Retry original request
+                    originalRequest.headers.Authorization = `Bearer ${newToken}`;
+                    return api(originalRequest);
+                }
+            } catch (refreshError) {
+                isRefreshing = false;
+                console.error('Silent refresh failed:', refreshError.message);
+                localStorage.removeItem('authToken');
+                window.dispatchEvent(new CustomEvent('unauthorized-token'));
+                return Promise.reject(refreshError);
+            }
         }
         return Promise.reject(error);
     }
@@ -102,10 +159,10 @@ api.interceptors.response.use(
 // Simple request cache to prevent redundant simultaneous calls
 const pendingRequests = new Map();
 
-// Generic API request handler
+// Generic API request handler refactored to use hardened Axios instance
 const apiRequest = async (endpoint, options = {}) => {
     // Generate a cache key for GET requests to deduplicate simultaneous identical calls
-    const cacheKey = options.method && options.method !== 'GET' ? null : `${endpoint}-${JSON.stringify(options.params || {})}`;
+    const cacheKey = (options.method && options.method !== 'GET') ? null : `${endpoint}-${JSON.stringify(options.params || {})}`;
 
     if (cacheKey && pendingRequests.has(cacheKey)) {
         return pendingRequests.get(cacheKey);
@@ -113,89 +170,41 @@ const apiRequest = async (endpoint, options = {}) => {
 
     const requestPromise = (async () => {
         try {
-            const cleanBaseUrl = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
-            const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-            let url = `${cleanBaseUrl}${cleanEndpoint}`;
+            // Normalize endpoint
+            const url = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
 
-            // Handle query parameters
-            if (options.params) {
-                const queryParams = new URLSearchParams();
-                Object.entries(options.params).forEach(([key, value]) => {
-                    if (value !== undefined && value !== null && value !== '') {
-                        queryParams.append(key, value);
-                    }
-                });
-                const queryString = queryParams.toString();
-                if (queryString) {
-                    url += (url.includes('?') ? '&' : '?') + queryString;
-                }
-                delete options.params;
+            // Map standard fetch options to Axios config
+            const axiosConfig = {
+                url,
+                method: options.method || 'GET',
+                data: options.body ? (typeof options.body === 'string' ? JSON.parse(options.body) : options.body) : undefined,
+                params: options.params,
+                headers: options.headers,
+                ...options
+            };
+
+            // Remove bodies for GET/DELETE if they were mistakenly passed
+            if (['GET', 'HEAD'].includes(axiosConfig.method.toUpperCase())) {
+                delete axiosConfig.data;
             }
 
-            const token = localStorage.getItem('authToken');
+            // Execute via the hardened 'api' instance to inherit Interceptors (Auth/Refresh/Deduplication)
+            const response = await api(axiosConfig);
+            return response.data;
 
-            const response = await fetch(url, {
-                headers: {
-                    ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
-                    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-                    ...options.headers,
-                },
-                ...options,
-            });
-
-            const contentType = response.headers.get("content-type");
-            const isJson = contentType && contentType.includes("application/json");
-
-            if (!response.ok) {
-                if (response.status === 401) {
-                    console.warn('Unauthorized fetch request detected.');
-                    localStorage.removeItem('authToken');
-                    window.dispatchEvent(new CustomEvent('unauthorized-token'));
-                    throw new Error('Unauthorized access');
-                }
-
-                if (response.status === 429) {
-                    const error = new Error('Too many requests. Please wait a moment and try again.');
-                    error.status = 429;
-                    throw error;
-                }
-                let errorMessage = 'API request failed';
-                if (isJson) {
-                    const errorData = await response.json();
-                    errorMessage = errorData.message || errorMessage;
-                } else {
-                    errorMessage = `Error ${response.status}: ${response.statusText}`;
-                }
-                throw new Error(errorMessage);
-            }
-
-            if (isJson) {
-                return await response.json();
-            }
-
-            const text = await response.text();
-            
-            // Critical Check: Detect if we got an HTML page instead of API response 
-            // (Common when Vercel rewrites fail or proxy is misconfigured)
-            if (text.trim().startsWith('<!DOCTYPE html') || text.trim().startsWith('<html')) {
-                const error = new Error('Invalid API Response: Received HTML instead of Data. This usually indicates a proxy or routing configuration error at the server.');
-                error.name = 'ProxyConfigError';
-                throw error;
-            }
-
-            return text;
         } catch (error) {
-            const cleanBaseUrl = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
-            const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-            const fullUrl = `${cleanBaseUrl}${cleanEndpoint}`;
+            // Graceful handling for missing system settings (404 is a valid "empty" state here)
+            if (error.response?.status === 404 && endpoint.includes('/system-settings')) {
+                return { success: false, status: 'error', message: 'Setting not found', data: null };
+            }
+
+            console.error(`❌ API Error [${endpoint}]:`, error.response?.data?.message || error.message);
             
-            console.error(`❌ API Error [${endpoint}]:`, {
-                message: error.message,
-                url: fullUrl,
-                baseUrl: API_BASE_URL,
-                stack: error.stack
-            });
-            throw error;
+            // Re-throw standardized error
+            const apiError = new Error(error.response?.data?.message || error.message || 'API request failed');
+            apiError.status = error.response?.status;
+            apiError.name = 'ApiRequestError';
+            throw apiError;
         } finally {
             if (cacheKey) pendingRequests.delete(cacheKey);
         }

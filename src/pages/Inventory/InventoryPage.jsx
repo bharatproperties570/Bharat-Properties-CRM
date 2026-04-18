@@ -148,7 +148,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
         setSelectedIds(e.target.checked ? inventoryItems.map(i => i._id) : []);
     };
 
-    const handleRowAction = (type, item) => {
+    const handleRowAction = async (type, item) => {
         if (type === 'share') {
             setSocialMediaData({
                 id: item._id,
@@ -161,6 +161,19 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
             setIsSocialModalOpen(true);
         } else if (type === 'match') {
             onNavigate('inventory-matching', item._id);
+        } else if (type === 'edit') {
+            setSelectedProperty(item);
+            setIsEditModalOpen(true);
+        } else if (type === 'delete') {
+            if (window.confirm(`Are you sure you want to delete this property?`)) {
+                try {
+                    await api.delete(`inventory/${item._id}`);
+                    toast.success("Property deleted successfully");
+                    refresh();
+                } catch (error) {
+                    toast.error("Failed to delete property");
+                }
+            }
         }
     };
 
@@ -318,8 +331,42 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
             <AddOwnerModal 
                 isOpen={isOwnerModalOpen}
                 onClose={() => setIsOwnerModalOpen(false)}
-                currentOwners={[]} // Simplified for now
-                onSave={refresh}
+                currentOwners={[
+                    ...(selectedProperty?.owners || []).map(o => ({ 
+                        id: o._id || o.id, 
+                        name: o.name, 
+                        mobile: o.phones?.[0]?.number || o.mobile, 
+                        role: 'Property Owner' 
+                    })),
+                    ...(selectedProperty?.associates || []).map(a => ({ 
+                        id: a.contact?._id || a.contact?.id || a.id, 
+                        name: a.contact?.name || a.name, 
+                        mobile: a.contact?.phones?.[0]?.number || a.mobile, 
+                        role: 'Associate', 
+                        relationship: a.relationship 
+                    }))
+                ]}
+                onSave={async (newOwners) => {
+                    if (!selectedProperty?._id) return;
+                    try {
+                        const updates = {
+                            owners: newOwners.filter(o => o.role === 'Property Owner').map(o => o.id),
+                            associates: newOwners.filter(o => o.role === 'Associate').map(o => ({ 
+                                contact: o.id, 
+                                relationship: o.relationship 
+                            }))
+                        };
+                        const res = await api.put(`inventory/${selectedProperty._id}`, updates);
+                        if (res.data?.success) {
+                            toast.success("Owners updated successfully");
+                            refresh();
+                            setIsOwnerModalOpen(false);
+                        }
+                    } catch (error) {
+                        console.error("Error updating owners:", error);
+                        toast.error("Failed to update owners");
+                    }
+                }}
             />
 
             <AddDealModal 

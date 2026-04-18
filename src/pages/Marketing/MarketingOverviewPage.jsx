@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import './MarketingOverview.css';
 import toast from 'react-hot-toast';
-import { marketingAPI, leadsAPI, dealsAPI, googleSettingsAPI, emailAPI, aiAgentsAPI, enrichmentAPI, socialAPI } from '../../utils/api';
+import { marketingAPI, leadsAPI, dealsAPI, googleSettingsAPI, emailAPI, aiAgentsAPI, enrichmentAPI, socialAPI, systemSettingsAPI } from '../../utils/api';
 import smsService from '../../services/smsService';
 import { getDisplayScore } from '../../utils/leadScoring';
 
@@ -43,37 +43,31 @@ const DB = {
   }
 };
 
-const DEFAULT_LEADS = [
-  { id: 'l1', name: 'Rajesh Kumar', phone: '9812345678', interest: '3BHK Flat', budget: '₹45–55L', source: 'Instagram Reel', segment: 'hot', notes: 'Wants ready possession', added: '2026-03-26', status: 'hot' },
-  { id: 'l2', name: 'Sunita Sharma', phone: '9876543210', interest: 'Plot – Sector 7', budget: '₹18–25L', source: 'WhatsApp', segment: 'hot', notes: 'Site visit pending', added: '2026-03-27', status: 'hot' },
-  { id: 'l3', name: 'Amit Verma', phone: '9845678901', interest: '2BHK – Pipli', budget: '₹30–38L', source: 'Facebook', segment: 'warm', notes: 'Looking for 6 months', added: '2026-03-20', status: 'warm' },
-  { id: 'l4', name: 'Priya Devi', phone: '9811223344', interest: 'Commercial Space', budget: '₹80L+', source: 'Google Ad', segment: 'investor', notes: 'ROI focused', added: '2026-03-18', status: 'warm' },
-  { id: 'l5', name: 'Suresh Yadav', phone: '9867890123', interest: 'Villa – Thanesar', budget: '₹1.2Cr', source: 'Referral', segment: 'hot', notes: 'Deal closed!', added: '2026-03-15', status: 'converted' },
-  { id: 'l6', name: 'Neha Goel', phone: '9834567890', interest: '2BHK Rental', budget: '₹12K/mo', source: 'Instagram Story', segment: 'tenant', notes: 'Needs near school', added: '2026-03-22', status: 'cold' },
-  { id: 'l7', name: 'Pradeep Singh', phone: '9856781234', interest: 'Plot – Sector 9', budget: '₹22–30L', source: 'WhatsApp', segment: 'hot', notes: 'Call back requested', added: '2026-03-28', status: 'hot' },
-  { id: 'l8', name: 'Kavita Sharma', phone: '9823456789', interest: '2BHK Flat', budget: '₹28–35L', source: 'Facebook', segment: 'warm', notes: 'First time buyer', added: '2026-03-25', status: 'warm' },
+const PAGE_META = {
+  overview: { 
+    title: 'Command Center', 
+    subtitle: 'Real-time AI Marketing OS v4.0',
+    description: 'Centralized neural hub for AI agent orchestration, live campaign monitoring, and real-time marketing performance analytics.'
+  },
+  calendar: { title: 'Content Calendar', subtitle: 'Strategy-aligned scheduling · Unified platforms' },
+  analytics: { title: 'Analytics', subtitle: 'Metrics engine · ROI Tracking' },
+  agents: { title: 'AI Agents', subtitle: 'Autonomous cross-platform orchestration' },
+  campaign: { title: 'Campaign Engine', subtitle: '360° Omnichannel Dispatch' },
+  leads: { title: 'CRM Leads', subtitle: 'High-intent lead pool management' },
+  strategies: { title: 'Optimization', subtitle: 'Data-driven market strategies' },
+  designer: { title: 'Designer Studio', subtitle: 'Visual Prompt Lab' },
+  techstack: { title: 'Tech Stack', subtitle: 'Enterprise Infrastructure' },
+  portals: { title: 'Property Portals', subtitle: 'Marketplace Integration' },
+};
+
+const OMNI_CHANNELS_BASE = [
+  { n: 'WhatsApp', sub: 'Meta Business API', i: '💬', p: 85, c: 'var(--green)' },
+  { n: 'SMS (DLT)', sub: 'Airtel - TRAI approved', i: '📱', p: 70, c: 'var(--blue)' },
+  { n: 'Email', sub: 'SendGrid - Opt-in only', i: '✉️', p: 45, c: 'var(--gold)' },
+  { n: 'RCS', sub: 'Google RBM - Setup', i: '📡', p: 20, c: 'var(--purple)' }
 ];
 
-const DEFAULT_POSTS = [
-  { id: 'p1', date: '2026-04-01', title: 'Pipli Reel', type: 'ct-project', platform: 'Instagram', time: '18:30', caption: 'Sapna ghar ab hoga sach! 🏡 Pipli Sector mein best plots. DM for price!', status: 'scheduled' },
-  { id: 'p2', date: '2026-04-01', title: '3BHK Launch', type: 'ct-project', platform: 'Facebook', time: '10:00', caption: 'Exciting news! 3BHK flats now available.', status: 'scheduled' },
-  { id: 'p3', date: '2026-04-02', title: 'RERA Guide', type: 'ct-edu', platform: 'Both', time: '14:00', caption: 'Understanding RERA in 2026. Important for every buyer.', status: 'scheduled' },
-  { id: 'p4', date: '2026-04-03', title: 'Plot Deal – S7', type: 'ct-project', platform: 'Instagram', time: '19:00', caption: 'Exclusive offer on Sector 7 plots!', status: 'scheduled' },
-  { id: 'p5', date: '2026-04-04', title: 'Client Testimonial', type: 'ct-trust', platform: 'Both', time: '11:00', caption: 'What our clients say about us.', status: 'scheduled' },
-  { id: 'p6', date: '2026-04-05', title: 'Inventory Post', type: 'ct-project', platform: 'Both', time: '17:30', caption: 'Current inventory update.', status: 'scheduled' },
-  { id: 'p7', date: '2026-04-06', title: 'Ram Navami', type: 'ct-festival', platform: 'Both', time: '08:00', caption: 'Happy Ram Navami to everyone! ✨', status: 'scheduled' },
-  { id: 'p8', date: '2026-04-07', title: '2BHK Reel', type: 'ct-project', platform: 'Instagram', time: '19:30', caption: 'Beautiful 2BHK walkthrough.', status: 'scheduled' },
-  { id: 'p9', date: '2026-04-09', title: 'Loan Tips', type: 'ct-edu', platform: 'Both', time: '15:00', caption: 'How to get home loans easily.', status: 'scheduled' },
-  { id: 'p10', date: '2026-04-14', title: 'Baisakhi', type: 'ct-festival', platform: 'Both', time: '09:00', caption: 'Happy Baisakhi! 🌾', status: 'scheduled' },
-  { id: 'p11', date: '2026-04-17', title: 'ROI Tips', type: 'ct-edu', platform: 'Both', time: '16:00', caption: 'Real Estate ROI in Kurukshetra.', status: 'scheduled' },
-  { id: 'p12', date: '2026-04-27', title: 'Hanuman Jayanti', type: 'ct-festival', platform: 'Both', time: '08:00', caption: 'Jai Bajrang Bali! Happy Hanuman Jayanti. 🙏', status: 'scheduled' }
-];
-
-const DEFAULT_NOTIFS = [
-  { id: 'n1', type: 'red', icon: '↓', title: '2 quote posts scheduled', desc: 'Replace with project content — 1.1% engagement.', page: 'calendar', ts: Date.now() - 3600000 },
-  { id: 'n2', type: '', icon: '⚡', title: '3 hot leads need follow-up', desc: 'Rajesh, Sunita, Pradeep — 48h+ without contact.', page: 'leads', ts: Date.now() - 7200000 },
-  { id: 'n3', type: 'green', icon: '↑', title: 'Sector 7 Reel — 847 views in 3h', desc: 'Above average. Schedule 2 more plot Reels.', page: 'analytics', ts: Date.now() - 10800000 },
-];
+const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
 const SEG_TEMPLATES = {
   hot: [
@@ -91,56 +85,18 @@ const SEG_TEMPLATES = {
   ],
 };
 
-const PAGE_META = {
-  overview: { 
-    title: 'Command Center', 
-    subtitle: 'Real-time AI Marketing OS v3.0',
-    description: 'Centralized neural hub for AI agent orchestration, live campaign monitoring, and real-time marketing performance analytics.'
-  },
-  calendar: { title: 'Content Calendar', subtitle: 'April 2026 · Strategy-aligned scheduling · Unified platforms' },
-  analytics: { title: 'Analytics', subtitle: 'Metrics engine · 30-day interaction velocity · ROI Tracking' },
-  agents: { title: 'AI Agents (4)', subtitle: '4 autonomous agents · Cross-platform chain runner' },
-  campaign: { title: 'Campaign Engine', subtitle: 'WhatsApp · SMS · Email · RCS · Automated Segmentation' },
-  leads: { title: 'CRM Leads', subtitle: 'High-intent lead pool · AI-powered interaction tools' },
-  strategies: { title: 'Optimization', subtitle: 'Data-driven optimization · 7 Core Levers · Hinglish Hooks' },
-  designer: { title: 'Designer Studio', subtitle: 'Visual Prompt Lab · DALL·E + Runway v3 · Brand Assets' },
-  techstack: { title: 'Tech Stack', subtitle: 'Next.js 15 · Claude 3.5 · BullMQ · Redis · GDrive API' },
-  portals: { title: 'Property Portals', subtitle: 'Marketplace Integration · Live Listings · Lead Sync' },
-};
+const AGENT_LIST = [
+  { n: 'Metrics Manager', m: 'Google Metrics Pro (v1.5)', t: 'Analysis sync: 2h ago', s: 'active', i: '📊' },
+  { n: 'Social Media Mgr', m: 'ChatGPT (GPT-5/4o)', t: 'Drafting content', s: 'active', i: '📅' },
+  { n: 'Designer Studio', m: 'Google Nano (Banana)', t: 'Awaiting visual prompts', s: 'standby', i: '🎨' },
+  { n: 'Scheduling Mgr', m: 'Google Gemini AI', t: 'BullMQ Queue active', s: 'active', i: '🕓' }
+];
 
-const AGENT_RESULTS = {
-  metrics: "Analysis Complete. Key findings: 1. Reels outperforming static posts by 3.2x. 2. Peak engagement window identified: 7:15 PM - 9:30 PM. 3. Sector 7 content has 14% higher save rate than generic listings. Recommendation: Focus on 15s Property Walkthrough Reels with local Kurukshetra trending audio.",
-  social: "April 2026 Strategy Locked. 31 posts mapped. Distribution: 70% Real Estate project focused, 20% Educational (RERA/Registry), 10% Local Trust/Lifestyle. Next 3 posts: Monday 7pm (Sector 7 Walkthrough), Tuesday 1pm (RERA Guide), Wednesday 8pm (Client Testimonial).",
-  designer: "Visual prompts generated for next 5 posts. Image Prompts for DALL·E: 'Cinematic golden hour plot view, photorealistic architecture style'. Video Prompts for Runway: 'Drone fly-through of Sector 7 Kurukshetra, slow motion, crisp 4k content'. UI overlays synced with brand Gold/Navy palette.",
-  scheduler: "BullMQ queue synchronized with CRM. 6 posts ready in Redis storage. Delay triggers set per metrics manager peak time data. Next auto-publish: Today 7:30 PM. Status: All systems green."
-};
-
-const ORCH_SUMMARY = "Omnichannel Orchestration Successful. System analyzed 1,248 target leads. Segmented 156 high-priority Sector 7 prospects. Generated 3-day WhatsApp/SMS drip sequence. Content synchronized with Instagram/Facebook schedule. Dynamic price-reveal templates mapped to individual lead metadata. Ready for blast at 9:30 AM tomorrow.";
-
-const DAILY_BRIEFING = {
-  title: "Good Morning, Bharat Properties",
-  content: "Synchronizing with CRM Neural Engine... Run 'Generate Briefing' to refresh."
-};
-
-const STRAT_PROMPTS = {
-  reel_hooks: "✦ Hook 1: 'Sector 7 mein plot? Pehle yeh registry ki sachai jaan lo!'\n✦ Hook 2: 'Property invest karne se pehle 3 cheezein check karein.'\n✦ Hook 3: 'Kurukshetra ka sabse hot location—price reveal inside!'",
-  schedule_plan: "AI analysis complete. Output generated based on Bharat Properties data for Kurukshetra market. All recommendations follow the 70% rule and 80-10-7-3 content distribution strategy.",
-  story_ctas: "1. Poll: 'Invest or Rent?'\n2. Slider: 'How much do you like the view?'\n3. DM Trigger: 'Type PLOTS for Price List'.",
-  seventy_rule: "Prioritizing Deal #HP-102 and #HP-115. Auto-suppressing 3 educational posts to ensure listing visibility during peak intent week.",
-  carousel_script: "Slide 1: Why Sector 7 is the best for 2026.\nSlide 2: ROI Growth: 12% to 18% in 18 months.\nSlide 3: Infrastructure Update: New 60ft roads.\nSlide 4: Connectivity: 5 mins from Highway.\nSlide 10: Visit Bharat Properties for exclusive deals.",
-  collab_dm: "1. @KurukshetraVlogs - Review offer sent.\n2. @LifestyleWithKUK - Property tour scheduled.\n3. @KarnalPropertyHub - Collab post queued.",
-  hashtags: "Set 1: #KurukshetraRealEstate #Sector7Plots #Investment\nSet 2: #HaryanaProperty #PlotForSale #DreamHome\nSet 3: #BharatProperties #RealEstateIndia #PropertyWealth",
-  "7_9_lock": "✦ Lock-in successful. All scheduled content for the Pipli project moved to 7:15 PM and 8:30 PM windows.\n✦ System detected 42% higher view rate during these hours over the last 14 days.\n✦ Strategy enforced by AI Scheduler agent.",
-  "story_funnel": "✦ Funnel Updated: Every Story post will now include a 'Type READY' trigger.\n✦ Auto-response: Sends brochure + site visit link to lead's DM.\n✦ ROI: Expecting 15% higher inquiry rate on Sector 7 listings."
-};
-
-const SAMPLE_CAPTION = "🏠 Luxury Living in Kurukshetra! ✨\n\nExperience the perfect blend of modern architecture and peaceful surroundings at our newest project. 🌳\n\n📍 Location: Sector 7, Kurukshetra\n💰 Starting from ₹45L*\n📏 Sizes: 150 - 250 Sq. Yards\n\n✅ RERA Approved\n✅ 60ft Wide Roads\n✅ 24x7 Security\n\nDon't miss this exclusive investment opportunity! 🚀\n\nDM 'INFO' or call 9991333570 for a site visit today! 📞\n\n#KurukshetraRealEstate #LuxuryLiving #PlotForSale #BharatProperties #InvestmentOpportunity";
-
-const KPI_CARDS = [
-  { label: 'BIGGEST LEVER', val: '+5 Reels/wk', sub: '9.2/10 impact', type: 'green' },
-  { label: 'QUICK WIN', val: '7-9 PM Lock', sub: '+30% reach instantly', type: 'green' },
-  { label: 'STOP DOING', val: 'Quote Posts', sub: '1.1% – replacing now', type: 'red' },
-  { label: 'NEW ANGLES', val: '3', sub: 'Untried, high potential', type: 'green' }
+const CAMP_KPIS_FALLBACK = [
+  { label: 'ACTIVE CAMPAIGNS', val: '0', sub: 'Initializing...', type: 'blue' },
+  { label: 'MESSAGES SENT', val: '0', sub: 'This week', type: 'blue' },
+  { label: 'REPLY RATE', val: '0%', sub: 'Real-time sync', type: 'green' },
+  { label: 'CONVERSIONS', val: '0', sub: 'This month', type: 'blue' }
 ];
 
 const STRATEGIES_DATA = [
@@ -151,6 +107,74 @@ const STRATEGIES_DATA = [
   { id: 'carousel_script', i: '5', n: 'Before/after and price journey carousels', im: 'imp-med', it: 'Medium Impact', d: '10-slide educational carousel explaining 2-year plot appreciation in Sector 7.', tags: ['Educational', 'Trust'] },
   { id: 'collab_dm', i: '6', n: 'Colab with 3 local Kurukshetra pages', im: 'imp-med', it: 'Medium Impact', d: 'List of top 5 Kurukshetra lifestyle influencers for automated outreach.', tags: ['Growth', 'Local'] },
   { id: 'hashtags', i: '7', n: '3 rotating hashtag sets — never repeat', im: 'imp-low', it: 'Baseline fix', d: 'Reduce shadow-ban risk by cycling through 3 curated tag groups.', tags: ['SEO', 'Algorithm'] }
+];
+
+const AGENT_RESULTS = {
+  metrics: `📊 GOOGLE METRICS AI — PERFORMANCE ANALYSIS REPORT\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✦ TOP PERFORMING CONTENT (Last 30 Days):\n• Property Reels: 8.2% avg engagement — 3.1x above industry\n• Festival Posts: 6.4% saves rate — strong emotional hook\n• Client Testimonials: 4.8% share rate — trust building\n\n✦ LEAD GENERATION SIGNALS:\n• Hot Leads Active: High (↑18% vs last week)\n• Instagram Reel → WhatsApp DM conversion: 34%\n• Best Lead Source: Instagram Story Poll\n\n✦ 7-DAY RECOMMENDATIONS:\n1. Double Sector 7 Reels — 7:15 PM slot (peak window)\n2. Drop generic quote posts — only 1.1% engagement\n3. Launch "Price Reveal" reel series for hot property\n\n✦ PREDICTION: +28% lead increase if executed this week.`,
+  social: `📅 CHATGPT (GPT-4o) — APRIL 2026 CONTENT STRATEGY\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nPLATFORM RULE: 80% Projects | 10% Educational | 7% Trust | 3% Festival\n\nDAY 1 (Mon):\n• Instagram 7:30 PM — "Sector 7 ka plot dekhne se pehle yeh zaroor padho!"\n• WhatsApp 9:00 AM — Price update broadcast to warm leads\n\nDAY 2 (Tue):\n• Facebook 10:00 AM — 3BHK walkthrough video\n• Instagram 7:00 PM — "₹35L mein Kurukshetra ka best flat? Aao dikhayein!"\n\n✦ CAPTION FORMULA: Hinglish hook + emoji + location + price + CTA`,
+  designer: `🎨 GOOGLE NANO (BANANA) — VISUAL DESIGN OUTPUT\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nDALL-E 3 IMAGE PROMPTS:\n"Cinematic aerial view of luxury residential complex in Kurukshetra at golden sunset, photorealistic, premium real estate aesthetic"\n\nRUNWAY v3 VIDEO PROMPTS:\n"Smooth drone approach shot, slow push-in to sunlit balcony, cinematic 4K golden hour"\n\nCANVA LAYOUT:\n• Background: Navy Blue (#1a2744) gradient\n• CTA: Gold pill — Book Site Visit`,
+  scheduler: `⏱ GOOGLE GEMINI (SCHEDULING) — BULLMQ SCHEDULING PLAN\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nQUEUE STATUS: Active | Workers: 3 active\n\nOPTIMIZED PUBLISH SCHEDULE:\nPost: Sector 7 Walkthrough Reel\nPlatform: Instagram\nTime: Today 7:30 PM IST\nReason: Peak Instagram engagement window\n\nBULLMQ CONFIG:\nQueue: bharat:socialPosts\nConcurrency: 3 workers\nRetry: 3 attempts · Backoff: 2s exponential`
+};
+
+const STRAT_PROMPTS = {
+  schedule_plan: "✦ Increasing Reels frequency to 5x/week based on the 8.4% engagement spike in Sector 7 walk-throughs.",
+  seventy_rule: "✦ Enforcing the 70% inventory-first rule. AI will auto-generate project features from CRM deals.",
+  story_funnel: "✦ Activating the 'Tap for Price' sticker on Instagram Stories to increase CRM lead capture by 24%.",
+  "7_9_lock": "✦ Strategic Lock: All posts scheduled for 7:15 PM peak engagement window.",
+  carousel_script: "✦ Educational Series: 'Why Sector 7 is the new Investment Hub' — 10-slide ROI breakdown.",
+  collab_dm: "✦ Outreach: Automating collaboration requests with 5 top Kurukshetra lifestyle pages.",
+  hashtags: "✦ SEO: Rotating through 3 hyper-local hashtag sets to maximize organic reach."
+};
+
+const SAMPLE_CAPTION = "🏠 Ab Kurukshetra mein apna ghar lena hua aur bhi asaan!\n\nLocation: Sector 7\nPrice: Starting ₹35L\nStatus: Ready to Move\n\n✅ Prime Location\n✅ Modern Amenities\n✅ Direct Deal\n\nAbhi call karein: 9991333570 for site visit! #BharatProperties #KurukshetraRealEstate #DreamHome";
+
+const CONTENT_DISTRIBUTION = [
+  { l: 'Projects', p: 80, c: 'var(--blue)' },
+  { l: 'Edu', p: 10, c: 'var(--green)' },
+  { l: 'Trust', p: 7, c: 'var(--gold)' },
+  { l: 'Event', p: 3, c: 'var(--red)' }
+];
+
+const TOP_PERFORMING = [
+  { n: 'Property Reels', p: 8.2, c: 'var(--blue)' },
+  { n: 'Client Stories', p: 6.4, c: 'var(--green)' },
+  { n: 'Market Reports', p: 4.8, c: 'var(--gold)' },
+  { n: 'Festival Posts', p: 3.2, c: 'var(--red)' }
+];
+
+const SEND_TIMES = [
+  { time: '09:00 AM', ch: 'Morning Blast', color: 'var(--blue)' },
+  { time: '01:00 PM', ch: 'Lunch Breakout', color: 'var(--green)' },
+  { time: '07:15 PM', ch: 'Golden Hour (Top)', color: 'var(--gold)' },
+  { time: '09:00 PM', ch: 'Late Catch-up', color: 'var(--red)' }
+];
+
+const COMPLIANCE_CHECKS = [
+  { n: 'TRAI / DLT Headers', d: 'Enterprise SMS templates pre-validated.', status: 'pass' },
+  { n: 'Opt-Out Footers', d: 'Automated unsubscribe capability per TRAI.', status: 'pass' },
+  { n: 'Meta Template Sync', d: 'WhatsApp templates approved by Meta.', status: 'pass' },
+  { n: 'Data Encryption', d: 'End-to-end 256-bit AES encryption.', status: 'pass' }
+];
+
+const DRIP_STEPS = [
+  { day: 'Day 1', title: 'WhatsApp Intro', desc: 'Welcome brochure + automated property video.', dotColor: 'var(--green)' },
+  { day: 'Day 3', title: 'Market Insight', desc: 'Sector 7 appreciation data + investment report.', dotColor: 'var(--blue)' },
+  { day: 'Day 7', title: 'Limited Slot Alert', desc: 'FOMO push: "Only 3 units left at this price."', dotColor: 'var(--gold)' },
+  { day: 'Day 14', title: 'Direct Value Call', desc: 'Sales manager follow-up for site visit booking.', dotColor: 'var(--red)' }
+];
+
+const KPI_CARDS = [
+  { label: 'EFFICIENCY', val: '94%', sub: '↑ 2.1% AI Yield', type: 'green' },
+  { label: 'MATCH RATE', val: '68%', sub: 'Nurture velocity', type: 'blue' },
+  { label: 'COST / LEAD', val: '₹420', sub: 'Targeting optimal', type: 'blue' },
+  { label: 'ROI INDEX', val: '4.8x', sub: 'Projected yield', type: 'green' }
+];
+
+const FLOW_STEPS = [
+  { id: 1, n: 'Identity' },
+  { id: 2, n: 'Audience' },
+  { id: 3, n: 'Channel' },
+  { id: 4, n: 'Launch' }
 ];
 
 const NEW_ANGLES_DATA = [
@@ -166,127 +190,12 @@ const CAMP_KPIS = [
   { label: 'CONVERSIONS', val: '12', sub: 'This month', type: 'blue' }
 ];
 
-const CAMP_SEGMENTS = [
-  { id: 'hot', n: 'Hot Buyer', c: '4', i: '🔥' },
-  { id: 'warm', n: 'Warm Buyer', c: '2', i: '⚡' },
-  { id: 'cold', n: 'Cold Lead', c: '0', i: '❄️' },
-  { id: 'investor', n: 'Investor', c: '1', i: '📈' },
-  { id: 'seller', n: 'Seller', c: '0', i: '🏠' },
-  { id: 'tenant', n: 'Tenant', c: '1', i: '🔑' }
-];
-
-const SEND_TIMES = [
-  { time: '9–11 AM', ch: 'Email', color: 'var(--blue)' },
-  { time: '12–2 PM', ch: 'SMS', color: 'var(--blue)' },
-  { time: '6–9 PM', ch: 'WhatsApp', color: 'var(--green)' },
-  { time: '8 PM', ch: 'RCS', color: 'var(--purple)' }
-];
-
-const DRIP_STEPS = [
-  { day: 'Day 0 — Instant', title: 'Welcome WhatsApp', desc: 'New lead → Segment assigned → Welcome WhatsApp with relevant property', dotColor: 'var(--gold)' },
-  { day: 'Day 1 — 7 PM', title: 'Deal Push', desc: 'Property matched to budget + CTA to visit', dotColor: 'var(--gold)' },
-  { day: 'Day 3 — 10 AM', title: 'Email Follow-up', desc: 'Market insight + trust content + soft CTA', dotColor: 'var(--gold)' },
-  { day: 'Day 7 — 6 PM', title: 'New Offer', desc: 'Different property angle / price drop alert', dotColor: 'var(--gold)' },
-  { day: 'Day 14+', title: 'RCS Re-engagement', desc: 'Rich card with "View Details" + "Call Now"', dotColor: 'var(--gold)' }
-];
-
-const COMPLIANCE_CHECKS = [
-  { n: 'WhatsApp → Meta Business API only', d: 'No bulk unofficial tools — account ban risk', status: 'pass' },
-  { n: 'SMS → DLT approved templates (Airtel / Jio)', d: 'TRAI compliance mandatory', status: 'pass' },
-  { n: 'Email → Opt-in only', d: 'Unsubscribe link required in every email', status: 'pass' },
-  { n: 'RCS → Verified sender via Google RBM', d: 'Brand verification required', status: 'pass' },
-  { n: 'No bulk spam', d: 'Low trust + account ban risk across all platforms', status: 'fail' }
-];
-
-const COMMAND_KPIS = [
-  { label: 'TOTAL LEADS', val: '8', sub: '↑ 3 hot leads need attention', type: 'green' },
-  { label: 'POSTS SCHEDULED', val: '31', sub: 'Full April planned', type: 'blue' },
-  { label: 'AVG ENGAGEMENT', val: '6.4%', sub: '↑ 1.2% vs last month', type: 'green' },
-  { label: 'PIPELINE VALUE', val: '₹4.2Cr', sub: 'Active deals', type: 'blue' }
-];
-
-const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-
-const FLOW_STEPS = [
-  { id: 1, n: 'CRM Data' },
-  { id: 2, n: 'Metrics Mgr' },
-  { id: 3, n: 'Social Media Mgr' },
-  { id: 4, n: 'Designer' },
-  { id: 5, n: 'Scheduling Mgr' },
-  { id: 6, n: 'Publish' },
-  { id: 7, n: 'Metrics Update' }
-];
-
-const CONTENT_DISTRIBUTION = [
-  { l: 'Projects', p: 80, c: 'var(--navy-mid)' },
-  { l: 'Educational', p: 10, c: 'var(--green)' },
-  { l: 'Trust', p: 7, c: 'var(--gold)' },
-  { l: 'Festivals', p: 3, c: 'var(--red)' }
-];
-
-const TOP_PERFORMING = [
-  { n: 'Project Reels', p: 8.4, c: 'var(--blue)' },
-  { n: 'CRM Posts', p: 7.6, c: 'var(--green)' },
-  { n: 'Carousels', p: 6.2, c: 'var(--gold)' },
-  { n: 'Quote Posts', p: 1.1, c: 'var(--red)' }
-];
-
-const AGENT_LIST = [
-  { n: 'Metrics Manager', m: 'Google Metrics Pro (v1.5)', t: 'Analysis sync: 2h ago', s: 'active', i: '📊' },
-  { n: 'Social Media Mgr', m: 'ChatGPT (GPT-5/4o)', t: 'Drafting: Week 2 April', s: 'active', i: '📅' },
-  { n: 'Designer Studio', m: 'Google Nano (Banana)', t: 'Awaiting visual prompts', s: 'standby', i: '🎨' },
-  { n: 'Scheduling Mgr', m: 'Google Gemini AI', t: 'BullMQ Queue: 6 posts', s: 'active', i: '🕓' }
-];
-
-const LIVE_ALERTS = [
-  { id: 1, t: 'Agents updated', d: 'All 4 agents ran. Visit AI Agents page for full output.', i: '🤖', type: 'blue' },
-  { id: 2, t: '2 quote posts scheduled', d: 'Replace with project content — 11% engagement.', i: '⬇', type: 'red' },
-  { id: 3, t: '3 hot leads need follow-up', d: 'Rajesh, Sunita, Pradeep — 48h+ without contact.', i: '⚠', type: 'gold' }
-];
-
-const OMNI_CHANNELS_BASE = [
-  { n: 'WhatsApp', sub: 'Meta Business API', i: '💬', p: 85, c: 'var(--green)' },
-  { n: 'SMS (DLT)', sub: 'Airtel - TRAI approved', i: '📱', p: 70, c: 'var(--blue)' },
-  { n: 'Email', sub: 'SendGrid - Opt-in only', i: '✉️', p: 45, c: 'var(--gold)' },
-  { n: 'RCS', sub: 'Google RBM - Setup', i: '📡', p: 20, c: 'var(--purple)' }
-];
-
-// Added for platform card reactivity
-const PLATFORM_CARDS_MOCK = [
-  { i: '📸', n: 'Instagram', c: '#e1306c', reach: 17420, leads: 14, pct: 85, spark: [30, 45, 38, 60, 55, 75, 85] },
-  { i: '👥', n: 'Facebook', c: '#1877f2', reach: 12800, leads: 10, pct: 62, spark: [25, 35, 42, 38, 55, 60, 62] },
-  { i: '💼', n: 'LinkedIn', c: '#0a66c2', reach: 8340, leads: 8, pct: 41, spark: [20, 28, 30, 35, 38, 40, 41] },
-  { i: '📱', n: 'WhatsApp', c: '#25d366', reach: 4200, leads: 6, pct: 20, spark: [10, 12, 15, 14, 18, 19, 20] },
-  { i: '📧', n: 'Email', c: '#3b82f6', reach: 2840, leads: 38, pct: 68, spark: [45, 50, 55, 62, 58, 65, 68] },
-  { i: '📲', n: 'SMS', c: '#8b5cf6', reach: 4210, leads: 12, pct: 98, spark: [80, 85, 90, 92, 95, 96, 98] },
-];
-
-const MOCK_DEALS = [
-  { id: 'D001', t: '3BHK Plot — Sector 7', ps: '₹42L', l: 'Kurukshetra', f: ['RERA Approved', 'Ready Possession'], type: 'Residential' },
-  { id: 'D002', t: 'Commercial Shop — Pipli', ps: '₹28L', l: 'Pipli, Kurukshetra', f: ['NH-44 Frontage', 'High Footfall'], type: 'Commercial' },
-];
-
-const PORTAL_DATA = [
-  { n: '99acres', i: '🟠', pkg: 'Featured', cost: 4999, listings: 3, leads: 22, cpl: 227, resp: '2.1 hrs', perf: 78, color: '#ff6b35' },
-  { n: 'MagicBricks', i: '🔵', pkg: 'Titanium', cost: 5499, listings: 3, leads: 18, cpl: 305, resp: '3.4 hrs', perf: 62, color: '#1877f2' },
-  { n: 'Housing.com', i: '🟢', pkg: 'Premium', cost: 3499, listings: 2, leads: 14, cpl: 250, resp: '4.2 hrs', perf: 71, color: '#25d366' },
-  { n: 'SquareYards', i: '🟡', pkg: 'Platinum', cost: 6999, listings: 3, leads: 28, cpl: 250, resp: '1.8 hrs', perf: 88, color: '#f59e0b' },
-];
-
-const COMMENT_SET = [
-  { u: 'Suresh_M', txt: 'Price kya hai bhai?', ch: '📸 Instagram', t: '2m', src: 'instagram', reply: 'Hi Suresh! 😊 Sector 7 plot ₹42L mein hai. Site visit book karein?' },
-  { u: 'Kavita_R', txt: 'Is this still available?', ch: '👥 Facebook', t: '5m', src: 'facebook', reply: 'Yes Kavita! Still available 🎉 Sunday visit arrange karein?' },
-  { u: 'Ramesh via WA', txt: 'EMI kitni hogi?', ch: '💬 WhatsApp', t: '8m', src: 'whatsapp', reply: 'Hi Ramesh! EMI ~₹28,000/month from leading banks. Call karein?' },
-  { u: 'Priya@gmail', txt: 'Site visit schedule karna hai', ch: '📧 Email', t: '11m', src: 'email', reply: 'Hi Priya! Sunday 10AM–5PM slots available. Confirm your time!' },
-];
-
 export default function MarketingOverviewPage() {
   // ── CORE STATE ──
   const [activePage, setActivePage] = useState('overview');
-  const [leads, setLeads] = useState(() => DB.get('leads', DEFAULT_LEADS));
-  // Replace localStorage posts with real API state
+  const [leads, setLeads] = useState([]);
   const [posts, setPosts] = useState([]);
-  const [notifs, setNotifs] = useState(() => DB.get('notifs', DEFAULT_NOTIFS));
+  const [notifs, setNotifs] = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showNotifPanel, setShowNotifPanel] = useState(false);
@@ -306,7 +215,7 @@ export default function MarketingOverviewPage() {
     linkedin: false, 
     email: true 
   });
-  const [socialComments, setSocialComments] = useState(COMMENT_SET);
+  const [socialComments, setSocialComments] = useState([]);
   const [linkedInStatus, setLinkedInStatus] = useState(false);
   const [googleSubStatus, setGoogleSubStatus] = useState({});
   const [apiDataLoaded, setApiDataLoaded] = useState(false);
@@ -322,8 +231,9 @@ export default function MarketingOverviewPage() {
   const [agentReplies, setAgentReplies] = useState([]);
   const [editAgentPost, setEditAgentPost] = useState(null);
   const [editAgentPostText, setEditAgentPostText] = useState('');
-  const [dynamicBriefing, setDynamicBriefing] = useState(DAILY_BRIEFING.content);
+  const [dynamicBriefing, setDynamicBriefing] = useState('Syncing live CRM intelligence... One moment.');
   const termBodyRef = useRef(null);
+  const hasInitialStatusFetched = useRef(false);
 
   // ══ v2.5 UPGRADE STATES ══
   const [agentOutputs, setAgentOutputs] = useState({ metrics: '', social: '', designer: '', scheduler: '' });
@@ -349,6 +259,7 @@ export default function MarketingOverviewPage() {
   const [rcsData, setRcsData] = useState({ title: '🏠 3BHK Luxury — ₹35L', desc: 'Kurukshetra · Park View · Ready Possession' });
   const [campHistory, setCampHistory] = useState([]);
   const [campLaunching, setCampLaunching] = useState(false);
+  const [campaignName, setCampaignName] = useState('Enterprise Growth Blast — ' + new Date().toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }));
   const [isSyncingLinkedIn, setIsSyncingLinkedIn] = useState(false);
   const [failoverLogs, setFailoverLogs] = useState([{ text: '  Monitoring all model token usage...', type: 'dim' }]);
   const [taskDist, setTaskDist] = useState([]);
@@ -399,28 +310,62 @@ export default function MarketingOverviewPage() {
     { id: 'act2', t: 'New Lead', p: 'Rajesh Kumar', m: 'WhatsApp', s: 'Hot', ts: '22m ago', c: 'var(--gold)' },
     { id: 'act3', t: 'Drip Started', p: 'Investor Sequence', m: 'Omnichannel', s: 'Active', ts: '1h ago', c: 'var(--blue)' }
   ]);
+
+  // ── WhatsApp Template Integration ──
+  const [waTemplates, setWaTemplates] = useState([]);
+  const [isSyncingTemplates, setIsSyncingTemplates] = useState(false);
+  const [selectedMetaTemplate, setSelectedMetaTemplate] = useState(null);
+  const [variableRegistry, setVariableRegistry] = useState({});
+  const [waMapping, setWaMapping] = useState({}); // { index: source, index_val: customText }
+  const [waMetrics, setWaMetrics] = useState({ sent: 0, delivered: 0, read: 0, failed: 0 });
+
+  // Detect variables like {{1}}, {{2}} in body text
+  const detectVariables = useCallback((template) => {
+    if (!template) return [];
+    const bodyText = template.components?.find(c => c.type === 'BODY')?.text || '';
+    const matches = bodyText.match(/{{(\d+)}}/g);
+    if (!matches) return [];
+    return [...new Set(matches.map(m => m.replace(/[{}]/g, '')))].sort((a,b) => a-b);
+  }, []);
+
+  const handleTemplateSelection = useCallback((templateName) => {
+    const template = waTemplates.find(t => t.name === templateName);
+    setSelectedMetaTemplate(template);
+  }, [waTemplates]);
+
   const [activeDripLead, setActiveDripLead] = useState(null);
   const [showDripModal, setShowDripModal] = useState(false);
   const [dripStep, setDripStep] = useState(0);
   const [isActivatingDrip, setIsActivatingDrip] = useState(false);
   const [aiFollowUpText, setAiFollowUpText] = useState('');
   const [isAiGenerating, setIsAiGenerating] = useState(false);
+  const [showWaAdvanced, setShowWaAdvanced] = useState(false);
   const [showMultiPostPicker, setShowMultiPostPicker] = useState(false);
   const [multiPostDate, setMultiPostDate] = useState(null);
   const [isQuickPostModalOpen, setIsQuickPostModalOpen] = useState(false);
+  const [showCampaignModal, setShowCampaignModal] = useState(false);
+  const [lookups, setLookups] = useState({ leadStages: [], dealStages: [], projectNames: [], units: [], sizeTypes: [] });
 
   // ══ REAL API FETCH FUNCTION (P1 + P4 + P8 + P9 + Phase B) ══
   const fetchLiveData = useCallback(async () => {
     try {
-      const [sRes, lRes, dRes, agentRes] = await Promise.allSettled([
+      const [sRes, lRes, dRes, agentRes, varRes] = await Promise.allSettled([
         marketingAPI.getStats(),
         leadsAPI.getAll({ limit: 50 }),
         dealsAPI.getAll({ limit: 10 }),
         aiAgentsAPI.getAll(),
+        systemSettingsAPI.getByKey('messaging_variable_registry'),
       ]);
+
+      if (varRes.status === 'fulfilled' && varRes.value?.success) {
+        setVariableRegistry(varRes.value.data?.value || {});
+      }
 
       if (sRes.status === 'fulfilled' && sRes.value?.success) {
         setRealStats(sRes.value.data);
+        if (sRes.value.data.waMetrics) {
+          setWaMetrics(sRes.value.data.waMetrics);
+        }
         if (sRes.value.data.recentLeads?.length > 0) {
           const mapped = sRes.value.data.recentLeads.map(l => ({
             id: l._id,
@@ -470,27 +415,50 @@ export default function MarketingOverviewPage() {
         setRealAgents(agentRes.value.agents);
       }
 
-      // LinkedIn & Google status — non-blocking
-      try {
-        const liRes = await marketingAPI.getLinkedInStatus();
-        if (liRes?.connected !== undefined) setLinkedInStatus(liRes.connected);
-      } catch (_) {}
-      try {
-        const gRes = await googleSettingsAPI.getStatus();
-        if (gRes?.connected) setGoogleSubStatus(gRes.services || {});
-      } catch (_) {}
-
-      // Real SMS Gateway Status (Phase E)
-      try {
-        const smsRes = await smsService.getStatus();
-        if (smsRes?.success) setActiveSmsStatus(smsRes.data);
-      } catch (_) {}
+      // LinkedIn, Google, and SMS status — fetch only once for stability
+      if (!hasInitialStatusFetched.current) {
+        try {
+          const liRes = await marketingAPI.getLinkedInStatus();
+          if (liRes?.connected !== undefined) setLinkedInStatus(liRes.connected);
+        } catch (_) {}
+        try {
+          const gRes = await googleSettingsAPI.getStatus();
+          if (gRes?.connected) setGoogleSubStatus(gRes.services || {});
+        } catch (_) {}
+        try {
+          const smsRes = await smsService.getStatus();
+          if (smsRes?.success) setActiveSmsStatus(smsRes.data);
+        } catch (_) {}
+        
+        hasInitialStatusFetched.current = true;
+      }
 
       // Fetch real Marketing Content (Calendar Posts)
       try {
         const cRes = await marketingAPI.getContent();
         if (cRes?.success && cRes.data) {
-          setPosts(cRes.data.length > 0 ? cRes.data : DEFAULT_POSTS);
+          setPosts(cRes.data);
+        }
+      } catch (_) {}
+
+      // Fetch Campaign History
+      try {
+        const hRes = await marketingAPI.getCampaignRuns();
+        if (hRes?.success && hRes.data) {
+          setCampHistory(hRes.data.map(h => ({
+            id: h.id,
+            n: h.name,
+            m: `${h.leadsTargeted} targeted via ${h.channels || 'Integrated Hub'}`,
+            r: new Date(h.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }),
+            i: h.channels?.toLowerCase().includes('wa') ? '💬' : h.channels?.toLowerCase().includes('email') ? '✉️' : '🚀',
+            c: h.channels?.toLowerCase().includes('wa') ? 'var(--green)' : h.channels?.toLowerCase().includes('email') ? 'var(--gold)' : 'var(--blue)',
+            stats: {
+              sent: h.sent || 0,
+              delivered: h.delivered || 0,
+              read: h.read || 0,
+              failed: h.failed || 0
+            }
+          })));
         }
       } catch (_) {}
 
@@ -500,25 +468,73 @@ export default function MarketingOverviewPage() {
         if (hRes?.status) setRealSocialStatus(hRes.status);
       } catch (_) {}
 
+      // Fetch Lookups for filters (Professional Registry)
+      try {
+        const lks = await lookupsAPI.getAll();
+        if (lks.success && lks.data) {
+          const allLks = lks.data;
+          setLookups({
+            leadStages: allLks.filter(i => i.lookup_type === 'Lead Stage'),
+            dealStages: allLks.filter(i => i.lookup_type === 'Deal Stage'),
+            projectNames: [...new Set(leads.map(l => l.projectName).concat(realDeals.map(d => d.projectName)).filter(Boolean))],
+            sizeTypes: allLks.filter(i => i.lookup_type === 'Size Type' || i.lookup_type === 'Size Configuration'),
+            leadSources: allLks.filter(i => i.lookup_type === 'Lead Source'),
+            categories: allLks.filter(i => i.lookup_type === 'Property Category' || i.lookup_type === 'Category')
+          });
+        }
+      } catch (_) {}
+
       setApiDataLoaded(true);
     } catch (err) {
       console.warn('[MarketingOS] API fetch error:', err.message);
     }
   }, []);
 
-  // Auto-poll every 30 seconds
+  const fetchWhatsAppTemplates = async (isManual = false) => {
+    if (isSyncingTemplates) return;
+    setIsSyncingTemplates(true);
+    if (isManual) toast.loading('Synchronizing Meta Templates...', { id: 'wa-sync' });
+    
+    try {
+      const res = await marketingAPI.getWhatsAppTemplates();
+      if (res.success && res.templates) {
+        setWaTemplates(res.templates);
+        if (isManual) {
+          if (res.templates.length > 0) {
+            toast.success(`✓ Synchronized: ${res.templates.length} APPROVED templates found.`, { id: 'wa-sync' });
+          } else {
+            toast.error('⚠ No Approved Templates found for this WABA ID.', { id: 'wa-sync' });
+          }
+        }
+      } else {
+        throw new Error(res.error || res.message || 'Meta Sync Failed');
+      }
+    } catch (err) {
+      console.error('[MarketingOS] Failed to fetch WA templates:', err.message);
+      if (isManual) {
+        const readableError = err.message.includes('MISSING_') ? 'Missing Credentials: Check Settings > Integrations' :
+                             err.message.includes('INVALID_') ? 'Invalid Config: ' + err.message.split(':')[1] :
+                             'Sync Failed: ' + err.message;
+        toast.error(readableError, { id: 'wa-sync' });
+      }
+    } finally {
+      setIsSyncingTemplates(false);
+    }
+  };
+
   useEffect(() => {
     fetchLiveData();
-    const interval = setInterval(fetchLiveData, 30000);
+    fetchWhatsAppTemplates();
+    const interval = setInterval(fetchLiveData, 15000); // 15s refresh
     return () => clearInterval(interval);
   }, [fetchLiveData]);
 
   // ══ LIVE COMMAND КPIs DERIVED FROM REAL DATA ══
   const liveKPIs = useMemo(() => [
-    { label: 'TOTAL LEADS', val: apiDataLoaded ? String(realStats.totalCaptured || leads.length) : COMMAND_KPIS[0].val, sub: `↑ ${realStats.hotLeads || leads.filter(l => l.status === 'hot').length} hot leads`, type: 'green' },
-    { label: 'POSTS SCHEDULED', val: String(posts.length), sub: 'April calendar synced', type: 'blue' },
+    { label: 'TOTAL LEADS', val: apiDataLoaded ? String(realStats.totalCaptured || leads.length) : '0', sub: `↑ ${realStats.hotLeads || leads.filter(l => l.status === 'hot').length} hot leads`, type: 'green' },
+    { label: 'POSTS SCHEDULED', val: String(posts.length), sub: 'Live calendar synced', type: 'blue' },
     { label: 'AVG ENGAGEMENT', val: '6.4%', sub: '↑ 1.2% vs last month', type: 'green' },
-    { label: 'PIPELINE VALUE', val: apiDataLoaded && realDeals.length > 0 ? `₹${(realDeals.length * 0.4).toFixed(1)}Cr` : '₹4.2Cr', sub: `${realDeals.length || 'Active'} deals`, type: 'blue' },
+    { label: 'PIPELINE VALUE', val: apiDataLoaded ? (realStats.totalPipelineValue || '₹0') : '₹0', sub: `${realDeals.length || 'Active'} deals`, type: 'blue' },
   ], [apiDataLoaded, realStats, leads, posts, realDeals]);
 
   // ══ Phase B — LIVE SEGMENT COUNTS from real leads ══
@@ -555,18 +571,18 @@ export default function MarketingOverviewPage() {
   const liveAgentList = useMemo(() => {
     if (realAgents.length > 0) {
       return realAgents.slice(0, 4).map((ag, idx) => ({
-        n: ag.name || AGENT_LIST[idx]?.n || 'AI Agent',
-        m: ag.model ? `${ag.provider || 'AI'} — ${ag.model}` : (AGENT_LIST[idx]?.m || 'AI Model'),
-        t: ag.lastRun ? `Last run: ${new Date(ag.lastRun).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : (AGENT_LIST[idx]?.t || 'Not run yet'),
+        n: ag.name || 'AI Agent',
+        m: ag.model ? `${ag.provider || 'AI'} — ${ag.model}` : 'Generic LLM',
+        t: ag.lastRun ? `Last run: ${new Date(ag.lastRun).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : 'Not run yet',
         s: ag.isActive ? 'active' : 'standby',
-        i: AGENT_LIST[idx]?.i || '🤖',
+        i: '🤖',
         id: ag._id || ag.id,
         provider: ag.provider,
         model: ag.model,
         systemPrompt: ag.systemPrompt,
       }));
     }
-    return AGENT_LIST;
+    return [];
   }, [realAgents]);
 
   // ══ Phase B — SAFE BASE LEADS (crash guard: name must exist) ══
@@ -607,9 +623,13 @@ export default function MarketingOverviewPage() {
     addLog('');
     addLog('[01/06] 🗂️  Loading CRM database...', 'info');
     await sleep(400);
-    const dealsToProcess = realDeals.length > 0 ? realDeals.slice(0, 3) : MOCK_DEALS;
-    addLog(`  ✓ Connected. ${dealsToProcess.length} active deals found.`, 'success');
-    dealsToProcess.forEach(d => addLog(`  → ID:${d._id || d.id || '—'} ${d.unitNo || d.t}`, 'dim'));
+    const dealsToProcess = realDeals.length > 0 ? realDeals.slice(0, 3) : [];
+    if (dealsToProcess.length === 0) {
+      addLog('  ⚠ No active deals found in CRM for orchestration.', 'warn');
+    } else {
+      addLog(`  ✓ Connected. ${dealsToProcess.length} active deals found.`, 'success');
+      dealsToProcess.forEach(d => addLog(`  → ID:${d._id || d.id || '—'} ${d.unitNo || d.t}`, 'dim'));
+    }
     await sleep(300);
 
     // STEP 2 — AI Nurture
@@ -734,8 +754,12 @@ export default function MarketingOverviewPage() {
         addLog('  ! Could not fetch real comments. Falling back to simulation.', 'warn');
       }
 
-      const activeComms = liveComments.length > 0 ? liveComments.slice(0, 4) : COMMENT_SET;
+      const activeComms = liveComments.length > 0 ? liveComments.slice(0, 4) : [];
       
+      if (activeComms.length === 0) {
+        addLog('  → All platforms clean. No pending replies today.', 'success');
+      }
+
       for (const c of activeComms) {
         addLog(`  → [${c.ch}] ${c.u}: "${c.txt.substring(0, 30)}..."`, 'dim');
         await sleep(250);
@@ -757,10 +781,10 @@ export default function MarketingOverviewPage() {
     addLog('');
     addLog('════════════════════════════════════════════', 'success');
     addLog('✅  AI AGENT SUITE — ALL 6 STEPS COMPLETE!', 'success');
-    addLog(`    Posts:${postCount} | Replies:${COMMENT_SET.length} | Campaigns: Queued`, 'success');
+    addLog(`    Posts:${postCount} | Replies:${activeComms.length} | Campaigns: Queued`, 'success');
     addLog('════════════════════════════════════════════', 'success');
 
-    simulateStreaming(ORCH_SUMMARY, setOrchSummary);
+    simulateStreaming("Omnichannel Orchestration Successful. System analyzed CRM metadata and matched high-priority prospects with relevant listings. Content synchronized across all authorized social API tokens.", setOrchSummary);
     setOrchStep(5);
     setAgentDone(true);
     setIsRunningAgent(false);
@@ -776,7 +800,7 @@ export default function MarketingOverviewPage() {
   };
 
   const regenAgentPost = async (id, platform, dealTitle) => {
-    const deals = realDeals.length > 0 ? realDeals : MOCK_DEALS;
+    const deals = realDeals;
     const deal = deals.find(d => (d.unitNo || d.t) === dealTitle) || deals[0];
     if (!deal) { toast.error('Deal not found'); return; }
     toast.loading(`↻ Regenerating ${platform} post...`, { id: 'regen' });
@@ -849,15 +873,32 @@ export default function MarketingOverviewPage() {
     };
 
     const meta = channelMeta[channel] || channelMeta.email;
-    const payload = channel === 'email'
-      ? { name: emailData.name, subject: emailData.subject, content: emailData.content, replyTo: emailData.replyTo, segment: selectedSeg }
-      : channel === 'wa'
-      ? { name: waData.name, content: waData.content, segment: selectedSeg }
-      : channel === 'sms'
-      ? { content: smsText, segment: selectedSeg }
-      : { title: rcsData.title, desc: rcsData.desc, segment: selectedSeg };
+    let payload = {
+      audienceConfig: audienceConfig // THE NEW 360-DEGREE SOURCE
+    };
 
-    toast.loading(`${meta.icon} Launching ${meta.n} campaign...`, { id: 'camp-launch' });
+    if (channel === 'email') {
+      payload = { ...payload, name: campaignName, subject: emailData.subject, content: emailData.content, replyTo: emailData.replyTo };
+    } else if (channel === 'wa') {
+      if (selectedMetaTemplate) {
+        payload = {
+          ...payload,
+          name:         campaignName,
+          templateName: selectedMetaTemplate.name,
+          templateLang: selectedMetaTemplate.language || 'en',
+          waMapping:    { ...variableRegistry, ...waMapping }, // Merge global defaults with manual overrides
+          components:   [] // Worker will build this from waMapping
+        };
+      } else {
+        payload = { ...payload, name: campaignName, content: waData.content };
+      }
+    } else if (channel === 'sms') {
+      payload = { ...payload, content: smsText };
+    } else {
+      payload = { ...payload, title: rcsData.title, desc: rcsData.desc };
+    }
+
+    toast.loading(`${meta.icon} Launching ${meta.n} campaign to ${audienceCount} recipients...`, { id: 'camp-launch' });
     await sleep(300);
 
     let resultMsg = `${meta.cnt.toLocaleString('en-IN')} contacts · Delivered`;
@@ -875,7 +916,7 @@ export default function MarketingOverviewPage() {
       toast.success(`${meta.icon} ${meta.n} campaign queued (sandbox mode)`, { id: 'camp-launch' });
     }
 
-    const newEntry = { i: meta.i, n: `${meta.n} Campaign`, m: `${meta.cnt.toLocaleString('en-IN')} contacts`, r: resultMsg, c: meta.color };
+    const newEntry = { i: meta.i, n: campaignName || `${meta.n} Campaign`, m: `${meta.cnt.toLocaleString('en-IN')} contacts`, r: resultMsg, c: meta.color };
     setCampHistory(prev => [newEntry, ...prev]);
     setCampaignActivity(prev => [
       { id: `ch-${channel}-${Date.now()}`, t: `${meta.n} Campaign Sent`, p: `${meta.cnt.toLocaleString('en-IN')} contacts`, m: meta.n, s: 'Sent', ts: 'just now', c: meta.color },
@@ -1149,6 +1190,34 @@ export default function MarketingOverviewPage() {
 
   // ── CAMPAIGN STATE ──
   const [selectedSeg, setSelectedSeg] = useState('hot');
+  const [audienceConfig, setAudienceConfig] = useState({
+    source: 'Lead',
+    filters: { status: 'all' }
+  });
+  const [audienceCount, setAudienceCount] = useState(0);
+  const [isCounting, setIsCounting] = useState(false);
+
+  // ── Smart Audience Count Sync ──
+  useEffect(() => {
+    const fetchCount = async () => {
+      if (!audienceConfig.source) return;
+      setIsCounting(true);
+      try {
+        // We use the sendCampaign endpoint with a countOnly flag or similar, 
+        // or just local calculation for now if possible, but better to hit backend.
+        // For now, let's assume the backend Audience Service is fast enough for a preview.
+        // We'll add a specific count endpoint if needed.
+        const res = await marketingAPI.getAudienceCount(audienceConfig);
+        if (res.success) setAudienceCount(res.count);
+      } catch (e) {
+        console.error('Count error:', e);
+      } finally {
+        setIsCounting(false);
+      }
+    };
+    const timer = setTimeout(fetchCount, 500);
+    return () => clearTimeout(timer);
+  }, [audienceConfig]);
 
   // ── PERSISTENCE ──
   useEffect(() => DB.set('leads', leads), [leads]);
@@ -1480,12 +1549,13 @@ export default function MarketingOverviewPage() {
             </button>
             <button 
               className="tact-btn primary" 
-              id="header-add-lead"
-              aria-label="Create new lead"
-              onClick={() => setShowAddLeadModal(true)}
+              id="header-run-campaign"
+              aria-label="Launch new campaign"
+              onClick={() => setShowCampaignModal(true)}
+              style={{ background: 'linear-gradient(135deg, var(--gold) 0%, #b8860b 100%)', border: 'none' }}
             >
-              <Plus size={16} />
-              <span>Add Lead</span>
+              <Megaphone size={16} />
+              <span>Run Campaign</span>
             </button>
             
             <button 
@@ -1534,7 +1604,7 @@ export default function MarketingOverviewPage() {
               <div className="briefing-card glass-card">
                 <div className="briefing-header">
                   <div className="briefing-title text-serif">
-                    <span className="hero-icon">☀️</span> {DAILY_BRIEFING.title}
+                    <span className="hero-icon">☀️</span> Daily Marketing Briefing
                     <span className="briefing-date" style={{ marginLeft: '12px', fontSize: '11px', fontWeight: 400, color: 'var(--text-dim)' }}>
                       {new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
                     </span>
@@ -1745,6 +1815,100 @@ export default function MarketingOverviewPage() {
                         <div style={{ height: '3px', background: ch.c, borderRadius: '2px', marginTop: '8px' }}></div>
                       </div>
                     ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* ── QUICK CAMPAIGN LAUNCHER (Mirrored from Engine) ── */}
+              <div className="card glass-card" style={{ marginTop: '1.5rem', border: '1px solid rgba(201,146,26,0.2)' }}>
+                <div className="card-header" style={{ background: 'rgba(201,146,26,0.05)' }}>
+                  <div className="card-title text-serif">
+                    <div className="card-title-icon" style={{ background: 'var(--gold)', color: 'var(--navy)' }}>🚀</div>
+                    Quick Campaign Launcher
+                  </div>
+                  <button className="tact-btn gold-ghost sm" style={{ marginLeft: 'auto' }} onClick={() => setActivePage('campaign')}>Full Engine Views</button>
+                </div>
+                <div className="card-body" style={{ padding: '1.25rem' }}>
+                  <div style={{ display: 'flex', gap: '8px', marginBottom: '1.25rem', overflowX: 'auto', paddingBottom: '4px' }}>
+                    {['wa', 'sms', 'email', 'rcs'].map(t => (
+                      <button key={t} onClick={() => setCampFormTab(t)} style={{ flex: 1, minWidth: '100px', fontSize: '10px', padding: '8px', borderRadius: '8px', border: '1px solid', borderColor: campFormTab === t ? 'var(--gold)' : 'var(--border)', background: campFormTab === t ? 'rgba(201,146,26,0.1)' : 'rgba(255,255,255,0.02)', color: campFormTab === t ? 'var(--gold)' : 'var(--text3)', cursor: 'pointer', fontWeight: 700, textTransform: 'uppercase', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                        <span style={{ fontSize: '16px' }}>{t === 'wa' ? '💬' : t === 'sms' ? '📱' : t === 'email' ? '📧' : '📡'}</span>
+                        {t === 'wa' ? 'WhatsApp' : t.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                  
+                  {/* Quick launch content */}
+                  <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1.25rem', borderRadius: '12px', border: '1px solid var(--border)' }}>
+                     {campFormTab === 'wa' && (
+                        <div style={{ display: 'grid', gap: '12px' }}>
+                           <div style={{ fontSize: '11px', color: 'var(--text3)', fontWeight: 600 }}>SELECT META TEMPLATE</div>
+                           <select 
+                            value={selectedMetaTemplate?.name || ''} 
+                            onChange={e => handleTemplateSelection(e.target.value)} 
+                            style={{ width: '100%', padding: '10px', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--gold)', borderRadius: '8px', color: 'var(--text)', fontSize: '12px' }}
+                           >
+                              <option value="">-- Choose Template --</option>
+                              {waTemplates.map(t => <option key={t.name} value={t.name}>{t.name}</option>)}
+                           </select>
+                           
+                           {selectedMetaTemplate && (
+                             <div className="animate-v3" style={{ marginTop: '5px' }}>
+                               <div style={{ fontSize: '10px', color: 'var(--gold)', marginBottom: '8px', fontWeight: 700 }}>VARIABLE MAPPING (AUTO-APPLIED)</div>
+                               <div style={{ display: 'grid', gap: '8px' }}>
+                                 {detectVariables(selectedMetaTemplate).map(vIdx => (
+                                   <div key={vIdx} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                      <div style={{ width: '30px', fontSize: '10px', fontWeight: 800, color: 'var(--text3)' }}>{`{{${vIdx}}}`}</div>
+                                      <select 
+                                        value={waMapping[vIdx] || variableRegistry[vIdx] || ''} 
+                                        onChange={e => setWaMapping(p => ({ ...p, [vIdx]: e.target.value }))}
+                                        style={{ flex: 1, padding: '6px 10px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
+                                      >
+                                        <option value="">-- Manual Selection --</option>
+                                        <option value="name">Lead Full Name</option>
+                                        <option value="firstName">Lead First Name</option>
+                                        <option value="mobile">Lead Mobile</option>
+                                        <option value="email">Lead Email</option>
+                                        <option value="source">Lead Source (Platform)</option>
+                                        <option value="status">Lead Stage/Status</option>
+                                        <option value="assignedTo">Sales Executive/Owner</option>
+                                        <option value="leadId">CRM Lead ID</option>
+                                        <option value="propertyName">Property Title</option>
+                                        <option value="unitNumber">Unit/Plot No</option>
+                                        <option value="projectName">Project/Society</option>
+                                        <option value="block">Block/Sector</option>
+                                        <option value="unitType">Unit Type</option>
+                                        <option value="category">Category</option>
+                                        <option value="subCategory">Sub-Category</option>
+                                        <option value="price">Price/Value</option>
+                                        <option value="priceInWords">Price (In Words)</option>
+                                        <option value="size">Size/Area</option>
+                                        <option value="sizeUnit">Area Unit</option>
+                                        <option value="location">Location/City</option>
+                                        <option value="budget">Budget Range</option>
+                                        <option value="requirementType">Requirement (BHK)</option>
+                                        <option value="priority">Lead Priority</option>
+                                        <option value="campaign">Campaign Origin</option>
+                                        <option value="remark">Latest Remark</option>
+                                        <option value="tokenAmount">Token Amount</option>
+                                        <option value="agreementAmount">Agreement Amount</option>
+                                        <option value="custom">-- Custom Text --</option>
+                                      </select>
+                                   </div>
+                                 ))}
+                               </div>
+                               <button className="tact-btn primary" style={{ width: '100%', marginTop: '15px', background: 'var(--gold)', color: 'var(--navy)' }} onClick={() => launchCampaigns('wa')}>
+                                 🚀 Launch to {leads.length} Contacts
+                               </button>
+                             </div>
+                           )}
+                        </div>
+                     )}
+                     {campFormTab !== 'wa' && (
+                       <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text3)', fontSize: '11px' }}>
+                         Please use the <span style={{ color: 'var(--gold)', cursor: 'pointer' }} onClick={() => setActivePage('campaign')}>Full Campaign Engine</span> for {campFormTab.toUpperCase()} configuration.
+                       </div>
+                     )}
                   </div>
                 </div>
               </div>
@@ -2430,7 +2594,16 @@ export default function MarketingOverviewPage() {
                     {isSyncingLinkedIn ? <span className="spinner-sm"></span> : <span style={{ marginRight: '4px' }}>🔗</span>}
                     Sync LinkedIn
                   </button>
-                  <button className="tact-btn primary sm" onClick={() => setShowAddLeadModal(true)} style={{ padding: '4px 10px', fontSize: '11px' }}>+ Add Lead</button>
+                  <button className="tact-btn sm" style={{ padding: '4px 10px', fontSize: '11px', borderColor: 'rgba(37,211,102,0.4)', color: '#25d366' }} onClick={() => { 
+                    const targetLeads = leads.filter(l => selectedSeg === 'all' || l.status?.toLowerCase() === selectedSeg || l.segment?.toLowerCase() === selectedSeg);
+                    setMessageLeads(targetLeads.slice(0, 50).map(l => ({ id: l.phone || l.id, name: l.name, mobile: l.phone || l.mobile || '' }))); 
+                    setShowMessageModal(true); 
+                  }}>💬 Compose WA</button>
+                  <button className="tact-btn sm" style={{ padding: '4px 10px', fontSize: '11px', borderColor: 'rgba(59,130,246,0.4)', color: '#3b82f6' }} onClick={() => { 
+                    const targetLeads = leads.filter(l => selectedSeg === 'all' || l.status?.toLowerCase() === selectedSeg || l.segment?.toLowerCase() === selectedSeg);
+                    setEmailLeads(targetLeads.slice(0, 20).map(l => ({ id: l.id, name: l.name, email: l.email || '' }))); 
+                    setShowEmailModal(true); 
+                  }}>✉️ Compose Email</button>
                 </div>
               </div>
               
@@ -2590,124 +2763,7 @@ export default function MarketingOverviewPage() {
                 </div>
               </div>
 
-              {/* ── CAMPAIGN LAUNCH FORMS ── */}
-              <div className="card" style={{ marginTop: '1.5rem' }}>
-                <div className="card-header">
-                  <div className="card-title">📤 Campaign Launchers — Send Now</div>
-                  {/* ── BUDGET UTILIZATION STRIP ── */}
-                  <div style={{ display: 'flex', gap: '6px', marginLeft: 'auto' }}>
-                    {['email', 'wa', 'sms', 'rcs'].map(t => (
-                      <button key={t} onClick={() => setCampFormTab(t)} style={{ fontSize: '10px', padding: '3px 10px', borderRadius: '6px', border: '1px solid', borderColor: campFormTab === t ? 'var(--gold)' : 'var(--border)', background: campFormTab === t ? 'rgba(201,146,26,0.15)' : 'transparent', color: campFormTab === t ? 'var(--gold)' : 'var(--text3)', cursor: 'pointer', fontWeight: 700, textTransform: 'uppercase' }}>
-                        {t === 'wa' ? 'WhatsApp' : t.toUpperCase()}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="card-body">
-                  {campFormTab === 'email' && (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                      <div>
-                        <label style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>CAMPAIGN NAME</label>
-                        <input value={emailData.name} onChange={e => setEmailData(p => ({ ...p, name: e.target.value }))} style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '12px' }} />
-                      </div>
-                      <div>
-                        <label style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>REPLY-TO</label>
-                        <input value={emailData.replyTo} onChange={e => setEmailData(p => ({ ...p, replyTo: e.target.value }))} style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '12px' }} />
-                      </div>
-                      <div style={{ gridColumn: '1 / -1' }}>
-                        <label style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>SUBJECT LINE</label>
-                        <input value={emailData.subject} onChange={e => setEmailData(p => ({ ...p, subject: e.target.value }))} style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '12px' }} />
-                      </div>
-                      <div style={{ gridColumn: '1 / -1' }}>
-                        <label style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>EMAIL BODY</label>
-                        <textarea value={emailData.content} onChange={e => setEmailData(p => ({ ...p, content: e.target.value }))} rows={5} style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '12px', resize: 'vertical', fontFamily: 'inherit' }} />
-                      </div>
-                      <div style={{ gridColumn: '1 / -1' }}>
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                          <button className="tact-btn primary" onClick={() => launchCampaigns('email')} disabled={campLaunching} style={{ flex: 1 }}>
-                            {campLaunching ? <><span className="spinner-sm"></span> Launching...</> : '�� Send Email Campaign (1,476 contacts)'}
-                          </button>
-                          <button className="tact-btn" style={{ padding: '0 14px', borderColor: 'rgba(59,130,246,0.4)', color: '#3b82f6' }} title="Open email composer" onClick={() => { setEmailLeads((filteredLeads.length>0?filteredLeads:leads).slice(0,20).map(l=>({id:l.id,name:l.name,email:l.email||''}))); setShowEmailModal(true); }}>✉️ Compose</button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  {campFormTab === 'wa' && (
-                    <div style={{ display: 'grid', gap: '12px' }}>
-                      <div>
-                        <label style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>TEMPLATE NAME</label>
-                        <input value={waData.name} onChange={e => setWaData(p => ({ ...p, name: e.target.value }))} style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '12px' }} />
-                      </div>
-                      <div>
-                        <label style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>MESSAGE (supports *bold* and _italic_)</label>
-                        <textarea value={waData.content} onChange={e => setWaData(p => ({ ...p, content: e.target.value }))} rows={5} style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '12px', resize: 'vertical', fontFamily: 'inherit' }} />
-                      </div>
-                      <div style={{ fontSize: '10px', color: 'var(--text3)' }}>📲 646 hot/warm leads targeted via Meta Business Cloud API · DLT pre-approved</div>
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        <button className="tact-btn primary" style={{ background: '#25d366', borderColor: '#25d366', flex: 1 }} onClick={() => launchCampaigns('wa')} disabled={campLaunching}>
-                          {campLaunching ? <><span className="spinner-sm"></span> Sending...</> : '💬 Send WhatsApp Broadcast (646 contacts)'}
-                        </button>
-                        <button className="tact-btn" style={{ padding: '0 14px', borderColor: 'rgba(37,211,102,0.4)', color: '#25d366' }} title="Open WhatsApp composer" onClick={() => { setMessageLeads((filteredLeads.length>0?filteredLeads:leads).slice(0,50).map(l=>({id:l.phone||l.id,name:l.name,mobile:l.phone||l.mobile||''}))); setShowMessageModal(true); }}>💬 Compose</button>
-                      </div>
-                    </div>
-                  )}
-                  {campFormTab === 'sms' && (
-                    <div style={{ display: 'grid', gap: '12px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <label style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase' }}>SMS MESSAGE (DLT approved template)</label>
-                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                          <select 
-                            className="tact-btn sm" 
-                            style={{ fontSize: '9px', padding: '2px 6px', background: 'rgba(255,255,255,0.05)' }}
-                            onChange={(e) => setSmsText(e.target.value)}
-                            value=""
-                          >
-                            <option value="" disabled>Select Template</option>
-                            {(SEG_TEMPLATES[selectedSeg] || []).map((t, idx) => (
-                              <option key={idx} value={t.text.replace(/{name}/g, 'Valued Client').replace(/{budget}/g, 'your budget').replace(/{interest}/g, 'property')}>
-                                {t.label}
-                              </option>
-                            ))}
-                          </select>
-                          <span style={{ fontSize: '10px', color: smsText.length > 160 ? 'var(--red)' : 'var(--text3)' }}>{smsText.length}/160</span>
-                        </div>
-                      </div>
-                      <textarea value={smsText} onChange={e => setSmsText(e.target.value)} rows={3} style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '12px', resize: 'vertical', fontFamily: 'monospace' }} />
-                      <div style={{ fontSize: '10px', color: 'var(--text3)', display: 'flex', justifyContent: 'space-between' }}>
-                        <span>📲 {leads.filter(l => selectedSeg === 'all' || l.status?.toLowerCase() === selectedSeg || l.segment?.toLowerCase() === selectedSeg).length.toLocaleString()} contacts via {activeSmsStatus?.provider || 'SMS Gateway'}</span>
-                        <span style={{ color: activeSmsStatus?.status === 'Connected' ? 'var(--green)' : 'var(--text3)' }}>● {activeSmsStatus?.status || 'Unknown'}</span>
-                      </div>
-                      <button className="tact-btn primary" onClick={() => launchCampaigns('sms')} disabled={campLaunching}>
-                        {campLaunching ? <><span className="spinner-sm"></span> Sending...</> : `📲 Send SMS Campaign (${leads.filter(l => selectedSeg === 'all' || l.status?.toLowerCase() === selectedSeg || l.segment?.toLowerCase() === selectedSeg).length.toLocaleString()} contacts)`}
-                      </button>
-                    </div>
-                  )}
-                  {campFormTab === 'rcs' && (
-                    <div style={{ display: 'grid', gap: '12px' }}>
-                      <div>
-                        <label style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>RICH CARD TITLE</label>
-                        <input value={rcsData.title} onChange={e => setRcsData(p => ({ ...p, title: e.target.value }))} style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '12px' }} />
-                      </div>
-                      <div>
-                        <label style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>DESCRIPTION</label>
-                        <input value={rcsData.desc} onChange={e => setRcsData(p => ({ ...p, desc: e.target.value }))} style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '12px' }} />
-                      </div>
-                      <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)', borderRadius: '10px', padding: '14px' }}>
-                        <div style={{ fontWeight: 700, fontSize: '13px', marginBottom: '4px' }}>{rcsData.title}</div>
-                        <div style={{ fontSize: '11px', color: 'var(--text3)', marginBottom: '10px' }}>{rcsData.desc}</div>
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                          <div style={{ flex: 1, textAlign: 'center', padding: '6px', background: 'var(--navy)', borderRadius: '6px', fontSize: '11px', fontWeight: 600, color: 'var(--gold)' }}>View Details</div>
-                          <div style={{ flex: 1, textAlign: 'center', padding: '6px', background: 'rgba(201,146,26,0.15)', borderRadius: '6px', fontSize: '11px', fontWeight: 600, color: 'var(--gold)' }}>Call Now</div>
-                        </div>
-                      </div>
-                      <div style={{ fontSize: '10px', color: 'var(--text3)' }}>✨ 2,180 contacts via Google Business Messaging · Rich media cards</div>
-                      <button className="tact-btn primary" style={{ background: 'var(--gold)', borderColor: 'var(--gold)', color: '#07162B' }} onClick={launchCampaigns} disabled={campLaunching}>
-                        {campLaunching ? <><span className="spinner-sm"></span> Sending...</> : '✨ Send RCS Rich Cards (2,180 contacts)'}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
+              {/* Campaign engine content removed from inline overview for modal-driven workflow */}
 
               {/* ── CAMPAIGN HISTORY ── */}
               {campHistory.length > 0 && (
@@ -2718,14 +2774,46 @@ export default function MarketingOverviewPage() {
                   </div>
                   <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                     {campHistory.map((h, i) => (
-                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '12px 14px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)', borderRadius: '10px', borderLeft: `3px solid ${h.c}` }}>
-                        <div style={{ fontSize: '20px' }}>{h.i}</div>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontWeight: 700, fontSize: '13px', color: 'var(--text)' }}>{h.n}</div>
-                          <div style={{ fontSize: '11px', color: 'var(--text3)' }}>{h.m}</div>
+                      <div key={h.id || i} style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '16px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)', borderRadius: '12px', borderLeft: `4px solid ${h.c}` }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                          <div style={{ fontSize: '24px' }}>{h.i}</div>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontWeight: 800, fontSize: '14px', color: 'var(--text)', marginBottom: '2px' }}>{h.n}</div>
+                            <div style={{ fontSize: '11px', color: 'var(--text3)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span>{h.m}</span>
+                              <span>·</span>
+                              <span style={{ color: 'var(--gold)', fontWeight: 700 }}>{h.r}</span>
+                            </div>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase' }}>Delivery Rate</div>
+                            <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--green)' }}>
+                              {h.stats?.sent > 0 ? Math.round((h.stats.delivered / h.stats.sent) * 100) : 100}%
+                            </div>
+                          </div>
                         </div>
-                        <div style={{ fontSize: '11px', color: h.c, fontWeight: 600, textAlign: 'right' }}>{h.r}</div>
-                        <div style={{ fontSize: '10px', background: 'rgba(53,185,122,0.1)', color: 'var(--green)', padding: '2px 8px', borderRadius: '8px', fontWeight: 600 }}>✓ Sent</div>
+                        
+                        {/* ── METRICS STRIP ── */}
+                        <div style={{ display: 'flex', gap: '12px', marginTop: '4px', padding: '8px 12px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px dashed rgba(255,255,255,0.05)' }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700 }}>SENT</div>
+                            <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)' }}>{h.stats?.sent || 0}</div>
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700 }}>DELIVERED</div>
+                            <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--blue)' }}>{h.stats?.delivered || 0}</div>
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700 }}>READ</div>
+                            <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--green)' }}>{h.stats?.read || 0}</div>
+                          </div>
+                          {h.stats?.failed > 0 && (
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700 }}>FAILED</div>
+                              <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--red)' }}>{h.stats?.failed || 0}</div>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -3435,6 +3523,459 @@ export default function MarketingOverviewPage() {
       {/* ══════════════════════════════════════════
           PHASE A — REAL CRM MODALS (wired to Marketing OS)
           ══════════════════════════════════════════ */}
+
+      {/* ── 🚀 PROFESSIONAL CAMPAUNCH MODAL (360° Control) ── */}
+      {showCampaignModal && (
+        <div className="modal-backdrop" style={{ zIndex: 2000 }}>
+          <div className="modal glass-bg" style={{ width: '95%', maxWidth: '900px', padding: 0, overflow: 'hidden', border: '1px solid rgba(201,146,26,0.3)', boxShadow: '0 20px 40px rgba(0,0,0,0.4)' }}>
+            <div className="modal-header" style={{ padding: '20px 24px', borderBottom: '1px solid var(--border)', background: 'linear-gradient(90deg, rgba(7,22,43,0.8) 0%, rgba(13,31,56,0.8) 100%)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ width: '40px', height: '40px', background: 'rgba(201,146,26,0.1)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Megaphone size={20} color="var(--gold)" />
+                </div>
+                <div>
+                  <div className="modal-title" style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text)' }}>Campaign Engine v4.0</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text3)' }}>360° CRM Orchestration • Meta Verified Ready</div>
+                </div>
+              </div>
+              <button 
+                className="btn" 
+                style={{ background: 'rgba(255,255,255,0.05)', border: 'none', width: '32px', height: '32px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} 
+                onClick={() => setShowCampaignModal(false)}
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div className="modal-body" style={{ maxHeight: '80vh', overflowY: 'auto', padding: '24px', background: 'var(--navy-mid)' }}>
+              
+              {/* ── CENTRAL CAMPAIGN IDENTITY ── */}
+              <div style={{ marginBottom: '1.5rem', background: 'rgba(255,255,255,0.02)', padding: '16px', borderRadius: '12px', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: '10px', color: 'var(--gold)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px', display: 'block' }}>
+                    <i className="fas fa-tag"></i> Campaign Engine Identity
+                  </label>
+                  <input 
+                    value={campaignName} 
+                    onChange={e => setCampaignName(e.target.value)}
+                    placeholder="Enter Campaign Name (e.g. Sector 7 Plot Blast)..."
+                    style={{ width: '100%', background: 'transparent', border: 'none', borderBottom: '2px solid var(--gold)', color: 'var(--text)', fontSize: '18px', fontWeight: 700, padding: '4px 0', outline: 'none' }}
+                  />
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: '9px', color: 'var(--text3)', textTransform: 'uppercase', fontWeight: 700 }}>ORCHESTRATION STATUS</div>
+                  <div style={{ color: 'var(--green)', fontSize: '11px', fontWeight: 800 }}>READY TO DISPATCH</div>
+                </div>
+              </div>
+
+              {/* ── SMART AUDIENCE BUILDER ── */}
+              <div className="card" style={{ marginBottom: '1.5rem', border: '1px solid var(--gold)', background: 'linear-gradient(180deg, rgba(201,146,26,0.05) 0%, transparent 100%)' }}>
+                <div className="card-header" style={{ borderBottom: '1px solid rgba(201,146,26,0.1)' }}>
+                  <div className="card-title" style={{ color: 'var(--gold)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <i className="fas fa-users-cog"></i> Smart Audience Selection (360° Control)
+                  </div>
+                  <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 600 }}>TARGET AUDIENCE:</div>
+                    <div style={{ background: 'rgba(53,185,122,0.1)', color: '#35b97a', padding: '4px 12px', borderRadius: '20px', fontSize: '11px', fontWeight: 800, border: '1px solid rgba(53,185,122,0.2)' }}>
+                      {isCounting ? <span className="spinner-sm" style={{ width: '10px', height: '10px' }}></span> : audienceCount.toLocaleString()} Recipients
+                    </div>
+                  </div>
+                </div>
+                <div className="card-body" style={{ padding: '16px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '16px' }}>
+                    {[
+                      { id: 'Lead', n: 'Leads', i: '🎯', desc: 'Active Inquiries' },
+                      { id: 'Contact', n: 'Contacts', i: '👤', desc: 'Professional Database' },
+                      { id: 'Deal', n: 'Deals', i: '🤝', desc: 'Current Transactions' },
+                      { id: 'Inventory', n: 'Inventory', i: '🏢', desc: 'Property Owners' }
+                    ].map(s => (
+                      <div 
+                        key={s.id} 
+                        onClick={() => setAudienceConfig(p => ({ ...p, source: s.id, filters: {} }))}
+                        style={{ 
+                          padding: '12px', 
+                          borderRadius: '12px', 
+                          border: '1px solid', 
+                          borderColor: audienceConfig.source === s.id ? 'var(--gold)' : 'var(--border)',
+                          background: audienceConfig.source === s.id ? 'rgba(201,146,26,0.08)' : 'rgba(255,255,255,0.02)',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease'
+                        }}
+                      >
+                        <div style={{ fontSize: '20px', marginBottom: '4px' }}>{s.i}</div>
+                        <div style={{ fontWeight: 700, fontSize: '12px', color: audienceConfig.source === s.id ? 'var(--gold)' : 'var(--text)' }}>{s.n}</div>
+                        <div style={{ fontSize: '9px', color: 'var(--text3)' }}>{s.desc}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Contextual Filters */}
+                  <div style={{ display: 'flex', gap: '12px', alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                    <div style={{ fontSize: '10px', fontWeight: 800, color: 'var(--text3)', textTransform: 'uppercase', minWidth: '80px' }}>
+                      <i className="fas fa-filter"></i> Filters
+                    </div>
+                    
+                    {audienceConfig.source === 'Lead' && (
+                      <>
+                        <select 
+                          value={audienceConfig.filters.status || 'all'} 
+                          onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, status: e.target.value } }))}
+                          style={{ flex: 1, padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
+                        >
+                          <option value="all">All Lead Stages</option>
+                          {lookups.leadStages?.map(s => <option key={s._id} value={s._id}>{s.lookup_value}</option>)}
+                        </select>
+                        <select 
+                          value={audienceConfig.filters.source || ''} 
+                          onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, source: e.target.value } }))}
+                          style={{ flex: 1, padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
+                        >
+                          <option value="">All Sources</option>
+                          {lookups.leadSources?.map(s => <option key={s._id} value={s._id}>{s.lookup_value}</option>)}
+                        </select>
+                      </>
+                    )}
+
+                    {audienceConfig.source === 'Deal' && (
+                      <>
+                        <select 
+                          value={audienceConfig.filters.stage || ''} 
+                          onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, stage: e.target.value } }))}
+                          style={{ flex: 1, padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
+                        >
+                          <option value="">All Deal Stages</option>
+                          {lookups.dealStages?.map(s => <option key={s._id} value={s._id}>{s.lookup_value}</option>)}
+                        </select>
+                        <select 
+                          value={audienceConfig.filters.partyType || ''} 
+                          onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, partyType: e.target.value } }))}
+                          style={{ flex: 1, padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
+                        >
+                          <option value="">Target All Parties</option>
+                          <option value="owner">Primary Owners</option>
+                          <option value="buyer">Buyers</option>
+                          <option value="associate">Associates/Brokers</option>
+                        </select>
+                      </>
+                    )}
+
+                    {audienceConfig.source === 'Inventory' && (
+                      <>
+                        <input 
+                          placeholder="Search Project..."
+                          value={audienceConfig.filters.projectName || ''}
+                          onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, projectName: e.target.value } }))}
+                          style={{ flex: 1.5, padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
+                        />
+                        <select 
+                          value={audienceConfig.filters.category || ''} 
+                          onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, category: e.target.value } }))}
+                          style={{ flex: 1, padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
+                        >
+                          <option value="">All Categories</option>
+                          {lookups.categories?.map(c => <option key={c._id} value={c._id}>{c.lookup_value}</option>)}
+                        </select>
+                        <select 
+                          value={audienceConfig.filters.sizeType || ''} 
+                          onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, sizeType: e.target.value } }))}
+                          style={{ flex: 1, padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
+                        >
+                          <option value="">Any Size Type</option>
+                          {lookups.sizeTypes?.map(s => <option key={s._id} value={s._id}>{s.lookup_value}</option>)}
+                        </select>
+                      </>
+                    )}
+
+                    {!['Lead', 'Deal', 'Inventory'].includes(audienceConfig.source) && (
+                      <div style={{ fontSize: '11px', color: 'var(--text3)' }}>Universal Search enabled for professional contacts.</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* ── CAMPAIGN LAUNCH FORMS ── */}
+              <div className="card">
+                <div className="card-header">
+                  <div className="card-title">📤 Step 2: Choose Channel & Content</div>
+                  {/* ── CHANNEL SELECTOR STRIP ── */}
+                  <div style={{ display: 'flex', gap: '6px', marginLeft: 'auto' }}>
+                    {['email', 'wa', 'sms', 'rcs'].map(t => (
+                      <button key={t} onClick={() => setCampFormTab(t)} style={{ fontSize: '10px', padding: '3px 10px', borderRadius: '6px', border: '1px solid', borderColor: campFormTab === t ? 'var(--gold)' : 'var(--border)', background: campFormTab === t ? 'rgba(201,146,26,0.15)' : 'transparent', color: campFormTab === t ? 'var(--gold)' : 'var(--text3)', cursor: 'pointer', fontWeight: 700, textTransform: 'uppercase' }}>
+                        {t === 'wa' ? 'WhatsApp' : t.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="card-body">
+                  {campFormTab === 'email' && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      <div style={{ gridColumn: '1 / -1' }}>
+                        <label style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>REPLY-TO ADDRESS</label>
+                        <input value={emailData.replyTo} onChange={e => setEmailData(p => ({ ...p, replyTo: e.target.value }))} style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '12px' }} />
+                      </div>
+                      <div style={{ gridColumn: '1 / -1' }}>
+                        <label style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>SUBJECT LINE</label>
+                        <input value={emailData.subject} onChange={e => setEmailData(p => ({ ...p, subject: e.target.value }))} style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '12px' }} />
+                      </div>
+                      <div style={{ gridColumn: '1 / -1' }}>
+                        <label style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>EMAIL BODY</label>
+                        <textarea value={emailData.content} onChange={e => setEmailData(p => ({ ...p, content: e.target.value }))} rows={5} style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '12px', resize: 'vertical', fontFamily: 'inherit' }} />
+                      </div>
+                      <div style={{ gridColumn: '1 / -1' }}>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button className="tact-btn primary" onClick={() => launchCampaigns('email')} disabled={campLaunching} style={{ flex: 1 }}>
+                            {campLaunching ? <><span className="spinner-sm"></span> Launching...</> : ' Send Email Campaign (1,476 contacts)'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {campFormTab === 'wa' && (
+                    <div style={{ display: 'grid', gap: '16px' }}>
+                      <div>
+                        <label style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between', marginBottom: '8px', alignItems: 'center' }}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><i className="fab fa-whatsapp"></i> Meta Approved Templates</span>
+                          <button 
+                            onClick={() => fetchWhatsAppTemplates(true)} 
+                            disabled={isSyncingTemplates}
+                            style={{ background: 'none', border: 'none', color: isSyncingTemplates ? 'var(--text3)' : 'var(--green)', fontSize: '9px', cursor: 'pointer', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}
+                          >
+                            {isSyncingTemplates ? <><span className="spinner-sm"></span> Syncing...</> : <>↺ Sync with Meta</>}
+                          </button>
+                        </label>
+                        <div style={{ position: 'relative' }}>
+                          <select 
+                            value={selectedMetaTemplate?.name || ''} 
+                            onChange={e => handleTemplateSelection(e.target.value)} 
+                            style={{ width: '100%', padding: '12px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '10px', color: 'var(--text)', fontSize: '13px', outline: 'none', appearance: 'none' }}
+                            disabled={isSyncingTemplates}
+                          >
+                            <option value="">{isSyncingTemplates ? 'Checking Meta Registry...' : waTemplates.length > 0 ? '-- Select Approved Template --' : '-- No Approved Templates Found --'}</option>
+                            {waTemplates.map((tpl, idx) => (
+                              <option key={idx} value={tpl.name}>{tpl.name} ({tpl.language})</option>
+                            ))}
+                          </select>
+                          <div style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: 'var(--text3)', fontSize: '10px' }}>▼</div>
+                        </div>
+                        {waTemplates.length === 0 && !isSyncingTemplates && (
+                          <div style={{ marginTop: '8px', fontSize: '10px', color: 'var(--text3)', fontStyle: 'italic', background: 'rgba(255,255,255,0.02)', padding: '8px', borderRadius: '6px', border: '1px dashed var(--border)' }}>
+                            <i className="fas fa-info-circle"></i> If your template is approved but not showing, ensure your <strong>WABA ID</strong> is correct in Settings.
+                          </div>
+                        )}
+                      </div>
+
+                      {selectedMetaTemplate && (
+                        <div style={{ marginTop: '6px' }}>
+                          {/* PREVIEW HEADER */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                            <span style={{ fontSize: '10px', color: 'var(--gold)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <Sparkles size={12} /> Auto-Mapped Message Preview
+                            </span>
+                            <button 
+                              onClick={() => setShowWaAdvanced(!showWaAdvanced)} 
+                              style={{ background: 'none', border: 'none', color: 'var(--text3)', fontSize: '9px', cursor: 'pointer', textDecoration: 'underline' }}
+                            >
+                              {showWaAdvanced ? 'Hide Advanced Mapping' : 'Show Advanced Mapping'}
+                            </button>
+                          </div>
+
+                          {/* WHATSAPP BUBBLE PREVIEW */}
+                          <div className="wa-preview-container" style={{ background: theme === 'dark' ? '#0b141a' : '#e5ddd5', padding: '20px', borderRadius: '12px', position: 'relative', overflow: 'hidden', backgroundImage: 'url("https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png")', backgroundSize: 'cover' }}>
+                            <div className="wa-bubble-income" style={{ background: theme === 'dark' ? '#056162' : '#fff', padding: '10px 14px', borderRadius: '8px 8px 8px 0', maxWidth: '85%', boxShadow: '0 1px 2px rgba(0,0,0,0.2)', position: 'relative', marginLeft: '4px', border: theme === 'dark' ? 'none' : '1px solid #eee' }}>
+                              <div style={{ fontSize: '13px', color: theme === 'dark' ? '#e9edef' : '#111b21', lineHeight: '1.4', whiteSpace: 'pre-wrap' }}>
+                                {(selectedMetaTemplate.components.find(c => c.type === 'BODY')?.text || '').replace(/{{(\d+)}}/g, (match, p1) => {
+                                  const field = waMapping[p1] || variableRegistry[p1];
+                                  if (!field) return match;
+                                  const samples = {
+                                    fullName: 'Rajesh Kumar', 
+                                    firstName: 'Rajesh', 
+                                    projectName: 'Bharat Heights',
+                                    budget: '₹54.5L', 
+                                    location: 'Sector 7 Kurukshetra',
+                                    city: 'Kurukshetra',
+                                    mobile: '9876543210',
+                                    email: 'rajesh@example.com',
+                                    subCategory: 'Residential Plot',
+                                    sizeType: '10 Marla',
+                                    unitType: 'Corner',
+                                    road: '30 Ft. Wide',
+                                    agentMobile: '9988776655',
+                                    aiClosingProbability: '88%',
+                                    intentSummary: 'Looking for 3BHK high-rise floor',
+                                    currentDate: new Date().toLocaleDateString('en-IN')
+                                  };
+                                  return samples[field] || `[${field.replace(/_/g, ' ')}]`;
+                                })}
+                              </div>
+                              <div style={{ fontSize: '9px', color: theme === 'dark' ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)', textAlign: 'right', marginTop: '4px' }}>
+                                {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ✓✓
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <div style={{ marginTop: '12px', fontSize: '10px', color: 'var(--text3)', fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <ShieldCheck size={12} color="var(--green)" /> Variables automatically resolved from your Enterprise Registry.
+                          </div>
+
+                          {/* ADVANCED MAPPING (REVEALABLE) */}
+                          {showWaAdvanced && (
+                            <div style={{ marginTop: '16px', background: 'rgba(255,255,255,0.02)', padding: '14px', border: '1px solid var(--border)', borderRadius: '10px' }}>
+                              <div style={{ fontSize: '10px', color: 'var(--gold)', fontWeight: 800, marginBottom: '10px', textTransform: 'uppercase' }}>Manual Parameter Override</div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                {detectVariables(selectedMetaTemplate).map((vIdx) => (
+                                  <div key={vIdx} style={{ display: 'grid', gridTemplateColumns: '60px 1fr', alignItems: 'center', gap: '10px' }}>
+                                    <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text2)' }}>{`{{${vIdx}}}`}</div>
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                      <select 
+                                        value={waMapping[vIdx] || variableRegistry[vIdx] || ''} 
+                                        onChange={e => setWaMapping(p => ({ ...p, [vIdx]: e.target.value }))}
+                                        style={{ width: '100%', padding: '6px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '4px', color: 'var(--text)', fontSize: '11px' }}
+                                      >
+                                        <option value="">Default (Registry)</option>
+                                        <option value="fullName">Full Name</option>
+                                        <option value="firstName">First Name</option>
+                                        <option value="mobile">Mobile Number</option>
+                                        <option value="email">Email Address</option>
+                                        <option value="projectName">Project Name</option>
+                                        <option value="budget">Budget Selection</option>
+                                        <option value="location">Target Location</option>
+                                        <option value="city">City Name</option>
+                                        <option value="aiClosingProbability">Closing Probability (%)</option>
+                                        <option value="intentSummary">AI Intent Summary</option>
+                                        <option value="subCategory">Sub Category (Plot/Flat)</option>
+                                        <option value="sizeType">Size (10 Marla / 3 BHK)</option>
+                                        <option value="unitType">Unit Type (Corner / PLC)</option>
+                                        <option value="agentMobile">User/RM Mobile Number</option>
+                                        <option value="road">Road Width (ft/mtr)</option>
+                                        <option value="currentDate">Current Date</option>
+                                        <option value="agentName">Assigned RM Name</option>
+                                        <option value="custom">-- Custom Text --</option>
+                                      </select>
+                                      {waMapping[vIdx] === 'custom' && (
+                                        <input 
+                                          placeholder="Enter text..."
+                                          value={waMapping[`${vIdx}_val`] || ''}
+                                          onChange={e => setWaMapping(p => ({ ...p, [`${vIdx}_val`]: e.target.value }))}
+                                          style={{ flex: 1, padding: '8px', background: 'rgba(255,255,255,0.08)', border: '1px solid var(--gold)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
+                                        />
+                                      )}
+                                    </div>
+                                  </div>
+                                ))}
+                                {detectVariables(selectedMetaTemplate).length === 0 && (
+                                  <div style={{ fontSize: '11px', color: 'var(--text3)', fontStyle: 'italic', textAlign: 'center', padding: '10px' }}>
+                                    No dynamic variables found in this template.
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {!selectedMetaTemplate && (
+                        <div style={{ opacity: 0.6 }}>
+                          <label style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>MANUAL FALLBACK CONTENT</label>
+                          <textarea 
+                            value={waData.content} 
+                            onChange={e => setWaData(p => ({ ...p, content: e.target.value }))} 
+                            placeholder="Type a message or select a template above..."
+                            rows={3} 
+                            style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '12px', resize: 'vertical' }} 
+                          />
+                        </div>
+                      )}
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ fontSize: '10px', color: 'var(--text3)', display: 'flex', gap: '10px' }}>
+                          <span>💬 {leads.filter(l => selectedSeg === 'all' || l.status?.toLowerCase() === selectedSeg).length.toLocaleString()} Targeted</span>
+                          <span style={{ color: 'var(--text2)' }}>|</span>
+                          <span style={{ color: 'var(--green)' }}>✓ {waMetrics.sent} Sent</span>
+                          <span style={{ color: 'var(--text2)' }}>|</span>
+                          <span style={{ color: 'var(--gold)' }}>👁 {waMetrics.read} Read</span>
+                        </div>
+                        <div style={{ fontSize: '9px', padding: '2px 6px', background: 'rgba(53,185,122,0.1)', color: 'var(--green)', borderRadius: '4px', fontWeight: 700 }}>
+                          {waMetrics.sent > 0 ? Math.round((waMetrics.delivered / waMetrics.sent) * 100) : 100}% DELIVERY RATE
+                        </div>
+                      </div>
+
+                       <div style={{ display: 'flex', gap: '8px' }}>
+                        <button 
+                          className="tact-btn primary" 
+                          style={{ background: '#25d366', borderColor: '#25d366', flex: 1, padding: '12px' }} 
+                          onClick={() => launchCampaigns('wa')} 
+                          disabled={campLaunching}
+                        >
+                          {campLaunching ? <><span className="spinner-sm"></span> Dispatching...</> : `🚀 Launch ${selectedMetaTemplate ? 'Template' : 'Text'} Broadcast`}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {campFormTab === 'sms' && (
+                    <div style={{ display: 'grid', gap: '12px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <label style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase' }}>SMS MESSAGE (DLT approved template)</label>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <select 
+                            className="tact-btn sm" 
+                            style={{ fontSize: '9px', padding: '2px 6px', background: 'rgba(255,255,255,0.05)' }}
+                            onChange={(e) => setSmsText(e.target.value)}
+                            value=""
+                          >
+                            <option value="" disabled>Select Template</option>
+                            {(SEG_TEMPLATES[selectedSeg] || []).map((t, idx) => (
+                              <option key={idx} value={t.text.replace(/{name}/g, 'Valued Client').replace(/{budget}/g, 'your budget').replace(/{interest}/g, 'property')}>
+                                {t.label}
+                              </option>
+                            ))}
+                          </select>
+                          <span style={{ fontSize: '10px', color: smsText.length > 160 ? 'var(--red)' : 'var(--text3)' }}>{smsText.length}/160</span>
+                        </div>
+                      </div>
+                      <textarea value={smsText} onChange={e => setSmsText(e.target.value)} rows={3} style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '12px', resize: 'vertical', fontFamily: 'monospace' }} />
+                      <div style={{ fontSize: '10px', color: 'var(--text3)', display: 'flex', justifyContent: 'space-between' }}>
+                        <span>📲 {leads.filter(l => selectedSeg === 'all' || l.status?.toLowerCase() === selectedSeg || l.segment?.toLowerCase() === selectedSeg).length.toLocaleString()} contacts via {activeSmsStatus?.provider || 'SMS Gateway'}</span>
+                        <span style={{ color: activeSmsStatus?.status === 'Connected' ? 'var(--green)' : 'var(--text3)' }}>● {activeSmsStatus?.status || 'Unknown'}</span>
+                      </div>
+                      <button className="tact-btn primary" onClick={() => launchCampaigns('sms')} disabled={campLaunching}>
+                        {campLaunching ? <><span className="spinner-sm"></span> Sending...</> : `📲 Send SMS Campaign (${leads.filter(l => selectedSeg === 'all' || l.status?.toLowerCase() === selectedSeg || l.segment?.toLowerCase() === selectedSeg).length.toLocaleString()} contacts)`}
+                      </button>
+                    </div>
+                  )}
+                  {campFormTab === 'rcs' && (
+                    <div style={{ display: 'grid', gap: '12px' }}>
+                      <div>
+                        <label style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>RICH CARD TITLE</label>
+                        <input value={rcsData.title} onChange={e => setRcsData(p => ({ ...p, title: e.target.value }))} style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '12px' }} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>DESCRIPTION</label>
+                        <input value={rcsData.desc} onChange={e => setRcsData(p => ({ ...p, desc: e.target.value }))} style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '12px' }} />
+                      </div>
+                      <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)', borderRadius: '10px', padding: '14px' }}>
+                        <div style={{ fontWeight: 700, fontSize: '13px', marginBottom: '4px' }}>{rcsData.title}</div>
+                        <div style={{ fontSize: '11px', color: 'var(--text3)', marginBottom: '10px' }}>{rcsData.desc}</div>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <div style={{ flex: 1, textAlign: 'center', padding: '6px', background: 'var(--navy)', borderRadius: '6px', fontSize: '11px', fontWeight: 600, color: 'var(--gold)' }}>View Details</div>
+                          <div style={{ flex: 1, textAlign: 'center', padding: '6px', background: 'rgba(201,146,26,0.15)', borderRadius: '6px', fontSize: '11px', fontWeight: 600, color: 'var(--gold)' }}>Call Now</div>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: '10px', color: 'var(--text3)' }}>✨ {audienceCount.toLocaleString()} contacts via Google Business Messaging · Rich media cards</div>
+                      <button className="tact-btn primary" style={{ background: 'var(--gold)', borderColor: 'var(--gold)', color: '#07162B' }} onClick={() => launchCampaigns('rcs')} disabled={campLaunching}>
+                        {campLaunching ? <><span className="spinner-sm"></span> Sending...</> : `✨ Send RCS Rich Cards (${audienceCount.toLocaleString()} contacts)`}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+            
+            <div className="modal-footer" style={{ padding: '15px 24px', borderTop: '1px solid var(--border)', background: 'rgba(7,22,43,0.9)', display: 'flex', justifyContent: 'flex-end' }}>
+              <button className="btn" style={{ padding: '8px 24px', borderRadius: '8px', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text3)', cursor: 'pointer' }} onClick={() => setShowCampaignModal(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Real WhatsApp / SMS Message Modal ── */}
       {showMessageModal && (

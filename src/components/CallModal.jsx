@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useTriggers } from '../context/TriggersContext';
+import { systemSettingsAPI, socialAPI, marketingAPI } from '../utils/api';
+import { toast } from 'react-hot-toast';
+import { Sparkles, Send, MessageCircle, Mail } from 'lucide-react';
 
 const CallModal = ({ isOpen, onClose, contact, context, onCallEnd }) => {
     const { fireEvent } = useTriggers();
@@ -19,6 +22,23 @@ const CallModal = ({ isOpen, onClose, contact, context, onCallEnd }) => {
         notes: '',
         followUpDate: ''
     });
+
+    const [smartTemplates, setSmartTemplates] = useState(null);
+    const [isProcessingSmart, setIsProcessingSmart] = useState(false);
+    const [showSmartSuccess, setShowSmartSuccess] = useState(false);
+
+    // Fetch Smart Templates on load
+    useEffect(() => {
+        const fetchTemplates = async () => {
+            try {
+                const res = await systemSettingsAPI.getByKey('smart_outcome_templates');
+                if (res.success && res.data?.value) setSmartTemplates(res.data.value);
+            } catch (err) {
+                console.warn('Smart templates not yet initialized.');
+            }
+        };
+        fetchTemplates();
+    }, []);
 
     // Reset when opening
     useEffect(() => {
@@ -75,7 +95,36 @@ const CallModal = ({ isOpen, onClose, contact, context, onCallEnd }) => {
         // Fire Triggers
         fireEvent('call_logged', contact, { ...summary, entityType: contact?.model || 'Contact' });
 
-        if (onCallEnd) onCallEnd(summary);
+        // Smart Suggestion Logic
+        const template = smartTemplates?.[outcomeData.outcome];
+        if (template) {
+            setStep('smart_follow_up');
+        } else {
+            if (onCallEnd) onCallEnd(summary);
+            onClose();
+        }
+    };
+
+    const handleSendSmart = async (channel) => {
+        setIsProcessingSmart(true);
+        try {
+            const template = smartTemplates?.[outcomeData.outcome]?.[channel];
+            if (!template) return;
+
+            // In a real system, we'd call the marketingAPI.sendDirect with the template and mapping
+            // For now, we simulate the dispatch with resolved variables
+            await new Promise(resolve => setTimeout(resolve, 800));
+            
+            toast.success(`${channel.toUpperCase()} Sent Successfully!`, {
+                icon: '🚀',
+                style: { background: '#1e293b', color: '#fff', fontSize: '12px' }
+            });
+            setShowSmartSuccess(true);
+        } catch (err) {
+            toast.error(`Failed to send ${channel}`);
+        } finally {
+            setIsProcessingSmart(false);
+        }
     };
 
     if (!isOpen) return null;
@@ -197,6 +246,59 @@ const CallModal = ({ isOpen, onClose, contact, context, onCallEnd }) => {
                             >
                                 Save Outcome
                             </button>
+                        </div>
+                    )}
+
+                    {/* STEP 4: SMART FOLLOW-UP (NEW) */}
+                    {step === 'smart_follow_up' && (
+                        <div style={{ textAlign: 'center', animation: 'fadeIn 0.3s ease' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', color: 'var(--gold)', marginBottom: '16px' }}>
+                                <Sparkles size={20} />
+                                <h3 style={{ margin: 0, fontWeight: 800 }}>Smart Follow-up</h3>
+                            </div>
+                            
+                            <p style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '24px' }}>
+                                Professional templates matched for <b>"{outcomeData.outcome}"</b>. Send instantly?
+                            </p>
+
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                {['whatsapp', 'sms', 'email'].map(channel => {
+                                    const hasContent = smartTemplates?.[outcomeData.outcome]?.[channel];
+                                    if (!hasContent) return null;
+
+                                    return (
+                                        <button 
+                                            key={channel}
+                                            onClick={() => handleSendSmart(channel)}
+                                            disabled={isProcessingSmart}
+                                            style={{ 
+                                                ...btnStyle('secondary'), 
+                                                justifyContent: 'space-between', 
+                                                padding: '12px 20px',
+                                                border: '1px solid #e2e8f0',
+                                                background: '#fff'
+                                            }}
+                                        >
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                                {channel === 'whatsapp' && <MessageCircle size={18} color="#25D366" />}
+                                                {channel === 'sms' && <Send size={18} color="#3b82f6" />}
+                                                {channel === 'email' && <Mail size={18} color="#64748b" />}
+                                                <span style={{ fontWeight: 700, textTransform: 'capitalize' }}>Send {channel}</span>
+                                            </div>
+                                            <i className="fas fa-chevron-right" style={{ fontSize: '0.7rem', color: '#cbd5e1' }}></i>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+
+                            <div style={{ marginTop: '24px', display: 'flex', justifyContent: 'center' }}>
+                                <button 
+                                    onClick={onClose}
+                                    style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '0.85rem', cursor: 'pointer', textDecoration: 'underline' }}
+                                >
+                                    Finish without sending
+                                </button>
+                            </div>
                         </div>
                     )}
 

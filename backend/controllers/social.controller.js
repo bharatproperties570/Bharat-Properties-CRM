@@ -11,6 +11,7 @@ import mongoose from 'mongoose';
 import Lead, { resolveLeadLookup } from '../models/Lead.js';
 import Activity from '../models/Activity.js';
 import Contact from '../models/Contact.js';
+import { marketingQueue } from '../src/queues/marketingQueue.js';
 
 /**
  * POST /api/social/config/enterprise
@@ -110,8 +111,6 @@ export const sendWhatsAppMessage = async (req, res) => {
 
 /**
  * GET /api/social/ig/media
-... (keep existing exports)
-... (keep existing exports)
  * Fetch recent Instagram media objects for the configured Business Account.
  */
 export const listInstagramMedia = async (req, res) => {
@@ -398,6 +397,45 @@ export const receiveWebhook = async (req, res) => {
                         await match.save();
                     }
                 }
+
+                // --- WhatsApp Status Synchronization (Sent/Delivered/Read) ---
+                if (event.platform === 'whatsapp' && event.type === 'status_update') {
+                    console.log(`[SocialWebhook] Processing Status Update: ${event.messageId} -> ${event.status}`);
+                    
+                    const Activity = (await import('../models/Activity.js')).default;
+                    
+                    // Match by the message ID stored in details
+                    const activity = await Activity.findOne({ "details.messageId": event.messageId });
+                    
+                    if (activity) {
+                        const statusMap = {
+                            'sent':      'Sent',
+                            'delivered': 'Delivered',
+                            'read':      'Read',
+                            'failed':    'Failed'
+                        };
+
+                        const newStatus = statusMap[event.status] || 'Active';
+                        
+                        // Update the activity status and subject for visual feedback in the timeline
+                        activity.status = 'Completed'; 
+                        activity.details.waStatus = event.status;
+                        activity.details.lastEventAt = event.timestamp;
+                        
+                        if (event.status === 'read') {
+                            activity.subject = activity.subject.replace(/Sent|Delivered/, 'Read');
+                        } else if (event.status === 'delivered') {
+                            activity.subject = activity.subject.replace('Sent', 'Delivered');
+                        } else if (event.status === 'failed') {
+                            activity.status = 'Delayed';
+                            activity.subject = `❌ ${activity.subject} (Failed)`;
+                            activity.details.error = event.error;
+                        }
+
+                        await activity.save();
+                        console.log(`[SocialWebhook] ✅ Updated Activity: ${activity._id} to ${event.status}`);
+                    }
+                }
             }
         }
     } catch (err) {
@@ -494,9 +532,41 @@ export const getUnifiedStatus = async (req, res) => {
  */
 export const postSocialMedia = async (req, res) => {
     try {
-        const { platform, text, imageUrl, format = 'post' } = req.body;
+        const { platform, text, imageUrl, format = 'post', scheduledTime, entityId, entityType } = req.body;
         if (!platform || !text) {
             return res.status(400).json({ success: false, error: 'Platform and text are required' });
+        }
+
+        // ─── HANDLING SCHEDULED POSTS ──────────────────────────────────────────
+        if (scheduledTime) {
+            const scheduledDate = new Date(scheduledTime);
+            const now = new Date();
+            const delay = scheduledDate.getTime() - now.getTime();
+
+            if (delay < 0) {
+                return res.status(400).json({ success: false, error: 'Scheduled time must be in the future' });
+            }
+
+            console.log(`[SocialController] Queuing scheduled post for ${platform} in ${Math.round(delay/1000)} seconds...`);
+            
+            await marketingQueue.add('scheduled-social-dispatch', {
+                platform,
+                text,
+                imageUrl,
+                format,
+                entityId,
+                entityType
+            }, { 
+                delay,
+                jobId: `social_${platform}_${entityId}_${scheduledDate.getTime()}` // Prevent duplicates
+            });
+
+            return res.json({ 
+                success: true, 
+                message: `Post successfully scheduled for ${scheduledDate.toLocaleString()}`,
+                scheduled: true,
+                scheduledAt: scheduledDate
+            });
         }
 
         let result;

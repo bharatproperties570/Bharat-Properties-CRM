@@ -26,6 +26,7 @@ const AddOwnerModal = ({ isOpen, onClose, onSave, currentOwners = [] }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [filteredContacts, setFilteredContacts] = useState([]);
     const [isSearching, setIsSearching] = useState(false);
+    const [isSaving, setIsSaving] = useState(false);
     const [selectedContact, setSelectedContact] = useState(null);
     const [linkData, setLinkData] = useState({ role: 'Property Owner', relationship: '', source: 'Update data' });
 
@@ -142,9 +143,16 @@ const AddOwnerModal = ({ isOpen, onClose, onSave, currentOwners = [] }) => {
         toast.success('Ownership Transferred Successfully');
     };
 
-    const handleSave = () => {
-        onSave(owners);
-        onClose();
+    const handleSave = async () => {
+        setIsSaving(true);
+        try {
+            await onSave(owners);
+            // Modal closes from parent or standard onClose
+        } catch (err) {
+            console.error("Save error:", err);
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     if (!isOpen) return null;
@@ -330,7 +338,25 @@ const AddOwnerModal = ({ isOpen, onClose, onSave, currentOwners = [] }) => {
                 {/* Footer */}
                 <div style={{ padding: '16px 24px', borderTop: '1px solid #f1f5f9', background: '#f8fafc', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
                     <button onClick={onClose} style={buttonStyle.cancel}>Cancel</button>
-                    <button onClick={handleSave} style={buttonStyle.success}>Save Changes</button>
+                    <button 
+                        onClick={handleSave} 
+                        disabled={isSaving}
+                        style={{
+                            ...buttonStyle.success,
+                            opacity: isSaving ? 0.7 : 1,
+                            cursor: isSaving ? 'not-allowed' : 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px'
+                        }}
+                    >
+                        {isSaving ? (
+                            <>
+                                <i className="fas fa-spinner fa-spin"></i>
+                                Saving...
+                            </>
+                        ) : 'Save Changes'}
+                    </button>
                 </div>
             </div>
             <style>{`

@@ -28,7 +28,7 @@ export const login = async (req, res) => {
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) return res.status(401).json({ success: false, message: "Invalid credentials" });
 
-        const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "15m" });
+        const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "4h" });
         const refreshToken = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "7d" });
 
         // Record login activity
@@ -43,7 +43,7 @@ export const login = async (req, res) => {
         });
 
         const populatedUser = await User.findById(user._id).populate('role', 'name');
-        res.json({ success: true, token, user: { id: user._id, name: user.fullName || user.username, role: populatedUser.role } });
+        res.json({ success: true, token, refreshToken, user: { id: user._id, name: user.fullName || user.username, role: populatedUser.role } });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -67,7 +67,7 @@ export const register = async (req, res) => {
 
 export const refresh = async (req, res) => {
     try {
-        const refreshToken = req.cookies.refreshToken;
+        const refreshToken = req.cookies.refreshToken || req.body.refreshToken;
         if (!refreshToken) return res.status(401).json({ success: false, message: "No refresh token provided" });
 
         const isBlacklisted = await BlacklistedToken.findOne({ token: refreshToken });
@@ -76,7 +76,7 @@ export const refresh = async (req, res) => {
         jwt.verify(refreshToken, process.env.JWT_SECRET, async (err, decoded) => {
             if (err) return res.status(403).json({ success: false, message: "Refresh token expired or invalid" });
 
-            const newAccessToken = jwt.sign({ id: decoded.id, role: decoded.role }, process.env.JWT_SECRET, { expiresIn: "15m" });
+            const newAccessToken = jwt.sign({ id: decoded.id, role: decoded.role }, process.env.JWT_SECRET, { expiresIn: "4h" });
             const newRefreshToken = jwt.sign({ id: decoded.id, role: decoded.role }, process.env.JWT_SECRET, { expiresIn: "7d" });
 
             await BlacklistedToken.create({ token: refreshToken }).catch(() => null);
@@ -89,7 +89,7 @@ export const refresh = async (req, res) => {
                 maxAge: 7 * 24 * 60 * 60 * 1000
             });
 
-            res.json({ success: true, token: newAccessToken });
+            res.json({ success: true, token: newAccessToken, refreshToken: newRefreshToken });
         });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });

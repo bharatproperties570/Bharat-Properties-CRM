@@ -15,7 +15,7 @@
 
 // ─── STAGE PIPELINE ───────────────────────────────────────────────────────────
 export const STAGE_PIPELINE = [
-    { id: 'new', label: 'New', color: '#94a3b8', icon: 'fa-star', probability: 5 },
+    { id: 'new', label: 'Incoming Lead', color: '#94a3b8', icon: 'fa-star', probability: 5 },
     { id: 'prospect', label: 'Prospect', color: '#3b82f6', icon: 'fa-user', probability: 10 },
     { id: 'qualified', label: 'Qualified', color: '#8b5cf6', icon: 'fa-check-circle', probability: 25 },
     { id: 'opportunity', label: 'Opportunity', color: '#f59e0b', icon: 'fa-fire', probability: 40 },
@@ -55,7 +55,7 @@ export const STAGE_STABILITY_CONFIG = {
 // Stage priority order (higher index = more advanced stage)
 // 'Stalled' sits between Negotiation and Booked — it is a sideways/terminal state.
 // 'Closed Lost' is the lowest terminal. Moving FROM Stalled TO active stages is recovery (always allowed).
-const STAGE_ORDER = ['Closed Lost', 'Dormant', 'New', 'Prospect', 'Qualified', 'Opportunity', 'Negotiation', 'Stalled', 'Booked', 'Closed Won'];
+const STAGE_ORDER = ['Closed Lost', 'Dormant', 'Incoming Lead', 'Prospect', 'Qualified', 'Opportunity', 'Negotiation', 'Stalled', 'Booked', 'Closed Won'];
 
 /** Returns true for terminal/sideways states that cannot be further downgraded. */
 export const isTerminalStage = (stageName) =>
@@ -127,7 +127,7 @@ export const computeStage = (activityType, purpose, outcome, stageMappingRules =
     const purpLower = (purpose || '').toLowerCase();
     const outLower = (outcome || '').toLowerCase();
 
-    let computedStage = 'New';
+    let computedStage = 'Incoming Lead';
     let requiredForms = []; // ← array (was single string)
 
     // 1. Check explicit override rules (ordered by priority ascending)
@@ -182,7 +182,7 @@ export const flattenOutcomeMappings = (activityMasterFields = {}) => {
     for (const act of activities) {
         for (const purp of (act.purposes || [])) {
             for (const out of (purp.outcomes || [])) {
-                const stageName = out.stage || 'New';
+                const stageName = out.stage || 'Incoming Lead';
                 // Support both old requiredForm (string) and new requiredForms (array)
                 const requiredForms = Array.isArray(out.requiredForms)
                     ? out.requiredForms

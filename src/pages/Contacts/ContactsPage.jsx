@@ -199,19 +199,17 @@ const ContactRow = memo(function ContactRow({
             ));
           })()}
         </div>
-        <div style={{ marginTop: '4px', fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600 }}>Last: {item.lastAct || "Today"}</div>
       </div>
-
-      <div className="col-assignment">
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          <div className="profile-circle" style={{ width: "28px", height: "28px", fontSize: "0.65rem", background: "#f1f5f9", color: "#64748b" }}>
+      <div className="col-assignment" style={{ textAlign: "right", paddingRight: "10px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", justifyContent: "flex-end" }}>
+          <div className="avatar-circle" style={{ width: "26px", height: "26px", fontSize: "0.65rem", background: "#f1f5f9", color: "#64748b", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, border: "1px solid #e2e8f0" }}>
             {getInitials(getUserName(item?.assignment?.assignedTo || item?.owner || item?.ownership))}
           </div>
-          <div style={{ lineHeight: 1.2 }}>
-            <div style={{ fontSize: "0.8rem", fontWeight: 800, color: "#0f172a" }}>
+          <div style={{ textAlign: "right", lineHeight: 1.2 }}>
+            <div style={{ fontSize: "0.75rem", fontWeight: 900, color: "#0f172a" }}>
               {getUserName(item?.assignment?.assignedTo || item?.owner || item?.ownership)}
             </div>
-            <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>
+            <div style={{ fontSize: "0.6rem", color: "#64748b", fontWeight: 700 }}>
               {getTeamName(item?.assignment?.team || item?.team)}
             </div>
           </div>
@@ -313,19 +311,22 @@ const ContactCard = memo(function ContactCard({
         </div>
 
         <div>
-          <div style={{ fontSize: "0.65rem", fontWeight: 800, color: "#9ca3af", marginBottom: "4px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Assigned To</div>
-          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            <div style={{ width: "24px", height: "24px", borderRadius: "50%", background: "#f3f4f6", color: "#6b7280", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.65rem", fontWeight: 700, flexShrink: 0 }}>
-              {getInitials(getUserName(item?.assignment?.assignedTo || item?.owner || item?.ownership))}
-            </div>
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: "0.7rem", fontWeight: 800, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {getUserName(item?.assignment?.assignedTo || item?.owner || item?.ownership)}
+          <div style={{ fontSize: "0.65rem", fontWeight: 800, color: "#9ca3af", marginBottom: "4px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Assigned To & Actions</div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <div style={{ width: "24px", height: "24px", borderRadius: "50%", background: "#f3f4f6", color: "#6b7280", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.65rem", fontWeight: 700, flexShrink: 0 }}>
+                {getInitials(getUserName(item?.assignment?.assignedTo || item?.owner || item?.ownership))}
               </div>
-              <div style={{ fontSize: '0.6rem', color: '#64748b', fontWeight: 600 }}>
-                {getTeamName(item?.assignment?.team || item?.team)}
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: "0.7rem", fontWeight: 800, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {getUserName(item?.assignment?.assignedTo || item?.owner || item?.ownership)}
+                </div>
+                <div style={{ fontSize: '0.6rem', color: '#64748b', fontWeight: 600 }}>
+                  {getTeamName(item?.assignment?.team || item?.team)}
+                </div>
               </div>
             </div>
+
           </div>
         </div>
       </div>
@@ -663,13 +664,13 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
             <>
               <div className="list-header contact-list-grid" style={{ position: "sticky", top: "65px", zIndex: 100 }}>
                 <input type="checkbox" checked={isAllSelected} ref={(input) => { if (input) input.indeterminate = isIndeterminate; }} onChange={toggleSelectAll} style={{ cursor: "pointer" }} />
-                <div>Personal Details</div>
-                <div>Location & Address</div>
-                <div>Professional Detail</div>
-                <div>Source & Tags</div>
-                <div>CRM Linkage</div>
-                <div>Interaction</div>
-                <div style={{ paddingLeft: "10px" }}>Assignment</div>
+                <div>ID & IDENTITY</div>
+                <div>LOCATION</div>
+                <div>PROFESSIONAL</div>
+                <div>SOURCE & TAGS</div>
+                <div>CRM LINKS</div>
+                <div>INTERACTION</div>
+                <div style={{ paddingLeft: "10px" }}>ASSIGNMENT</div>
               </div>
 
               <div id="contactListContent">
