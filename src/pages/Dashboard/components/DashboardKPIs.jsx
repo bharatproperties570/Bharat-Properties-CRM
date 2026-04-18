@@ -4,18 +4,18 @@ const KpiCard = memo(function KpiCard({ title, value, subtitle, icon, color, tre
     const isPositive = trend > 0;
     
     return (
-        <div className="glass-card" style={{ padding: '24px', position: 'relative', overflow: 'hidden' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
-                <div style={{ width: '48px', height: '48px', borderRadius: '14px', background: `${color}15`, border: `1px solid ${color}30`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: color, boxShadow: `0 0 20px ${color}10` }}>
-                    <i className={`${icon} fa-xl`}></i>
+        <div className="glass-card" style={{ padding: '18px 20px', position: 'relative', overflow: 'hidden' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                <div style={{ width: '42px', height: '42px', borderRadius: '12px', background: `${color}15`, border: `1px solid ${color}30`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: color, boxShadow: `0 0 15px ${color}10` }}>
+                    <i className={`${icon} fa-lg`}></i>
                 </div>
                 {trend !== undefined && (
                     <div style={{ 
-                        fontSize: '0.75rem', 
+                        fontSize: '0.7rem', 
                         fontWeight: 700, 
                         color: isPositive ? '#10b981' : '#94a3b8', 
                         background: isPositive ? 'rgba(16, 185, 129, 0.1)' : 'rgba(148, 163, 184, 0.05)', 
-                        padding: '6px 10px', 
+                        padding: '4px 8px', 
                         borderRadius: '20px', 
                         display: 'flex', 
                         alignItems: 'center', 
@@ -27,12 +27,12 @@ const KpiCard = memo(function KpiCard({ title, value, subtitle, icon, color, tre
                 )}
             </div>
             
-            <h3 style={{ fontSize: '0.85rem', color: '#94a3b8', fontWeight: 600, margin: '0 0 8px 0', letterSpacing: '0.02em' }}>{title.toUpperCase()}</h3>
-            <div style={{ fontSize: '1.8rem', fontWeight: 900, color: '#fff', letterSpacing: '-0.02em' }}>{value}</div>
-            <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '6px 0 0 0', fontWeight: 500 }}>{subtitle}</p>
+            <h3 style={{ fontSize: '0.8rem', color: '#94a3b8', fontWeight: 600, margin: '0 0 6px 0', letterSpacing: '0.02em', opacity: 0.8 }}>{title.toUpperCase()}</h3>
+            <div style={{ fontSize: '1.6rem', fontWeight: 900, color: '#fff', letterSpacing: '-0.02em' }}>{value}</div>
+            <p style={{ fontSize: '0.7rem', color: '#64748b', margin: '4px 0 0 0', fontWeight: 500, lineHeight: 1.2 }}>{subtitle}</p>
             
             {/* Decorative Glow */}
-            <div style={{ position: 'absolute', right: '-20px', bottom: '-20px', fontSize: '5rem', color: `${color}05`, transform: 'rotate(-15deg)', pointerEvents: 'none' }}>
+            <div style={{ position: 'absolute', right: '-15px', bottom: '-15px', fontSize: '4rem', color: `${color}05`, transform: 'rotate(-15deg)', pointerEvents: 'none' }}>
                 <i className={icon}></i>
             </div>
         </div>
@@ -40,11 +40,11 @@ const KpiCard = memo(function KpiCard({ title, value, subtitle, icon, color, tre
 });
 
 const DashboardKPIs = ({ metrics, formatters }) => {
-    const { totalLeads, hotLeads, totalDeals, totalInventory, reengagedCount, nfaCount, trends } = metrics;
-    const { fmtNum } = formatters;
+    const { totalLeads, hotLeads, totalDeals, totalInventory, reengagedCount, nfaCount, trends, perf } = metrics;
+    const { fmtNum, fmtCr } = formatters;
 
     return (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px', marginBottom: '32px' }}>
+        <div className="kpi-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px', marginBottom: '24px' }}>
             <KpiCard
                 title="Total Intelligence"
                 value={fmtNum(totalLeads)}
@@ -79,14 +79,22 @@ const DashboardKPIs = ({ metrics, formatters }) => {
             <KpiCard
                 title="Lead Revival"
                 value={fmtNum(reengagedCount)}
-                subtitle="Dormant intelligence active"
+                subtitle="Dormant leads re-engaged"
                 icon="fas fa-bolt"
                 color="#06b6d4"
             />
             <KpiCard
+                title="Revenue Performance"
+                value={fmtCr(perf?.mtdCommission || 0)}
+                subtitle="MTD Secured Revenue"
+                icon="fas fa-hand-holding-usd"
+                color="#10b981"
+                trend={trends.revenue}
+            />
+            <KpiCard
                 title="Critical Action"
                 value={fmtNum(nfaCount)}
-                subtitle="Immediate NFA required"
+                subtitle="Leads with no future actions"
                 icon="fas fa-radiation"
                 color="#f59e0b"
             />

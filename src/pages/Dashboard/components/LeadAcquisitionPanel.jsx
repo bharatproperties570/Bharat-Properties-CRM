@@ -7,7 +7,7 @@ const LeadAcquisitionPanel = ({ charts, metrics, formatters }) => {
     const { fmtNum, fmtCr } = formatters;
 
     return (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '24px', marginBottom: '32px' }}>
+        <div className="dashboard-panel-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '24px', marginBottom: '32px' }}>
             {/* Main Command Center */}
             <div className="glass-card" style={{ padding: '24px', position: 'relative' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
@@ -27,7 +27,7 @@ const LeadAcquisitionPanel = ({ charts, metrics, formatters }) => {
                     </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '32px' }}>
+                <div className="acq-metric-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '32px' }}>
                     {[
                         { label: 'AVG RESPONSE', value: perf.avgResponseTime || 'N/A', icon: 'fa-tachometer-alt', color: '#6366f1' },
                         { label: 'LEAD VELOCITY', value: perf.leadVelocity || 'STABLE', icon: 'fa-wind', color: '#10b981' },

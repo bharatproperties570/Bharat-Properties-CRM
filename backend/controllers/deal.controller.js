@@ -248,7 +248,46 @@ export const matchDeals = async (req, res) => {
                 };
             });
 
-        const sorted = matchingDeals.sort((a,b) => b.score - a.score).slice(0, 50);
+        // 5. Final Enrichment with Inventory Details (for UI parity)
+        const inventoryIds = [...new Set(matchingDeals.map(d => d.inventoryId?._id || d.inventoryId).filter(Boolean))];
+        const inventoryMap = new Map();
+        if (inventoryIds.length > 0) {
+            const inventories = await mongoose.model('Inventory').find({ _id: { $in: inventoryIds } }).lean();
+            inventories.forEach(inv => inventoryMap.set(String(inv._id), inv));
+        }
+
+        const finalDeals = matchingDeals.map(deal => {
+            const dealObj = { ...deal };
+            const invId = dealObj.inventoryId?._id || dealObj.inventoryId;
+            const inventory = inventoryMap.get(String(invId));
+
+            if (inventory) {
+                // Metadata labels should always be live
+                dealObj.projectName = inventory.projectName || dealObj.projectName;
+                dealObj.block = inventory.block || dealObj.block;
+                dealObj.unitNo = inventory.unitNo || inventory.unitNumber || dealObj.unitNo;
+                dealObj.location = inventory.location || inventory.address?.locality || dealObj.location;
+                
+                // Add Size Metadata
+                dealObj.size = inventory.size || dealObj.size;
+                dealObj.sizeUnit = inventory.sizeUnit || inventory.unit || dealObj.sizeUnit;
+                dealObj.sizeLabel = inventory.sizeLabel || inventory.size_label || inventory.unitSpecification?.sizeLabel || dealObj.sizeLabel;
+                dealObj.sizeConfig = inventory.sizeConfig || inventory.size_config || inventory.unitSpecification?.sizeConfig || dealObj.sizeConfig;
+                dealObj.unitSpecification = inventory.unitSpecification || dealObj.unitSpecification;
+                
+                // Redundancy for nested object
+                if (dealObj.inventoryId && typeof dealObj.inventoryId === 'object') {
+                    dealObj.inventoryId.sizeLabel = inventory.sizeLabel || inventory.size_label || inventory.unitSpecification?.sizeLabel;
+                    dealObj.inventoryId.sizeConfig = inventory.sizeConfig || inventory.size_config || inventory.unitSpecification?.sizeConfig;
+                    dealObj.inventoryId.size = inventory.size;
+                    dealObj.inventoryId.sizeUnit = inventory.sizeUnit || inventory.unit;
+                    dealObj.inventoryId.unitSpecification = inventory.unitSpecification;
+                }
+            }
+            return dealObj;
+        });
+
+        const sorted = finalDeals.sort((a,b) => b.score - a.score).slice(0, 50);
         return res.status(200).json({ success: true, count: sorted.length, data: sorted });
     } catch (error) {
         console.error("[matchDeals Error]:", error);
@@ -410,7 +449,7 @@ export const getDeals = async (req, res) => {
 
         // 🏎️ SENIOR OPTIMIZATION: Lean population for summary list view
         const dealListPopulateFields = [
-            { path: 'inventoryId', select: 'projectName unitNo block city location' },
+            { path: 'inventoryId', select: 'projectName unitNo unitNumber block city location area size sizeUnit sizeLabel sizeConfig unitSpecification' },
             { path: 'projectId', select: 'name' },
             { path: 'owner', select: 'name phones', model: 'Contact' },
             { path: 'category', select: 'lookup_value' },
@@ -498,11 +537,34 @@ export const getDeals = async (req, res) => {
                 if (inventory.owners?.[0]) dealObj.owner = inventory.owners[0];
                 if (inventory.associates?.[0]?.contact) dealObj.associatedContact = inventory.associates[0].contact;
                 
-                // Metadata labels should always be live
+                // Metadata labels should always be live from the source of truth (Inventory)
                 dealObj.projectName = inventory.projectName || dealObj.projectName;
                 dealObj.block = inventory.block || dealObj.block;
                 dealObj.unitNo = inventory.unitNo || inventory.unitNumber || dealObj.unitNo;
                 dealObj.location = inventory.location || inventory.address?.locality || dealObj.location;
+                
+                // Add Size Metadata (Handle both camelCase and snake_case for legacy data parity)
+                // We map these to the root for flat access and the nested object for standard helper access
+                const size = inventory.size || dealObj.size;
+                const sizeUnit = inventory.sizeUnit || inventory.size_unit || inventory.unit || dealObj.sizeUnit;
+                const sizeLabel = inventory.sizeLabel || inventory.size_label || inventory.unitSpecification?.sizeLabel || dealObj.sizeLabel;
+                const sizeConfig = inventory.sizeConfig || inventory.size_config || inventory.unitSpecification?.sizeConfig || dealObj.sizeConfig;
+                const unitSpec = inventory.unitSpecification || dealObj.unitSpecification;
+
+                dealObj.size = size;
+                dealObj.sizeUnit = sizeUnit;
+                dealObj.sizeLabel = sizeLabel;
+                dealObj.sizeConfig = sizeConfig;
+                dealObj.unitSpecification = unitSpec;
+                
+                // Ensure the nested object also has them (redundancy for robust frontend helper)
+                if (typeof dealObj.inventoryId === 'object' && dealObj.inventoryId !== null) {
+                    dealObj.inventoryId.sizeLabel = sizeLabel;
+                    dealObj.inventoryId.sizeConfig = sizeConfig;
+                    dealObj.inventoryId.size = size;
+                    dealObj.inventoryId.sizeUnit = sizeUnit;
+                    dealObj.inventoryId.unitSpecification = unitSpec;
+                }
             }
             
             const ownerId = dealObj.owner?._id || dealObj.owner;
@@ -591,6 +653,22 @@ export const getDealById = async (req, res) => {
                 dealObj.projectName = inventory.projectName || dealObj.projectName;
                 dealObj.block = inventory.block || dealObj.block;
                 dealObj.unitNo = inventory.unitNo || inventory.unitNumber || dealObj.unitNo;
+
+                // Add Size Metadata
+                dealObj.size = inventory.size || dealObj.size;
+                dealObj.sizeUnit = inventory.sizeUnit || inventory.unit || dealObj.sizeUnit;
+                dealObj.sizeLabel = inventory.sizeLabel || inventory.size_label || inventory.unitSpecification?.sizeLabel || dealObj.sizeLabel;
+                dealObj.sizeConfig = inventory.sizeConfig || inventory.size_config || inventory.unitSpecification?.sizeConfig || dealObj.sizeConfig;
+                dealObj.unitSpecification = inventory.unitSpecification || dealObj.unitSpecification;
+                
+                // Redundancy for nested object
+                if (typeof dealObj.inventoryId === 'object' && dealObj.inventoryId !== null) {
+                    dealObj.inventoryId.sizeLabel = inventory.sizeLabel || inventory.size_label || inventory.unitSpecification?.sizeLabel || dealObj.inventoryId.sizeLabel;
+                    dealObj.inventoryId.sizeConfig = inventory.sizeConfig || inventory.size_config || inventory.unitSpecification?.sizeConfig || dealObj.inventoryId.sizeConfig;
+                    dealObj.inventoryId.size = inventory.size || dealObj.inventoryId.size;
+                    dealObj.inventoryId.sizeUnit = inventory.sizeUnit || inventory.unit || dealObj.inventoryId.sizeUnit;
+                    dealObj.inventoryId.unitSpecification = inventory.unitSpecification || dealObj.inventoryId.unitSpecification;
+                }
             }
         }
 

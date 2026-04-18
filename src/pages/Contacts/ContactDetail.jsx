@@ -60,6 +60,14 @@ const ContactDetail = ({ contactId, onBack }) => {
     const [isAddLeadModalOpen, setIsAddLeadModalOpen] = useState(false);
     const [isAddDealModalOpen, setIsAddDealModalOpen] = useState(false);
     const [isActivityModalOpen, setIsActivityModalOpen] = useState(false);
+    const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'activities', 'deals', 'inventory'
+    const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+
+    useEffect(() => {
+        const handleResize = () => setIsMobile(window.innerWidth < 768);
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
 
 
 
@@ -543,6 +551,60 @@ const ContactDetail = ({ contactId, onBack }) => {
                     padding-right: 2rem;
                     border-bottom: 1px solid #e2e8f0;
                 }
+                
+                /* Mobile Optimized Layout */
+                @media (max-width: 768px) {
+                    .contact-detail-page {
+                        overflow-y: auto !important;
+                    }
+                    .desktop-grid {
+                        flex-direction: column !important;
+                        height: auto !important;
+                        padding: 12px 10px !important;
+                        gap: 12px !important;
+                        overflow-y: visible !important;
+                    }
+                    .mobile-col {
+                        flex: 1 1 100% !important;
+                        width: 100% !important;
+                        max-width: 100% !important;
+                        min-width: 0 !important;
+                        padding-bottom: 80px !important;
+                    }
+                    .hide-mobile {
+                        display: none !important;
+                    }
+                    .mobile-tab-nav {
+                        display: flex !important;
+                        background: #fff;
+                        border-bottom: 1px solid #e2e8f0;
+                        padding: 0 10px;
+                        position: sticky;
+                        top: 0;
+                        z-index: 90;
+                    }
+                    .mobile-tab-btn {
+                        flex: 1;
+                        padding: 12px 5px;
+                        font-size: 0.7rem;
+                        font-weight: 800;
+                        color: #64748b;
+                        border-bottom: 2px solid transparent;
+                        text-align: center;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                    }
+                    .mobile-tab-btn.active {
+                        color: #4f46e5;
+                        border-bottom-color: #4f46e5;
+                    }
+                    .mobile-bottom-bar {
+                        display: flex !important;
+                    }
+                    .detail-header-actions {
+                        display: none !important;
+                    }
+                }
                 `}
             </style>
             <ContactDetailHeader 
@@ -596,11 +658,21 @@ const ContactDetail = ({ contactId, onBack }) => {
                     </div>
                 )}
 
+                {/* MOBILE TAB NAV - Sticky */}
+                {isMobile && (
+                    <div className="mobile-tab-nav">
+                        <button className={`mobile-tab-btn ${activeTab === 'overview' ? 'active' : ''}`} onClick={() => setActiveTab('overview')}>Overview</button>
+                        <button className={`mobile-tab-btn ${activeTab === 'activities' ? 'active' : ''}`} onClick={() => setActiveTab('activities')}>Interaction</button>
+                        <button className={`mobile-tab-btn ${activeTab === 'deals' ? 'active' : ''}`} onClick={() => setActiveTab('deals')}>Deals</button>
+                        <button className={`mobile-tab-btn ${activeTab === 'inventory' ? 'active' : ''}`} onClick={() => setActiveTab('inventory')}>Properties</button>
+                    </div>
+                )}
+
                 {/* THREE COLUMN GRID - PROFESSIONAL DASHBOARD */}
-                <div className="no-scrollbar" style={{ flex: 1, display: 'flex', gap: '16px', padding: '12px 24px', height: 'calc(100vh - 250px)', overflow: 'hidden', background: '#f8fafc' }}>
+                <div className="no-scrollbar desktop-grid" style={{ flex: 1, display: 'flex', gap: '16px', padding: '12px 24px', height: 'calc(100vh - 250px)', overflow: 'hidden', background: '#f8fafc' }}>
                     
                     {/* COLUMN 1: LEFT - Profile & Preferences */}
-                    <div style={{ flex: '0 0 400px', display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto', minHeight: 0, paddingBottom: '20px' }}>
+                    <div className={`mobile-col ${isMobile && activeTab !== 'overview' ? 'hide-mobile' : ''}`} style={{ flex: '0 0 400px', display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto', minHeight: 0, paddingBottom: '20px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                             <i className="fas fa-id-card" style={{ color: '#4f46e5' }}></i>
                             <span style={{ fontSize: '0.7rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Contact Intelligence</span>
@@ -627,7 +699,7 @@ const ContactDetail = ({ contactId, onBack }) => {
                     </div>
 
                     {/* COLUMN 2: CENTER - Interaction Intelligence */}
-                    <div style={{ flex: '1', display: 'flex', flexDirection: 'column', minWidth: '0', minHeight: 0, position: 'relative', overflowY: 'auto', paddingBottom: '20px' }}>
+                    <div className={`mobile-col ${isMobile && activeTab !== 'activities' ? 'hide-mobile' : ''}`} style={{ flex: '1', display: 'flex', flexDirection: 'column', minWidth: '0', minHeight: 0, position: 'relative', overflowY: 'auto', paddingBottom: '20px' }}>
                         <div className="glass-card activity-timeline-container" style={{ 
                             background: '#fff',
                             borderRadius: '16px',
@@ -656,46 +728,78 @@ const ContactDetail = ({ contactId, onBack }) => {
                     </div>
 
                     {/* COLUMN 3: RIGHT - Secondary Dashboard */}
-                    <div style={{ flex: '0 0 400px', display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto', minHeight: 0, paddingBottom: '20px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                            <i className="fas fa-chart-line" style={{ color: '#4f46e5' }}></i>
-                            <span style={{ fontSize: '0.7rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Strategic Monitoring</span>
-                        </div>
-                        {recordType === 'lead' && (
-                            <ContactPropertyRequirement
-                                contact={contact}
-                                aiStats={aiStats}
+                    <div className={`mobile-col ${isMobile && (activeTab !== 'deals' && activeTab !== 'inventory') ? 'hide-mobile' : ''}`} style={{ flex: '0 0 400px', display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto', minHeight: 0, paddingBottom: '20px' }}>
+                        {/* Deals Section logic in mobile tab */}
+                        {isMobile && activeTab === 'inventory' ? (
+                            <ContactOwnedProperties
                                 expandedSections={expandedSections}
                                 toggleSection={toggleSection}
-                                renderLookup={renderLookup}
-                                onEdit={() => setIsAddLeadModalOpen(true)}
+                                ownedProperties={ownedProperties}
+                                setIsInventoryModalOpen={setIsInventoryModalOpen}
+                                renderValue={renderValue}
+                                renderLookup={getLookupValue}
                             />
+                        ) : isMobile && activeTab === 'deals' ? (
+                            <ContactRelatedDeals
+                                contact={contact}
+                                recordType={recordType}
+                                expandedSections={expandedSections}
+                                toggleSection={toggleSection}
+                                matchedDeals={matchedDeals}
+                                loadingMatches={loadingMatches}
+                                renderValue={renderValue}
+                                showNotification={showNotification}
+                                activeDeals={activeDeals}
+                                setIsAddDealModalOpen={setIsAddDealModalOpen}
+                                renderLookup={getLookupValue}
+                            />
+                        ) : (
+                            <>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                                    <i className="fas fa-chart-line" style={{ color: '#4f46e5' }}></i>
+                                    <span style={{ fontSize: '0.7rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Strategic Monitoring</span>
+                                </div>
+                                {recordType === 'lead' && (
+                                    <ContactPropertyRequirement
+                                        contact={contact}
+                                        aiStats={aiStats}
+                                        expandedSections={expandedSections}
+                                        toggleSection={toggleSection}
+                                        renderLookup={renderLookup}
+                                        onEdit={() => setIsAddLeadModalOpen(true)}
+                                    />
+                                )}
+
+                                <div className={isMobile ? 'hide-mobile' : ''}>
+                                    <ContactRelatedDeals
+                                        contact={contact}
+                                        recordType={recordType}
+                                        expandedSections={expandedSections}
+                                        toggleSection={toggleSection}
+                                        matchedDeals={matchedDeals}
+                                        loadingMatches={loadingMatches}
+                                        renderValue={renderValue}
+                                        showNotification={showNotification}
+                                        activeDeals={activeDeals}
+                                        setIsAddDealModalOpen={setIsAddDealModalOpen}
+                                        renderLookup={getLookupValue}
+                                    />
+                                </div>
+
+                                <div className={isMobile ? 'hide-mobile' : ''}>
+                                    <ContactOwnedProperties
+                                        expandedSections={expandedSections}
+                                        toggleSection={toggleSection}
+                                        ownedProperties={ownedProperties}
+                                        setIsInventoryModalOpen={setIsInventoryModalOpen}
+                                        renderValue={renderValue}
+                                        renderLookup={getLookupValue}
+                                    />
+                                </div>
+                            </>
                         )}
 
-                        <ContactRelatedDeals
-                            contact={contact}
-                            recordType={recordType}
-                            expandedSections={expandedSections}
-                            toggleSection={toggleSection}
-                            matchedDeals={matchedDeals}
-                            loadingMatches={loadingMatches}
-                            renderValue={renderValue}
-                            showNotification={showNotification}
-                            activeDeals={activeDeals}
-                            setIsAddDealModalOpen={setIsAddDealModalOpen}
-                            renderLookup={getLookupValue}
-                        />
-
-                        <ContactOwnedProperties
-                            expandedSections={expandedSections}
-                            toggleSection={toggleSection}
-                            ownedProperties={ownedProperties}
-                            setIsInventoryModalOpen={setIsInventoryModalOpen}
-                            renderValue={renderValue}
-                            renderLookup={getLookupValue}
-                        />
-
-                        {/* AI Intelligence & Probability Sections */}
+                        {/* Strategic Intelligence Sections */}
                         <ContactAIIntelligence 
                             contact={contact}
                             aiStats={aiStats}
@@ -757,7 +861,7 @@ const ContactDetail = ({ contactId, onBack }) => {
                     position: 'fixed',
                     bottom: 0,
                     width: '100%',
-                    background: 'rgba(255, 255, 255, 0.85)',
+                    background: 'rgba(255, 255, 255, 0.9)',
                     backdropFilter: 'blur(20px)',
                     WebkitBackdropFilter: 'blur(20px)',
                     borderTop: '1px solid rgba(226, 232, 240, 0.8)',
@@ -766,19 +870,31 @@ const ContactDetail = ({ contactId, onBack }) => {
                     justifyContent: 'space-around',
                     boxShadow: '0 -10px 25px rgba(0,0,0,0.08)'
                 }}>
-                    <button style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', background: 'transparent', border: 'none', gap: '4px', cursor: 'pointer' }}>
+                    <button 
+                        onClick={() => setIsCallModalOpen(true)}
+                        style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', background: 'transparent', border: 'none', gap: '4px', cursor: 'pointer' }}
+                    >
                         <div style={{ width: '42px', height: '42px', background: '#ecfdf5', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '2px', border: '1px solid #d1fae5' }}>
                             <i className="fas fa-phone-alt" style={{ color: '#059669', fontSize: '1.1rem' }}></i>
                         </div>
                         <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#065f46' }}>Call</span>
                     </button>
-                    <button style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', background: 'transparent', border: 'none', gap: '4px', cursor: 'pointer' }}>
+                    <button 
+                        onClick={() => {
+                            const mobile = contact.mobile || contact.phones?.[0]?.number;
+                            if (mobile) window.open(`https://wa.me/91${mobile.replace(/\D/g, '')}`, '_blank');
+                        }}
+                        style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', background: 'transparent', border: 'none', gap: '4px', cursor: 'pointer' }}
+                    >
                         <div style={{ width: '42px', height: '42px', background: '#f0fdf4', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '2px', border: '1px solid #dcfce7' }}>
                             <i className="fab fa-whatsapp" style={{ color: '#22c55e', fontSize: '1.2rem' }}></i>
                         </div>
                         <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#166534' }}>WA</span>
                     </button>
-                    <button style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', background: 'transparent', border: 'none', gap: '4px', cursor: 'pointer' }}>
+                    <button 
+                        onClick={() => setIsEmailModalOpen(true)}
+                        style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', background: 'transparent', border: 'none', gap: '4px', cursor: 'pointer' }}
+                    >
                         <div style={{ width: '42px', height: '42px', background: '#f5f3ff', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '2px', border: '1px solid #ddd6fe' }}>
                             <i className="fas fa-envelope" style={{ color: '#7c3aed', fontSize: '1.1rem' }}></i>
                         </div>
@@ -786,26 +902,12 @@ const ContactDetail = ({ contactId, onBack }) => {
                     </button>
                     <div style={{ padding: '0 12px', display: 'flex', gap: '8px', alignItems: 'center' }}>
                         <button
-                            onClick={() => showNotification("Deal Stage Advanced: Negotiation → Closing")}
-                            style={{
-                                background: 'rgba(79, 70, 229, 0.1)',
-                                color: 'var(--premium-blue)',
-                                padding: '12px 14px',
-                                borderRadius: '14px',
-                                fontSize: '0.75rem',
-                                fontWeight: 900,
-                                border: '1px solid rgba(79, 70, 229, 0.2)',
-                            }}
-                        >
-                            ADVANCE
-                        </button>
-                        <button
                             onClick={() => {
                                 if (recordType === 'lead') {
                                     const res = LeadConversionService.evaluateAutoConversion(contact, 'create_deal_clicked');
                                     if (res.success) showNotification(res.message);
                                 } else {
-                                    showNotification("Opening Deal Creation interface...");
+                                    setIsAddDealModalOpen(true);
                                 }
                             }}
                             style={{

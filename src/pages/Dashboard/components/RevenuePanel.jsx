@@ -7,10 +7,10 @@ const RevenuePanel = ({ charts, metrics, formatters }) => {
     const { fmtCr } = formatters;
 
     return (
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 400px', gap: '24px', marginBottom: '32px' }}>
+        <div className="dashboard-panel-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 400px', gap: '24px', marginBottom: '32px' }}>
             {/* Revenue & Cashflow */}
-            <div className="glass-card" style={{ padding: '24px', borderLeft: '4px solid #10b981' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '32px' }}>
+            <div className="glass-card" style={{ padding: '20px', borderLeft: '4px solid #10b981' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
                     <div>
                         <h3 style={{ fontSize: '1.1rem', fontWeight: 900, color: '#fff', margin: 0, letterSpacing: '0.05em' }}>FINANCIAL INTELLIGENCE</h3>
                         <p style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '4px', fontWeight: 600 }}>MTD PERFORMANCE vs TARGET</p>
@@ -21,7 +21,7 @@ const RevenuePanel = ({ charts, metrics, formatters }) => {
                     </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginBottom: '40px' }}>
+                <div className="perf-metric-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginBottom: '24px' }}>
                     {[
                         { label: 'MTD SALES PROGRESS', val: Math.min(100, Math.round((perf.achieved / perf.target) * 100)), colors: ['#10b981', '#34d399'] },
                         { label: 'BOOKING VELOCITY', val: perf.bookingTarget || 0, colors: ['#6366f1', '#a5b4fc'] }
@@ -38,7 +38,7 @@ const RevenuePanel = ({ charts, metrics, formatters }) => {
                     ))}
                 </div>
 
-                <div style={{ height: '240px' }}>
+                <div style={{ height: '180px' }}>
                     <Chart options={cashFlowChart.options} series={cashFlowChart.series} type="area" height="100%" />
                 </div>
             </div>

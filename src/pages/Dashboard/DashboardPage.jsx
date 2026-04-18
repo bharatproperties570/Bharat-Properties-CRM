@@ -100,10 +100,43 @@ const DashboardPage = ({ onNavigate }) => {
                     font-weight: 600;
                     appearance: none;
                 }
+
+                @media (max-width: 1200px) {
+                    .dashboard-grid-root {
+                        grid-template-columns: 1fr !important;
+                    }
+                    .dashboard-panel-grid {
+                        grid-template-columns: 1fr !important;
+                    }
+                    .acq-metric-grid, .perf-metric-grid {
+                        grid-template-columns: 1fr !important;
+                    }
+                }
+
+                @media (max-width: 900px) {
+                    .acq-metric-grid {
+                        grid-template-columns: repeat(2, 1fr) !important;
+                    }
+                }
+
+                @media (max-width: 768px) {
+                    .dashboard-container {
+                        padding: 0 1rem 1rem 1rem !important;
+                    }
+                    .kpi-grid {
+                        grid-template-columns: 1fr !important;
+                    }
+                    .neural-header {
+                        flex-direction: column;
+                        align-items: flex-start !important;
+                        gap: 16px;
+                        padding: 16px 0 !important;
+                    }
+                }
             `}</style>
 
             {/* Futuristic Header */}
-            <div style={{ position: 'sticky', top: 0, zIndex: 100, background: 'rgba(2, 6, 23, 0.8)', backdropFilter: 'blur(12px)', padding: '24px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', marginBottom: '32px' }}>
+            <div className="neural-header" style={{ position: 'sticky', top: 0, zIndex: 100, background: 'rgba(2, 6, 23, 0.8)', backdropFilter: 'blur(12px)', padding: '24px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', marginBottom: '24px' }}>
                 <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                         <img 
@@ -153,7 +186,7 @@ const DashboardPage = ({ onNavigate }) => {
                 </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '32px' }}>
+            <div className="dashboard-grid-root" style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '32px' }}>
                 <div style={{ minWidth: 0 }}>
                     <DashboardKPIs metrics={metrics} formatters={formatters} />
                     <LeadAcquisitionPanel charts={charts} metrics={metrics} formatters={formatters} />

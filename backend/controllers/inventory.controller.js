@@ -149,23 +149,28 @@ export const getInventory = async (req, res) => {
             }
 
             const uniqueIds = [...new Set(allIds)];
-            query.$or = [
-                { owners: { $in: uniqueIds } },
-                { 'associates.contact': { $in: uniqueIds } }
-            ];
             
-            // Heuristic fallback for legacy data fields if they exist
-            if (phones.length > 0) {
-                phones.forEach(p => {
-                    query.$or.push({ ownerPhone: p });
-                    query.$or.push({ previousOwnerPhone: p });
-                });
-            }
-            if (emails.length > 0) {
-                emails.forEach(e => {
-                    query.$or.push({ ownerEmail: e });
-                    query.$or.push({ previousOwnerEmail: e });
-                });
+            if (req.query.history === 'true') {
+                query['ownerHistory.contactId'] = { $in: uniqueIds };
+            } else {
+                query.$or = [
+                    { owners: { $in: uniqueIds } },
+                    { 'associates.contact': { $in: uniqueIds } }
+                ];
+                
+                // Heuristic fallback for legacy data fields if they exist
+                if (phones.length > 0) {
+                    phones.forEach(p => {
+                        query.$or.push({ ownerPhone: p });
+                        query.$or.push({ previousOwnerPhone: p });
+                    });
+                }
+                if (emails.length > 0) {
+                    emails.forEach(e => {
+                        query.$or.push({ ownerEmail: e });
+                        query.$or.push({ previousOwnerEmail: e });
+                    });
+                }
             }
         }
 
