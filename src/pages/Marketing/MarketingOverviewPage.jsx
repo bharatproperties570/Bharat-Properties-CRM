@@ -4305,7 +4305,20 @@ export default function MarketingOverviewPage() {
                       min={new Date().toISOString().slice(0, 16)}
                       value={scheduledAt}
                       onChange={(e) => setScheduledAt(e.target.value)}
-                      style={{ width: '100%', padding: '10px', background: 'var(--bg)', border: '1px solid var(--gold)', borderRadius: '8px', color: 'var(--text)', fontSize: '12px', outline: 'none' }} 
+                      onClick={(e) => { 
+                        if (e.target.showPicker) e.target.showPicker(); 
+                      }}
+                      style={{ 
+                        width: '100%', 
+                        padding: '10px', 
+                        background: 'var(--bg)', 
+                        border: '1px solid var(--gold)', 
+                        borderRadius: '8px', 
+                        color: 'var(--text)', 
+                        fontSize: '12px', 
+                        outline: 'none',
+                        cursor: 'pointer'
+                      }} 
                     />
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
