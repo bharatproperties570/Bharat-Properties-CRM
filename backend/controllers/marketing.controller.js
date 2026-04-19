@@ -345,10 +345,28 @@ export const sendCampaign = async (req, res) => {
         }
 
         const queue = await getMarketingQueue();
+        if (!queue) {
+            console.error('[MarketingController] ❌ Queue Engine Unavailable (Redis Offline?)');
+            return res.status(503).json({ success: false, error: "Campaign engine is temporarily unavailable (Queue Offline)" });
+        }
+
+        // 🛡️ Enterprise Safeguard: Verify if Redis is Real or Mock
+        const { default: redisConnection } = await import('../src/config/redis.js');
+        if (redisConnection.isMock) {
+            console.error('[MarketingController] ❌ BLOCK: Campaign attempted using MockRedis. Live Redis required.');
+            return res.status(500).json({ 
+                success: false, 
+                error: "Infrastructure Error: Live Redis Connection is required for Campaigns on production server.",
+                diagnostic: "Please set REDIS_HOST, REDIS_PORT, and REDIS_PASSWORD in your AWS/Vercel Environment Variables."
+            });
+        }
+
+        console.log(`[MarketingController] 📡 Attempting to queue campaign: ${name || 'Untitled'} for ${recipients.length} leads`);
+        
         const job = await queue.add('blast', {
             channel,
             name:    name || 'Campaign',
-                    subject: subject || 'Update',
+            subject: subject || 'Update',
             message: content || '',
             html:    html    || '',
             templateName: req.body.templateName,
@@ -359,11 +377,20 @@ export const sendCampaign = async (req, res) => {
             emails,
             leads: recipients,
             queuedAt: new Date().toISOString(),
+        }, {
+            removeOnComplete: true, // Auto-cleanup to save Redis memory on live server
+            attempts: 3
         });
 
+        console.log(`[MarketingController] ✅ Job queued successfully. ID: ${job.id}`);
         res.json({ success: true, leadCount: recipients.length, jobId: job.id });
     } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
+        console.error('[MarketingController] ❌ FATAL Blast Error:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: error.message,
+            diagnostic: 'Check Redis connectivity and Variable Resolution mapping'
+        });
     }
 };
 
