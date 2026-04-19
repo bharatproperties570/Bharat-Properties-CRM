@@ -1,72 +1,60 @@
-/**
- * WhatsAppService.js
- * Phase D: Multi-provider WhatsApp dispatch.
- */
 import axios from 'axios';
-import SystemSetting from '../src/modules/systemSettings/system.model.js';
+import mongoose from 'mongoose';
 
 const META_GRAPH_BASE = 'https://graph.facebook.com/v19.0';
 
 class WhatsAppService {
-    // ── Config Loaders ────────────────────────────────────────────────────────
-
-    /** Gupshup config from DB (legacy — set via Settings > Integrations) */
-    async _getGupshupConfig() {
-        const setting = await SystemSetting.findOne({ key: 'whatsapp_config' }).lean();
-        return setting?.value || null;
-    }
-
-    /** Meta Cloud API config: env vars take priority, then DB */
+    /**
+     * Resolve configuration from DB or Env
+     */
     async _getMetaConfig() {
-        // 1. Check DB first (usually more up-to-date in production)
+        const SystemSetting = mongoose.model('SystemSetting');
         const setting = await SystemSetting.findOne({ key: 'meta_wa_config' }).lean();
-        const dbValue = setting?.value || {};
         
-        // 2. Check Env Vars as fallback
-        const envToken   = process.env.META_WA_TOKEN;
-        const envPhoneId = process.env.META_WA_PHONE_ID;
-        const envWabaId  = process.env.META_WABA_ID;
+        if (setting && setting.value?.token) {
+            return {
+                token: setting.value.token,
+                phoneId: setting.value.phoneId,
+                businessId: setting.value.businessId
+            };
+        }
 
-        const config = {
-            token:      dbValue.token || dbValue.apiKey || (envToken && !envToken.includes('YOUR_') ? envToken : null),
-            phoneId:    dbValue.phoneId || (envPhoneId && !envPhoneId.includes('YOUR_') ? envPhoneId : null),
-            businessId: dbValue.businessId || dbValue.wabaId || (envWabaId && !envWabaId.includes('YOUR_') ? envWabaId : null)
-        };
-
-        if (config.token && config.phoneId) {
-            return config;
+        // Fallback to Env if DB is empty
+        if (process.env.META_WA_TOKEN && process.env.META_WA_PHONE_ID) {
+            return {
+                token: process.env.META_WA_TOKEN,
+                phoneId: process.env.META_WA_PHONE_ID,
+                businessId: process.env.YOUR_WABA_ID
+            };
         }
 
         return null;
     }
 
-    // ── Public API ─────────────────────────────────────────────────────────────
-
     /**
-     * Send a WhatsApp message to a single recipient.
+     * Send a standard text message
      */
     async sendMessage(mobile, message) {
-        if (process.env.WA_MOCK === 'true') {
-            console.log(`[WhatsApp] MOCK → ${mobile}: ${message.substring(0, 80)}`);
-            return { success: true, messageId: `mock_${Date.now()}`, provider: 'mock', mock: true };
+        const config = await this._getMetaConfig();
+        if (config) {
+            return this._sendViaMeta(mobile, message, config, { type: 'text' });
+        }
+        
+        // Gupshup/Other Fallback logic simplified for Bharat Properties
+        if (process.env.GUPSHUP_API_KEY) {
+            return this._sendViaGupshup(mobile, message, {
+                apiKey: process.env.GUPSHUP_API_KEY,
+                sourcePhone: process.env.GUPSHUP_SOURCE,
+                appName: process.env.GUPSHUP_APP_NAME
+            });
         }
 
-        const metaConfig = await this._getMetaConfig();
-        if (metaConfig) {
-            return this._sendViaMeta(mobile, message, metaConfig);
-        }
-
-        const gupshupConfig = await this._getGupshupConfig();
-        if (gupshupConfig?.apiKey) {
-            return this._sendViaGupshup(mobile, message, gupshupConfig);
-        }
-
-        console.log(`[WhatsApp] MOCK (no credentials) → ${mobile}: ${message.substring(0, 80)}`);
-        return { success: true, messageId: `mock_${Date.now()}`, provider: 'mock', mock: true };
+        console.log(`[WhatsApp] MOCK message to ${mobile}: ${message}`);
+        return { success: true, mock: true, provider: 'mock' };
     }
 
     /**
-     * Broadcast a message to multiple recipients.
+     * Bulk message dispatch (Broadcast)
      */
     async broadcast(mobiles, message) {
         const results = [];
@@ -76,7 +64,7 @@ class WhatsAppService {
             await new Promise(r => setTimeout(r, 300));
             const result = await this.sendMessage(mobile, message);
             results.push({ mobile, ...result });
-            result.success ? sent++ : failed++;
+            if (result.success) sent++; else failed++;
         }
 
         console.log(`[WhatsApp] Broadcast complete — Sent: ${sent}, Failed: ${failed}`);
@@ -85,8 +73,17 @@ class WhatsAppService {
 
     // ── Internal Providers ─────────────────────────────────────────────────────
 
+    _normalizeTarget(mobile) {
+        if (!mobile) return null;
+        const digitsOnly = String(mobile).replace(/\D/g, '');
+        if (digitsOnly.length < 10) return null;
+        return digitsOnly.length === 10 ? `91${digitsOnly}` : digitsOnly;
+    }
+
     async _sendViaMeta(mobile, message, config, options = {}) {
-        const toNumber = mobile.length === 10 ? `91${mobile}` : mobile.replace(/^\+/, '');
+        const toNumber = this._normalizeTarget(mobile);
+        if (!toNumber) return { success: false, error: 'Invalid phone number format' };
+
         const { type = 'text', mediaUrl, filename, caption } = options;
 
         try {
@@ -113,15 +110,15 @@ class WhatsAppService {
                     'Authorization': `Bearer ${config.token}`,
                     'Content-Type':  'application/json',
                 },
-                timeout: 15000,
+                timeout: 20000,
             });
 
             const msgId = response.data?.messages?.[0]?.id;
-            console.log(`[WhatsApp/Meta] Sent ${type} to ${toNumber}: ${msgId}`);
+            console.log(`[WhatsApp/Meta] ✅ SUCCESS: ${type} to ${toNumber}. ID: ${msgId}`);
             return { success: true, messageId: msgId, provider: 'meta', type };
         } catch (err) {
             const detail = err.response?.data?.error?.message || err.message;
-            console.error(`[WhatsApp/Meta] Error sending ${type} to ${toNumber}:`, detail);
+            console.error(`[WhatsApp/Meta] ❌ ERROR: Failed to send ${type} to ${toNumber}:`, detail);
             return { success: false, error: detail, provider: 'meta' };
         }
     }
@@ -155,14 +152,15 @@ class WhatsAppService {
         }
     }
 
-    async sendTemplate(mobile, templateName, languageCode = 'en', components = []) {
+    async sendTemplate(mobile, templateName, languageCode = 'en_US', components = []) {
         const metaConfig = await this._getMetaConfig();
         if (!metaConfig) {
             console.log(`[WhatsApp/Meta] MOCK template to ${mobile}: ${templateName}`);
             return { success: true, mock: true, provider: 'mock' };
         }
 
-        const toNumber = mobile.length === 10 ? `91${mobile}` : mobile.replace(/^\+/, '');
+        const toNumber = this._normalizeTarget(mobile);
+        if (!toNumber) return { success: false, error: 'Invalid phone number' };
 
         try {
             const url = `${META_GRAPH_BASE}/${metaConfig.phoneId}/messages`;
@@ -171,8 +169,6 @@ class WhatsAppService {
                 language: { code: languageCode }
             };
 
-            // STRICT ALIGNMENT: Only include components if they have parameters
-            // Meta Cloud API can reject empty components array for certain categories
             if (components && components.length > 0) {
                 templatePayload.components = components;
             }
@@ -187,15 +183,15 @@ class WhatsAppService {
                     'Authorization': `Bearer ${metaConfig.token}`,
                     'Content-Type':  'application/json',
                 },
-                timeout: 15000,
+                timeout: 20000,
             });
 
             const msgId = response.data?.messages?.[0]?.id;
-            console.log(`[WhatsApp/Meta] Template sent to ${toNumber}: ${msgId}`);
+            console.log(`[WhatsApp/Meta] ✅ TEMPLATE SUCCESS: ${templateName} sent to ${toNumber}. ID: ${msgId}`);
             return { success: true, messageId: msgId, provider: 'meta', template: templateName };
         } catch (err) {
             const detail = err.response?.data?.error?.message || err.message;
-            console.error(`[WhatsApp/Meta] Template error for ${toNumber}:`, detail);
+            console.error(`[WhatsApp/Meta] ❌ TEMPLATE ERROR for ${toNumber}:`, detail);
             return { success: false, error: detail, provider: 'meta' };
         }
     }
@@ -210,34 +206,18 @@ class WhatsAppService {
         return { success: true, mock: true, provider: 'mock' };
     }
 
-    /**
-     * Fetch WhatsApp Templates from Meta Business Account
-     * Senior Professional Diagnostics Added
-     */
     async getTemplates() {
         const config = await this._getMetaConfig();
         
         if (!config || !config.token || !config.businessId) {
-            console.warn('[WhatsAppService] Missing credentials for Meta Sync. Returning Sandbox Templates.');
             return [
                 {
                     name: 'sample_property_launch',
                     status: 'APPROVED',
                     language: 'en_US',
-                    category: 'MARKETING',
                     components: [
                         { type: 'HEADER', format: 'TEXT', text: 'New Launch in Kurukshetra' },
-                        { type: 'BODY', text: 'Hello {{1}}, check out our new project {{2}} starting at {{3}} Lakhs! Are you interested?' },
-                        { type: 'FOOTER', text: 'Bharat Properties' }
-                    ]
-                },
-                {
-                    name: 'sample_site_visit_invite',
-                    status: 'APPROVED',
-                    language: 'en_US',
-                    category: 'UTILITY',
-                    components: [
-                        { type: 'BODY', text: 'Namaskar {{1}} ji, your site visit for {{2}} is confirmed for tomorrow. See you soon!' }
+                        { type: 'BODY', text: 'Hello {{1}}, check out our new project {{2}} starting at {{3}} Lakhs!' }
                     ]
                 }
             ];
@@ -245,31 +225,12 @@ class WhatsAppService {
 
         try {
             const url = `${META_GRAPH_BASE}/${config.businessId}/message_templates`;
-            console.log(`[WhatsAppService] Syncing templates for WABA: ${config.businessId}`);
-            
             const response = await axios.get(url, {
-                headers: { 'Authorization': `Bearer ${config.token}` },
-                params: { 
-                    limit: 300,
-                    fields: 'name,status,language,components,category'
-                },
-                timeout: 20000
+                headers: { 'Authorization': `Bearer ${config.token}` }
             });
-
-            const templates = response.data?.data || [];
-            
-            // Filter to APPROVED/IN_REVIEW to allow users to see what's coming
-            const validTemplates = templates.filter(t => ['APPROVED', 'IN_REVIEW', 'AUTHENTICATION'].includes(t.status));
-            
-            console.log(`[WhatsAppService] Fetched ${templates.length} total. Valid: ${validTemplates.length}`);
-            return validTemplates;
+            return response.data.data;
         } catch (err) {
-            const errorData = err.response?.data?.error || {};
-            const message = errorData.message || err.message;
-            
-            console.error('[WhatsApp/Meta] Template fetch error:', message);
-            
-            // Return empty instead of crashing if possible
+            console.error('[WhatsAppService] Error fetching templates:', err.message);
             return [];
         }
     }

@@ -388,6 +388,7 @@ export const activitiesAPI = {
     // ── Unified Backend Pipeline: Stage + Scoring ──
     complete: (id, data) => apiRequest(`/activities/${id}/complete`, { method: 'POST', body: JSON.stringify(data) }),
     completeWithForm: (id, data) => apiRequest(`/activities/${id}/complete-with-form`, { method: 'POST', body: JSON.stringify(data) }),
+    sendReply: (data) => apiRequest('/activities/messaging/reply', { method: 'POST', body: JSON.stringify(data) }),
 };
 
 // Stage Transition Rules API
@@ -402,7 +403,7 @@ export const stageTransitionRulesAPI = {
 
 // Email API
 export const emailAPI = {
-    getInbox: () => apiRequest('/email/inbox'),
+    getInbox: (params) => apiRequest('/email/inbox', { params }),
     send: (data) => apiRequest('/email/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -414,6 +415,7 @@ export const emailAPI = {
     getContent: (uid) => apiRequest(`/email/content/${uid}`),
     getOAuthUrl: () => apiRequest('/email/oauth/url'),
     convertToLead: (uid) => apiRequest(`/email/convert-to-lead/${uid}`, { method: 'POST' }),
+    deleteEmail: (uid) => apiRequest(`/email/delete/${uid}`, { method: 'DELETE' }),
 };
 
 // Teams API

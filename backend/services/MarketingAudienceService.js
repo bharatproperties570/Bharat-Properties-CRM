@@ -15,246 +15,184 @@ class MarketingAudienceService {
         const filters = config.filters || {};
         let rawRecipients = [];
 
-        console.log(`[AudienceService] FETCH START — source="${source}" filters=${JSON.stringify(filters)}`);
+        console.log(`[EnterpriseAudience] 🚀 INITIATING FETCH — Source: ${source.toUpperCase()} | Filters: ${JSON.stringify(filters)}`);
 
         try {
             switch (source) {
                 case 'lead': {
                     const query = this._buildLeadQuery(filters);
-                    console.log('[AudienceService] LEAD_QUERY:', JSON.stringify(query));
                     rawRecipients = await Lead.find(query)
-                        .select('mobile email firstName lastName fullName project projectName stage status assignment')
+                        .select('mobile email firstName lastName fullName project projectName stage status assignment updatedAt')
                         .populate('project', 'name')
                         .populate('stage', 'lookup_value')
                         .populate('status', 'lookup_value')
+                        .sort({ updatedAt: -1 }) // Tier-1: Target active leads first
                         .lean();
-                    console.log(`[AudienceService] LEAD_RAW_COUNT: ${rawRecipients.length}`);
-                    const result = this._standardizeRecipients(rawRecipients, 'lead');
-                    console.log(`[AudienceService] LEAD_RECIPIENTS: ${result.length}`);
-                    return result;
+                    return this._standardizeRecipients(rawRecipients, 'lead');
                 }
 
                 case 'contact': {
                     const query = this._buildContactQuery(filters);
-                    console.log('[AudienceService] CONTACT_QUERY:', JSON.stringify(query));
                     rawRecipients = await Contact.find(query)
-                        .select('name surname phones emails tags')
+                        .select('name surname phones emails tags updatedAt')
+                        .sort({ updatedAt: -1 })
                         .lean();
-                    console.log(`[AudienceService] CONTACT_RAW_COUNT: ${rawRecipients.length}`);
                     return this._standardizeRecipients(rawRecipients, 'contact');
                 }
 
                 case 'deal': {
                     const query = this._buildDealQuery(filters);
                     rawRecipients = await Deal.find(query)
-                        .select('projectName unitNo stage owner associatedContact')
+                        .select('projectName unitNo stage owner associatedContact updatedAt')
                         .populate('owner associatedContact')
+                        .sort({ updatedAt: -1 })
                         .lean();
                     return this._standardizeRecipients(rawRecipients, 'deal', filters.targetRole);
                 }
 
                 case 'inventory': {
                     const query = await this._buildInventoryQuery(filters);
-                    console.log('[AudienceService] INVENTORY_QUERY:', JSON.stringify(query));
-
                     rawRecipients = await Inventory.find(query)
-                        .select('projectName unitNo unitNumber sector block owners associates')
+                        .select('projectName unitNo unitNumber sector block owners associates updatedAt')
                         .populate({
                             path: 'owners',
-                            select: 'name surname phones emails'   // Contact model: phones[].number
+                            select: 'name surname phones emails'
                         })
                         .populate({
                             path: 'associates.contact',
                             select: 'name surname phones emails'
                         })
+                        .sort({ updatedAt: -1 })
                         .lean();
 
-                    console.log(`[AudienceService] INVENTORY_RAW_COUNT: ${rawRecipients.length}`);
-                    // Log first record for debugging
-                    if (rawRecipients.length > 0) {
-                        console.log('[AudienceService] FIRST_RECORD_OWNERS:', JSON.stringify(rawRecipients[0].owners));
-                    }
-
-                    const result = this._standardizeRecipients(rawRecipients, 'inventory', filters.contactType || filters.targetRole);
-                    console.log(`[AudienceService] INVENTORY_RECIPIENTS: ${result.length}`);
-                    return result;
+                    return this._standardizeRecipients(rawRecipients, 'inventory', filters.contactType || filters.targetRole);
                 }
 
                 default:
                     throw new Error(`Invalid audience source: "${source}"`);
             }
         } catch (error) {
-            console.error(`[AudienceService] CRITICAL ERROR for source="${source}":`, error.message);
+            console.error(`[EnterpriseAudience] ❌ CRITICAL FAILURE [${source}]:`, error.message);
             throw error;
         }
     }
 
-    // ─── LEAD QUERY ───────────────────────────────────────────────────────────
+    // ─── ENTERPRISE LOOKUP RESOLVER ───────────────────────────────────────────
+    async _resolveLookup(type, value) {
+        if (!value || value === 'all') return null;
+        const Lookup = mongoose.model('Lookup');
+        
+        // 1. Exact Match on ID
+        if (mongoose.Types.ObjectId.isValid(value)) return new mongoose.Types.ObjectId(value);
+
+        // 2. Fuzzy Match on Value (Case-Insensitive)
+        const escapedValue = String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const lookup = await Lookup.findOne({
+            lookup_type: new RegExp(type, 'i'),
+            lookup_value: new RegExp(`^${escapedValue}$`, 'i')
+        }).lean();
+
+        return lookup ? lookup._id : null;
+    }
+
+    // ─── UPGRADED QUERY BUILDERS ──────────────────────────────────────────────
+    
     _buildLeadQuery(filters) {
-        // FIX: Do NOT pre-filter on mobile here — we handle empty mobiles in standardize
-        // Previously { mobile: { $exists: true, $ne: '' } } was dropping valid leads
         const query = {};
-
-        if (filters.status && filters.status !== 'all') {
-            query.status = mongoose.Types.ObjectId.isValid(filters.status)
-                ? new mongoose.Types.ObjectId(filters.status)
-                : filters.status;
-        }
-
-        if (filters.stage && filters.stage !== 'all') {
-            query.stage = mongoose.Types.ObjectId.isValid(filters.stage)
-                ? new mongoose.Types.ObjectId(filters.stage)
-                : filters.stage;
-        }
-
-        if (filters.project && filters.project !== 'all') {
-            const searchName = String(filters.projectName || filters.project || '');
-            const escaped = searchName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const orConditions = [
-                { projectName: new RegExp(escaped, 'i') }
-            ];
-            if (mongoose.Types.ObjectId.isValid(filters.project)) {
-                try {
-                    orConditions.push({ project: new mongoose.Types.ObjectId(filters.project) });
-                } catch (e) {}
-            }
-            query.$and = query.$and || [];
-            query.$and.push({ $or: orConditions });
-        }
-
-        if (filters.source && filters.source !== 'all') {
-            query.source = mongoose.Types.ObjectId.isValid(filters.source)
-                ? new mongoose.Types.ObjectId(filters.source)
-                : filters.source;
-        }
-
-        if (filters.recency && filters.recency !== 'all') {
-            const days = parseInt(filters.recency);
-            const since = new Date();
-            since.setDate(since.getDate() - days);
-            query.updatedAt = { $gte: since };
-        }
-
-        return query;
-    }
-
-    // ─── CONTACT QUERY ────────────────────────────────────────────────────────
-    _buildContactQuery(filters) {
-        // FIX: Do NOT pre-filter on phones existence — handle in standardize
-        const query = {};
-
-        if (filters.recency && filters.recency !== 'all') {
-            const days = parseInt(filters.recency);
-            const since = new Date();
-            since.setDate(since.getDate() - days);
-            query.updatedAt = { $gte: since };
-        }
-
-        return query;
-    }
-
-    // ─── DEAL QUERY ───────────────────────────────────────────────────────────
-    _buildDealQuery(filters) {
-        const query = {};
+        
+        // Standard Filters
+        if (filters.status && filters.status !== 'all') query.status = filters.status;
         if (filters.stage && filters.stage !== 'all') query.stage = filters.stage;
+        if (filters.source && filters.source !== 'all') query.source = filters.source;
+
+        // Smart Project Filter (Fuzzy Search Support)
         if (filters.project && filters.project !== 'all') {
-            query.projectId = mongoose.Types.ObjectId.isValid(filters.project)
-                ? new mongoose.Types.ObjectId(filters.project)
-                : filters.project;
+            const pid = mongoose.Types.ObjectId.isValid(filters.project) ? new mongoose.Types.ObjectId(filters.project) : null;
+            const projectName = String(filters.projectName || filters.project);
+            const escapedName = projectName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+            const orArr = [{ projectName: new RegExp(escapedName, 'i') }];
+            if (pid) orArr.push({ project: pid });
+            query.$or = orArr;
         }
-        if (filters.owner && filters.owner !== 'all') {
-            query.owner = mongoose.Types.ObjectId.isValid(filters.owner)
-                ? new mongoose.Types.ObjectId(filters.owner)
-                : filters.owner;
+
+        // Recency Intel
+        if (filters.recency && filters.recency !== 'all') {
+            const days = parseInt(filters.recency);
+            if (!isNaN(days)) {
+                const since = new Date();
+                since.setDate(since.getDate() - days);
+                query.updatedAt = { $gte: since };
+            }
         }
-        if (filters.minPrice || filters.maxPrice) {
-            query.expectedValue = {};
-            if (filters.minPrice) query.expectedValue.$gte = parseFloat(filters.minPrice);
-            if (filters.maxPrice) query.expectedValue.$lte = parseFloat(filters.maxPrice);
-        }
-        if (filters.type && filters.type !== 'all') query.type = filters.type;
+
         return query;
     }
 
-    // ─── INVENTORY QUERY ──────────────────────────────────────────────────────
     async _buildInventoryQuery(filters) {
         const conditions = [];
 
-        // Project filter — dual-track: ID + Name
+        // Dynamic Project/Sector Intelligence
         if (filters.project && filters.project !== 'all') {
-            const searchName = String(filters.projectName || filters.project || '');
-            const escaped = searchName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
+            const projectName = String(filters.projectName || filters.project);
+            const escaped = projectName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             const projectOr = [
                 { projectName: new RegExp(escaped, 'i') },
                 { sector: new RegExp(escaped, 'i') }
             ];
-
             if (mongoose.Types.ObjectId.isValid(filters.project)) {
-                try {
-                    const pid = new mongoose.Types.ObjectId(filters.project);
-                    projectOr.push({ projectId: pid });
-                } catch (e) {}
+                projectOr.push({ projectId: new mongoose.Types.ObjectId(filters.project) });
             }
-
             conditions.push({ $or: projectOr });
         }
 
-        // Status filter
-        if (filters.status && filters.status !== 'all') {
-            const Lookup = mongoose.model('Lookup');
-            const escaped = String(filters.status).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const lookup = await Lookup.findOne({
-                lookup_type: /status/i,
-                lookup_value: new RegExp(`^${escaped}$`, 'i')
-            }).lean();
+        // Resolve Enterprise Lookups
+        const statusId = await this._resolveLookup('status', filters.status);
+        if (statusId) conditions.push({ status: statusId });
 
-            if (lookup) {
-                conditions.push({ status: lookup._id });
-            }
-        }
-
-        // Category filter
-        if (filters.category && filters.category !== 'all') {
-            const Lookup = mongoose.model('Lookup');
-            const escaped = String(filters.category).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const lookup = await Lookup.findOne({
-                lookup_type: /category/i,
-                lookup_value: new RegExp(`^${escaped}$`, 'i')
-            }).lean();
-
-            if (lookup) {
-                conditions.push({ category: lookup._id });
-            }
-        }
+        const categoryId = await this._resolveLookup('category', filters.category);
+        if (categoryId) conditions.push({ category: categoryId });
 
         return conditions.length > 0 ? { $and: conditions } : {};
     }
 
-    // ─── STANDARDIZE ──────────────────────────────────────────────────────────
-    /**
-     * Converts raw DB records into a unified Recipient format.
-     * KEY FIX: Contact model stores phones as [{number, type}] — NOT a flat string.
-     */
+    _buildContactQuery(filters) {
+        const query = {};
+        if (filters.recency && filters.recency !== 'all') {
+            const days = parseInt(filters.recency);
+            if (!isNaN(days)) {
+                const since = new Date();
+                since.setDate(since.getDate() - days);
+                query.updatedAt = { $gte: since };
+            }
+        }
+        return query;
+    }
+
+    _buildDealQuery(filters) {
+        const query = {};
+        if (filters.stage && filters.stage !== 'all') query.stage = filters.stage;
+        if (filters.project && filters.project !== 'all') {
+            if (mongoose.Types.ObjectId.isValid(filters.project)) query.projectId = new mongoose.Types.ObjectId(filters.project);
+            else query.projectName = new RegExp(filters.project, 'i');
+        }
+        return query;
+    }
+
+    // ─── STANDARDIZE RECIPIENTS (HEAVY DUTY) ──────────────────────────────────
     _standardizeRecipients(items, type, targetRole = 'owner') {
         const recipients = [];
         const seenMobiles = new Set();
 
-        /**
-         * FIX: Extract mobile from Contact's phones array correctly.
-         * phones is [{number: '9876543210', type: 'Personal'}, ...]
-         */
         const extractPhone = (person) => {
             if (!person) return '';
-            // Check flat mobile field first (Lead model)
-            if (person.mobile && typeof person.mobile === 'string') {
-                return normalizePhone(person.mobile);
-            }
-            // Check phones array (Contact model)
-            if (Array.isArray(person.phones) && person.phones.length > 0) {
+            // Lead Model Strategy
+            if (person.mobile && typeof person.mobile === 'string') return normalizePhone(person.mobile);
+            
+            // Contact Model Strategy (Nested Array)
+            if (Array.isArray(person.phones)) {
                 for (const p of person.phones) {
-                    // p is {number: '...', type: '...'}
-                    const num = (typeof p === 'object' && p !== null) ? p.number : p;
+                    const num = (p && typeof p === 'object') ? p.number : p;
                     const normalized = normalizePhone(num);
                     if (normalized) return normalized;
                 }
@@ -262,101 +200,52 @@ class MarketingAudienceService {
             return '';
         };
 
+        const extractEmail = (person) => {
+            if (!person) return '';
+            if (person.email && typeof person.email === 'string') return person.email;
+            if (Array.isArray(person.emails) && person.emails[0]) {
+                const e = person.emails[0];
+                return (e && typeof e === 'object') ? e.address : e;
+            }
+            return '';
+        };
+
         items.forEach(item => {
+            let candidates = [];
+            
             if (type === 'inventory') {
-                // For inventory, extract from owners or associates
-                const people = targetRole === 'associate'
+                candidates = targetRole === 'associate' 
                     ? (item.associates || []).map(a => a.contact).filter(Boolean)
                     : (item.owners || []).filter(Boolean);
-
-                people.forEach(person => {
-                    if (!person || typeof person !== 'object') return;
-
-                    const mobile = extractPhone(person);
-                    if (!mobile || mobile === '-' || seenMobiles.has(mobile)) return;
-
-                    seenMobiles.add(mobile);
-                    recipients.push({
-                        id: person._id,
-                        name: [person.name, person.surname].filter(Boolean).join(' ') || 'Owner',
-                        mobile,
-                        email: Array.isArray(person.emails) ? person.emails[0]?.address : person.email,
-                        context: {
-                            originalType: 'Inventory',
-                            unitNo: item.unitNo || item.unitNumber || 'N/A',
-                            projectName: item.projectName || 'N/A',
-                            sector: item.sector || 'N/A'
-                        }
-                    });
-                });
-                return;
+            } else if (type === 'deal') {
+                candidates = [item.owner, item.associatedContact].filter(Boolean);
+            } else {
+                candidates = [item];
             }
 
-            // Lead
-            if (type === 'lead') {
-                const mobile = extractPhone(item);
-                const name = item.fullName ||
-                    [item.firstName, item.lastName].filter(Boolean).join(' ') ||
-                    'Lead';
-                const email = item.email;
-
-                if (!mobile || seenMobiles.has(mobile)) return;
-                seenMobiles.add(mobile);
-                recipients.push({
-                    id: item._id,
-                    name,
-                    mobile,
-                    email,
-                    context: {
-                        originalType: 'Lead',
-                        stage: item.stage?.lookup_value || '',
-                        projectName: item.project?.name || item.projectName?.[0] || ''
-                    }
-                });
-                return;
-            }
-
-            // Contact
-            if (type === 'contact') {
-                const mobile = extractPhone(item);
-                const name = [item.name, item.surname].filter(Boolean).join(' ') || 'Contact';
-
-                if (!mobile || seenMobiles.has(mobile)) return;
-                seenMobiles.add(mobile);
-                recipients.push({
-                    id: item._id,
-                    name,
-                    mobile,
-                    email: Array.isArray(item.emails) ? item.emails[0]?.address : '',
-                    context: { originalType: 'Contact' }
-                });
-                return;
-            }
-
-            // Deal
-            if (type === 'deal') {
-                const person = targetRole === 'buyer' ? item.buyer : (item.owner || item.associatedContact);
-                if (!person || typeof person !== 'object') return;
-
+            candidates.forEach(person => {
                 const mobile = extractPhone(person);
-                if (!mobile || seenMobiles.has(mobile)) return;
+                if (!mobile || mobile === '-' || seenMobiles.has(mobile)) return;
+
                 seenMobiles.add(mobile);
                 recipients.push({
-                    id: item._id,
-                    name: person.name || person.firstName || 'Participant',
+                    id: person._id || item._id,
+                    name: [person.name || person.firstName, person.surname || person.lastName].filter(Boolean).join(' ') || 'Standard Recipient',
                     mobile,
-                    email: Array.isArray(person.emails) ? person.emails[0]?.address : person.email,
+                    email: extractEmail(person),
                     context: {
-                        originalType: 'Deal',
-                        projectName: item.projectName,
-                        unitNo: item.unitNo
+                        originalType: type.charAt(0).toUpperCase() + type.slice(1),
+                        projectName: item.projectName || item.project?.name || 'Generic',
+                        unitNo: item.unitNo || item.unitNumber || 'N/A',
+                        lastUpdated: item.updatedAt
                     }
                 });
-            }
+            });
         });
 
         return recipients;
     }
+
 }
 
 export default new MarketingAudienceService();

@@ -705,6 +705,83 @@ export const syncMobileCalls = async (req, res) => {
 };
 
 /**
+ * @desc    Send a reply to a messaging thread (WhatsApp/SMS)
+ * @route   POST /api/activities/messaging/reply
+ */
+export const sendReply = async (req, res) => {
+    try {
+        const { phoneNumber, message, channel = 'whatsapp', entityId, entityType } = req.body;
+
+        if (!phoneNumber || !message) {
+            return res.status(400).json({ success: false, error: "Phone number and message are required" });
+        }
+
+        // 1. Resolve Services (Instances exported as default)
+        const waService = (await import('../services/WhatsAppService.js')).default;
+        const smsSvc = (await import('../services/SmsService.js')).default;
+        
+        // 🧼 Normalize Phone for API dispatch
+        const cleanPhone = normalizePhone(phoneNumber);
+        console.log(`[EnterpriseHub] 📡 DISPATCHING REPLY — Channel: ${channel} | Target: ${cleanPhone}`);
+
+        let dispatchResult;
+        if (channel.toLowerCase() === 'whatsapp') {
+            dispatchResult = await waService.sendMessage(cleanPhone, message);
+        } else {
+            dispatchResult = await smsSvc.sendSms(cleanPhone, message);
+        }
+
+        if (!dispatchResult.success) {
+            console.error(`[EnterpriseHub] ❌ DISPATCH FAILURE:`, dispatchResult.error);
+            return res.status(500).json({ success: false, error: dispatchResult.error || "Failed to dispatch message" });
+        }
+
+        // 2. Log Activity
+        const activity = await Activity.create({
+            type: 'Messaging',
+            subject: `Reply via ${channel.toUpperCase()}`,
+            description: message,
+            entityType: entityType || 'Unknown',
+            entityId: entityId || null,
+            dueDate: new Date(),
+            status: 'Completed',
+            details: {
+                direction: 'Outgoing',
+                platform: channel === 'whatsapp' ? 'WhatsApp' : 'SMS',
+                messageId: dispatchResult.messageId || dispatchResult.sid,
+                isManualReply: true,
+                phoneNumber: cleanPhone
+            },
+            performedBy: req.user?.fullName || "Agent",
+            performedAt: new Date()
+        });
+
+        // 3. Update Conversation History (if applicable)
+        const Conversation = mongoose.model('Conversation');
+        await Conversation.findOneAndUpdate(
+            { phoneNumber: cleanPhone },
+            { 
+                $push: { 
+                    messages: { 
+                        role: 'assistant', 
+                        content: message, 
+                        timestamp: new Date() 
+                    } 
+                },
+                status: 'handed_off', 
+                updatedAt: new Date()
+            },
+            { upsert: true }
+        );
+
+        res.json({ success: true, data: activity });
+    } catch (error) {
+        console.error("[ActivityController] sendReply error:", error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
  * @desc    Get all messaging records (Activity + Conversation) for Communication Hub
  * @route   GET /api/activities/messaging
  */
@@ -719,7 +796,6 @@ export const getMessagingActivities = async (req, res) => {
         })
         .sort({ createdAt: -1 })
         .limit(200)
-        .populate('entityId') // Populate to check for "Real" Lead status
         .lean();
 
         // 2. Fetch AI Conversations
@@ -731,19 +807,35 @@ export const getMessagingActivities = async (req, res) => {
 
         // 3. Unify and apply Matched/Unmatched logic
         const unified = [
-            ...activities.map(a => ({
-                _id: a._id,
-                type: a.type,
-                subject: a.subject,
-                description: a.description,
-                timestamp: a.createdAt,
-                entityType: a.entityType,
-                entityId: a.entityId?._id || a.entityId,
-                actor: a.actor || 'System',
-                isMatched: a.details?.isMatched ?? !!(a.entityId && a.entityId.firstName !== 'WhatsApp' && a.entityId.firstName !== 'WhatsApp Lead'),
-                details: a.details,
-                platform: a.details?.platform || (a.type === 'WhatsApp' ? 'WhatsApp' : 'Direct')
-            })),
+            ...activities.map(a => {
+                const phone = a.details?.phoneNumber || a.participants?.[0]?.mobile || '';
+                // Check if this activity belongs to a conversation we have history for
+                const matchingConv = conversations.find(c => c.phoneNumber === phone || (c.lead?._id && a.entityId && c.lead._id.toString() === a.entityId.toString()));
+                
+                return {
+                    _id: a._id,
+                    type: a.type,
+                    subject: a.subject,
+                    description: a.description,
+                    timestamp: a.createdAt,
+                    entityType: a.entityType,
+                    entityId: a.entityId,
+                    actor: a.performedBy || 'System',
+                    isMatched: a.details?.isMatched ?? !!(a.entityId && a.entityType !== 'Unknown'),
+                    details: a.details,
+                    platform: a.details?.platform || (a.type === 'WhatsApp' ? 'WhatsApp' : 'Direct'),
+                    phoneNumber: phone,
+                    thread: matchingConv ? matchingConv.messages.map(m => ({
+                        sender: m.role === 'user' ? 'customer' : 'ai',
+                        text: m.content,
+                        time: m.timestamp
+                    })) : [{
+                        sender: a.details?.direction === 'Incoming' ? 'customer' : 'agent',
+                        text: a.description,
+                        time: a.createdAt
+                    }]
+                };
+            }),
             ...conversations.map(c => {
                 const messages = c.messages || [];
                 const lastMsg = messages[messages.length - 1];
@@ -760,6 +852,7 @@ export const getMessagingActivities = async (req, res) => {
                     direction: lastMsg?.role === 'user' ? 'Incoming' : 'Outgoing',
                     platform: 'WhatsApp Bot',
                     isMatched: !!(c.lead && c.lead.source !== 'AI Bot WhatsApp' && c.lead.firstName !== 'WhatsApp'),
+                    phoneNumber: c.phoneNumber,
                     thread: messages.map(m => ({
                         sender: m.role === 'user' ? 'customer' : 'ai',
                         text: m.content,
@@ -781,3 +874,4 @@ export const getMessagingActivities = async (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 };
+

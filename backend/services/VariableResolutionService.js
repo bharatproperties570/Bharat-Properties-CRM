@@ -134,7 +134,6 @@ class VariableResolutionService {
                 // Try deep access for custom fields
                 return lead[source] || '';
         }
-        }
     }
 }
 
