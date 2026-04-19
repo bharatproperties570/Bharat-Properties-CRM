@@ -484,11 +484,11 @@ export default function MarketingOverviewPage() {
           
           setLookups(prev => ({
             ...prev,
-            leadStages: allLks.filter(i => i.lookup_type === 'Lead Status' || i.lookup_type === 'Lead Stage'),
+            leadStages: allLks.filter(i => i.lookup_type === 'Stage' || i.lookup_type === 'Lead Stage' || i.lookup_type === 'Lead Status'),
             dealStages: allLks.filter(i => i.lookup_type === 'Deal Stage'),
             projectNames: dynamicProjects.map(p => ({ ...p, id: p.id || p._id })),
             sizeTypes: sizes,
-            leadSources: allLks.filter(i => i.lookup_type === 'Lead Source'),
+            leadSources: allLks.filter(i => i.lookup_type === 'Source' || i.lookup_type === 'Lead Source'),
             categories: allLks.filter(i => i.lookup_type === 'Property Category'),
             subCategories: allLks.filter(i => i.lookup_type === 'Sub-Category'),
             segments: allLks.filter(i => i.lookup_type === 'Lead Segment'),
@@ -4171,7 +4171,7 @@ export default function MarketingOverviewPage() {
                           onClick={() => launchCampaigns('wa')} 
                           disabled={campLaunching}
                         >
-                          {campLaunching ? <><span className="spinner-sm"></span> Dispatching...</> : `🚀 Launch ${selectedMetaTemplate ? 'Template' : 'Text'} Broadcast`}
+                          {campLaunching ? <><span className="spinner-sm"></span> Dispatching...</> : `🚀 Launch Broadcast (${audienceCount.toLocaleString()} contacts)`}
                         </button>
                       </div>
                     </div>
@@ -4203,7 +4203,7 @@ export default function MarketingOverviewPage() {
                         <span style={{ color: activeSmsStatus?.status === 'Connected' ? 'var(--green)' : 'var(--text3)' }}>● {activeSmsStatus?.status || 'Unknown'}</span>
                       </div>
                       <button className="tact-btn primary" onClick={() => launchCampaigns('sms')} disabled={campLaunching}>
-                        {campLaunching ? <><span className="spinner-sm"></span> Sending...</> : `📲 Send SMS Campaign (${leads.filter(l => selectedSeg === 'all' || l.status?.toLowerCase() === selectedSeg || l.segment?.toLowerCase() === selectedSeg).length.toLocaleString()} contacts)`}
+                        {campLaunching ? <><span className="spinner-sm"></span> Sending...</> : `📲 Send SMS Campaign (${audienceCount.toLocaleString()} contacts)`}
                       </button>
                     </div>
                   )}
