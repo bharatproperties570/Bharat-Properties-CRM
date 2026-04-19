@@ -925,25 +925,39 @@ export default function MarketingOverviewPage() {
       payload = { ...payload, title: rcsData.title, desc: rcsData.desc };
     }
 
-    toast.loading(`${meta.icon} Launching ${meta.n} campaign to ${audienceCount} recipients...`, { id: 'camp-launch' });
+    if (audienceCount === 0) {
+      toast.error('⚠️ No recipients selected. Please select a source and apply filters first.', { id: 'camp-launch' });
+      setCampLaunching(false);
+      return;
+    }
+
+    toast.loading(`${meta.icon} Dispatching ${meta.n} campaign to ${audienceCount} recipients...`, { id: 'camp-launch' });
     await sleep(300);
 
-    let resultMsg = `${meta.cnt.toLocaleString('en-IN')} contacts · Delivered`;
+    let resultMsg = `${audienceCount} contacts · Dispatched`;
+    let launchSuccess = false;
     try {
       const apiRes = await marketingAPI.sendCampaign(channel, payload);
       if (apiRes?.success) {
-        resultMsg = apiRes.message || resultMsg;
-        toast.success(`${meta.icon} ${meta.n} campaign launched!`, { id: 'camp-launch' });
+        resultMsg = apiRes.message || `✅ Queued ${apiRes.leadCount || audienceCount} messages for dispatch`;
+        launchSuccess = true;
+        toast.success(`${meta.icon} ${meta.n} campaign dispatched to ${apiRes.leadCount || audienceCount} contacts! Job ID: ${apiRes.jobId || '—'}`, { id: 'camp-launch', duration: 6000 });
       } else {
-        throw new Error(apiRes?.message || 'API returned failure');
+        throw new Error(apiRes?.error || apiRes?.message || 'Backend returned failure');
       }
     } catch (err) {
-      // Non-blocking fallback — API not wired on backend yet
-      console.warn('[MarketingOS] campaign API unavailable, using fallback:', err.message);
-      toast.success(`${meta.icon} ${meta.n} campaign queued (sandbox mode)`, { id: 'camp-launch' });
+      // Show REAL error — no more silent "sandbox mode"
+      console.error('[MarketingOS] Campaign dispatch FAILED:', err.message);
+      const friendlyError = err.message?.includes('meta_wa_config') ? 'WhatsApp credentials not configured. Go to Settings → Integrations to add your Meta Token & Phone ID.' 
+        : err.message?.includes('Redis') || err.message?.includes('ECONNREFUSED') ? 'Campaign queue (Redis) is not running. Please start the backend services.'
+        : err.message?.includes('No recipients') ? 'No valid recipients found. Check if your inventory has linked Property Owners with valid phone numbers.'
+        : `Campaign failed: ${err.message}`;
+      toast.error(`❌ ${friendlyError}`, { id: 'camp-launch', duration: 8000 });
+      setCampLaunching(false);
+      return;
     }
 
-    const newEntry = { i: meta.i, n: campaignName || `${meta.n} Campaign`, m: `${meta.cnt.toLocaleString('en-IN')} contacts`, r: resultMsg, c: meta.color };
+    const newEntry = { i: meta.i, n: campaignName || `${meta.n} Campaign`, m: `${audienceCount} contacts`, r: resultMsg, c: meta.color };
     setCampHistory(prev => [newEntry, ...prev]);
     setCampaignActivity(prev => [
       { id: `ch-${channel}-${Date.now()}`, t: `${meta.n} Campaign Sent`, p: `${meta.cnt.toLocaleString('en-IN')} contacts`, m: meta.n, s: 'Sent', ts: 'just now', c: meta.color },
