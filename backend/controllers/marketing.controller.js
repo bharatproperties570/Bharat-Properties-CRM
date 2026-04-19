@@ -302,7 +302,8 @@ export const sendCampaign = async (req, res) => {
     try {
         const { 
             channel, segment, name, subject, content, html, 
-            waMapping, audienceConfig, isScheduled, scheduledAt 
+            waMapping, audienceConfig, isScheduled, scheduledAt,
+            repeatMode, repeatFreq
         } = req.body;
 
         if (!channel) return res.status(400).json({ success: false, error: 'channel is required' });
@@ -312,17 +313,14 @@ export const sendCampaign = async (req, res) => {
             const { mapping } = audienceConfig;
             recipients = audienceConfig.tempRecipients.map(r => {
                 const row = r.context || {};
-                // Honor user-defined mapping if provided
                 const name   = (mapping?.name   && row[mapping.name])   ? row[mapping.name] : r.name;
                 const mobile = (mapping?.mobile && row[mapping.mobile]) ? normalizePhone(row[mapping.mobile]) : r.mobile;
                 const email  = (mapping?.email  && row[mapping.email])  ? row[mapping.email] : r.email;
-                
                 return { ...r, name, mobile, email };
             }).filter(r => r.mobile);
         } else if (audienceConfig && audienceConfig.source) {
             recipients = await marketingAudienceService.getAudience(audienceConfig);
         } else {
-            // Legacy fallback
             const segmentQuery = segment && segment !== 'all' ? { stage: { $regex: new RegExp(segment, 'i') } } : {};
             const leads = await Lead.find({ ...segmentQuery, mobile: { $exists: true, $ne: '' } }).limit(1000).lean();
             recipients = leads.map(l => ({
@@ -348,11 +346,10 @@ export const sendCampaign = async (req, res) => {
 
         const queue = await getMarketingQueue();
         if (!queue) {
-            console.error('[MarketingController] ❌ Queue Engine Unavailable (Redis Offline?)');
-            return res.status(503).json({ success: false, error: "Campaign engine is temporarily unavailable (Queue Offline)" });
+            console.error('[MarketingController] ❌ Queue Engine Unavailable');
+            return res.status(503).json({ success: false, error: "Campaign engine is temporarily unavailable" });
         }
 
-        // 🛡️ Enterprise Safeguard: Verify if Redis is Real or Mock
         const { default: redisConnection } = await import('../src/config/redis.js');
         if (redisConnection.isMock) {
             console.error('[MarketingController] ❌ BLOCK: Campaign attempted using MockRedis. Live Redis required.');
@@ -363,19 +360,42 @@ export const sendCampaign = async (req, res) => {
             });
         }
 
-        // 🧠 SCHEDULING LOGIC: Calculate delay in ms
+        // 🧠 RECURRING & SCHEDULING ORCHESTRATION
+        let jobOptions = { removeOnComplete: true, attempts: 3 };
         let delay = 0;
+
         if (isScheduled && scheduledAt) {
-            const targetTime = new Date(scheduledAt).getTime();
+            const startDate = new Date(scheduledAt);
             const now = Date.now();
-            if (targetTime > now) {
-                delay = targetTime - now;
-                console.log(`[MarketingController] ⏰ Scheduling campaign in ${Math.round(delay/1000)}s`);
+            
+            if (repeatMode && repeatMode !== 'none') {
+                const hour = startDate.getHours();
+                const minute = startDate.getMinutes();
+                const dayOfMonth = startDate.getDate();
+                const month = startDate.getMonth() + 1;
+                const dayOfWeek = startDate.getDay();
+
+                let cron;
+                const freq = repeatFreq || 1;
+
+                switch(repeatMode) {
+                    case 'daily':   cron = `${minute} ${hour} */${freq} * *`; break;
+                    case 'weekly':  cron = `${minute} ${hour} * * ${dayOfWeek}`; break;
+                    case 'monthly': cron = `${minute} ${hour} ${dayOfMonth} */${freq} *`; break;
+                    case 'yearly':  cron = `${minute} ${hour} ${dayOfMonth} ${month} *`; break;
+                }
+
+                if (cron) {
+                    jobOptions.repeat = { cron, startDate: startDate };
+                }
+            } else {
+                if (startDate.getTime() > now) {
+                    delay = startDate.getTime() - now;
+                    jobOptions.delay = delay;
+                }
             }
         }
 
-        console.log(`[MarketingController] 📡 Attempting to queue campaign: ${name || 'Untitled'} for ${recipients.length} leads`);
-        
         const job = await queue.add('blast', {
             channel,
             name:    name || 'Campaign',
@@ -389,30 +409,22 @@ export const sendCampaign = async (req, res) => {
             mobiles,
             emails,
             leads: recipients,
-            queuedAt: new Date().toISOString(),
             isScheduled,
-            scheduledAt
-        }, {
-            delay, // BullMQ delay feature
-            removeOnComplete: true, // Auto-cleanup
-            attempts: 3
-        });
+            scheduledAt,
+            repeatMode,
+            repeatFreq
+        }, jobOptions);
 
-        console.log(`[MarketingController] ✅ Job ${isScheduled ? 'SCHEDULED' : 'QUEUED'} successfully. ID: ${job.id}`);
         res.json({ 
             success: true, 
             leadCount: recipients.length, 
             jobId: job.id,
-            status: isScheduled ? 'Scheduled' : 'Dispatched',
-            message: isScheduled ? `Campaign scheduled successfully for ${new Date(scheduledAt).toLocaleString()}` : undefined
+            status: isScheduled ? (repeatMode !== 'none' ? 'Recurring' : 'Scheduled') : 'Dispatched',
+            message: isScheduled ? `Campaign orchestration active for ${new Date(scheduledAt).toLocaleString()}` : undefined
         });
     } catch (error) {
-        console.error('[MarketingController] ❌ FATAL Blast Error:', error);
-        res.status(500).json({ 
-            success: false, 
-            error: error.message,
-            diagnostic: 'Check Redis connectivity and Variable Resolution mapping'
-        });
+        console.error('[MarketingController] ❌ Blast Error:', error);
+        res.status(500).json({ success: false, error: error.message });
     }
 };
 

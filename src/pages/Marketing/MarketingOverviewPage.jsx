@@ -269,6 +269,8 @@ export default function MarketingOverviewPage() {
   // ══ SCHEDULING SYSTEM ══
   const [isScheduled, setIsScheduled] = useState(false);
   const [scheduledAt, setScheduledAt] = useState(''); // ISO String
+  const [repeatMode, setRepeatMode] = useState('none'); // none | weekly | monthly | yearly
+  const [repeatFreq, setRepeatFreq] = useState(1); // e.g. every 2 weeks
   
   const failoverLogRef = useRef(null);
 
@@ -906,7 +908,9 @@ export default function MarketingOverviewPage() {
     let payload = {
       audienceConfig: audienceConfig, // THE NEW 360-DEGREE SOURCE
       isScheduled,
-      scheduledAt: isScheduled ? scheduledAt : null
+      scheduledAt: isScheduled ? scheduledAt : null,
+      repeatMode: isScheduled ? repeatMode : 'none',
+      repeatFreq: isScheduled ? repeatFreq : 1
     };
 
     if (channel === 'email') {
@@ -3897,55 +3901,7 @@ export default function MarketingOverviewPage() {
                       </div>
                     )}
 
-                    {/* ══ ENTERPRISE SCHEDULING INTERFACE ══ */}
-                    <div style={{ marginTop: '16px', padding: '12px 16px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: isScheduled ? 'rgba(201,146,26,0.1)' : 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: isScheduled ? 'var(--gold)' : 'var(--text3)' }}>
-                          <Calendar size={18} />
-                        </div>
-                        <div>
-                          <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Campaign Scheduling</div>
-                          <div style={{ fontSize: '10px', color: 'var(--text3)' }}>{isScheduled ? `Scheduled for peak engagement` : `Launch campaign immediately (Now)`}</div>
-                        </div>
-                      </div>
-                      
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        {isScheduled && (
-                          <input 
-                            type="datetime-local" 
-                            min={new Date().toISOString().slice(0, 16)}
-                            value={scheduledAt}
-                            onChange={(e) => setScheduledAt(e.target.value)}
-                            style={{ 
-                              padding: '5px 10px', 
-                              background: 'var(--bg2)', 
-                              border: '1px solid var(--gold)', 
-                              borderRadius: '6px', 
-                              color: 'var(--text)', 
-                              fontSize: '11px',
-                              outline: 'none'
-                            }} 
-                          />
-                        )}
-                        <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: '8px' }}>
-                          <span style={{ fontSize: '10px', color: isScheduled ? 'var(--gold)' : 'var(--text3)', fontWeight: 700 }}>
-                            {isScheduled ? 'SCHEDULED' : 'SEND NOW'}
-                          </span>
-                          <div 
-                            onClick={() => setIsScheduled(!isScheduled)}
-                            style={{ 
-                              width: '34px', height: '18px', background: isScheduled ? 'var(--gold)' : 'rgba(255,255,255,0.1)', 
-                              borderRadius: '20px', position: 'relative', transition: '0.3s' 
-                            }}
-                          >
-                            <div style={{ 
-                              width: '14px', height: '14px', background: '#07162B', borderRadius: '50%', 
-                              position: 'absolute', top: '2px', left: isScheduled ? '18px' : '2px', transition: '0.3s' 
-                            }} />
-                          </div>
-                        </label>
-                      </div>
-                    </div>
+
 
                     {audienceConfig.source === 'Excel' && (
                       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -4315,6 +4271,79 @@ export default function MarketingOverviewPage() {
               </div>
             </div>
             
+            {/* ══ ADVANCED ENTERPRISE SCHEDULING CONSOLE ══ */}
+            <div style={{ padding: '20px 24px', background: 'rgba(255,255,255,0.02)', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '15px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: isScheduled ? 'rgba(201,146,26,0.15)' : 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: isScheduled ? 'var(--gold)' : 'var(--text3)', transition: '0.3s' }}>
+                    <Calendar size={20} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Campaign Orchestration</div>
+                    <div style={{ fontSize: '10px', color: 'var(--text3)' }}>{isScheduled ? `Multi-schedule mode initialized` : `Standby for immediate manual dispatch`}</div>
+                  </div>
+                </div>
+
+                <div 
+                  onClick={() => setIsScheduled(!isScheduled)}
+                  style={{ 
+                    width: '46px', height: '22px', background: isScheduled ? 'var(--gold)' : 'rgba(255,255,255,0.1)', 
+                    borderRadius: '20px', position: 'relative', transition: '0.3s', cursor: 'pointer', border: isScheduled ? '1px solid var(--gold)' : '1px solid var(--border)'
+                  }}
+                >
+                  <div style={{ 
+                    width: '16px', height: '16px', background: '#07162B', borderRadius: '50%', 
+                    position: 'absolute', top: '2px', left: isScheduled ? '26px' : '2px', transition: '0.3s' 
+                  }} />
+                </div>
+              </div>
+
+              {isScheduled && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 0.8fr', gap: '12px', animation: 'fadeIn 0.4s easeOut' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '9px', fontWeight: 700, color: 'var(--gold)', textTransform: 'uppercase' }}>Initial Start Date & Time</label>
+                    <input 
+                      type="datetime-local" 
+                      min={new Date().toISOString().slice(0, 16)}
+                      value={scheduledAt}
+                      onChange={(e) => setScheduledAt(e.target.value)}
+                      style={{ width: '100%', padding: '10px', background: 'var(--bg)', border: '1px solid var(--gold)', borderRadius: '8px', color: 'var(--text)', fontSize: '12px', outline: 'none' }} 
+                    />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase' }}>Repeat Frequency</label>
+                    <select 
+                      value={repeatMode}
+                      onChange={(e) => setRepeatMode(e.target.value)}
+                      style={{ width: '100%', padding: '10px', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '12px' }}
+                    >
+                      <option value="none">🚀 Once (No Repeat)</option>
+                      <option value="daily">📅 Daily Loop</option>
+                      <option value="weekly">🗓️ Weekly Cycle</option>
+                      <option value="monthly">🌔 Monthly Blast</option>
+                      <option value="yearly">🎆 Yearly Anniversary</option>
+                    </select>
+                  </div>
+                  {repeatMode !== 'none' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <label style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase' }}>Interval</label>
+                      <div style={{ display: 'flex', alignItems: 'center', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '8px', padding: '2px 10px' }}>
+                        <span style={{ fontSize: '10px', color: 'var(--text3)', marginRight: '8px' }}>Every</span>
+                        <input 
+                          type="number" 
+                          min="1" 
+                          max="99"
+                          value={repeatFreq}
+                          onChange={(e) => setRepeatFreq(e.target.value)}
+                          style={{ width: '30px', padding: '8px 0', background: 'transparent', border: 'none', color: 'var(--gold)', fontSize: '12px', fontWeight: 700, textAlign: 'center' }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div className="modal-footer" style={{ padding: '15px 24px', borderTop: '1px solid var(--border)', background: 'rgba(7,22,43,0.9)', display: 'flex', justifyContent: 'flex-end' }}>
               <button className="btn" style={{ padding: '8px 24px', borderRadius: '8px', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text3)', cursor: 'pointer' }} onClick={() => setShowCampaignModal(false)}>Cancel</button>
             </div>
