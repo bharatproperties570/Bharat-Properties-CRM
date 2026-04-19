@@ -262,7 +262,6 @@ export default function MarketingOverviewPage() {
   const [waData, setWaData] = useState({ name: 'Festive Offer', content: '🏠 *Bharat Properties*\n\nSpecial Festive Offer! Get 10% off on all pre-bookings this week.\n\n👉 *Reply YES to know more!*' });
   const [smsText, setSmsText] = useState('BP: 3BHK Kurukshetra Rs.35L. Ready possession. Park view. Book: bharat.co/3bhk STOP-SMS');
   const [rcsData, setRcsData] = useState({ title: '🏠 3BHK Luxury — ₹35L', desc: 'Kurukshetra · Park View · Ready Possession' });
-  const [campHistory, setCampHistory] = useState([]);
   const [campLaunching, setCampLaunching] = useState(false);
   const [campaignName, setCampaignName] = useState('Enterprise Growth Blast — ' + new Date().toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }));
   const [isSyncingLinkedIn, setIsSyncingLinkedIn] = useState(false);
@@ -463,23 +462,6 @@ export default function MarketingOverviewPage() {
       } catch (err) {
         console.error('[MarketingOverview] Bulk data sync failed:', err);
       }
-        if (hRes?.success && hRes.data) {
-          setCampHistory(hRes.data.map(h => ({
-            id: h.id,
-            n: h.name,
-            m: `${h.leadsTargeted} targeted via ${h.channels || 'Integrated Hub'}`,
-            r: new Date(h.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }),
-            i: h.channels?.toLowerCase().includes('wa') ? '💬' : h.channels?.toLowerCase().includes('email') ? '✉️' : '🚀',
-            c: h.channels?.toLowerCase().includes('wa') ? 'var(--green)' : h.channels?.toLowerCase().includes('email') ? 'var(--gold)' : 'var(--blue)',
-            stats: {
-              sent: h.sent || 0,
-              delivered: h.delivered || 0,
-              read: h.read || 0,
-              failed: h.failed || 0
-            }
-          })));
-        }
-      } catch (_) {}
 
       // Real Social Status & Comments
       try {
@@ -3040,30 +3022,30 @@ export default function MarketingOverviewPage() {
 
               {/* Campaign engine content removed from inline overview for modal-driven workflow */}
 
-              {/* ── CAMPAIGN HISTORY ── */}
-              {campHistory.length > 0 && (
+              {/* ── RECENT BROADCASTS ── */}
+              {campaignRuns.length > 0 && (
                 <div className="card" style={{ marginTop: '1.25rem' }}>
                   <div className="card-header">
-                    <div className="card-title">📋 Campaign History — This Session</div>
-                    <button className="tact-btn" style={{ marginLeft: 'auto', fontSize: '10px' }} onClick={() => setCampHistory([])}>Clear</button>
+                    <div className="card-title text-serif">📋 Recent Activity — Last 3 Blasts</div>
+                    <button className="tact-btn" style={{ marginLeft: 'auto', fontSize: '10px' }} onClick={() => setActivePage('reports')}>View All Reports</button>
                   </div>
                   <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    {campHistory.map((h, i) => (
-                      <div key={h.id || i} style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '16px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)', borderRadius: '12px', borderLeft: `4px solid ${h.c}` }}>
+                    {campaignRuns.slice(0, 3).map((h, i) => (
+                      <div key={h.id || i} style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '16px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)', borderRadius: '12px', borderLeft: `4px solid ${h.channels?.toLowerCase().includes('wa') ? 'var(--green)' : 'var(--blue)'}` }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                          <div style={{ fontSize: '24px' }}>{h.i}</div>
+                          <div style={{ fontSize: '24px' }}>{h.channels?.toLowerCase().includes('wa') ? '💬' : '✉️'}</div>
                           <div style={{ flex: 1 }}>
-                            <div style={{ fontWeight: 800, fontSize: '14px', color: 'var(--text)', marginBottom: '2px' }}>{h.n}</div>
+                            <div style={{ fontWeight: 800, fontSize: '14px', color: 'var(--text)', marginBottom: '2px' }}>{h.name}</div>
                             <div style={{ fontSize: '11px', color: 'var(--text3)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              <span>{h.m}</span>
+                              <span>{h.channels}</span>
                               <span>·</span>
-                              <span style={{ color: 'var(--gold)', fontWeight: 700 }}>{h.r}</span>
+                              <span style={{ color: 'var(--gold)', fontWeight: 700 }}>{new Date(h.date).toLocaleDateString()}</span>
                             </div>
                           </div>
                           <div style={{ textAlign: 'right' }}>
                             <div style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase' }}>Delivery Rate</div>
                             <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--green)' }}>
-                              {h.stats?.sent > 0 ? Math.round((h.stats.delivered / h.stats.sent) * 100) : 100}%
+                              {h.sent > 0 ? Math.round((h.delivered / h.sent) * 100) : 100}%
                             </div>
                           </div>
                         </div>
@@ -3072,20 +3054,20 @@ export default function MarketingOverviewPage() {
                         <div style={{ display: 'flex', gap: '12px', marginTop: '4px', padding: '8px 12px', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px dashed rgba(255,255,255,0.05)' }}>
                           <div style={{ flex: 1 }}>
                             <div style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700 }}>SENT</div>
-                            <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)' }}>{h.stats?.sent || 0}</div>
+                            <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)' }}>{h.sent || 0}</div>
                           </div>
                           <div style={{ flex: 1 }}>
                             <div style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700 }}>DELIVERED</div>
-                            <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--blue)' }}>{h.stats?.delivered || 0}</div>
+                            <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--blue)' }}>{h.delivered || 0}</div>
                           </div>
                           <div style={{ flex: 1 }}>
                             <div style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700 }}>READ</div>
-                            <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--green)' }}>{h.stats?.read || 0}</div>
+                            <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--green)' }}>{h.read || 0}</div>
                           </div>
-                          {h.stats?.failed > 0 && (
+                          {h.failed > 0 && (
                             <div style={{ flex: 1 }}>
                               <div style={{ fontSize: '9px', color: 'var(--text3)', fontWeight: 700 }}>FAILED</div>
-                              <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--red)' }}>{h.stats?.failed || 0}</div>
+                              <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--red)' }}>{h.failed || 0}</div>
                             </div>
                           )}
                         </div>
