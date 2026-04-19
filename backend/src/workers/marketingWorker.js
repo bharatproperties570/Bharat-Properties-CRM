@@ -17,6 +17,7 @@
  */
 
 import { Worker } from 'bullmq';
+import mongoose from 'mongoose';
 import redisConnection from '../config/redis.js';
 
 // Lazily imported services (avoids circular deps at module load)
