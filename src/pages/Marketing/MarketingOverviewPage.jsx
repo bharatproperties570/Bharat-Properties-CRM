@@ -265,6 +265,11 @@ export default function MarketingOverviewPage() {
   const [isSyncingLinkedIn, setIsSyncingLinkedIn] = useState(false);
   const [failoverLogs, setFailoverLogs] = useState([{ text: '  Monitoring all model token usage...', type: 'dim' }]);
   const [taskDist, setTaskDist] = useState([]);
+  
+  // ══ SCHEDULING SYSTEM ══
+  const [isScheduled, setIsScheduled] = useState(false);
+  const [scheduledAt, setScheduledAt] = useState(''); // ISO String
+  
   const failoverLogRef = useRef(null);
 
   // ══ PHASE 2 — MISSING FEATURES STATES ══
@@ -890,8 +895,18 @@ export default function MarketingOverviewPage() {
     };
 
     const meta = channelMeta[channel] || channelMeta.email;
+    
+    // 🛡️ Enterprise Validation for Scheduling
+    if (isScheduled && !scheduledAt) {
+      toast.error('📅 Please select a valid date and time for scheduling.', { id: 'camp-launch' });
+      setCampLaunching(false);
+      return;
+    }
+
     let payload = {
-      audienceConfig: audienceConfig // THE NEW 360-DEGREE SOURCE
+      audienceConfig: audienceConfig, // THE NEW 360-DEGREE SOURCE
+      isScheduled,
+      scheduledAt: isScheduled ? scheduledAt : null
     };
 
     if (channel === 'email') {
@@ -3881,6 +3896,56 @@ export default function MarketingOverviewPage() {
                         </select>
                       </div>
                     )}
+
+                    {/* ══ ENTERPRISE SCHEDULING INTERFACE ══ */}
+                    <div style={{ marginTop: '16px', padding: '12px 16px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: isScheduled ? 'rgba(201,146,26,0.1)' : 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: isScheduled ? 'var(--gold)' : 'var(--text3)' }}>
+                          <Calendar size={18} />
+                        </div>
+                        <div>
+                          <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--text)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Campaign Scheduling</div>
+                          <div style={{ fontSize: '10px', color: 'var(--text3)' }}>{isScheduled ? `Scheduled for peak engagement` : `Launch campaign immediately (Now)`}</div>
+                        </div>
+                      </div>
+                      
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        {isScheduled && (
+                          <input 
+                            type="datetime-local" 
+                            min={new Date().toISOString().slice(0, 16)}
+                            value={scheduledAt}
+                            onChange={(e) => setScheduledAt(e.target.value)}
+                            style={{ 
+                              padding: '5px 10px', 
+                              background: 'var(--bg2)', 
+                              border: '1px solid var(--gold)', 
+                              borderRadius: '6px', 
+                              color: 'var(--text)', 
+                              fontSize: '11px',
+                              outline: 'none'
+                            }} 
+                          />
+                        )}
+                        <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: '8px' }}>
+                          <span style={{ fontSize: '10px', color: isScheduled ? 'var(--gold)' : 'var(--text3)', fontWeight: 700 }}>
+                            {isScheduled ? 'SCHEDULED' : 'SEND NOW'}
+                          </span>
+                          <div 
+                            onClick={() => setIsScheduled(!isScheduled)}
+                            style={{ 
+                              width: '34px', height: '18px', background: isScheduled ? 'var(--gold)' : 'rgba(255,255,255,0.1)', 
+                              borderRadius: '20px', position: 'relative', transition: '0.3s' 
+                            }}
+                          >
+                            <div style={{ 
+                              width: '14px', height: '14px', background: '#07162B', borderRadius: '50%', 
+                              position: 'absolute', top: '2px', left: isScheduled ? '18px' : '2px', transition: '0.3s' 
+                            }} />
+                          </div>
+                        </label>
+                      </div>
+                    </div>
 
                     {audienceConfig.source === 'Excel' && (
                       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '10px' }}>

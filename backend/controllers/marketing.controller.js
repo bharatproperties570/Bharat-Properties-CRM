@@ -300,7 +300,10 @@ export const importAudience = async (req, res) => {
  */
 export const sendCampaign = async (req, res) => {
     try {
-        const { channel, segment, name, subject, content, html, waMapping, audienceConfig } = req.body;
+        const { 
+            channel, segment, name, subject, content, html, 
+            waMapping, audienceConfig, isScheduled, scheduledAt 
+        } = req.body;
 
         if (!channel) return res.status(400).json({ success: false, error: 'channel is required' });
 
@@ -360,6 +363,17 @@ export const sendCampaign = async (req, res) => {
             });
         }
 
+        // 🧠 SCHEDULING LOGIC: Calculate delay in ms
+        let delay = 0;
+        if (isScheduled && scheduledAt) {
+            const targetTime = new Date(scheduledAt).getTime();
+            const now = Date.now();
+            if (targetTime > now) {
+                delay = targetTime - now;
+                console.log(`[MarketingController] ⏰ Scheduling campaign in ${Math.round(delay/1000)}s`);
+            }
+        }
+
         console.log(`[MarketingController] 📡 Attempting to queue campaign: ${name || 'Untitled'} for ${recipients.length} leads`);
         
         const job = await queue.add('blast', {
@@ -376,13 +390,22 @@ export const sendCampaign = async (req, res) => {
             emails,
             leads: recipients,
             queuedAt: new Date().toISOString(),
+            isScheduled,
+            scheduledAt
         }, {
-            removeOnComplete: true, // Auto-cleanup to save Redis memory on live server
+            delay, // BullMQ delay feature
+            removeOnComplete: true, // Auto-cleanup
             attempts: 3
         });
 
-        console.log(`[MarketingController] ✅ Job queued successfully. ID: ${job.id}`);
-        res.json({ success: true, leadCount: recipients.length, jobId: job.id });
+        console.log(`[MarketingController] ✅ Job ${isScheduled ? 'SCHEDULED' : 'QUEUED'} successfully. ID: ${job.id}`);
+        res.json({ 
+            success: true, 
+            leadCount: recipients.length, 
+            jobId: job.id,
+            status: isScheduled ? 'Scheduled' : 'Dispatched',
+            message: isScheduled ? `Campaign scheduled successfully for ${new Date(scheduledAt).toLocaleString()}` : undefined
+        });
     } catch (error) {
         console.error('[MarketingController] ❌ FATAL Blast Error:', error);
         res.status(500).json({ 
