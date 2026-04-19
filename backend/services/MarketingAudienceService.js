@@ -16,6 +16,8 @@ class MarketingAudienceService {
         let query = {};
         let rawRecipients = [];
 
+        console.log(`[MarketingAudienceService] START FETCH - Source: ${source}, Filters:`, JSON.stringify(filters));
+
         try {
             switch (source) {
                 case 'lead':
@@ -43,18 +45,37 @@ class MarketingAudienceService {
                     return this._standardizeRecipients(rawRecipients, 'deal', filters.targetRole);
 
                 case 'inventory':
-                    query = await this._buildInventoryQuery(filters);
-                    rawRecipients = await Inventory.find(query)
-                        .select('project unitNo sector block unitNumber owners associates status category sizeType subCategory')
-                        .populate('owners associates.contact status category sizeType subCategory')
-                        .lean();
-                    return this._standardizeRecipients(rawRecipients, 'inventory', filters.contactType || filters.targetRole);
+                    try {
+                        query = await this._buildInventoryQuery(filters);
+                        console.log('[MarketingAudienceService] INVENTORY_QUERY:', JSON.stringify(query));
+                        
+                        rawRecipients = await Inventory.find(query)
+                            .select('project projectName unitNo unitNumber sector block owners associates status category sizeType subCategory sizeLabel')
+                            .populate({
+                                path: 'owners',
+                                select: 'name phones mobile email'
+                            })
+                            .populate({
+                                path: 'associates.contact',
+                                select: 'name phones mobile email'
+                            })
+                            .populate('status category subCategory')
+                            .lean();
+
+                        console.log(`[MarketingAudienceService] RAW_INVENTORY_FOUND: ${rawRecipients.length}`);
+                        const processed = this._standardizeRecipients(rawRecipients, 'inventory', filters.contactType || filters.targetRole);
+                        console.log(`[MarketingAudienceService] PROCESSED_RECIPIENTS: ${processed.length}`);
+                        return processed;
+                    } catch (invErr) {
+                        console.error('[MarketingAudienceService] Inventory Fetch Failed:', invErr);
+                        throw invErr;
+                    }
 
                 default:
                     throw new Error(`Invalid audience source: ${source}`);
             }
         } catch (error) {
-            console.error(`[MarketingAudienceService] Error fetching audience for ${source}:`, error);
+            console.error(`[MarketingAudienceService] CRITICAL Error fetching audience for ${source}:`, error);
             throw error;
         }
     }
@@ -316,8 +337,11 @@ class MarketingAudienceService {
                     // Safety check: Ensure person is populated and has a mobile/phone
                     if (!person || typeof person !== 'object') return;
                     
-                    const pMobile = normalizePhone(person.phones?.[0]?.number || person.mobile);
-                    if (!pMobile || seenMobiles.has(pMobile)) return;
+                    // Advanced Mobile Resolution (Skip '-' or empty placeholders)
+                    const rawPhone = person.mobile || (person.phones && person.phones[0]?.number) || person.phones?.[0];
+                    const pMobile = normalizePhone(rawPhone);
+                    
+                    if (!pMobile || pMobile === '-' || seenMobiles.has(pMobile)) return;
 
                     seenMobiles.add(pMobile);
                     recipients.push({
