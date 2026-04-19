@@ -87,7 +87,25 @@ class MarketingAudienceService {
             query.status = mongoose.Types.ObjectId.isValid(filters.status) ? new mongoose.Types.ObjectId(filters.status) : filters.status;
         }
         if (filters.project && filters.project !== 'all') {
-            query.project = mongoose.Types.ObjectId.isValid(filters.project) ? new mongoose.Types.ObjectId(filters.project) : filters.project;
+            const isId = mongoose.Types.ObjectId.isValid(filters.project);
+            const searchName = String(filters.projectName || filters.project || '');
+            const escapedName = searchName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+            const projectOr = [
+                { projectName: new RegExp(escapedName, 'i') },
+                { project: new RegExp(escapedName, 'i') },
+                { 'assignment.projectInterest': new RegExp(escapedName, 'i') }
+            ];
+
+            if (isId && filters.project !== 'all') {
+                try {
+                    const pid = new mongoose.Types.ObjectId(filters.project);
+                    projectOr.push({ project: pid });
+                    projectOr.push({ 'assignment.project': pid });
+                } catch (e) {}
+            }
+            query.$and = query.$and || [];
+            query.$and.push({ $or: projectOr });
         }
         if (filters.source && filters.source !== 'all') {
             query.source = mongoose.Types.ObjectId.isValid(filters.source) ? new mongoose.Types.ObjectId(filters.source) : filters.source;
@@ -219,7 +237,7 @@ class MarketingAudienceService {
         // Project Filtering (Superior Dual-Track: ID + Name)
         if (filters.project && filters.project !== 'all') {
             const isId = mongoose.Types.ObjectId.isValid(filters.project);
-            const searchName = filters.projectName || filters.project;
+            const searchName = String(filters.projectName || filters.project || '');
             const escapedName = searchName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
             const projectOr = [
@@ -229,12 +247,19 @@ class MarketingAudienceService {
                 { sector: new RegExp(escapedName, 'i') }
             ];
 
-            if (isId) {
-                projectOr.push({ project: new mongoose.Types.ObjectId(filters.project) });
-                projectOr.push({ projectId: new mongoose.Types.ObjectId(filters.project) });
+            if (isId && filters.project !== 'all') {
+                try {
+                    const pid = new mongoose.Types.ObjectId(filters.project);
+                    projectOr.push({ project: pid });
+                    projectOr.push({ projectId: pid });
+                } catch (e) {
+                    console.warn('[MarketingAudienceService] Invalid Project ID skip:', filters.project);
+                }
             }
 
-            query.$and.push({ $or: projectOr });
+            if (projectOr.length > 0) {
+                query.$and.push({ $or: projectOr });
+            }
         }
 
         // Unit/UnitNo Fallback

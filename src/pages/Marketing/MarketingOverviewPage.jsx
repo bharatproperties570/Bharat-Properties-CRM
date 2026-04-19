@@ -484,7 +484,7 @@ export default function MarketingOverviewPage() {
           
           setLookups(prev => ({
             ...prev,
-            leadStages: allLks.filter(i => i.lookup_type === 'Lead Stage'),
+            leadStages: allLks.filter(i => i.lookup_type === 'Lead Status' || i.lookup_type === 'Lead Stage'),
             dealStages: allLks.filter(i => i.lookup_type === 'Deal Stage'),
             projectNames: dynamicProjects.map(p => ({ ...p, id: p.id || p._id })),
             sizeTypes: sizes,
@@ -3645,39 +3645,42 @@ export default function MarketingOverviewPage() {
                     </div>
                     
                     {audienceConfig.source === 'Lead' && (
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', flex: 1 }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', flex: 1 }}>
                         <select 
                           value={audienceConfig.filters.status || 'all'} 
                           onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, status: e.target.value } }))}
                           style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
                         >
                           <option value="all">🎯 All Lead Stages</option>
-                          {lookups.leadStages?.map(s => <option key={s._id} value={s._id}>{s.lookup_value}</option>)}
+                          {(lookups.leadStages || lookups.leadStatuses || lookups.lead_status || []).map(s => (
+                            <option key={s?._id || s?.id} value={s?._id || s?.id}>{s?.lookup_value || s?.name || s}</option>
+                          ))}
                         </select>
+
+                        <select 
+                          value={audienceConfig.filters.project || 'all'} 
+                          onChange={e => {
+                            const sid = e.target.value;
+                            const sname = (dynamicProjects || []).find(p => (p?._id || p?.id) === sid)?.name || 'all';
+                            setAudienceConfig(p => ({ ...p, filters: { ...p.filters, project: sid, projectName: sname } }));
+                          }}
+                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
+                        >
+                          <option value="all">🏢 All Projects</option>
+                          {(dynamicProjects || []).map(p => (
+                            <option key={p?._id || p?.id} value={p?._id || p?.id}>{p?.name || p?.projectName}</option>
+                          ))}
+                        </select>
+
                         <select 
                           value={audienceConfig.filters.source || ''} 
                           onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, source: e.target.value } }))}
                           style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
                         >
                           <option value="">🌍 All Sources</option>
-                          {lookups.leadSources?.map(s => <option key={s._id} value={s._id}>{s.lookup_value}</option>)}
-                        </select>
-                        <select 
-                          value={audienceConfig.filters.segment || ''} 
-                          onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, segment: e.target.value } }))}
-                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
-                        >
-                          <option value="">👥 All Segments</option>
-                          {lookups.segments?.map(s => <option key={s._id} value={s._id}>{s.lookup_value}</option>)}
-                        </select>
-
-                        <select 
-                          value={audienceConfig.filters.assignedTo || ''} 
-                          onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, assignedTo: e.target.value } }))}
-                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
-                        >
-                          <option value="">👤 All Owners</option>
-                          {lookups.users?.map(u => <option key={u._id} value={u._id}>{u.firstName} {u.lastName}</option>)}
+                          {(lookups.leadSources || lookups.lead_source || []).map(s => (
+                            <option key={s?._id || s?.id} value={s?._id || s?.id}>{s?.lookup_value || s?.name || s}</option>
+                          ))}
                         </select>
 
                         <select 
@@ -3690,15 +3693,6 @@ export default function MarketingOverviewPage() {
                           <option value="30">Last 30 Days</option>
                           <option value="90">Last 90 Days</option>
                         </select>
-                        
-                        <div style={{ position: 'relative' }}>
-                          <input 
-                            placeholder="Min Budget..."
-                            value={audienceConfig.filters.budget || ''}
-                            onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, budget: e.target.value } }))}
-                            style={{ width: '100%', padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
-                          />
-                        </div>
                       </div>
                     )}
 
