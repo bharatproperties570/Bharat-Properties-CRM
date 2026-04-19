@@ -3793,7 +3793,18 @@ export default function MarketingOverviewPage() {
                       <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '8px' }}>
                         <select
                           value={audienceConfig.filters.project || 'all'}
-                          onChange={e => setAudienceConfig(prev => ({ ...prev, filters: { ...prev.filters, project: e.target.value } }))}
+                          onChange={e => {
+                            const selectedId = e.target.value;
+                            const selectedName = dynamicProjects.find(p => (p._id || p.id) === selectedId)?.name || 'all';
+                            setAudienceConfig(prev => ({ 
+                              ...prev, 
+                              filters: { 
+                                ...prev.filters, 
+                                project: selectedId,
+                                projectName: selectedName 
+                              } 
+                            }));
+                          }}
                           style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
                         >
                           <option value="all">🏢 All Projects</option>

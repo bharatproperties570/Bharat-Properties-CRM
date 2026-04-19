@@ -216,26 +216,25 @@ class MarketingAudienceService {
             }
         }
 
-        // Project Filtering (Highly Robust Partial Match)
+        // Project Filtering (Superior Dual-Track: ID + Name)
         if (filters.project && filters.project !== 'all') {
-            if (mongoose.Types.ObjectId.isValid(filters.project)) {
-                query.$and.push({ 
-                    $or: [
-                        { project: new mongoose.Types.ObjectId(filters.project) },
-                        { projectId: new mongoose.Types.ObjectId(filters.project) }
-                    ]
-                });
-            } else {
-                const escapedProject = filters.project.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                query.$and.push({
-                    $or: [
-                        { projectName: new RegExp(escapedProject, 'i') },
-                        { sector: new RegExp(escapedProject, 'i') },
-                        { project: new RegExp(escapedProject, 'i') },
-                        { 'address.area': new RegExp(escapedProject, 'i') }
-                    ]
-                });
+            const isId = mongoose.Types.ObjectId.isValid(filters.project);
+            const searchName = filters.projectName || filters.project;
+            const escapedName = searchName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+            const projectOr = [
+                { projectName: new RegExp(escapedName, 'i') },
+                { project: new RegExp(escapedName, 'i') },
+                { 'address.area': new RegExp(escapedName, 'i') },
+                { sector: new RegExp(escapedName, 'i') }
+            ];
+
+            if (isId) {
+                projectOr.push({ project: new mongoose.Types.ObjectId(filters.project) });
+                projectOr.push({ projectId: new mongoose.Types.ObjectId(filters.project) });
             }
+
+            query.$and.push({ $or: projectOr });
         }
 
         // Unit/UnitNo Fallback
