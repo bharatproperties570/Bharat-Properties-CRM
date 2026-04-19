@@ -3915,9 +3915,10 @@ export default function MarketingOverviewPage() {
                                   setAudienceCount(res.data.count);
                                   toast.success(`Identified ${res.data.count} contacts`, { id: 'xl-load' });
                                 }
-                              } catch (err) {
-                                toast.error('Failed to parse file', { id: 'xl-load' });
-                              }
+                                } catch (err) {
+                                  const errMsg = err.response?.data?.error || err.message || 'Failed to parse file';
+                                  toast.error(errMsg, { id: 'xl-load' });
+                                }
                             }}
                           />
                           <button className="tact-btn gold-ghost sm" onClick={() => document.getElementById('excel-upload').click()}>

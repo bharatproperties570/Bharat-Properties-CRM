@@ -21,7 +21,7 @@ import {
     importAudience
 } from '../controllers/marketing.controller.js';
 import multer from 'multer';
-const upload = multer({ dest: 'uploads/' });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }); // 5MB limit
 import { getWhatsAppTemplates } from '../controllers/social.controller.js';
 import { 
     getLinkedInAuthUrl,

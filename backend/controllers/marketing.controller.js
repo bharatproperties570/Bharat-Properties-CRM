@@ -238,17 +238,17 @@ export const importAudience = async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ success: false, error: 'No file uploaded.' });
         
-        const filePath = req.file.path;
         const extension = req.file.originalname.split('.').pop().toLowerCase();
         let rawData = [];
 
         if (['csv', 'xlsx', 'xls'].includes(extension)) {
-            console.log(`[MarketingImport] Processing ${extension.toUpperCase()}:`, filePath);
+            console.log(`[MarketingImport] Processing ${extension.toUpperCase()} from buffer...`);
             try {
                 const XLSXModule = await import('xlsx');
                 const XLSX = XLSXModule.default || XLSXModule;
                 
-                const workbook = XLSX.readFile(filePath);
+                // Read from memory buffer instead of file path
+                const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
                 const sheetName = workbook.SheetNames[0];
                 if (!sheetName) throw new Error('File has no readable sheets or content');
                 
@@ -263,8 +263,7 @@ export const importAudience = async (req, res) => {
             return res.status(400).json({ success: false, error: `Unsupported file format (.${extension}). Please use .csv or .xlsx` });
         }
 
-        // Clean up temp file
-        await fs.promises.unlink(filePath).catch(() => {});
+        // NO UNLINK NEEDED since we use memoryStorage
 
         // Standardize Data (Lenient mode for manual mapping)
         const recipients = rawData.map((row, idx) => {
