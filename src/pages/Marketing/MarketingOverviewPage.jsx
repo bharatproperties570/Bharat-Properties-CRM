@@ -4269,8 +4269,6 @@ export default function MarketingOverviewPage() {
                   )}
                 </div>
               </div>
-            </div>
-            
             {/* ══ ADVANCED ENTERPRISE SCHEDULING CONSOLE ══ */}
             <div style={{ padding: '20px 24px', background: 'rgba(255,255,255,0.02)', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '15px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -4299,7 +4297,7 @@ export default function MarketingOverviewPage() {
               </div>
 
               {isScheduled && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 0.8fr', gap: '12px', animation: 'fadeIn 0.4s easeOut' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 0.8fr', gap: '12px' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                     <label style={{ fontSize: '9px', fontWeight: 700, color: 'var(--gold)', textTransform: 'uppercase' }}>Initial Start Date & Time</label>
                     <input 
@@ -4343,6 +4341,7 @@ export default function MarketingOverviewPage() {
                 </div>
               )}
             </div>
+          </div>
 
             <div className="modal-footer" style={{ padding: '15px 24px', borderTop: '1px solid var(--border)', background: 'rgba(7,22,43,0.9)', display: 'flex', justifyContent: 'flex-end' }}>
               <button className="btn" style={{ padding: '8px 24px', borderRadius: '8px', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text3)', cursor: 'pointer' }} onClick={() => setShowCampaignModal(false)}>Cancel</button>
