@@ -47,6 +47,10 @@ export const marketingAPI = {
     deleteContent: (id) => api.delete(`/marketing/content/${id}`).then(res => res.data),
     publishContent: (contentId, phoneNumber) => api.post('/marketing/publish', { contentId, phoneNumber }).then(res => res.data),
     triggerLinkedInSync: () => api.post('/marketing/linkedin/trigger-sync').then(res => res.data),
+    
+    // ── Orchestration & Scheduling Monitor ──
+    getScheduled: () => api.get('/marketing/scheduled').then(res => res.data),
+    deleteScheduled: (id, type) => api.delete(`/marketing/scheduled/${id}`, { params: { type } }).then(res => res.data),
 };
 
 export const socialAPI = {

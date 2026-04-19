@@ -121,7 +121,70 @@ export const getCampaignRuns = async (req, res) => {
     }
 };
 
+/**
+ * GET /api/marketing/scheduled
+ * Fetches both 'Delayed' and 'Repeatable' jobs from BullMQ.
+ */
+export const getScheduledCampaigns = async (req, res) => {
+    try {
+        const queue = await getMarketingQueue();
+        if (!queue) return res.status(503).json({ success: false, error: 'Queue engine offline' });
+
+        // 1. Fetch Delayed individual jobs
+        const delayedJobs = await queue.getJobs(['delayed']);
+        const delayedList = delayedJobs.map(j => ({
+            id: j.id,
+            name: j.data?.name || 'Untitled',
+            channel: j.data?.channel || 'Unknown',
+            leads: j.data?.leads?.length || 0,
+            scheduledAt: new Date(j.timestamp + (j.opts?.delay || 0)).toISOString(),
+            type: 'delayed',
+            status: 'Pending'
+        }));
+
+        // 2. Fetch Repeatable job definitions
+        const repeatableJobs = await queue.getRepeatableJobs();
+        const repeatableList = repeatableJobs.map(rj => ({
+            id: rj.key,
+            name: rj.name || 'Recurring Campaign',
+            channel: 'Channel-Locked', 
+            leads: 'Dynamic Pool',
+            cron: rj.cron,
+            nextRun: new Date(rj.next).toISOString(),
+            type: 'repeatable',
+            status: 'Active Loop'
+        }));
+
+        res.json({ success: true, delayed: delayedList, repeatable: repeatableList });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * DELETE /api/marketing/scheduled/:id
+ */
+export const deleteScheduledCampaign = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { type } = req.query; // 'delayed' or 'repeatable'
+        const queue = await getMarketingQueue();
+        
+        if (type === 'repeatable') {
+            await queue.removeRepeatableByKey(id);
+        } else {
+            const job = await queue.getJob(id);
+            if (job) await job.remove();
+        }
+
+        res.json({ success: true, message: 'Schedule removed successfully' });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
 // ── AI Content Generation ──────────────────────────────────────────────────────
+
 
 export const generateSocialContent = async (req, res) => {
     try {

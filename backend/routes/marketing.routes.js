@@ -16,9 +16,10 @@ import {
     getMarketingContent,
     saveMarketingContent,
     deleteMarketingContent,
-    publishMarketingContent,
     broadcastToHub,
-    importAudience
+    importAudience,
+    getScheduledCampaigns,
+    deleteScheduledCampaign
 } from '../controllers/marketing.controller.js';
 import multer from 'multer';
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }); // 5MB limit
@@ -74,6 +75,10 @@ router.get('/linkedin/auth-url',    getLinkedInAuthUrl);
 router.get('/linkedin/status',      getLinkedInStatus);
 router.post('/linkedin/config',     saveLinkedInConfig);
 router.post('/linkedin/sync-leads',  triggerLeadSync);
+
+// ── Orchestration & Scheduling Monitor ────────────────────────────────────────
+router.get('/scheduled', getScheduledCampaigns);
+router.delete('/scheduled/:id', deleteScheduledCampaign);
 
 export default router;
 
