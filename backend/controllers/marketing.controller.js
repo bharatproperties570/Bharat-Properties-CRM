@@ -18,6 +18,7 @@ import MarketingContent from '../models/MarketingContent.js';
 import NurtureBot from '../services/NurtureBot.js';
 import marketingAudienceService from '../services/MarketingAudienceService.js';
 import { normalizePhone } from '../utils/normalization.js';
+import fs from 'fs';
 
 // Lazy-import the marketing queue
 let _marketingQueue = null;
@@ -214,11 +215,83 @@ export const getAudienceCount = async (req, res) => {
         if (!config || !config.source) return res.status(400).json({ success: false, error: 'Source is required' });
         
         console.log('[MarketingController] Fetching count for:', config);
+        
+        // Handle Import Source (Transient Data)
+        if (config.source === 'Excel' || config.source === 'Import') {
+            return res.json({ success: true, count: config.tempCount || 0 });
+        }
+
         const recipients = await marketingAudienceService.getAudience(config);
         
         res.json({ success: true, count: recipients.length });
     } catch (error) {
         console.error('[MarketingController] getAudienceCount EXCEPTION:', error.stack || error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * POST /api/marketing/import-audience
+ * Parses Excel/CSV and returns a recipient list for campaign previews.
+ */
+export const importAudience = async (req, res) => {
+    try {
+        if (!req.file) return res.status(400).json({ success: false, error: 'No file uploaded.' });
+        
+        const filePath = req.file.path;
+        const extension = req.file.originalname.split('.').pop().toLowerCase();
+        let rawData = [];
+
+        if (['csv', 'xlsx', 'xls'].includes(extension)) {
+            console.log(`[MarketingImport] Processing ${extension.toUpperCase()}:`, filePath);
+            try {
+                const XLSXModule = await import('xlsx');
+                const XLSX = XLSXModule.default || XLSXModule;
+                
+                const workbook = XLSX.readFile(filePath);
+                const sheetName = workbook.SheetNames[0];
+                if (!sheetName) throw new Error('File has no readable sheets or content');
+                
+                const sheet = workbook.Sheets[sheetName];
+                rawData = XLSX.utils.sheet_to_json(sheet, { defval: '', header: 0 });
+                console.log(`[MarketingImport] ${extension.toUpperCase()} parsed: ${rawData.length} rows found`);
+            } catch (err) {
+                console.error(`[MarketingImport] ${extension.toUpperCase()} Parsing Failed:`, err.stack || err.message);
+                return res.status(500).json({ success: false, error: `${extension.toUpperCase()} parsing failed: ${err.message}.` });
+            }
+        } else {
+            return res.status(400).json({ success: false, error: `Unsupported file format (.${extension}). Please use .csv or .xlsx` });
+        }
+
+        // Clean up temp file
+        await fs.promises.unlink(filePath).catch(() => {});
+
+        // Standardize Data (Lenient mode for manual mapping)
+        const recipients = rawData.map((row, idx) => {
+            // Initial Smart Field Mapping (Attempt)
+            const name = row.name || row['full name'] || row['contact name'] || row['customer'] || `Row-${idx + 1}`;
+            const rawMobile = row.mobile || row.phone || row['phone number'] || row['whatsapp'] || row['contact'] || row['Ph No'] || row['Mobile No'] || row['P.No'] || row['Number'] || row['Cust Mobile'] || '';
+            const mobile = normalizePhone(rawMobile);
+            const email = row.email || row['email address'] || '';
+
+            return {
+                id: `imp-${idx}-${Date.now()}`,
+                name,
+                mobile,
+                email,
+                context: { ...row, originalType: 'Import' }
+            };
+        });
+
+        res.json({ 
+            success: true, 
+            recipients, 
+            count: recipients.length,
+            message: `Successfully identified ${recipients.length} rows from ${req.file.originalname}. Please verify column mapping below.`
+        });
+
+    } catch (error) {
+        console.error('[MarketingController] importAudience Error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 };
@@ -233,7 +306,18 @@ export const sendCampaign = async (req, res) => {
         if (!channel) return res.status(400).json({ success: false, error: 'channel is required' });
 
         let recipients = [];
-        if (audienceConfig && audienceConfig.source) {
+        if (audienceConfig && (audienceConfig.source === 'Excel' || audienceConfig.source === 'Import') && audienceConfig.tempRecipients) {
+            const { mapping } = audienceConfig;
+            recipients = audienceConfig.tempRecipients.map(r => {
+                const row = r.context || {};
+                // Honor user-defined mapping if provided
+                const name   = (mapping?.name   && row[mapping.name])   ? row[mapping.name] : r.name;
+                const mobile = (mapping?.mobile && row[mapping.mobile]) ? normalizePhone(row[mapping.mobile]) : r.mobile;
+                const email  = (mapping?.email  && row[mapping.email])  ? row[mapping.email] : r.email;
+                
+                return { ...r, name, mobile, email };
+            }).filter(r => r.mobile);
+        } else if (audienceConfig && audienceConfig.source) {
             recipients = await marketingAudienceService.getAudience(audienceConfig);
         } else {
             // Legacy fallback
@@ -268,6 +352,8 @@ export const sendCampaign = async (req, res) => {
             message: content || '',
             html:    html    || '',
             templateName: req.body.templateName,
+            templateLang: req.body.templateLang || 'en_US',
+            templateComponents: req.body.templateComponents || [],
             waMapping: activeMapping,
             mobiles,
             emails,

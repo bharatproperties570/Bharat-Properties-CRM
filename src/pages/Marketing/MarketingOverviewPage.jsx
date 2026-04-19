@@ -8,9 +8,10 @@ import {
 } from 'lucide-react';
 import './MarketingOverview.css';
 import toast from 'react-hot-toast';
-import { marketingAPI, leadsAPI, dealsAPI, googleSettingsAPI, emailAPI, aiAgentsAPI, enrichmentAPI, socialAPI, systemSettingsAPI } from '../../utils/api';
+import { marketingAPI, leadsAPI, dealsAPI, googleSettingsAPI, emailAPI, aiAgentsAPI, enrichmentAPI, socialAPI, systemSettingsAPI, lookupsAPI, usersAPI, projectsAPI, api } from '../../utils/api';
 import smsService from '../../services/smsService';
 import { getDisplayScore } from '../../utils/leadScoring';
+import { usePropertyConfig } from '../../context/PropertyConfigContext';
 
 // ── Real CRM Modals (Phase A Integration) ──
 import SendMessageModal from '../../components/SendMessageModal';
@@ -191,7 +192,8 @@ const CAMP_KPIS = [
 ];
 
 export default function MarketingOverviewPage() {
-  // ── CORE STATE ──
+  // ── CORE STATE WITH MIRROR PROTOCOL ──
+  const { projects: dynamicProjects = [], propertyConfig = {}, sizes = [] } = usePropertyConfig();
   const [activePage, setActivePage] = useState('overview');
   const [leads, setLeads] = useState([]);
   const [posts, setPosts] = useState([]);
@@ -344,7 +346,7 @@ export default function MarketingOverviewPage() {
   const [multiPostDate, setMultiPostDate] = useState(null);
   const [isQuickPostModalOpen, setIsQuickPostModalOpen] = useState(false);
   const [showCampaignModal, setShowCampaignModal] = useState(false);
-  const [lookups, setLookups] = useState({ leadStages: [], dealStages: [], projectNames: [], units: [], sizeTypes: [] });
+  const [lookups, setLookups] = useState({ leadStages: [], dealStages: [], projectNames: [], units: [], sizeTypes: [], segments: [], users: [], cities: [], leadSources: [], categories: [] });
 
   // ══ REAL API FETCH FUNCTION (P1 + P4 + P8 + P9 + Phase B) ══
   const fetchLiveData = useCallback(async () => {
@@ -468,21 +470,36 @@ export default function MarketingOverviewPage() {
         if (hRes?.status) setRealSocialStatus(hRes.status);
       } catch (_) {}
 
-      // Fetch Lookups for filters (Professional Registry)
+      // Fetch Lookups & Users for filters (Hardened)
       try {
-        const lks = await lookupsAPI.getAll();
+        console.log("[MarketingOS] Synchronizing CRM Metadata...");
+        const [lks, usrRes] = await Promise.all([
+          lookupsAPI.getAll().catch(() => ({ success: false })),
+          usersAPI.getAll().catch(() => ({ success: false }))
+        ]);
+        
         if (lks.success && lks.data) {
           const allLks = lks.data;
-          setLookups({
+          console.log(`[MarketingOS] Fetched ${allLks.length} lookups from registry.`);
+          
+          setLookups(prev => ({
+            ...prev,
             leadStages: allLks.filter(i => i.lookup_type === 'Lead Stage'),
             dealStages: allLks.filter(i => i.lookup_type === 'Deal Stage'),
-            projectNames: [...new Set(leads.map(l => l.projectName).concat(realDeals.map(d => d.projectName)).filter(Boolean))],
-            sizeTypes: allLks.filter(i => i.lookup_type === 'Size Type' || i.lookup_type === 'Size Configuration'),
+            projectNames: dynamicProjects.map(p => ({ ...p, id: p.id || p._id })),
+            sizeTypes: sizes,
             leadSources: allLks.filter(i => i.lookup_type === 'Lead Source'),
-            categories: allLks.filter(i => i.lookup_type === 'Property Category' || i.lookup_type === 'Category')
-          });
+            categories: allLks.filter(i => i.lookup_type === 'Property Category'),
+            subCategories: allLks.filter(i => i.lookup_type === 'Sub-Category'),
+            segments: allLks.filter(i => i.lookup_type === 'Lead Segment'),
+            cities: allLks.filter(i => i.lookup_type === 'City'),
+            inventoryStatuses: allLks.filter(i => i.lookup_type === 'Inventory Status'),
+            users: usrRes?.data || (Array.isArray(usrRes) ? usrRes : []),
+          }));
         }
-      } catch (_) {}
+      } catch (err) {
+        console.warn("[MarketingOS] Critical Metadata Sync Error:", err);
+      }
 
       setApiDataLoaded(true);
     } catch (err) {
@@ -886,7 +903,17 @@ export default function MarketingOverviewPage() {
           name:         campaignName,
           templateName: selectedMetaTemplate.name,
           templateLang: selectedMetaTemplate.language || 'en',
-          waMapping:    { ...variableRegistry, ...waMapping }, // Merge global defaults with manual overrides
+          waMapping: (() => {
+            const templateVars = detectVariables(selectedMetaTemplate);
+            const fullMapping = { ...variableRegistry, ...waMapping };
+            const filtered = {};
+            templateVars.forEach(idx => {
+              if (fullMapping[idx]) filtered[idx] = fullMapping[idx];
+              if (fullMapping[`${idx}_val`]) filtered[`${idx}_val`] = fullMapping[`${idx}_val`]; 
+            });
+            return filtered;
+          })(),
+          templateComponents: selectedMetaTemplate.components,
           components:   [] // Worker will build this from waMapping
         };
       } else {
@@ -1192,8 +1219,13 @@ export default function MarketingOverviewPage() {
   const [selectedSeg, setSelectedSeg] = useState('hot');
   const [audienceConfig, setAudienceConfig] = useState({
     source: 'Lead',
-    filters: { status: 'all' }
+    filters: {},
+    tempRecipients: [],
+    tempCount: 0,
+    mapping: { name: '', mobile: '', email: '' }
   });
+  const [importHeaders, setImportHeaders] = useState([]);
+  const [importPreview, setImportPreview] = useState([]);
   const [audienceCount, setAudienceCount] = useState(0);
   const [isCounting, setIsCounting] = useState(false);
 
@@ -3520,11 +3552,7 @@ export default function MarketingOverviewPage() {
         .nav-item { user-select: none; }
       `}</style>
 
-      {/* ══════════════════════════════════════════
-          PHASE A — REAL CRM MODALS (wired to Marketing OS)
-          ══════════════════════════════════════════ */}
-
-      {/* ── 🚀 PROFESSIONAL CAMPAUNCH MODAL (360° Control) ── */}
+      {/* ══ MODALS ══ */}
       {showCampaignModal && (
         <div className="modal-backdrop" style={{ zIndex: 2000 }}>
           <div className="modal glass-bg" style={{ width: '95%', maxWidth: '900px', padding: 0, overflow: 'hidden', border: '1px solid rgba(201,146,26,0.3)', boxShadow: '0 20px 40px rgba(0,0,0,0.4)' }}>
@@ -3576,18 +3604,19 @@ export default function MarketingOverviewPage() {
                   </div>
                   <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <div style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 600 }}>TARGET AUDIENCE:</div>
-                    <div style={{ background: 'rgba(53,185,122,0.1)', color: '#35b97a', padding: '4px 12px', borderRadius: '20px', fontSize: '11px', fontWeight: 800, border: '1px solid rgba(53,185,122,0.2)' }}>
+                <div style={{ background: 'rgba(53,185,122,0.1)', color: '#35b97a', padding: '4px 12px', borderRadius: '20px', fontSize: '11px', fontWeight: 800, border: '1px solid rgba(53,185,122,0.2)' }}>
                       {isCounting ? <span className="spinner-sm" style={{ width: '10px', height: '10px' }}></span> : audienceCount.toLocaleString()} Recipients
                     </div>
                   </div>
                 </div>
                 <div className="card-body" style={{ padding: '16px' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '16px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '10px', marginBottom: '16px' }}>
                     {[
                       { id: 'Lead', n: 'Leads', i: '🎯', desc: 'Active Inquiries' },
                       { id: 'Contact', n: 'Contacts', i: '👤', desc: 'Professional Database' },
                       { id: 'Deal', n: 'Deals', i: '🤝', desc: 'Current Transactions' },
-                      { id: 'Inventory', n: 'Inventory', i: '🏢', desc: 'Property Owners' }
+                      { id: 'inventory', n: 'Inventory', i: '🏢', desc: 'Property Owners' },
+                      { id: 'Excel', n: 'Import', i: '📤', desc: 'External CSV/XLSX' }
                     ].map(s => (
                       <div 
                         key={s.id} 
@@ -3616,78 +3645,309 @@ export default function MarketingOverviewPage() {
                     </div>
                     
                     {audienceConfig.source === 'Lead' && (
-                      <>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', flex: 1 }}>
                         <select 
                           value={audienceConfig.filters.status || 'all'} 
                           onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, status: e.target.value } }))}
-                          style={{ flex: 1, padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
+                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
                         >
-                          <option value="all">All Lead Stages</option>
+                          <option value="all">🎯 All Lead Stages</option>
                           {lookups.leadStages?.map(s => <option key={s._id} value={s._id}>{s.lookup_value}</option>)}
                         </select>
                         <select 
                           value={audienceConfig.filters.source || ''} 
                           onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, source: e.target.value } }))}
-                          style={{ flex: 1, padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
+                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
                         >
-                          <option value="">All Sources</option>
+                          <option value="">🌍 All Sources</option>
                           {lookups.leadSources?.map(s => <option key={s._id} value={s._id}>{s.lookup_value}</option>)}
                         </select>
-                      </>
+                        <select 
+                          value={audienceConfig.filters.segment || ''} 
+                          onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, segment: e.target.value } }))}
+                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
+                        >
+                          <option value="">👥 All Segments</option>
+                          {lookups.segments?.map(s => <option key={s._id} value={s._id}>{s.lookup_value}</option>)}
+                        </select>
+
+                        <select 
+                          value={audienceConfig.filters.assignedTo || ''} 
+                          onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, assignedTo: e.target.value } }))}
+                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
+                        >
+                          <option value="">👤 All Owners</option>
+                          {lookups.users?.map(u => <option key={u._id} value={u._id}>{u.firstName} {u.lastName}</option>)}
+                        </select>
+
+                        <select 
+                          value={audienceConfig.filters.recency || ''} 
+                          onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, recency: e.target.value } }))}
+                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
+                        >
+                          <option value="">🕒 Any Recency</option>
+                          <option value="7">Last 7 Days</option>
+                          <option value="30">Last 30 Days</option>
+                          <option value="90">Last 90 Days</option>
+                        </select>
+                        
+                        <div style={{ position: 'relative' }}>
+                          <input 
+                            placeholder="Min Budget..."
+                            value={audienceConfig.filters.budget || ''}
+                            onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, budget: e.target.value } }))}
+                            style={{ width: '100%', padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {audienceConfig.source === 'Contact' && (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', flex: 1 }}>
+                        <select 
+                          value={audienceConfig.filters.city || ''} 
+                          onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, city: e.target.value } }))}
+                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
+                        >
+                          <option value="">🏙️ All Cities</option>
+                          <option value="Delhi">Delhi</option>
+                          <option value="Gurgaon">Gurgaon</option>
+                          <option value="Noida">Noida</option>
+                        </select>
+                        <select 
+                          value={audienceConfig.filters.profession || ''} 
+                          onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, profession: e.target.value } }))}
+                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
+                        >
+                          <option value="">💼 All Professions</option>
+                          {lookups.professions?.map(p => <option key={p._id} value={p._id}>{p.lookup_value}</option>)}
+                        </select>
+                        <select 
+                          value={audienceConfig.filters.recency || ''} 
+                          onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, recency: e.target.value } }))}
+                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
+                        >
+                          <option value="">🕒 Interaction Recency</option>
+                          <option value="30">Last 30 Days</option>
+                          <option value="90">Last 90 Days</option>
+                          <option value="365">Last 365 Days</option>
+                        </select>
+                      </div>
                     )}
 
                     {audienceConfig.source === 'Deal' && (
-                      <>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', flex: 1 }}>
                         <select 
                           value={audienceConfig.filters.stage || ''} 
                           onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, stage: e.target.value } }))}
-                          style={{ flex: 1, padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
+                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
                         >
-                          <option value="">All Deal Stages</option>
+                          <option value="">🏁 All Deal Stages</option>
                           {lookups.dealStages?.map(s => <option key={s._id} value={s._id}>{s.lookup_value}</option>)}
                         </select>
                         <select 
                           value={audienceConfig.filters.partyType || ''} 
                           onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, partyType: e.target.value } }))}
-                          style={{ flex: 1, padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
+                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
                         >
-                          <option value="">Target All Parties</option>
+                          <option value="">🏢 Target All Parties</option>
                           <option value="owner">Primary Owners</option>
                           <option value="buyer">Buyers</option>
                           <option value="associate">Associates/Brokers</option>
                         </select>
-                      </>
-                    )}
-
-                    {audienceConfig.source === 'Inventory' && (
-                      <>
+                        <select 
+                          value={audienceConfig.filters.owner || ''} 
+                          onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, owner: e.target.value } }))}
+                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
+                        >
+                          <option value="">👤 Deal Owner</option>
+                          {lookups.users?.map(u => <option key={u._id} value={u._id}>{u.firstName} {u.lastName}</option>)}
+                        </select>
                         <input 
-                          placeholder="Search Project..."
-                          value={audienceConfig.filters.projectName || ''}
-                          onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, projectName: e.target.value } }))}
-                          style={{ flex: 1.5, padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
+                          type="number"
+                          placeholder="Min Value (₹)"
+                          value={audienceConfig.filters.minPrice || ''}
+                          onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, minPrice: e.target.value } }))}
+                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
+                        />
+                        <input 
+                          type="number"
+                          placeholder="Max Value (₹)"
+                          value={audienceConfig.filters.maxPrice || ''}
+                          onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, maxPrice: e.target.value } }))}
+                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
                         />
                         <select 
-                          value={audienceConfig.filters.category || ''} 
-                          onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, category: e.target.value } }))}
-                          style={{ flex: 1, padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
+                          value={audienceConfig.filters.type || ''} 
+                          onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, type: e.target.value } }))}
+                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
                         >
-                          <option value="">All Categories</option>
-                          {lookups.categories?.map(c => <option key={c._id} value={c._id}>{c.lookup_value}</option>)}
+                          <option value="">📜 All Deal Types</option>
+                          <option value="Sale">Sale</option>
+                          <option value="Lease">Lease/Rent</option>
                         </select>
-                        <select 
-                          value={audienceConfig.filters.sizeType || ''} 
-                          onChange={e => setAudienceConfig(p => ({ ...p, filters: { ...p.filters, sizeType: e.target.value } }))}
-                          style={{ flex: 1, padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
-                        >
-                          <option value="">Any Size Type</option>
-                          {lookups.sizeTypes?.map(s => <option key={s._id} value={s._id}>{s.lookup_value}</option>)}
-                        </select>
-                      </>
+                      </div>
                     )}
 
-                    {!['Lead', 'Deal', 'Inventory'].includes(audienceConfig.source) && (
-                      <div style={{ fontSize: '11px', color: 'var(--text3)' }}>Universal Search enabled for professional contacts.</div>
+                    {audienceConfig.source === 'inventory' && (
+                      <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '8px' }}>
+                        <select
+                          value={audienceConfig.filters.project || 'all'}
+                          onChange={e => setAudienceConfig(prev => ({ ...prev, filters: { ...prev.filters, project: e.target.value } }))}
+                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
+                        >
+                          <option value="all">🏢 All Projects</option>
+                          {(dynamicProjects || []).map(p => (
+                            <option key={p?._id || p?.id} value={p?._id || p?.id}>{p?.name}</option>
+                          ))}
+                        </select>
+
+                        <select
+                          value={audienceConfig.filters.category || 'all'}
+                          onChange={e => setAudienceConfig(prev => ({ ...prev, filters: { ...prev.filters, category: e.target.value, subCategory: 'all', sizeLabel: 'all' } }))}
+                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
+                        >
+                          <option value="all">🏠 All Categories</option>
+                          {Object.keys(propertyConfig || {}).map(catKey => (
+                            <option key={catKey} value={catKey}>{catKey}</option>
+                          ))}
+                        </select>
+
+                        <select
+                          value={audienceConfig.filters.subCategory || 'all'}
+                          onChange={e => setAudienceConfig(prev => ({ ...prev, filters: { ...prev.filters, subCategory: e.target.value, sizeLabel: 'all' } }))}
+                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
+                          disabled={!audienceConfig.filters.category || audienceConfig.filters.category === 'all'}
+                        >
+                          <option value="all">📑 All Sub-Categories</option>
+                          {audienceConfig.filters.category && propertyConfig[audienceConfig.filters.category]?.subCategories?.map(sc => (
+                            <option key={sc.name} value={sc.name}>{sc.name}</option>
+                          ))}
+                        </select>
+
+                        <select
+                          value={audienceConfig.filters.sizeLabel || 'all'}
+                          onChange={e => setAudienceConfig(prev => ({ ...prev, filters: { ...prev.filters, sizeLabel: e.target.value } }))}
+                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
+                          disabled={!audienceConfig.filters.subCategory || audienceConfig.filters.subCategory === 'all'}
+                        >
+                          <option value="all">📐 Size Label (e.g. 2BHK)</option>
+                          {audienceConfig.filters.category && audienceConfig.filters.subCategory && 
+                            propertyConfig[audienceConfig.filters.category]?.subCategories
+                              ?.find(sc => sc.name === audienceConfig.filters.subCategory)
+                              ?.types?.map(t => (
+                                <option key={t.name} value={t.name}>{t.name}</option>
+                              ))
+                          }
+                        </select>
+
+                        <select
+                          value={audienceConfig.filters.status || 'all'}
+                          onChange={e => setAudienceConfig(prev => ({ ...prev, filters: { ...prev.filters, status: e.target.value } }))}
+                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
+                        >
+                          <option value="all">⚡ Status</option>
+                          {(lookups.inventoryStatuses || []).map(s => (
+                            <option key={s._id} value={s.lookup_value}>{s.lookup_value}</option>
+                          ))}
+                        </select>
+
+                        <select
+                          value={audienceConfig.filters.contactType || 'owner'}
+                          onChange={e => setAudienceConfig(prev => ({ ...prev, filters: { ...prev.filters, contactType: e.target.value } }))}
+                          style={{ padding: '6px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
+                        >
+                          <option value="owner">👥 Property Owner</option>
+                          <option value="associate">🤝 Associate / Agent</option>
+                        </select>
+                      </div>
+                    )}
+
+                    {audienceConfig.source === 'Excel' && (
+                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        <div style={{ display: 'flex', gap: '15px', alignItems: 'center', background: 'rgba(201,146,26,0.05)', padding: '10px 15px', borderRadius: '8px', border: '1px dashed var(--gold)' }}>
+                          <div style={{ fontSize: '20px' }}>📁</div>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text)' }}>
+                              {audienceConfig.fileName || 'Upload External Data'}
+                            </div>
+                            <div style={{ fontSize: '10px', color: 'var(--text3)' }}>
+                              {audienceConfig.tempCount ? `${audienceConfig.tempCount} contacts identified` : 'Supports .csv, .xlsx (Headers: Name, Mobile, Email)'}
+                            </div>
+                          </div>
+                          <input 
+                            type="file" 
+                            id="excel-upload" 
+                            hidden 
+                            accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel"
+                            onChange={async (e) => {
+                              const file = e.target.files[0];
+                              if (!file) return;
+                              const formData = new FormData();
+                              formData.append('file', file);
+                              toast.loading('Parsing Excel Data...', { id: 'xl-load' });
+                              try {
+                                const res = await api.post('/marketing/import-audience', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+                                if (res.data?.success) {
+                                  setAudienceConfig(p => ({ ...p, fileName: file.name, tempCount: res.data.count, tempRecipients: res.data.recipients }));
+                                  if (res.data.recipients && res.data.recipients.length > 0) {
+                                      setImportHeaders(Object.keys(res.data.recipients[0].context || {}).filter(k => k !== 'originalType'));
+                                  }
+                                  setAudienceCount(res.data.count);
+                                  toast.success(`Identified ${res.data.count} contacts`, { id: 'xl-load' });
+                                }
+                              } catch (err) {
+                                toast.error('Failed to parse file', { id: 'xl-load' });
+                              }
+                            }}
+                          />
+                          <button className="tact-btn gold-ghost sm" onClick={() => document.getElementById('excel-upload').click()}>
+                            {audienceConfig.tempCount ? 'Change File' : 'Browse File'}
+                          </button>
+                        </div>
+
+                        {importHeaders.length > 0 && audienceConfig.tempCount > 0 && (
+                          <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)', borderRadius: '8px', padding: '10px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                <div style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 700, textTransform: 'uppercase' }}>⚙️ Column Mapping (Manual Control)</div>
+                                {audienceConfig.mapping.mobile && (
+                                    <div style={{ fontSize: '10px', color: 'var(--25d366)', fontWeight: 700 }}>
+                                        🎯 Reachable: {audienceConfig.tempRecipients.filter(r => (r.context?.[audienceConfig.mapping.mobile] || '').toString().trim()).length} Recipients
+                                    </div>
+                                )}
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+                                <div>
+                                    <label style={{ fontSize: '9px', color: 'var(--text3)' }}>NAME</label>
+                                    <select value={audienceConfig.mapping.name} onChange={e => setAudienceConfig(p => ({ ...p, mapping: { ...p.mapping, name: e.target.value } }))} style={{ width: '100%', padding: '4px', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '4px', color: 'var(--text)', fontSize: '10px' }}>
+                                        <option value="">Auto Match</option>
+                                        {importHeaders.map(h => <option key={h} value={h}>{h}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label style={{ fontSize: '9px', color: 'var(--text3)' }}>MOBILE</label>
+                                    <select value={audienceConfig.mapping.mobile} onChange={e => setAudienceConfig(p => ({ ...p, mapping: { ...p.mapping, mobile: e.target.value } }))} style={{ width: '100%', padding: '4px', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '4px', color: 'var(--text)', fontSize: '10px' }}>
+                                        <option value="">Auto Match</option>
+                                        {importHeaders.map(h => <option key={h} value={h}>{h}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label style={{ fontSize: '9px', color: 'var(--text3)' }}>EMAIL</label>
+                                    <select value={audienceConfig.mapping.email} onChange={e => setAudienceConfig(p => ({ ...p, mapping: { ...p.mapping, email: e.target.value } }))} style={{ width: '100%', padding: '4px', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '4px', color: 'var(--text)', fontSize: '10px' }}>
+                                        <option value="">Auto Match</option>
+                                        {importHeaders.map(h => <option key={h} value={h}>{h}</option>)}
+                                    </select>
+                                </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {!['Lead', 'Contact', 'Deal', 'Inventory', 'Excel'].includes(audienceConfig.source) && (
+                      <div style={{ fontSize: '11px', color: 'var(--text3)', padding: '10px' }}>
+                        <i className="fas fa-info-circle mr-2"></i> Universal Search enabled. System will pull all professional contacts from the global directory.
+                      </div>
                     )}
                   </div>
                 </div>

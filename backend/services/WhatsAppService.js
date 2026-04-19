@@ -166,15 +166,22 @@ class WhatsAppService {
 
         try {
             const url = `${META_GRAPH_BASE}/${metaConfig.phoneId}/messages`;
+            const templatePayload = {
+                name:     templateName,
+                language: { code: languageCode }
+            };
+
+            // STRICT ALIGNMENT: Only include components if they have parameters
+            // Meta Cloud API can reject empty components array for certain categories
+            if (components && components.length > 0) {
+                templatePayload.components = components;
+            }
+
             const response = await axios.post(url, {
                 messaging_product: 'whatsapp',
                 to:                toNumber,
                 type:              'template',
-                template: {
-                    name:     templateName,
-                    language: { code: languageCode },
-                    components,
-                },
+                template:          templatePayload,
             }, {
                 headers: {
                     'Authorization': `Bearer ${metaConfig.token}`,

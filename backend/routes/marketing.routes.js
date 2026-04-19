@@ -17,8 +17,11 @@ import {
     saveMarketingContent,
     deleteMarketingContent,
     publishMarketingContent,
-    broadcastToHub
+    broadcastToHub,
+    importAudience
 } from '../controllers/marketing.controller.js';
+import multer from 'multer';
+const upload = multer({ dest: 'uploads/' });
 import { getWhatsAppTemplates } from '../controllers/social.controller.js';
 import { 
     getLinkedInAuthUrl,
@@ -64,6 +67,7 @@ router.delete('/content/:id', deleteMarketingContent);
 router.post('/publish',        publishMarketingContent);
 console.log('[MarketingRoutes] Mapping /broadcast to:', typeof broadcastToHub);
 router.post('/broadcast',      broadcastToHub);
+router.post('/import-audience', upload.single('file'), importAudience);
 
 // ── LinkedIn Integration ──────────────────────────────────────────────────────
 router.get('/linkedin/auth-url',    getLinkedInAuthUrl);

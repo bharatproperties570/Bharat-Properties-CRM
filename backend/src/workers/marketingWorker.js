@@ -85,61 +85,136 @@ const processMarketingJob = async (job) => {
                 if (channel === 'wa' || channel === 'whatsapp') {
                     const { templateName, templateLang = 'en' } = data;
                     if (templateName) {
+                        const { templateComponents = [] } = data;
                         let finalComponents = [];
-                        const indices = Object.keys(recipientParams || {})
-                            .filter(k => !isNaN(k))
-                            .sort((a, b) => parseInt(a) - parseInt(b));
 
-                        const bodyParams = indices.map(idx => ({ type: 'text', text: String(recipientParams[idx] || '') }));
-                        if (bodyParams.length > 0) finalComponents.push({ type: 'body', parameters: bodyParams });
-                        
+                        // Smart Component Construction (Header / Body / Buttons)
+                        templateComponents.forEach(comp => {
+                            const type = comp.type?.toLowerCase();
+                            if (!type) return;
+
+                            // Find variables in this specific component's text
+                            const compText = comp.text || '';
+                            const matches = compText.match(/{{(\d+)}}/g);
+                            
+                            if (matches) {
+                                // Extract indices and SORT them numerically to match Meta's expected order
+                                const indices = [...new Set(matches.map(m => m.replace(/[{}]/g, '')))]
+                                    .sort((a, b) => parseInt(a) - parseInt(b));
+
+                                const parameters = indices.map(idx => {
+                                    const val = recipientParams[idx];
+                                    // Fallback to avoid "Required parameter is missing" rejections by Meta
+                                    const cleanedVal = (val === undefined || val === null || String(val) === 'undefined' || String(val).trim() === '') 
+                                        ? '—' 
+                                        : String(val);
+                                    
+                                    return { type: 'text', text: cleanedVal };
+                                });
+
+                                if (parameters.length > 0) {
+                                    finalComponents.push({ type, parameters });
+                                }
+                            }
+                        });
+
                         const res = await whatsAppService.sendTemplate(targetMobile, templateName, templateLang, finalComponents);
                         success = res.success;
                         messageId = res.messageId;
+                        if (!success) recipient.error = res.error;
                     } else {
                         // Standardize on sendMessage for plain text dispatches
                         const res = await whatsAppService.sendMessage(targetMobile, resolvedMessage);
                         success = res.success;
                         messageId = res.messageId;
+                        if (!success) recipient.error = res.error;
                     }
                 } else if (channel === 'email') {
                     if (targetEmail) {
-                        await emailService.sendEmail(targetEmail, resolvedSubject || 'Bharat Properties Update', resolvedMessage, html);
-                        success = true;
+                        try {
+                            await emailService.sendEmail(targetEmail, resolvedSubject || 'Bharat Properties Update', resolvedMessage, html);
+                            success = true;
+                        } catch (emErr) {
+                            success = false;
+                            recipient.error = emErr.message;
+                        }
+                    } else {
+                        success = false;
+                        recipient.error = 'No email address found';
                     }
                 } else if (channel === 'sms') {
                     if (targetMobile) {
                         const res = await smsService.sendDirect(targetMobile, resolvedMessage);
                         success = res.success;
                         messageId = res.messageId;
+                        if (!success) recipient.error = res.error;
+                    } else {
+                        success = false;
+                        recipient.error = 'No mobile number found';
                     }
                 }
 
-                if (success) {
-                    sent++;
-                    // 2. LOG ACTIVITY (The Pulse)
-                    await Activity.create({
-                        type: 'Marketing',
-                        subject: `${channel.toUpperCase()} Campaign: ${data.name || 'Broadcast'}`,
-                        entityType: recipient.context?.originalType || 'Lead',
-                        entityId: recipient.id,
-                        description: `Sent via ${channel.toUpperCase()}\nMessage: ${resolvedMessage.substring(0, 100)}...`,
-                        status: 'Sent', // Changed from Completed to Sent to reflect real trackable state
-                        performedBy: 'Marketing Engine',
-                        details: { 
-                            channel, 
-                            campaignName: data.name, 
-                            jobId: job.id,
-                            msgId: messageId 
-                        },
-                        dueDate: new Date()
-                    });
+                const isImport = recipient.context?.originalType === 'Import' || String(recipient.id).startsWith('imp-');
+                
+                let status = success ? 'Sent' : 'Failed';
+                let description = success 
+                    ? `Sent via ${channel.toUpperCase()}\nMessage: ${resolvedMessage.substring(0, 100)}...`
+                    : `Failed via ${channel.toUpperCase()}\nReason: ${recipient.error || 'Provider rejected dispatch'}`;
+
+                if (success) sent++; else failed++;
+
+                // 2. LOG ACTIVITY (The Pulse) - Skip for raw imports to keep CRM lean
+                if (!isImport) {
+                    try {
+                        await Activity.create({
+                            type: 'Marketing',
+                            subject: `${channel.toUpperCase()} Campaign: ${data.name || 'Broadcast'}`,
+                            entityType: recipient.context?.originalType || 'Lead',
+                            entityId: mongoose.Types.ObjectId.isValid(recipient.id) ? recipient.id : null,
+                            description: description,
+                            status: status,
+                            performedBy: 'Marketing Engine',
+                            details: { 
+                                channel, 
+                                campaignName: data.name, 
+                                jobId: job.id, 
+                                msgId: messageId,
+                                error: !success ? (recipient.error || 'Unknown Provider Error') : null
+                            },
+                            dueDate: new Date()
+                        });
+                    } catch (actErr) {
+                        await job.log(`Activity Log Warning for ${recipient.name}: ${actErr.message}`);
+                    }
+                }
+
+                if (!success) {
+                    await job.log(`Dispatch FAILED for ${recipient.name} (${targetMobile || targetEmail}): ${recipient.error || 'Unknown Error'}`);
                 } else {
-                    failed++;
+                    await job.log(`Dispatch SUCCESS for ${recipient.name} (${targetMobile || targetEmail})`);
                 }
             } catch (err) {
                 failed++;
-                await job.log(`Dispatch failed for ${targetMobile || targetEmail}: ${err.message}`);
+                await job.log(`Worker EXCEPTION for ${recipient.name} (${targetMobile || targetEmail}): ${err.message}`);
+                
+                const isImport = recipient.context?.originalType === 'Import' || String(recipient.id).startsWith('imp-');
+                if (!isImport) {
+                    try {
+                        await Activity.create({
+                            type: 'Marketing',
+                            subject: `${channel.toUpperCase()} Campaign: ${data.name || 'Broadcast'}`,
+                            entityType: recipient.context?.originalType || 'Lead',
+                            entityId: mongoose.Types.ObjectId.isValid(recipient.id) ? recipient.id : null,
+                            description: `System Error: ${err.message}`,
+                            status: 'Failed',
+                            performedBy: 'Marketing Engine',
+                            details: { channel, jobId: job.id, error: err.message },
+                            dueDate: new Date()
+                        });
+                    } catch (actErr) {
+                        await job.log(`Critical: Failed to log failure activity: ${actErr.message}`);
+                    }
+                }
             }
 
             await job.updateProgress(Math.round(((i + 1) / leads.length) * 100));

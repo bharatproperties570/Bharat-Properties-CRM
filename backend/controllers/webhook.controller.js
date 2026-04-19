@@ -239,56 +239,33 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
 
                 const normalizedMobile = normalizePhone(fromNumber);
 
-                // 1. Find or Create Identity (Lead or Contact)
-                let lead = await Lead.findOne({ mobile: normalizedMobile });
+                // 1. Find Identity (Lead or Contact)
+                const lead = await Lead.findOne({ mobile: normalizedMobile });
                 let contact = null;
 
                 if (!lead) {
-                    // Check if they exist as a Contact
                     contact = await Contact.findOne({ 'phones.number': normalizedMobile });
-                    if (!contact) {
-                        // Fallback search for contact with regex (fuzzy matching for formatted numbers)
-                        contact = await Contact.findOne({ 'phones.number': { $regex: new RegExp(`${normalizedMobile}$`) } });
-                    }
                 }
 
-                if (!lead && !contact) {
-                    const sourceId = await resolveLeadLookup('Source', 'AI Bot WhatsApp');
-                    lead = await Lead.create({
-                        firstName: 'WhatsApp',
-                        lastName: 'Lead',
-                        mobile: normalizedMobile,
-                        source: sourceId,
-                        intent_index: 50,
-                        tags: ['AI Auto-Engaged'],
-                    });
-                }
-
-                const entityId = lead?._id || contact?._id;
-                const entityType = lead ? 'Lead' : 'Contact';
+                const entityId = lead?._id || contact?._id || null;
+                const entityType = lead ? 'Lead' : (contact ? 'Contact' : 'Unknown');
 
                 // 2. Find or Create Conversation
                 let conversation = await Conversation.findOne({ 
-                    $or: [
-                        { lead: lead?._id },
-                        { 'metadata.entityId': contact?._id },
-                        { phoneNumber: normalizedMobile },
-                        { phoneNumber: fromNumber }
-                    ],
+                    phoneNumber: normalizedMobile,
                     status: 'active' 
                 });
 
                 if (!conversation) {
                     conversation = await Conversation.create({
-                        lead: lead?._id || new mongoose.Types.ObjectId(), // Required field in schema
+                        lead: lead?._id || null, // No longer required
+                        contact: contact?._id || null,
                         channel: 'whatsapp',
                         phoneNumber: normalizedMobile,
                         status: 'active',
                         messages: [],
                         metadata: {
-                            entityId: entityId,
-                            entityType: entityType,
-                            isContact: !!contact
+                            isMatched: !!(lead || contact)
                         }
                     });
                 }

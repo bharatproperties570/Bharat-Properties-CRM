@@ -20,7 +20,13 @@ const conversationSchema = new mongoose.Schema({
     lead: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Lead',
-        required: true,
+        required: false, // Make optional for unmatched numbers
+        index: true
+    },
+    contact: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Contact',
+        required: false,
         index: true
     },
     channel: {

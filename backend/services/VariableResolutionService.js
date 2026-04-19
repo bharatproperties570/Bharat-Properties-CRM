@@ -47,9 +47,9 @@ class VariableResolutionService {
         switch (source) {
             case 'name':
             case 'fullName':
-                return lead.fullName || `${lead.firstName || ''} ${lead.lastName || ''}`.trim() || 'Customer';
+                return lead.fullName || lead.name || `${lead.firstName || ''} ${lead.lastName || ''}`.trim() || 'Customer';
             case 'firstName':
-                return lead.firstName || 'Customer';
+                return lead.firstName || (lead.name ? lead.name.split(' ')[0] : 'Customer');
             case 'lastName':
                 return lead.lastName || '';
             case 'salutation':
@@ -116,137 +116,24 @@ class VariableResolutionService {
             case 'unitNo':
                 return lead.unitNumber || lead.unitNo || '';
             case 'projectName':
-                return lead.projectName || '';
-            case 'possessionStatus':
-                return lead.possessionStatus || 'Contact for info';
-            case 'furnishType':
-                return lead.furnishType || 'Semi-Furnished';
-            case 'size':
-                return lead.size || '';
-            case 'sizeUnit':
-                return lead.sizeUnit || 'Sq.Ft.';
-            case 'facing':
-                return lead.facing || '-';
-            case 'floor':
-                return lead.floor || '-';
-            
-            // Financials
+                return lead.project?.name || lead.projectName || lead.project || '';
+            case 'agentName':
+            case 'assignedTo':
+                return lead.assignment?.assignedTo?.name || lead.agentName || lead.owner || 'Our Representative';
+            case 'unitNo':
+                return lead.unitNo || lead.unitNumber || '';
+            case 'sizeType':
+                return lead.sizeType?.lookup_value || lead.areaMetric || lead.sizeType || '';
+            case 'subCategory':
+                return lead.subRequirement?.lookup_value || lead.subCategory || '';
+            case 'budget':
             case 'price':
-                return lead.price ? (typeof lead.price === 'number' ? `₹${lead.price.toLocaleString()}` : lead.price) : '';
-            case 'totalCost':
-                return lead.totalCost || '';
-            case 'tokenAmount':
-                return lead.tokenAmount ? `₹${lead.tokenAmount.toLocaleString()}` : '';
-            case 'agreementAmount':
-                return lead.agreementAmount ? `₹${lead.agreementAmount.toLocaleString()}` : '';
-            case 'maintenanceCharges':
-                return lead.maintenanceCharges || '';
-            
-            // Transaction Details
-            case 'transactionType':
-                return lead.transactionType || 'Resale';
-            case 'dealType':
-                return lead.dealType || 'Sale';
-            case 'timeline':
-                return lead.timeline || 'Immediate';
-            
-            // AI Intelligence
-            case 'aiProbability':
-            case 'aiClosingProbability':
-                return lead.ai_closing_probability ? `${lead.ai_closing_probability}%` : 'N/A';
-            case 'intentSummary':
-                return lead.ai_intent_summary || '';
-
-            // Project Details (Enterprise Real Estate)
-            case 'reraNumber':
-                return lead.projectId?.reraNumber || lead.reraNumber || '';
-            case 'developerName':
-                return lead.projectId?.developerName || lead.developerName || '';
-            case 'launchDate':
-                const lDate = lead.projectId?.launchDate || lead.launchDate;
-                return lDate ? new Date(lDate).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : '';
-            case 'possessionDate':
-            case 'expectedCompletion':
-                const cDate = lead.projectId?.possessionDate || lead.projectId?.expectedCompletionDate || lead.expectedCompletion;
-                return cDate ? new Date(cDate).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : 'Contact Support';
-            case 'amenities':
-                const amens = lead.projectId?.amenities;
-                if (amens && typeof amens === 'object') {
-                    return Object.entries(amens).filter(([_, v]) => v).map(([k]) => k).join(', ');
-                }
-            
-            // Dates
-            case 'currentDate':
-                return new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-            case 'bookingDate':
-            // --- Project Deep-Dive ---
-            case 'reraNumber': return projectDoc.reraNumber || '';
-            case 'developerName': return projectDoc.developerName || '';
-            case 'launchDate': return projectDoc.launchDate ? new Date(projectDoc.launchDate).toLocaleDateString() : '';
-            case 'expectedCompletion': return projectDoc.expectedCompletionDate ? new Date(projectDoc.expectedCompletionDate).toLocaleDateString() : '';
-            case 'projectCity': return projectDoc.address?.city || '';
-            case 'projectLocality': return projectDoc.address?.locality || '';
-            case 'projectArea': return projectDoc.address?.area || '';
-            case 'totalUnits': return projectDoc.totalUnits || '';
-            case 'totalBlocks': return projectDoc.totalBlocks || '';
-            case 'totalFloors': return projectDoc.totalFloors || '';
-            case 'landArea': return projectDoc.landArea ? `${projectDoc.landArea} ${projectDoc.landAreaUnit || ''}` : '';
-            case 'approvedBank': return projectDoc.approvedBank || '';
-            case 'amenities': 
-                if (projectDoc.amenities instanceof Map) {
-                    return Array.from(projectDoc.amenities.entries())
-                        .filter(([_, v]) => v)
-                        .map(([k]) => k)
-                        .join(', ');
-                } else if (projectDoc.amenities && typeof projectDoc.amenities === 'object') {
-                    return Object.entries(projectDoc.amenities).filter(([_, v]) => v).map(([k]) => k).join(', ');
-                }
-                return '';
-
-            // --- Unit specifications ---
-            case 'unitNo': return inventoryDoc.unitNumber || inventoryDoc.unitNo || '';
-            case 'floor': return inventoryDoc.floor || '';
-            case 'facing': return inventoryDoc.facing?.lookup_value || inventoryDoc.facing || '';
-            case 'direction': return inventoryDoc.direction?.lookup_value || inventoryDoc.direction || '';
-            case 'possessionStatus': return inventoryDoc.possessionStatus || '';
-            case 'furnishType': return inventoryDoc.furnishType || '';
-            case 'ageOfConstruction': return inventoryDoc.ageOfConstruction || '';
-            case 'carpetArea': return inventoryDoc.carpetArea?.value ? `${inventoryDoc.carpetArea.value} ${inventoryDoc.carpetArea.unit || 'Sq.Ft.'}` : '';
-            case 'builtUpArea': return inventoryDoc.builtUpArea?.value ? `${inventoryDoc.builtUpArea.value} ${inventoryDoc.builtUpArea.unit || 'Sq.Ft.'}` : '';
-            case 'totalSaleableArea': return inventoryDoc.totalSaleableArea?.value ? `${inventoryDoc.totalSaleableArea.value} ${inventoryDoc.totalSaleableArea.unit || 'Sq.Ft.'}` : '';
-
-            // --- Advanced Financials ---
-            case 'price': return this.formatCurrency(inventoryDoc.price?.value);
-            case 'totalCost': return this.formatCurrency(inventoryDoc.totalCost?.value);
-            case 'rentPrice': return this.formatCurrency(inventoryDoc.rentPrice?.value);
-            case 'maintenanceAmount': return projectDoc.pricing?.masterCharges?.find(c => c.name?.toLowerCase().includes('maintenance'))?.amount || '';
-            case 'gstStatus': return projectDoc.pricing?.masterCharges?.some(c => c.gstEnabled) ? 'GST Applicable' : 'Inclusive of GST';
-            case 'paymentPlan': return projectDoc.pricing?.paymentPlans?.[0]?.name || 'Standard Plan';
-
-            // --- Dates & Activity ---
-            case 'currentDate': return new Date().toLocaleDateString();
-            case 'bookingDate': return lead.bookingDate ? new Date(lead.bookingDate).toLocaleDateString() : '';
-            case 'visitDate': return lead.visitDate ? new Date(lead.visitDate).toLocaleDateString() : '';
-            case 'followUpDate': 
-            case 'nextFollowUpDate':
-                return lead.nextFollowUpDate ? new Date(lead.nextFollowUpDate).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : 'Soon';
-            
-            // --- Outcome Context ---
-            case 'currentOutcome': return lead.currentOutcome || 'Follow-up';
-            case 'outcomeNotes': return lead.outcomeNotes || lead.notes || lead.remark || '';
-            case 'agentName': return lead.agentName || lead.ownerName || 'Your Consultant';
-            case 'feedbackLink': return `https://bharatproperties.com/feedback/${lead._id || lead.id}`;
-            case 'visitLocation': return lead.visitLocation || 'Project Site Office';
-
-            // --- Branding & System ---
-            case 'companyName': return 'Bharat Properties';
-            case 'officeAddress': return 'Corporate Office, Bharat Properties';
-            case 'customerSupportNo': return 'Sales Support';
-            case 'crmLink': return 'https://crm.bharatproperties.com';
+                return lead.budget?.lookup_value || lead.price || lead.budget || '';
 
             default:
-                // Try direct access if not in the map
+                // Try deep access for custom fields
                 return lead[source] || '';
+        }
         }
     }
 }

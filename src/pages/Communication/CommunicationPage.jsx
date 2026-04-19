@@ -55,24 +55,31 @@ function CommunicationPage() {
                 if (response && response.success) {
                     // Map backend Activity to UI format
                     const mappedData = response.data.map(act => {
-                        // Better participant resolution
                         let participantName = 'Unknown';
+                        let phone = '';
+
                         if (act.participants && act.participants.length > 0) {
                             participantName = act.participants[0].name;
+                            phone = act.participants[0].mobile;
                         } else if (act.details?.sender) {
-                            // Fallback to WhatsApp/SMS sender phone number
                             participantName = act.details.sender;
+                            phone = act.details.sender;
+                        } else if (act.details?.from) {
+                            participantName = act.details.from;
+                            phone = act.details.from;
                         } else if (act.relatedTo && act.relatedTo.length > 0) {
-                            // Fallback to related entity if it's likely the person
                             const potentialPerson = act.relatedTo.find(r => r.model === 'Contact' || r.model === 'Lead');
                             if (potentialPerson) {
                                 participantName = potentialPerson.name;
+                                // We'd need phone from backend or guess from subject
                             } else {
                                 participantName = act.relatedTo[0].name;
                             }
-                        } else if (act.subject?.includes('from')) {
-                            // Last resort: extract from subject "WhatsApp from 919..."
-                            participantName = act.subject.split('from').pop().trim();
+                        }
+
+                        if (!phone && act.subject?.includes('from')) {
+                             phone = act.subject.split('from').pop().trim();
+                             if (participantName === 'Unknown') participantName = phone;
                         }
 
                         // Better deals resolution
@@ -89,7 +96,8 @@ function CommunicationPage() {
                             associatedDeals: associatedDeals,
                             date: new Date(act.dueDate || act.createdAt).toLocaleDateString(),
                             platform: act.details?.platform || (act.platform === 'WhatsApp Bot' ? 'AI Bot' : 'Direct'),
-                            isMatched: act.isMatched ?? (act.entityId ? true : (act.details?.isMatched ?? false))
+                            isMatched: act.isMatched ?? (act.entityId ? true : (act.details?.isMatched ?? false)),
+                            phone: phone
                         };
                     });
                     setActivities(mappedData);
@@ -684,7 +692,10 @@ function CommunicationPage() {
                                                 </>
                                             ) : (
                                                 <>
-                                                    <div style={{ fontSize: '0.8rem', fontWeight: 700 }}>{item.participant}</div>
+                                                    <div style={{ fontSize: '0.8rem', fontWeight: 700 }}>
+                                                {item.participant}
+                                                {item.phone && <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 500 }}><i className="fas fa-phone-alt" style={{ fontSize: '0.6rem' }}></i> {item.phone}</div>}
+                                            </div>
                                                     <div style={{ fontSize: '0.75rem' }}>{item.type}</div>
                                                     <div>
                                                          <span style={{ fontSize: '0.7rem', background: '#e0f2fe', padding: '2px 8px', borderRadius: '10px' }}>{item.platform}</span>

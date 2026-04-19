@@ -11,21 +11,39 @@ const AIConversationsTab = () => {
             const res = await conversationAPI.getActive();
             if (res.success && res.data) {
                 // Map the backend Conversation model to the UI structure
-                const mapped = res.data.map(conv => ({
-                    id: conv._id,
-                    leadName: conv.lead ? `${conv.lead.firstName} ${conv.lead.lastName || ''}`.trim() : 'Unknown Lead',
-                    channel: conv.channel === 'whatsapp' ? 'WhatsApp' : conv.channel.toUpperCase(),
-                    leadScore: conv.lead && conv.lead.intent_index > 75 ? 'Hot' : 'Warm',
-                    budget: conv.lead?.customFields?.budget || 'Pending',
-                    location: conv.lead?.customFields?.location || 'Pending',
-                    intent: conv.lead?.customFields?.intent || 'Pending',
-                    override: conv.status === 'handed_off',
-                    messages: conv.messages.map(m => ({
-                        sender: m.role === 'user' ? 'user' : 'ai',
-                        text: m.content,
-                        time: new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                    }))
-                }));
+                const mapped = res.data.map(conv => {
+                    let leadName = 'Unmatched Contact';
+                    let leadScore = 'N/A';
+                    let phone = conv.phoneNumber || '';
+
+                    if (conv.lead) {
+                        leadName = `${conv.lead.firstName} ${conv.lead.lastName || ''}`.trim();
+                        leadScore = conv.lead.intent_index > 75 ? 'Hot' : 'Warm';
+                        phone = conv.lead.mobile || phone;
+                    } else if (conv.contact) {
+                        leadName = `${conv.contact.firstName} ${conv.contact.lastName || ''}`.trim();
+                        leadScore = 'Contact';
+                        phone = conv.contact.phones?.[0]?.number || phone;
+                    }
+
+                    return {
+                        id: conv._id,
+                        leadName: leadName,
+                        phone: phone,
+                        channel: conv.channel === 'whatsapp' ? 'WhatsApp' : conv.channel.toUpperCase(),
+                        leadScore,
+                        isMatched: !!(conv.lead || conv.contact),
+                        budget: conv.lead?.customFields?.budget || 'Pending',
+                        location: conv.lead?.customFields?.location || 'Pending',
+                        intent: conv.lead?.customFields?.intent || 'Pending',
+                        override: conv.status === 'handed_off',
+                        messages: conv.messages.map(m => ({
+                            sender: m.role === 'user' ? 'user' : 'ai',
+                            text: m.content,
+                            time: new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                        }))
+                    };
+                });
                 setConversations(mapped);
             }
         } catch (error) {
@@ -82,7 +100,10 @@ const AIConversationsTab = () => {
                                 }}></i>
                                 <div>
                                     <div style={{ fontWeight: 700, color: '#1e293b' }}>{conv.leadName}</div>
-                                    <div style={{ fontSize: '0.75rem', color: '#64748b' }}>via {conv.channel}</div>
+                                    <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                                        <i className="fas fa-phone-alt" style={{ fontSize: '0.65rem', marginRight: '4px' }}></i>
+                                        {conv.phone}
+                                    </div>
                                 </div>
                                 <span style={{
                                     marginLeft: '10px',

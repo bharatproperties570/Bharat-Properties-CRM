@@ -43,12 +43,12 @@ class MarketingAudienceService {
                     return this._standardizeRecipients(rawRecipients, 'deal', filters.targetRole);
 
                 case 'inventory':
-                    query = this._buildInventoryQuery(filters);
+                    query = await this._buildInventoryQuery(filters);
                     rawRecipients = await Inventory.find(query)
-                        .select('projectName unitNo sector block unitNumber owners associates status category sizeType')
-                        .populate('owners associates.contact status category sizeType')
+                        .select('project unitNo sector block unitNumber owners associates status category sizeType subCategory')
+                        .populate('owners associates.contact status category sizeType subCategory')
                         .lean();
-                    return this._standardizeRecipients(rawRecipients, 'inventory', filters.targetRole);
+                    return this._standardizeRecipients(rawRecipients, 'inventory', filters.contactType || filters.targetRole);
 
                 default:
                     throw new Error(`Invalid audience source: ${source}`);
@@ -61,18 +61,38 @@ class MarketingAudienceService {
 
     _buildLeadQuery(filters) {
         const query = { mobile: { $exists: true, $ne: '' } };
+        
         if (filters.status && filters.status !== 'all') {
-            query.status = filters.status;
+            query.status = mongoose.Types.ObjectId.isValid(filters.status) ? new mongoose.Types.ObjectId(filters.status) : filters.status;
         }
         if (filters.project && filters.project !== 'all') {
-            query.project = filters.project;
+            query.project = mongoose.Types.ObjectId.isValid(filters.project) ? new mongoose.Types.ObjectId(filters.project) : filters.project;
         }
         if (filters.source && filters.source !== 'all') {
-            query.source = filters.source;
+            query.source = mongoose.Types.ObjectId.isValid(filters.source) ? new mongoose.Types.ObjectId(filters.source) : filters.source;
+        }
+        if (filters.segment && filters.segment !== 'all') {
+            // Segment can be an ObjectId or a string (since some segments are derived)
+            query.segment = mongoose.Types.ObjectId.isValid(filters.segment) ? new mongoose.Types.ObjectId(filters.segment) : filters.segment;
+        }
+        if (filters.assignedTo && filters.assignedTo !== 'all') {
+            query['assignment.assignedTo'] = mongoose.Types.ObjectId.isValid(filters.assignedTo) ? new mongoose.Types.ObjectId(filters.assignedTo) : filters.assignedTo;
+        }
+        if (filters.budget && filters.budget !== 'all') {
+            query.budget = mongoose.Types.ObjectId.isValid(filters.budget) ? new mongoose.Types.ObjectId(filters.budget) : filters.budget;
         }
         if (filters.tags && filters.tags.length > 0) {
             query.tags = { $in: filters.tags };
         }
+        
+        // Recency filter (last 30/60/90 days)
+        if (filters.recency && filters.recency !== 'all') {
+            const days = parseInt(filters.recency);
+            const date = new Date();
+            date.setDate(date.getDate() - days);
+            query.updatedAt = { $gte: date };
+        }
+
         return query;
     }
 
@@ -82,10 +102,20 @@ class MarketingAudienceService {
             query.tags = { $in: filters.tags };
         }
         if (filters.city && filters.city !== 'all') {
-            query['personalAddress.city'] = filters.city;
+            query['personalAddress.city'] = new RegExp(filters.city, 'i');
         }
         if (filters.profession && filters.profession !== 'all') {
-            query.professionCategory = filters.profession;
+            query.professionCategory = mongoose.Types.ObjectId.isValid(filters.profession) ? new mongoose.Types.ObjectId(filters.profession) : filters.profession;
+        }
+        if (filters.segment && filters.segment !== 'all') {
+            query.segment = filters.segment;
+        }
+        // Added recency for Contacts
+        if (filters.recency && filters.recency !== 'all') {
+            const days = parseInt(filters.recency);
+            const date = new Date();
+            date.setDate(date.getDate() - days);
+            query.updatedAt = { $gte: date };
         }
         return query;
     }
@@ -96,26 +126,137 @@ class MarketingAudienceService {
             query.stage = filters.stage;
         }
         if (filters.project && filters.project !== 'all') {
-            query.projectId = filters.project;
+            query.projectId = mongoose.Types.ObjectId.isValid(filters.project) ? new mongoose.Types.ObjectId(filters.project) : filters.project;
         }
+        if (filters.owner && filters.owner !== 'all') {
+            query.owner = mongoose.Types.ObjectId.isValid(filters.owner) ? new mongoose.Types.ObjectId(filters.owner) : filters.owner;
+        }
+        
+        // Price Range
+        if (filters.minPrice || filters.maxPrice) {
+            query.expectedValue = {};
+            if (filters.minPrice) query.expectedValue.$gte = parseFloat(filters.minPrice);
+            if (filters.maxPrice) query.expectedValue.$lte = parseFloat(filters.maxPrice);
+        }
+
+        // Deal Type (Lease/Sale/Rent)
+        if (filters.type && filters.type !== 'all') {
+            query.type = filters.type;
+        }
+
         return query;
     }
 
-    _buildInventoryQuery(filters) {
-        const query = {};
+    async _buildInventoryQuery(filters) {
+        const query = { $and: [] };
+        const Lookup = mongoose.model('Lookup');
+        
+        // Helper to resolve string to ID if needed
+        const resolveLookup = async (type, value) => {
+            try {
+                if (!value || value === 'all') return null;
+                
+                // If it's ALREADY a valid ObjectId string, return it as ObjectId
+                if (typeof value === 'string' && value.length === 24 && /^[0-9a-fA-F]{24}$/.test(value)) {
+                    return new mongoose.Types.ObjectId(value);
+                }
+                
+                if (mongoose.Types.ObjectId.isValid(value) && typeof value !== 'string') {
+                    return value;
+                }
+
+                // Otherwise, search by lookup_value
+                const escapedValue = String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const lookup = await Lookup.findOne({ 
+                    lookup_type: new RegExp(`^${type}$`, 'i'), 
+                    lookup_value: new RegExp(`^${escapedValue}$`, 'i') 
+                }).lean();
+                
+                return lookup ? lookup._id : null;
+            } catch (err) {
+                console.warn(`[MarketingAudienceService] resolveLookup failed for ${type}:${value}`, err.message);
+                return null;
+            }
+        };
+
+        // Status Filtering
         if (filters.status && filters.status !== 'all') {
-            query.status = filters.status;
+            const statusId = await resolveLookup('InventoryStatus', filters.status) || await resolveLookup('Status', filters.status);
+            if (statusId) {
+                query.$and.push({ status: statusId });
+            } else {
+                // Fallback for direct string matches if denormalized
+                query.$and.push({
+                    $or: [
+                        { statusName: new RegExp(filters.status, 'i') },
+                        { status: filters.status }
+                    ]
+                });
+            }
         }
-        if (filters.sector && filters.sector !== 'all') {
-            query.sector = filters.sector;
+
+        // Project Filtering (Highly Robust Partial Match)
+        if (filters.project && filters.project !== 'all') {
+            if (mongoose.Types.ObjectId.isValid(filters.project)) {
+                query.$and.push({ 
+                    $or: [
+                        { project: new mongoose.Types.ObjectId(filters.project) },
+                        { projectId: new mongoose.Types.ObjectId(filters.project) }
+                    ]
+                });
+            } else {
+                const escapedProject = filters.project.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                query.$and.push({
+                    $or: [
+                        { projectName: new RegExp(escapedProject, 'i') },
+                        { sector: new RegExp(escapedProject, 'i') },
+                        { project: new RegExp(escapedProject, 'i') },
+                        { 'address.area': new RegExp(escapedProject, 'i') }
+                    ]
+                });
+            }
         }
+
+        // Unit/UnitNo Fallback
+        // (Even if not filtered by UI, we ensure the query can handle these if passed)
+        if (filters.unitNo && filters.unitNo !== 'all') {
+             query.$and.push({
+                $or: [
+                    { unitNo: new RegExp(filters.unitNo, 'i') },
+                    { unitNumber: new RegExp(filters.unitNo, 'i') }
+                ]
+             });
+        }
+        // Category & Sub-Category (Resolve to IDs)
         if (filters.category && filters.category !== 'all') {
-            query.category = filters.category;
+            const catId = await resolveLookup('PropertyCategory', filters.category) || await resolveLookup('Category', filters.category);
+            if (catId) {
+                query.$and.push({ category: catId });
+            } else {
+                query.$and.push({ category: new RegExp(filters.category, 'i') });
+            }
         }
-        if (filters.sizeType && filters.sizeType !== 'all') {
-            query.sizeType = filters.sizeType;
+
+        if (filters.subCategory && filters.subCategory !== 'all') {
+            const subCatId = await resolveLookup('PropertySubCategory', filters.subCategory) || await resolveLookup('SubCategory', filters.subCategory);
+            if (subCatId) {
+                query.$and.push({ subCategory: subCatId });
+            } else {
+                query.$and.push({ subCategory: new RegExp(filters.subCategory, 'i') });
+            }
         }
-        return query;
+
+        // Size Label (Fuzzy Matching)
+        if (filters.sizeLabel && filters.sizeLabel !== 'all') {
+            query.$and.push({
+                $or: [
+                    { sizeLabel: new RegExp(filters.sizeLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') },
+                    { unitType: new RegExp(filters.sizeLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') }
+                ]
+            });
+        }
+
+        return query.$and.length > 0 ? query : {};
     }
 
     /**
@@ -186,10 +327,10 @@ class MarketingAudienceService {
                         email: person.emails?.[0]?.address || person.email,
                         context: {
                             originalType: 'Inventory',
-                            unitNo: item.unitNo || item.unitNumber,
-                            projectName: item.projectName,
-                            sector: item.sector,
-                            sizeType: item.sizeType?.lookup_value
+                            unitNo: item.unitNo || item.unitNumber || 'N/A',
+                            projectName: item.projectName || item.project?.name || 'Unknown Project',
+                            sector: item.sector || item.project?.address?.area || item.address?.area || 'N/A',
+                            sizeType: item.sizeType?.lookup_value || item.sizeLabel || 'N/A'
                         }
                     });
                 });
