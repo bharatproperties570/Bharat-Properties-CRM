@@ -829,9 +829,15 @@ export const getMessagingActivities = async (req, res) => {
         const unified = [
             ...activities.map(a => {
                 const phone = a.details?.phoneNumber || a.participants?.[0]?.mobile || '';
-                // Check if this activity belongs to a conversation we have history for
                 const matchingConv = conversations.find(c => c.phoneNumber === phone || (c.lead?._id && a.entityId && c.lead._id.toString() === a.entityId.toString()));
                 
+                let pName = a.participants?.[0]?.name || '';
+                if (!pName && a.relatedTo?.length) {
+                    const match = a.relatedTo.find(r => ['Contact', 'Lead'].includes(r.model));
+                    if (match) pName = match.name;
+                }
+                if (!pName) pName = phone || 'Unknown';
+
                 return {
                     _id: a._id,
                     type: a.type,
@@ -848,7 +854,7 @@ export const getMessagingActivities = async (req, res) => {
                     platform: a.details?.platform || (a.type === 'WhatsApp' ? 'WhatsApp' : 'Direct'),
                     phoneNumber: phone,
                     phone: phone,
-                    participant: participantName,
+                    participant: pName,
                     outcome: a.details?.status || a.outcome || a.status || 'Delivered',
                     date: a.createdAt,
                     thread: matchingConv ? matchingConv.messages.map(m => ({
