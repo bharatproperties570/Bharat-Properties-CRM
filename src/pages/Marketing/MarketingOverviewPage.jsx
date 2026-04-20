@@ -976,14 +976,11 @@ export default function MarketingOverviewPage() {
       return;
     }
 
-    const newEntry = { i: meta.i, n: campaignName || `${meta.n} Campaign`, m: `${audienceCount} contacts`, r: resultMsg, c: meta.color };
-    setCampHistory(prev => [newEntry, ...prev]);
-    setCampaignActivity(prev => [
-      { id: `ch-${channel}-${Date.now()}`, t: `${meta.n} Campaign Sent`, p: `${meta.cnt.toLocaleString('en-IN')} contacts`, m: meta.n, s: 'Sent', ts: 'just now', c: meta.color },
-      ...prev.slice(0, 3)
-    ]);
+    const actEntry = { id: Date.now(), t: `${meta.n} Campaign`, p: campaignName || 'Enterprise Blast', m: meta.n, s: 'Success', ts: 'Just now', c: meta.color };
+    setCampaignActivity(prev => [actEntry, ...prev]);
 
     setCampLaunching(false);
+    setShowCampaignModal(false); // Close the form as requested
   };
 
   const handleSyncLinkedIn = async () => {
