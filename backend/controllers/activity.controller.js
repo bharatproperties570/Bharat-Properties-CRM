@@ -827,12 +827,13 @@ export const getMessagingActivities = async (req, res) => {
             .lean();
 
         // 4. Resolve Leads manually (Senior Professional Optimization to avoid 'System' schema errors)
-        const leadIds = [
-            ...rawConversations.map(c => c.lead).filter(id => id && mongoose.Types.ObjectId.isValid(id.toString())),
-            ...activities.map(a => a.entityId).filter(id => id && a.entityType==='Lead' && mongoose.Types.ObjectId.isValid(id.toString()))
-        ];
+        // 4. Resolve Leads manually (Senior Professional Optimization to avoid 'System' schema errors)
+        const leadIdSet = new Set();
+        rawConversations.forEach(c => { if(c.lead) leadIdSet.add(c.lead.toString()); });
+        activities.forEach(act => { if(act.entityId && act.entityType === 'Lead') leadIdSet.add(act.entityId.toString()); });
         
-        const leads = await Lead.find({ _id: { $in: leadIds } }).select('firstName lastName fullName mobile').lean();
+        const uniqueLeadIds = Array.from(leadIdSet).filter(id => mongoose.Types.ObjectId.isValid(id));
+        const leads = await Lead.find({ _id: { $in: uniqueLeadIds } }).select('firstName lastName fullName mobile').lean();
         const leadMap = leads.reduce((acc, l) => {
             acc[l._id.toString()] = l;
             return acc;
