@@ -804,9 +804,11 @@ export const getMessagingActivities = async (req, res) => {
         const visibilityFilter = await getVisibilityFilter(req.user);
 
         // 1. Fetch Messaging Activities (SMS, WhatsApp manual)
+        // We relax visibility filter for the hub to ensure a unified inbox view, 
+        // but still maintain basic isDeleted check.
         const activities = await Activity.find({
-            ...visibilityFilter,
-            type: { $in: ['Messaging', 'WhatsApp'] }
+            type: { $in: ['Messaging', 'WhatsApp'] },
+            isDeleted: { $ne: true }
         })
         .sort({ createdAt: -1 })
         .limit(200)
@@ -824,6 +826,8 @@ export const getMessagingActivities = async (req, res) => {
             .sort({ sentAt: -1 })
             .limit(100)
             .lean();
+
+        console.log(`[MessagingHub] Found: Activities=${activities.length}, Convs=${conversations.length}, SMSLogs=${smsLogs.length}`);
 
         // 4. Unify and apply Matched/Unmatched logic
         const unified = [
@@ -904,6 +908,8 @@ export const getMessagingActivities = async (req, res) => {
                     timestamp: c.updatedAt,
                     entityType: 'Lead',
                     entityId: c.lead?._id || c.lead,
+                    participant: c.lead?.fullName || c.lead?.firstName || 'Unknown',
+                    phone: c.phoneNumber || c.lead?.mobile || '',
                     participantName: c.lead?.fullName || c.lead?.firstName || 'Unknown',
                     participantMobile: c.phoneNumber || c.lead?.mobile || '',
                     direction: lastMsg?.role === 'user' ? 'Incoming' : 'Outgoing',

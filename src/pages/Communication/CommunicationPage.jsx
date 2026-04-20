@@ -83,6 +83,7 @@ export default function CommunicationPage() {
         try {
             const res = await activitiesAPI.getMessagingStream();
             if (res?.success) {
+                console.log('[CommHub] Messaging Stream:', res.data); // Debug Log
                 setActivities(res.data.map(act => {
                     // 1. Participant Identity
                     let name = act.participant || act.participantName || '';
