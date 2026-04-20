@@ -803,11 +803,9 @@ export const getMessagingActivities = async (req, res) => {
     try {
         const visibilityFilter = await getVisibilityFilter(req.user);
 
-        // 1. Fetch Messaging Activities (SMS, WhatsApp manual)
-        // We relax visibility filter for the hub to ensure a unified inbox view, 
-        // but still maintain basic isDeleted check.
+        // 1. Fetch Messaging & Voice Activities (SMS, WhatsApp, Mobile Calls)
         const activities = await Activity.find({
-            type: { $in: ['Messaging', 'WhatsApp'] },
+            type: { $in: ['Messaging', 'WhatsApp', 'Call'] },
             isDeleted: { $ne: true }
         })
         .sort({ createdAt: -1 })
@@ -864,10 +862,13 @@ export const getMessagingActivities = async (req, res) => {
                 }
                 if (!pName) pName = phone || 'Unknown';
 
+                const isCall = a.type?.toLowerCase() === 'call';
+                const via = isCall ? 'Voice' : (a.details?.platform?.toLowerCase() === 'whatsapp' || a.type?.toLowerCase() === 'whatsapp' ? 'WhatsApp' : 'SMS');
+
                 unified.push({
                     _id: a._id,
                     type: a.type,
-                    via: a.details?.platform?.toLowerCase() === 'whatsapp' || a.type?.toLowerCase() === 'whatsapp' ? 'WhatsApp' : 'SMS',
+                    via: via,
                     subject: a.subject,
                     description: a.description,
                     snippet: a.description,
@@ -877,7 +878,7 @@ export const getMessagingActivities = async (req, res) => {
                     actor: a.performedBy || 'System',
                     isMatched: a.details?.isMatched ?? !!(a.entityId && a.entityType !== 'Unknown'),
                     details: a.details,
-                    platform: a.details?.platform || (a.type?.toLowerCase() === 'whatsapp' ? 'WhatsApp' : 'Direct'),
+                    platform: a.details?.platform || (isCall ? 'Mobile' : (a.type?.toLowerCase() === 'whatsapp' ? 'WhatsApp' : 'Direct')),
                     phoneNumber: phone,
                     phone: phone,
                     participant: pName,
