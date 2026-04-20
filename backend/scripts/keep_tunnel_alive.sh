@@ -2,9 +2,10 @@
 
 # Configuration
 PORT=4000
-SUBDOMAIN="bharat-crm-api-stable"
+SUBDOMAIN="bharat-crm-stable-api"
 LOGFILE="localtunnel_monitor.log"
 
+export PATH=$PATH:/usr/local/bin
 echo "Starting tunnel monitor for $SUBDOMAIN on port $PORT..." | tee -a $LOGFILE
 
 while true; do
@@ -12,7 +13,7 @@ while true; do
     # (Actually we'll just start it and let it handle collisions or just kill old ones)
     
     echo "[$(date)] Starting localtunnel..." | tee -a $LOGFILE
-    npx localtunnel --port $PORT --subdomain $SUBDOMAIN >> $LOGFILE 2>&1
+    /usr/local/bin/npx localtunnel --port $PORT --subdomain $SUBDOMAIN >> $LOGFILE 2>&1
     
     echo "[$(date)] Localtunnel exited. Restarting in 5 seconds..." | tee -a $LOGFILE
     sleep 5

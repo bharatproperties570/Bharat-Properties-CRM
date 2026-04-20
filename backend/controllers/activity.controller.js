@@ -16,6 +16,181 @@ import { normalizePhone } from "../utils/normalization.js";
 import Contact from "../models/Contact.js";
 
 /**
+ * Enterprise Enrichment Layer:
+ * Heals activities by auto-populating missing contact/lead metadata (name, mobile, email).
+ * This ensures "Unknown Client" and missing phone/email labels are eliminated even if 
+ * the activity was saved with partial data (e.g. from mobile sync or legacy imports).
+ */
+const populateParticipantsAndRelatedData = async (activities) => {
+    if (!activities || activities.length === 0) return activities;
+
+    const leadIds = new Set();
+    const contactIds = new Set();
+    const namesForSearch = new Set();
+
+    activities.forEach(a => {
+        // Build ID sets from top-level and relatedTo
+        const potentialEntityIds = [a.entityId];
+        if (Array.isArray(a.relatedTo)) {
+            a.relatedTo.forEach(r => {
+                potentialEntityIds.push(r.id);
+                if (r.name && r.name !== 'Unknown') namesForSearch.add(r.name);
+            });
+        }
+
+        potentialEntityIds.forEach(id => {
+            if (!id) return;
+            const sId = String(id).trim();
+            // We use strings for the set to ensure unique resolution before database hits
+            const eType = String(a.entityType || '').toLowerCase();
+            if (eType === 'lead') leadIds.add(sId);
+            else if (eType === 'contact') contactIds.add(sId);
+            else {
+                // If top-level type is missing, peek into relatedTo if available for this specific ID
+                if (Array.isArray(a.relatedTo)) {
+                    const rel = a.relatedTo.find(r => String(r.id) === sId);
+                    if (rel) {
+                        const mType = String(rel.model || '').toLowerCase();
+                        if (mType === 'lead') leadIds.add(sId);
+                        else if (mType === 'contact') contactIds.add(sId);
+                    }
+                }
+            }
+        });
+    });
+
+    const leadIdArray = Array.from(leadIds);
+    const contactIdArray = Array.from(contactIds);
+
+    // Filter to valid object IDs for primary lookup
+    const validLeadObjIds = leadIdArray.filter(id => mongoose.Types.ObjectId.isValid(id)).map(id => new mongoose.Types.ObjectId(id));
+    const validContactObjIds = contactIdArray.filter(id => mongoose.Types.ObjectId.isValid(id)).map(id => new mongoose.Types.ObjectId(id));
+
+    // Advance Name Parsing for Lead resolution (Split firstName/lastName)
+    const leadNameQueries = Array.from(namesForSearch).map(name => {
+        const parts = name.trim().split(/\s+/);
+        if (parts.length > 1) {
+            return { $and: [
+                { firstName: { $regex: new RegExp(`^${parts[0]}$`, 'i') } },
+                { lastName: { $regex: new RegExp(`^${parts.slice(1).join(' ')}$`, 'i') } }
+            ]};
+        }
+        return { firstName: { $regex: new RegExp(`^${name}$`, 'i') } };
+    });
+
+    // Advance Name Parsing for Contact resolution (Split name/surname)
+    const contactNameQueries = Array.from(namesForSearch).map(name => {
+        const parts = name.trim().split(/\s+/);
+        if (parts.length > 1) {
+            return { $and: [
+                { name: { $regex: new RegExp(`^${parts[0]}$`, 'i') } },
+                { surname: { $regex: new RegExp(`^${parts.slice(1).join(' ')}$`, 'i') } }
+            ]};
+        }
+        return { name: { $regex: new RegExp(`^${name}$`, 'i') } };
+    });
+
+    // Parallel lookup across both ID types AND names as an ultimate fallback for deep data healing
+    const [leads, contacts] = await Promise.all([
+        Lead.find({ 
+            $or: [
+                { _id: { $in: validLeadObjIds } },
+                ...leadNameQueries
+            ]
+        }).select('firstName lastName mobile email salutation').lean(),
+        Contact.find({ 
+            $or: [
+                { _id: { $in: validContactObjIds } },
+                ...contactNameQueries
+            ]
+        }).select('name surname phones emails title').populate('title').lean()
+    ]);
+
+    // Build optimized lookup maps for O(1) row processing
+    const leadMap = new Map();
+    const leadNameMap = new Map();
+    leads.forEach(l => {
+        const fullName = `${l.firstName || ''} ${l.lastName || ''}`.trim();
+        const data = { ...l, fullName, primaryPhone: l.mobile, primaryEmail: l.email };
+        leadMap.set(String(l._id), data);
+        leadNameMap.set(fullName, data);
+    });
+
+    const contactMap = new Map();
+    const contactNameMap = new Map();
+    contacts.forEach(c => {
+        const titleLabel = (c.title && typeof c.title === 'object') ? c.title.lookup_value : (c.title || '');
+        const fullName = `${titleLabel} ${c.name} ${c.surname || ''}`.trim();
+        const data = { ...c, fullName, primaryPhone: c.phones?.[0]?.number, primaryEmail: c.emails?.[0]?.address };
+        contactMap.set(String(c._id), data);
+        contactNameMap.set(fullName, data);
+    });
+
+    return activities.map(a => {
+        const act = { ...a };
+        
+        // Identity Resolution Logic (Multi-Path)
+        let entityMatch = null;
+        
+        // Path A: Primary Pointer
+        const eId = String(act.entityId || '');
+        const eType = String(act.entityType || '').toLowerCase();
+        entityMatch = eType === 'lead' ? leadMap.get(eId) : contactMap.get(eId);
+
+        // Path B: Related Array Discovery
+        if (!entityMatch && Array.isArray(act.relatedTo)) {
+            for (const r of act.relatedTo) {
+                const id = String(r.id);
+                const model = String(r.model || '').toLowerCase();
+                const match = model === 'lead' ? leadMap.get(id) : contactMap.get(id);
+                if (match) {
+                    entityMatch = match;
+                    break;
+                }
+                // Path C: Name Fallback (Ultimate Data Healing)
+                const nameMatch = model === 'lead' ? leadNameMap.get(r.name) : contactNameMap.get(r.name);
+                if (nameMatch) {
+                    entityMatch = nameMatch;
+                    break;
+                }
+            }
+        }
+
+        // Apply Discovered Identity to heal the record
+        if (entityMatch) {
+            // Restore missing primary pointers
+            if (!act.entityId) {
+                act.entityId = entityMatch._id;
+                act.entityType = leadMap.has(String(entityMatch._id)) ? 'Lead' : 'Contact';
+            }
+
+            // Sync participants - ensure mobile and email are present
+            if (!Array.isArray(act.participants) || act.participants.length === 0) {
+                act.participants = [{
+                    name: entityMatch.fullName || entityMatch.name,
+                    mobile: entityMatch.primaryPhone || '--',
+                    email: entityMatch.primaryEmail || ''
+                }];
+            } else {
+                act.participants = act.participants.map(p => {
+                    const refreshed = { ...p };
+                    if (!refreshed.name || refreshed.name === 'Unknown') refreshed.name = entityMatch.fullName;
+                    if (!refreshed.mobile || refreshed.mobile === '--' || refreshed.mobile === '') refreshed.mobile = entityMatch.primaryPhone;
+                    if (!refreshed.email || refreshed.email === '') refreshed.email = entityMatch.primaryEmail;
+                    return refreshed;
+                });
+            }
+
+            // Top-level conveniences for UI
+            if (!act.contactEmail) act.contactEmail = entityMatch.primaryEmail;
+            if (!act.contactPhone) act.contactPhone = entityMatch.primaryPhone;
+        }
+
+        return act;
+    });
+};
+
+/**
  * Bug 6 Fix: Auto-trigger stage change when a completed activity is saved for a lead.
  * Looks up the mapped stage from activityMasterFields settings, then calls updateLeadStage.
  * This makes stage auto-computation truly automatic without requiring the frontend hook.
@@ -129,22 +304,25 @@ export const getActivities = async (req, res) => {
             .skip((page - 1) * limit)
             .limit(Number(limit))
             .populate('assignedTo', 'fullName name email')
+            .populate('createdBy', 'fullName name email')
             .lean();
 
         const total = await Activity.countDocuments(query);
 
-        // Enrichment: Process attribution fallbacks for older records
-        const enrichedActivities = activities.map(a => {
+        // Enrichment: Process attribution fallbacks and HEAL relation data
+        const enrichedActivitiesRaw = activities.map(a => {
             const act = { ...a };
             if (!act.performedBy) {
                 if (act.assignedTo) {
                     act.performedBy = act.assignedTo.fullName || act.assignedTo.name || "Staff User";
                 } else {
-                    act.performedBy = "System"; // Default System attribution
+                    act.performedBy = "System"; 
                 }
             }
             return act;
         });
+
+        const enrichedActivities = await populateParticipantsAndRelatedData(enrichedActivitiesRaw);
 
         res.json({
             success: true,
@@ -178,10 +356,10 @@ export const getActivitiesByEntity = async (req, res) => {
             ...visibilityFilter,
             entityType: { $regex: new RegExp(`^${escapedEntityType}$`, 'i') },
             entityId: entityId
-        }).populate('assignedTo', 'fullName name email').sort({ createdAt: -1 }).lean();
+        }).populate('assignedTo', 'fullName name email').populate('createdBy', 'fullName name email').sort({ createdAt: -1 }).lean();
 
-        // Enrichment: Process attribution fallbacks
-        const enrichedActivities = activities.map(a => {
+        // Enrichment: Process attribution fallbacks and relation healing
+        const enrichedActivitiesRaw = activities.map(a => {
             const act = { ...a };
             if (!act.performedBy) {
                 if (act.assignedTo) {
@@ -192,6 +370,8 @@ export const getActivitiesByEntity = async (req, res) => {
             }
             return act;
         });
+
+        const enrichedActivities = await populateParticipantsAndRelatedData(enrichedActivitiesRaw);
 
         res.json({ success: true, data: enrichedActivities });
     } catch (error) {
@@ -366,15 +546,17 @@ export const getActivityById = async (req, res) => {
             _id: req.params.id,
             ...visibilityFilter
         })
-            .populate('assignedTo', 'firstName lastName email')
+            .populate('assignedTo', 'fullName name email')
+            .populate('createdBy', 'fullName name email')
             .lean();
 
         if (!activity) {
-            // Return 404 (not 403) to avoid leaking existence of the record
             return res.status(404).json({ success: false, error: "Activity not found or access denied" });
         }
 
-        res.json({ success: true, data: activity });
+        const [enrichedActivity] = await populateParticipantsAndRelatedData([activity]);
+
+        res.json({ success: true, data: enrichedActivity });
     } catch (error) {
         if (error.name === "CastError") return res.status(400).json({ success: false, error: `Invalid ${error.path}: ${error.value}` });
         res.status(500).json({ success: false, error: error.message });
@@ -389,6 +571,7 @@ export const addActivity = async (req, res) => {
         
         // Auto-set performer name from authenticated user
         if (req.user) {
+            activityData.createdBy = req.user.id || req.user._id;
             activityData.performedBy = req.user.fullName || req.user.name || `${req.user.firstName || ''} ${req.user.lastName || ''}`.trim();
             // Default teams to user's teams if no inheritance happens later
             if (!activityData.teams || activityData.teams.length === 0) {

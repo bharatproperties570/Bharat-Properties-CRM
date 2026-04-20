@@ -32,6 +32,7 @@ const ActivitySchema = new mongoose.Schema({
     }],
 
     assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
     performedBy: String, // Name of the creator/performer
     performedAt: { type: Date, default: Date.now },
 

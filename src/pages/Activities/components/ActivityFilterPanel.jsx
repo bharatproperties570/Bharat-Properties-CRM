@@ -62,6 +62,36 @@ const ActivityFilterPanel = ({ isOpen, onClose, filters, onFilterChange, onReset
 
                 {/* Body */}
                 <div style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
+                    {/* Activity Origin - NEW FOR ENTERPRISE SOURCE TRACKING */}
+                    <div style={{ marginBottom: '24px', padding: '16px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 800, color: '#0f172a', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                            Activity Origin
+                        </label>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                            {['Manual Follow-up', 'Mobile Sync', 'System Automated'].map(source => (
+                                <label key={source} style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 600, color: '#334155' }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={(filters.origin || []).includes(source)}
+                                        onChange={() => {
+                                            const current = filters.origin || [];
+                                            const updated = current.includes(source)
+                                                ? current.filter(item => item !== source)
+                                                : [...current, source];
+                                            onFilterChange('origin', updated);
+                                        }}
+                                        style={{ accentColor: '#10b981', width: '18px', height: '18px' }}
+                                    />
+                                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                        <span>{source}</span>
+                                        <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 400 }}>
+                                            {source === 'Manual Follow-up' ? 'Scheduled via CRM Forms' : source === 'Mobile Sync' ? 'Call logs & SMS from phone' : 'AI & Auto-triggers'}
+                                        </span>
+                                    </div>
+                                </label>
+                            ))}
+                        </div>
+                    </div>
 
                     {/* Activity Type */}
                     <div style={{ marginBottom: '24px' }}>

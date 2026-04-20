@@ -43,19 +43,20 @@ const ActivityRow = memo(function ActivityRow({
         <div
             onClick={() => setSelectedActivity(activity)}
             style={{
-                padding: '18px 20px',
+                padding: '16px 12px',
                 marginBottom: '8px',
                 borderRadius: '8px',
                 border: isRowSelected ? '2px solid #10b981' : '1px solid #e2e8f0',
                 background: isRowSelected ? '#f0fdf4' : '#fff',
                 display: 'grid',
-                gridTemplateColumns: '40px 200px 150px 300px 120px 300px 120px 120px 120px 100px',
-                gap: '1rem',
+                gridTemplateColumns: '35px 250px 140px 1.2fr 100px 1.2fr 130px 130px 120px',
+                gap: '12px',
                 alignItems: 'center',
                 transition: 'all 0.2s',
                 cursor: 'pointer',
                 boxShadow: isRowSelected ? '0 4px 12px rgba(16, 185, 129, 0.1)' : '0 1px 2px rgba(0,0,0,0.04)',
-                minWidth: '1700px'
+                width: '100%',
+                minWidth: '1300px'
             }}
         >
             {/* Checkbox */}
@@ -70,13 +71,21 @@ const ActivityRow = memo(function ActivityRow({
 
             {/* Details */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', overflow: 'hidden' }}>
-                <div className="text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>{activity.relatedTo?.[0]?.name || 'Unknown Client'}</div>
-                <div style={{ fontSize: '0.75rem', color: '#8e44ad', fontWeight: 600 }}>
-                    <i className="fas fa-phone" style={{ marginRight: '4px', transform: 'scaleX(-1) rotate(5deg)' }}></i>{activity.participants?.[0]?.mobile || '--'}
+                <div title={activity.relatedTo?.[0]?.name || activity.participants?.[0]?.name} className="text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0f172a' }}>
+                    {activity.relatedTo?.[0]?.name || activity.participants?.[0]?.name || activity.contactName || 'Unknown Client'}
                 </div>
-                {activity.contactEmail && (
-                    <div className="text-ellipsis" style={{ fontSize: '0.7rem', color: '#64748b' }}>
-                        <i className="fas fa-envelope" style={{ marginRight: '4px' }}></i>{activity.contactEmail}
+                
+                {/* Mobile / Phone - Enterprise Multi-Path Lookup */}
+                <div style={{ fontSize: '0.75rem', color: '#7c3aed', fontWeight: 700 }}>
+                    <i className="fas fa-phone" style={{ marginRight: '6px', transform: 'scaleX(-1) rotate(5deg)', opacity: 0.8 }}></i>
+                    {activity.participants?.[0]?.mobile || activity.details?.mobile || activity.mobile || activity.contactPhone || '--'}
+                </div>
+
+                {/* Email - Enterprise Multi-Path Lookup */}
+                {(activity.contactEmail || activity.participants?.[0]?.email || activity.details?.email) && (
+                    <div className="text-ellipsis" style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>
+                        <i className="fas fa-envelope" style={{ marginRight: '6px', opacity: 0.7 }}></i>
+                        {activity.contactEmail || activity.participants?.[0]?.email || activity.details?.email}
                     </div>
                 )}
             </div>
@@ -84,12 +93,14 @@ const ActivityRow = memo(function ActivityRow({
             {/* Scheduled Date */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                 <div style={{ fontSize: '0.8rem', color: '#0f172a', fontWeight: 700 }}>
-                    <i className="far fa-calendar" style={{ marginRight: '4px', color: '#6366f1' }}></i>
-                    {activity.dueDate ? new Date(activity.dueDate).toLocaleDateString() : '--'}
+                    <i className="far fa-calendar" style={{ marginRight: '6px', color: '#6366f1' }}></i>
+                    {activity.dueDate ? new Date(activity.dueDate).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '--'}
                 </div>
-                <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                    <i className="far fa-clock" style={{ marginRight: '4px' }}></i>
-                    {activity.dueTime || '--'}
+                <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 700 }}>
+                    <i className="far fa-clock" style={{ marginRight: '6px', color: '#10b981' }}></i>
+                    {activity.dueTime || (activity.dueDate && !activity.dueDate.toString().includes('00:00:00') 
+                        ? new Date(activity.dueDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
+                        : '--')}
                 </div>
             </div>
 
@@ -137,12 +148,12 @@ const ActivityRow = memo(function ActivityRow({
 
             {/* Scheduled By */}
             <div className="text-ellipsis" style={{ fontSize: '0.8rem', color: '#334155', fontWeight: 600 }}>
-                {activity.scheduledBy || activity.scheduled || '--'}
+                {activity.createdBy?.fullName || activity.createdBy?.name || activity.performedBy || activity.scheduledBy || '--'}
             </div>
 
             {/* Scheduled For */}
-            <div className="text-ellipsis" style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                {activity.details?.purpose || '--'}
+            <div className="text-ellipsis" style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>
+                {activity.assignedTo?.fullName || activity.assignedTo?.name || (activity.createdBy && !activity.assignedTo ? 'Self' : '--')}
             </div>
 
             {/* Stage / Status */}
@@ -171,32 +182,6 @@ const ActivityRow = memo(function ActivityRow({
                 </span>
             </div>
 
-            {/* Actions */}
-            <div style={{ display: 'flex', justifyContent: 'center', gap: '8px' }}>
-                {activity.status?.toLowerCase() !== 'completed' && (
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedActivity(activity);
-                            setIsOutcomeModalOpen(true);
-                        }}
-                        style={{
-                            padding: '6px 12px',
-                            borderRadius: '6px',
-                            border: 'none',
-                            background: '#10b981',
-                            color: '#fff',
-                            fontSize: '0.7rem',
-                            fontWeight: 800,
-                            cursor: 'pointer',
-                            boxShadow: '0 2px 4px rgba(16, 185, 129, 0.2)'
-                        }}
-                        title="Log Outcome"
-                    >
-                        Complete
-                    </button>
-                )}
-            </div>
         </div>
     );
 });
@@ -223,9 +208,8 @@ function ActivitiesPage() {
     const [currentPage, setCurrentPage] = useState(1);
     const [recordsPerPage, setRecordsPerPage] = useState(25);
 
-    // Filter State
     const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
-    const [filters, setFilters] = useState({});
+    const [filters, setFilters] = useState({ origin: ['Manual Follow-up'] });
     const [searchTerm, setSearchTerm] = useState('');
 
     // Handlers
@@ -568,7 +552,7 @@ function ActivitiesPage() {
     return (
         <section className="main-content" style={{ height: 'calc(100vh - 65px)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <div className="page-container" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', height: '100%' }}>
-                <div className="page-header" style={{ background: '#fff', borderBottom: '1px solid #eef2f5', padding: '20px 2rem', zIndex: 110 }}>
+                <div className="page-header" style={{ background: '#fff', borderBottom: '1px solid #eef2f5', padding: '15px 0.5rem', zIndex: 110 }}>
                     <div className="page-title-group">
                         <i className="fas fa-tasks" style={{ color: '#68737d' }}></i>
                         <div>
@@ -588,23 +572,54 @@ function ActivitiesPage() {
                     </div>
                 </div>
 
-                <div style={{ padding: '15px 2rem', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                <div style={{ padding: '10px 0.5rem', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                     <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
                         {['All', 'Follow Up', 'Site Visit', 'Meeting', 'Call', 'Email', 'Task'].map(type => (
                             <button key={type} style={{ padding: '6px 16px', borderRadius: '6px', border: activeType === type ? 'none' : '1px solid #e2e8f0', background: activeType === type ? '#10b981' : '#fff', color: activeType === type ? '#fff' : '#64748b', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s' }} onClick={() => setQuickTypeFilter(type)}>{type}</button>
                         ))}
                     </div>
-                    <div style={{ display: 'flex', gap: '20px', borderBottom: '2px solid #e2e8f0' }}>
-                        {['Today', 'Upcoming', 'Overdue', 'Completed', 'Custom'].map(tab => (
-                            <button key={tab} onClick={() => setQuickStatusFilter(tab)} style={{ padding: '10px 0', border: 'none', background: 'none', fontSize: '0.85rem', fontWeight: 600, color: currentTab === tab ? '#10b981' : '#64748b', borderBottom: currentTab === tab ? '2px solid #10b981' : '2px solid transparent', cursor: 'pointer', marginBottom: '-2px' }}>{tab}</button>
-                        ))}
+                    <div style={{ display: 'flex', gap: '20px', borderBottom: '2px solid #e2e8f0', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', gap: '20px' }}>
+                            {['Today', 'Upcoming', 'Overdue', 'Completed', 'Custom'].map(tab => (
+                                <button key={tab} onClick={() => setQuickStatusFilter(tab)} style={{ padding: '10px 0', border: 'none', background: 'none', fontSize: '0.85rem', fontWeight: 600, color: currentTab === tab ? '#10b981' : '#64748b', borderBottom: currentTab === tab ? '2px solid #10b981' : '2px solid transparent', cursor: 'pointer', marginBottom: '-2px' }}>{tab}</button>
+                            ))}
+                        </div>
+                        <div style={{ flex: 1 }}></div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '4px' }}>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#94a3b8' }}>VIEWING:</span>
+                            <div style={{ background: '#fff', border: '1px solid #e2e8f0', padding: '4px 8px', borderRadius: '20px', display: 'flex', gap: '6px' }}>
+                                {['Manual Follow-up', 'All Sources'].map(source => {
+                                    const isActive = source === 'All Sources' ? !filters.origin || filters.origin.length === 3 : filters.origin?.includes('Manual Follow-up') && filters.origin?.length === 1;
+                                    return (
+                                        <button 
+                                            key={source} 
+                                            onClick={() => {
+                                                if (source === 'All Sources') {
+                                                    setFilters(prev => { const n = { ...prev }; delete n.origin; return n; });
+                                                } else {
+                                                    setFilters(prev => ({ ...prev, origin: ['Manual Follow-up'] }));
+                                                }
+                                            }}
+                                            style={{ 
+                                                fontSize: '0.65rem', fontWeight: 800, border: 'none', 
+                                                background: isActive ? '#10b981' : 'transparent',
+                                                color: isActive ? '#fff' : '#64748b', cursor: 'pointer',
+                                                padding: '2px 10px', borderRadius: '15px', transition: 'all 0.2s'
+                                            }}
+                                        >
+                                            {source.toUpperCase()}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
                     </div>
                 </div>
 
                 <div className="content-body" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                     {viewMode === 'list' ? (
                         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                            <div className="toolbar-container" style={{ padding: '5px 2rem', borderBottom: '1px solid #eef2f5', minHeight: '45px', display: 'flex', alignItems: 'center', background: '#fff', zIndex: 105 }}>
+                            <div className="toolbar-container" style={{ padding: '5px 0.5rem', borderBottom: '1px solid #eef2f5', minHeight: '45px', display: 'flex', alignItems: 'center', background: '#fff', zIndex: 105 }}>
                                 {selectedIds.length > 0 ? (
                                     <div className="action-panel" style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%', overflowX: 'auto', paddingTop: '4px', paddingBottom: '2px' }}>
                                         <div className="selection-count" style={{ marginRight: '10px', fontWeight: 600, color: 'var(--primary-color)', whiteSpace: 'nowrap' }}>{selectedIds.length} Selected</div>
@@ -646,7 +661,7 @@ function ActivitiesPage() {
                             </div>
                             <ActiveFiltersChips filters={filters} onRemoveFilter={handleRemoveFilter} onClearAll={handleClearAll} />
                             <div className="list-scroll-area" style={{ flex: 1, overflow: 'auto' }}>
-                                <div style={{ position: 'sticky', top: 0, zIndex: 99, padding: '15px 2rem', background: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569', fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px', display: 'grid', gridTemplateColumns: '40px 200px 150px 300px 120px 300px 120px 120px 120px 100px', gap: '1rem', alignItems: 'center', minWidth: '1700px' }}>
+                                <div style={{ position: 'sticky', top: 0, zIndex: 99, padding: '15px 0.5rem', background: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569', fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px', display: 'grid', gridTemplateColumns: '35px 250px 140px 1.2fr 100px 1.2fr 130px 130px 120px', gap: '12px', alignItems: 'center', width: '100%', minWidth: '1300px' }}>
                                     <div><input type="checkbox" onChange={toggleSelectAll} checked={selectedIds.length === filteredActivities.length && filteredActivities.length > 0} /></div>
                                     <div>Details</div>
                                     <div>Scheduled Date</div>
@@ -656,9 +671,8 @@ function ActivitiesPage() {
                                     <div>Scheduled By</div>
                                     <div>Scheduled For</div>
                                     <div>Stage / Status</div>
-                                    <div style={{ textAlign: 'center' }}>Actions</div>
                                 </div>
-                                <div className="list-content" style={{ background: '#fafbfc', padding: '1rem 2rem' }}>
+                                <div className="list-content" style={{ background: '#fafbfc', padding: '1rem 0.5rem' }}>
                                     {paginatedActivities.map((activity) => (
                                         <ActivityRow
                                             key={activity._id}
@@ -681,7 +695,7 @@ function ActivitiesPage() {
                         </div>
                     )}
 
-                    <div className="activities-footer" style={{ padding: '12px 2rem', background: selectedActivity ? '#1e293b' : '#fff', color: selectedActivity ? '#fff' : 'inherit', borderTop: '1px solid #eef2f5', display: 'flex', justifyContent: 'space-between', alignItems: 'center', zIndex: 1000, transition: 'all 0.3s ease', height: '55px', minHeight: '55px' }}>
+                    <div className="activities-footer" style={{ padding: '12px 1rem', background: selectedActivity ? '#1e293b' : '#fff', color: selectedActivity ? '#fff' : 'inherit', borderTop: '1px solid #eef2f5', display: 'flex', justifyContent: 'space-between', alignItems: 'center', zIndex: 1000, transition: 'all 0.3s ease', height: '55px', minHeight: '55px' }}>
                         {!selectedActivity ? (
                             <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
                                 <div style={{ fontSize: '0.85rem', color: '#94a3b8', fontWeight: 600 }}>Summary</div>

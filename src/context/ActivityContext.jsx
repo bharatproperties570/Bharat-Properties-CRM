@@ -69,6 +69,12 @@ export const ActivityProvider = ({ children }) => {
                 normalizedData.entityId = normalizedData.relatedTo[0].id;
                 normalizedData.entityType = normalizedData.relatedTo[0].model || normalizedData.relatedTo[0].type;
             }
+
+            // 4. Source Tracking (Enterprise Level)
+            // Tag activities created in the web UI so they can be distinguished from mobile/system logs
+            if (!normalizedData.details) normalizedData.details = {};
+            if (!normalizedData.details.platform) normalizedData.details.platform = 'WebCRM';
+            if (!normalizedData.details.source) normalizedData.details.source = 'ManualForm';
             // --- Normalization Layer END ---
 
             console.log('[ActivityContext] addActivity Payload (Normalized):', normalizedData);

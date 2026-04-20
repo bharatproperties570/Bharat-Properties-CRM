@@ -286,7 +286,9 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
                             message: channelMessages[channel],
                             inventoryId: inventory._id,
                             unitNo: inventory.unitNo,
-                            automationInfo: `Channels: ${activeTriggersList.join(', ')}`
+                            automationInfo: `Channels: ${activeTriggersList.join(', ')}`,
+                            formSource: 'InventoryFeedbackForm',
+                            platform: 'WebCRM'
                         }
                     };
                     addActivity(msgActivity);
@@ -315,7 +317,9 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
                     details: {
                         agenda: `${formData.nextActionType} to discuss ${formData.result} for Unit ${inventory.unitNo}`,
                         inventoryId: inventory._id,
-                        scheduledFor: 'Follow Up'
+                        scheduledFor: 'Follow Up',
+                        formSource: 'InventoryFeedbackForm',
+                        platform: 'WebCRM'
                     }
                 };
                 addActivity(newActivity);

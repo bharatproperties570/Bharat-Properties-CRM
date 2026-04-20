@@ -1,6 +1,7 @@
 export const ACTIVITY_TYPES = ['Call', 'Meeting', 'Site Visit', 'Email', 'Task'];
 export const ACTIVITY_STATUSES = ['Upcoming', 'Overdue', 'Completed', 'Pending'];
 export const PRIORITIES = ['High', 'Normal', 'Low'];
+export const SOURCE_TYPES = ['Manual Follow-up', 'Mobile Sync', 'System Automated'];
 
 /**
  * Filter activities based on provided criteria
@@ -75,6 +76,26 @@ export const applyActivityFilters = (activities, filters, searchTerm = '') => {
                 end.setHours(23, 59, 59, 999);
                 if (actDate > end) return false;
             }
+        }
+
+        // 7. Source / Origin Filter (Enterprise Rule)
+        if (filters.origin && filters.origin.length > 0) {
+            const platform = (activity.details?.platform || 'WebCRM').toLowerCase();
+            const source = (activity.details?.source || '').toLowerCase();
+            const formSource = (activity.details?.formSource || '').toLowerCase();
+
+            const isManualCandidate = platform === 'webcrm' || !activity.details?.platform;
+            const isMobileCandidate = platform === 'mobile' || platform === 'mobilesms' || platform === 'callsync';
+            const isSystemCandidate = !isManualCandidate && !isMobileCandidate;
+
+            const matches = filters.origin.some(o => {
+                if (o === 'Manual Follow-up') return isManualCandidate;
+                if (o === 'Mobile Sync') return isMobileCandidate;
+                if (o === 'System Automated') return isSystemCandidate;
+                return false;
+            });
+
+            if (!matches) return false;
         }
 
         return true;

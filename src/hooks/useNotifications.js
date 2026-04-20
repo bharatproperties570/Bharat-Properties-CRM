@@ -34,7 +34,8 @@ export const useNotifications = (onNavigate) => {
 
     useEffect(() => {
         fetchNotifications();
-        const interval = setInterval(fetchNotifications, 60000);
+        // Senior Tweak: Reduced polling from 60s to 15s for "Real-time" enterprise feel
+        const interval = setInterval(fetchNotifications, 15000);
         return () => clearInterval(interval);
     }, [fetchNotifications]);
 
