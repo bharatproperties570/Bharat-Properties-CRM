@@ -814,34 +814,49 @@ export const getMessagingActivities = async (req, res) => {
         .limit(200)
         .lean();
 
-        // 2. Fetch AI Conversations
-        const conversations = await Conversation.find({})
+        // 2. Fetch AI Conversations (Fast fetch, manual lookup later)
+        const rawConversations = await Conversation.find({})
             .sort({ updatedAt: -1 })
             .limit(100)
-            .populate({ path: 'lead', model: 'Lead' }) // Hardened explicit model
             .lean();
 
         // 3. Fetch SMS Logs
-        const smsLogs = await SmsLog.find({})
+        const rawSmsLogs = await SmsLog.find({})
             .sort({ sentAt: -1 })
             .limit(100)
             .lean();
 
-        console.log(`[MessagingHub] Found: Activities=${activities.length}, Convs=${conversations.length}, SMSLogs=${smsLogs.length}`);
+        // 4. Resolve Leads manually (Senior Professional Optimization to avoid 'System' schema errors)
+        const leadIds = [
+            ...rawConversations.map(c => c.lead).filter(id => id && mongoose.Types.ObjectId.isValid(id.toString())),
+            ...activities.map(a => a.entityId).filter(id => id && a.entityType==='Lead' && mongoose.Types.ObjectId.isValid(id.toString()))
+        ];
+        
+        const leads = await Lead.find({ _id: { $in: leadIds } }).select('firstName lastName fullName mobile').lean();
+        const leadMap = leads.reduce((acc, l) => {
+            acc[l._id.toString()] = l;
+            return acc;
+        }, {});
 
-        // 4. Unify and apply Matched/Unmatched logic
+        console.log(`[MessagingHub] Found: Activities=${activities.length}, Convs=${rawConversations.length}, SMSLogs=${rawSmsLogs.length}`);
+
+        // 5. Unify and apply Matched/Unmatched logic
         const unified = [];
 
-        // 4.1 Process Activities
+        // 5.1 Process Activities
         for (const a of activities) {
             try {
                 const phone = a.details?.phoneNumber || a.participants?.[0]?.mobile || '';
-                const matchingConv = conversations.find(c => 
+                const aLeadIdStr = a.entityId ? a.entityId.toString() : null;
+                const aLead = aLeadIdStr ? leadMap[aLeadIdStr] : null;
+
+                const matchingConv = rawConversations.find(c => 
                     c.phoneNumber === phone || 
-                    (c.lead?._id && a.entityId && c.lead._id.toString() === a.entityId.toString())
+                    (c.lead && aLeadIdStr && c.lead.toString() === aLeadIdStr)
                 );
                 
                 let pName = a.participants?.[0]?.name || '';
+                if (!pName && aLead) pName = aLead.fullName || `${aLead.firstName} ${aLead.lastName}`;
                 if (!pName && a.relatedTo?.length) {
                     const match = a.relatedTo.find(r => ['Contact', 'Lead'].includes(r.model));
                     if (match) pName = match.name;
@@ -880,8 +895,8 @@ export const getMessagingActivities = async (req, res) => {
             } catch (err) { console.error("[MessagingHub] Activity Map Error:", err.message); }
         }
 
-        // 4.2 Process SMS Logs
-        for (const log of smsLogs) {
+        // 5.2 Process SMS Logs
+        for (const log of rawSmsLogs) {
             try {
                 unified.push({
                     _id: log._id,
@@ -909,11 +924,13 @@ export const getMessagingActivities = async (req, res) => {
             } catch (err) { console.error("[MessagingHub] SmsLog Map Error:", err.message); }
         }
 
-        // 4.3 Process Conversations
-        for (const c of conversations) {
+        // 5.3 Process Conversations
+        for (const c of rawConversations) {
             try {
                 const messages = c.messages || [];
                 const lastMsg = messages[messages.length - 1];
+                const cLead = c.lead ? leadMap[c.lead.toString()] : null;
+                
                 unified.push({
                     _id: c._id,
                     type: 'WhatsApp',
@@ -923,14 +940,14 @@ export const getMessagingActivities = async (req, res) => {
                     snippet: lastMsg?.content || 'Conversation started',
                     timestamp: c.updatedAt,
                     entityType: 'Lead',
-                    entityId: c.lead?._id || c.lead,
-                    participant: c.lead?.fullName || c.lead?.firstName || 'Unknown',
-                    phone: c.phoneNumber || c.lead?.mobile || '',
-                    participantName: c.lead?.fullName || c.lead?.firstName || 'Unknown',
-                    participantMobile: c.phoneNumber || c.lead?.mobile || '',
+                    entityId: c.lead,
+                    participant: cLead ? (cLead.fullName || `${cLead.firstName} ${cLead.lastName}`) : 'Unknown',
+                    phone: c.phoneNumber || (cLead ? cLead.mobile : ''),
+                    participantName: cLead ? (cLead.fullName || `${cLead.firstName} ${cLead.lastName}`) : 'Unknown',
+                    participantMobile: c.phoneNumber || (cLead ? cLead.mobile : ''),
                     direction: lastMsg?.role === 'user' ? 'Incoming' : 'Outgoing',
                     platform: 'WhatsApp Bot',
-                    isMatched: !!(c.lead && c.lead.source !== 'AI Bot WhatsApp' && c.lead.firstName !== 'WhatsApp'),
+                    isMatched: !!(cLead && cLead.source !== 'AI Bot WhatsApp'),
                     phoneNumber: c.phoneNumber,
                     thread: messages.map(m => ({
                         sender: m.role === 'user' ? 'customer' : 'ai',
@@ -941,7 +958,7 @@ export const getMessagingActivities = async (req, res) => {
             } catch (err) { console.error("[MessagingHub] Conversation Map Error:", err.message); }
         }
 
-        // 5. Final Sort and return
+        // 6. Final Sort and return
         unified.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
         res.json({
