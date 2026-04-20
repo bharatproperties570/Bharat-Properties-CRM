@@ -818,7 +818,7 @@ export const getMessagingActivities = async (req, res) => {
         const conversations = await Conversation.find({})
             .sort({ updatedAt: -1 })
             .limit(100)
-            .populate('lead')
+            .populate({ path: 'lead', model: 'Lead' }) // Hardened explicit model
             .lean();
 
         // 3. Fetch SMS Logs
@@ -830,10 +830,16 @@ export const getMessagingActivities = async (req, res) => {
         console.log(`[MessagingHub] Found: Activities=${activities.length}, Convs=${conversations.length}, SMSLogs=${smsLogs.length}`);
 
         // 4. Unify and apply Matched/Unmatched logic
-        const unified = [
-            ...activities.map(a => {
+        const unified = [];
+
+        // 4.1 Process Activities
+        for (const a of activities) {
+            try {
                 const phone = a.details?.phoneNumber || a.participants?.[0]?.mobile || '';
-                const matchingConv = conversations.find(c => c.phoneNumber === phone || (c.lead?._id && a.entityId && c.lead._id.toString() === a.entityId.toString()));
+                const matchingConv = conversations.find(c => 
+                    c.phoneNumber === phone || 
+                    (c.lead?._id && a.entityId && c.lead._id.toString() === a.entityId.toString())
+                );
                 
                 let pName = a.participants?.[0]?.name || '';
                 if (!pName && a.relatedTo?.length) {
@@ -842,10 +848,10 @@ export const getMessagingActivities = async (req, res) => {
                 }
                 if (!pName) pName = phone || 'Unknown';
 
-                return {
+                unified.push({
                     _id: a._id,
                     type: a.type,
-                    via: a.details?.platform === 'WhatsApp' || a.type === 'WhatsApp' ? 'WhatsApp' : 'SMS',
+                    via: a.details?.platform?.toLowerCase() === 'whatsapp' || a.type?.toLowerCase() === 'whatsapp' ? 'WhatsApp' : 'SMS',
                     subject: a.subject,
                     description: a.description,
                     snippet: a.description,
@@ -855,13 +861,13 @@ export const getMessagingActivities = async (req, res) => {
                     actor: a.performedBy || 'System',
                     isMatched: a.details?.isMatched ?? !!(a.entityId && a.entityType !== 'Unknown'),
                     details: a.details,
-                    platform: a.details?.platform || (a.type === 'WhatsApp' ? 'WhatsApp' : 'Direct'),
+                    platform: a.details?.platform || (a.type?.toLowerCase() === 'whatsapp' ? 'WhatsApp' : 'Direct'),
                     phoneNumber: phone,
                     phone: phone,
                     participant: pName,
                     outcome: a.details?.status || a.outcome || a.status || 'Delivered',
                     date: a.createdAt,
-                    thread: matchingConv ? matchingConv.messages.map(m => ({
+                    thread: matchingConv ? (matchingConv.messages || []).map(m => ({
                         sender: m.role === 'user' ? 'customer' : 'ai',
                         text: m.content,
                         time: m.timestamp
@@ -870,35 +876,45 @@ export const getMessagingActivities = async (req, res) => {
                         text: a.description,
                         time: a.createdAt
                     }]
-                };
-            }),
-            ...smsLogs.map(log => ({
-                _id: log._id,
-                type: 'Messaging',
-                via: 'SMS',
-                subject: 'Outgoing SMS',
-                description: log.message,
-                snippet: log.message,
-                timestamp: log.sentAt,
-                entityType: log.entityType,
-                entityId: log.entityId,
-                actor: log.provider || 'Gateway',
-                isMatched: !!log.entityId && log.entityType !== 'System' && log.entityType !== 'Test',
-                platform: log.provider,
-                phoneNumber: log.to,
-                phone: log.to,
-                participant: log.to, // Fallback to number, UI will handle link if matched
-                outcome: log.status,
-                thread: [{
-                    sender: 'agent',
-                    text: log.message,
-                    time: log.sentAt
-                }]
-            })),
-            ...conversations.map(c => {
+                });
+            } catch (err) { console.error("[MessagingHub] Activity Map Error:", err.message); }
+        }
+
+        // 4.2 Process SMS Logs
+        for (const log of smsLogs) {
+            try {
+                unified.push({
+                    _id: log._id,
+                    type: 'Messaging',
+                    via: 'SMS',
+                    subject: 'Outgoing SMS',
+                    description: log.message,
+                    snippet: log.message,
+                    timestamp: log.sentAt,
+                    entityType: log.entityType,
+                    entityId: log.entityId,
+                    actor: log.provider || 'Gateway',
+                    isMatched: !!log.entityId && log.entityType !== 'System' && log.entityType !== 'Test',
+                    platform: log.provider,
+                    phoneNumber: log.to,
+                    phone: log.to,
+                    participant: log.to,
+                    outcome: log.status,
+                    thread: [{
+                        sender: 'agent',
+                        text: log.message,
+                        time: log.sentAt
+                    }]
+                });
+            } catch (err) { console.error("[MessagingHub] SmsLog Map Error:", err.message); }
+        }
+
+        // 4.3 Process Conversations
+        for (const c of conversations) {
+            try {
                 const messages = c.messages || [];
                 const lastMsg = messages[messages.length - 1];
-                return {
+                unified.push({
                     _id: c._id,
                     type: 'WhatsApp',
                     via: 'WhatsApp',
@@ -921,11 +937,11 @@ export const getMessagingActivities = async (req, res) => {
                         text: m.content,
                         time: m.timestamp
                     }))
-                };
-            })
-        ];
+                });
+            } catch (err) { console.error("[MessagingHub] Conversation Map Error:", err.message); }
+        }
 
-        // 4. Sort and return
+        // 5. Final Sort and return
         unified.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
         res.json({
