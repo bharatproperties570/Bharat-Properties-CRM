@@ -309,6 +309,29 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
         }
     }, [dealId]);
 
+    const handleStageChange = async (newStage) => {
+        try {
+            const res = await api.put(`deals/${dealId}`, { 
+                stage: newStage,
+                triggeredBy: 'manual_pipeline_override'
+            });
+            if (res.data && (res.data.success || res.data.status === 'success')) {
+                toast.success(`Transaction moved to ${newStage} stage!`);
+                
+                // Refresh everything
+                fetchDealDetails();
+                fetchLiveScore();
+                fetchDealActivities();
+                
+                // If intelligence engine is active, trigger an auto-enrichment
+                enrichDealIntelligence();
+            }
+        } catch (error) {
+            console.error("Error updating deal stage:", error);
+            toast.error("Failed to update status");
+        }
+    };
+
     const fetchMatchingLeads = useCallback(async (inventoryId) => {
         try {
             const response = await api.get(`inventory/match?inventoryId=${inventoryId}`);
@@ -342,12 +365,25 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     }, []);
 
 
+    const fetchDealActivities = useCallback(async () => {
+        try {
+            const res = await activitiesAPI.getUnifiedTimeline('Deal', dealId);
+            if (res.data && res.data.success) {
+                setActivities(res.data.data || []);
+            }
+        } catch (err) {
+            console.error("Error fetching deal activities:", err);
+        }
+    }, [dealId]);
+
+
     // Effects (RESTORING MISSING DATA FETCHING)
     useEffect(() => {
         fetchDealDetails();
         fetchLiveScore();
         fetchAllLeads();
-    }, [dealId, fetchDealDetails, fetchLiveScore, fetchAllLeads]);
+        fetchDealActivities();
+    }, [dealId, fetchDealDetails, fetchLiveScore, fetchAllLeads, fetchDealActivities]);
 
     useEffect(() => {
         const invId = deal?.inventoryId?._id || (typeof deal?.inventoryId === 'string' ? deal.inventoryId : null);
@@ -406,6 +442,15 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                 fetchDealDetails={fetchDealDetails}
                 getLookupValue={getLookupValue}
                 onNavigate={onNavigate}
+            />
+
+            <DealLifecycle 
+                deal={deal}
+                activities={activities}
+                currentStage={currentStage}
+                stageStyle={stageStyle}
+                stageInfo={{ label: currentStage }}
+                onStageChange={handleStageChange}
             />
 
             {/* MAIN CONTENT SPLIT - 3 COLUMN LAYOUT */}

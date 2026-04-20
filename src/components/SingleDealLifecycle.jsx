@@ -28,8 +28,9 @@ function RadioIcon({ size, color }) {
     return <Circle size={size} color={color} fill={color + '22'} />;
 }
 
-const SingleDealLifecycle = ({ deal, activities = [] }) => {
+const SingleDealLifecycle = ({ deal, activities = [], onStageChange }) => {
     const [selectedStage, setSelectedStage] = useState(null);
+    const [isUpdating, setIsUpdating] = useState(false);
 
     const lifecycleData = useMemo(() => {
         if (!deal) return null;
@@ -241,7 +242,7 @@ const SingleDealLifecycle = ({ deal, activities = [] }) => {
                             '--stage-color': stage.color,
                             '--stage-color-shadow': `${stage.color}55`
                         }}
-                        onClick={() => stage.status !== 'future' && setSelectedStage(stage)}
+                        onClick={() => setSelectedStage(stage)}
                     >
                         {/* 1. Header Row (Compact) */}
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
@@ -345,10 +346,33 @@ const SingleDealLifecycle = ({ deal, activities = [] }) => {
                             )}
                         </div>
 
-                        <div style={{ marginTop: 'auto', paddingTop: '20px' }}>
-                            <button onClick={() => setSelectedStage(null)} style={{ width: '100%', padding: '16px', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: '16px', fontWeight: 950, fontSize: '0.9rem', cursor: 'pointer' }}>
-                                CLOSE LEDGER
-                            </button>
+                         <div style={{ marginTop: 'auto', paddingTop: '20px' }}>
+                            {selectedStage.status === 'future' ? (
+                                <button 
+                                    onClick={async () => {
+                                        if (onStageChange) {
+                                            setIsUpdating(true);
+                                            await onStageChange(selectedStage.id);
+                                            setIsUpdating(false);
+                                            setSelectedStage(null);
+                                        }
+                                    }}
+                                    disabled={isUpdating}
+                                    style={{ 
+                                        width: '100%', padding: '16px', 
+                                        background: isUpdating ? '#94a3b8' : '#4f46e5', 
+                                        color: '#fff', border: 'none', borderRadius: '16px', 
+                                        fontWeight: 950, fontSize: '0.9rem', cursor: isUpdating ? 'not-allowed' : 'pointer',
+                                        boxShadow: '0 10px 30px rgba(79, 70, 229, 0.2)'
+                                    }}
+                                >
+                                    {isUpdating ? 'UPDATING STAGE...' : `PROMOTE TO ${selectedStage.label.toUpperCase()}`}
+                                </button>
+                            ) : (
+                                <button onClick={() => setSelectedStage(null)} style={{ width: '100%', padding: '16px', background: '#f1f5f9', color: '#1e293b', border: 'none', borderRadius: '16px', fontWeight: 950, fontSize: '0.9rem', cursor: 'pointer' }}>
+                                    CLOSE ACTIVITY LEDGER
+                                </button>
+                            )}
                         </div>
                     </div>
                 </>

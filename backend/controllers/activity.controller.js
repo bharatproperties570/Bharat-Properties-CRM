@@ -4,6 +4,7 @@ import AuditLog from "../models/AuditLog.js";
 import Lead from "../models/Lead.js";
 import Deal from "../models/Deal.js";
 import Conversation from "../models/Conversation.js";
+import SmsLog from "../src/modules/sms/smsLog.model.js";
 import { enrichmentQueue, googleSyncQueue } from "../src/queues/queueManager.js";
 
 import StageTransitionEngine from "../src/services/StageTransitionEngine.js";
@@ -724,16 +725,29 @@ export const sendReply = async (req, res) => {
         const cleanPhone = normalizePhone(phoneNumber);
         console.log(`[EnterpriseHub] 📡 DISPATCHING REPLY — Channel: ${channel} | Target: ${cleanPhone}`);
 
-        let dispatchResult;
-        if (channel.toLowerCase() === 'whatsapp') {
-            dispatchResult = await waService.sendMessage(cleanPhone, message);
-        } else {
-            dispatchResult = await smsSvc.sendSms(cleanPhone, message);
+        let dispatchResult = { success: false, error: "Initialization error" };
+        try {
+            if (channel.toLowerCase() === 'whatsapp') {
+                dispatchResult = await waService.sendMessage(cleanPhone, message);
+            } else if (channel.toLowerCase() === 'sms') {
+                console.log(`[EnterpriseHub] 📡 Routing to SMS Bridge...`);
+                dispatchResult = await smsSvc.sendSms(cleanPhone, message, { entityId, entityType });
+            } else {
+                console.warn(`[EnterpriseHub] Unsupported channel: ${channel}`);
+                dispatchResult = await waService.sendMessage(cleanPhone, message); // Fallback
+            }
+        } catch (dispatchError) {
+            console.error(`[EnterpriseHub] 💥 Dispatch Engine CRASH:`, dispatchError);
+            return res.status(500).json({ success: false, error: `Critical Dispatch Error: ${dispatchError.message}` });
         }
 
-        if (!dispatchResult.success) {
-            console.error(`[EnterpriseHub] ❌ DISPATCH FAILURE:`, dispatchResult.error);
-            return res.status(500).json({ success: false, error: dispatchResult.error || "Failed to dispatch message" });
+        if (!dispatchResult || !dispatchResult.success) {
+            console.error(`[EnterpriseHub] ❌ DISPATCH FAILURE:`, dispatchResult?.error || "Unknown Failure");
+            // Use 400 for functional failures (e.g., config missing) instead of 500
+            return res.status(400).json({ 
+                success: false, 
+                error: dispatchResult?.error || "Failed to dispatch message. Please check your SMS/WhatsApp configuration in Settings." 
+            });
         }
 
         // 2. Log Activity
@@ -805,7 +819,13 @@ export const getMessagingActivities = async (req, res) => {
             .populate('lead')
             .lean();
 
-        // 3. Unify and apply Matched/Unmatched logic
+        // 3. Fetch SMS Logs
+        const smsLogs = await SmsLog.find({})
+            .sort({ sentAt: -1 })
+            .limit(100)
+            .lean();
+
+        // 4. Unify and apply Matched/Unmatched logic
         const unified = [
             ...activities.map(a => {
                 const phone = a.details?.phoneNumber || a.participants?.[0]?.mobile || '';
@@ -815,6 +835,7 @@ export const getMessagingActivities = async (req, res) => {
                 return {
                     _id: a._id,
                     type: a.type,
+                    via: a.type === 'WhatsApp' ? 'WhatsApp' : 'Direct',
                     subject: a.subject,
                     description: a.description,
                     timestamp: a.createdAt,
@@ -836,6 +857,29 @@ export const getMessagingActivities = async (req, res) => {
                     }]
                 };
             }),
+            ...smsLogs.map(log => ({
+                _id: log._id,
+                type: 'Messaging',
+                via: 'SMS',
+                subject: 'Outgoing SMS',
+                description: log.message,
+                snippet: log.message,
+                timestamp: log.sentAt,
+                entityType: log.entityType,
+                entityId: log.entityId,
+                actor: log.provider || 'Gateway',
+                isMatched: !!log.entityId && log.entityType !== 'System' && log.entityType !== 'Test',
+                platform: log.provider,
+                phoneNumber: log.to,
+                phone: log.to,
+                participant: log.to, // Fallback to number, UI will handle link if matched
+                outcome: log.status,
+                thread: [{
+                    sender: 'agent',
+                    text: log.message,
+                    time: log.sentAt
+                }]
+            })),
             ...conversations.map(c => {
                 const messages = c.messages || [];
                 const lastMsg = messages[messages.length - 1];

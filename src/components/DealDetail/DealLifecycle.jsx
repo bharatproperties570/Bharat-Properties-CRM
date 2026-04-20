@@ -1,7 +1,7 @@
 import SingleDealLifecycle from '../../components/SingleDealLifecycle';
 import { getStageProbability } from '../../utils/stageEngine';
 
-const DealLifecycle = ({ deal, activities, currentStage, stageStyle, stageInfo }) => {
+const DealLifecycle = ({ deal, activities, currentStage, stageStyle, stageInfo, onStageChange }) => {
     return (
         <div className="no-scrollbar" style={{
             width: '100%',
@@ -37,6 +37,7 @@ const DealLifecycle = ({ deal, activities, currentStage, stageStyle, stageInfo }
             <SingleDealLifecycle
                 deal={deal}
                 activities={activities}
+                onStageChange={onStageChange}
             />
         </div>
     );

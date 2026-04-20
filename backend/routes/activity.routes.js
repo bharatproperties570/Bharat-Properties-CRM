@@ -1,5 +1,16 @@
 import express from "express";
-import { getActivities, getActivityById, addActivity, updateActivity, deleteActivity, getUnifiedTimeline, syncMobileCalls, getMessagingActivities, getActivitiesByEntity } from "../controllers/activity.controller.js";
+import { 
+    getActivities, 
+    getActivityById, 
+    addActivity, 
+    updateActivity, 
+    deleteActivity, 
+    getUnifiedTimeline, 
+    syncMobileCalls, 
+    getMessagingActivities, 
+    getActivitiesByEntity,
+    sendReply
+} from "../controllers/activity.controller.js";
 import { authenticate } from "../src/middlewares/auth.middleware.js";
 
 const router = express.Router();
@@ -9,6 +20,7 @@ router.use(authenticate);
 
 router.get("/", getActivities);
 router.get("/messaging", getMessagingActivities);
+router.post("/messaging/reply", sendReply);
 router.get("/entity/:entityType/:entityId", getActivitiesByEntity);
 router.get("/:id", getActivityById);
 router.get("/unified/:entityType/:entityId", getUnifiedTimeline);

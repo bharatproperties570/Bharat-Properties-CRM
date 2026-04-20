@@ -22,7 +22,13 @@ export const getInbox = async (req, res) => {
         res.json({ success: true, data: result });
     } catch (error) {
         console.error('Controller Error fetching inbox:', error);
-        res.status(500).json({ success: false, message: error.message });
+        const msg = (error.message || '').toLowerCase();
+        const isOAuthError = msg.includes('invalid_grant') || msg.includes('token') || error.code === 400;
+        res.status(isOAuthError ? 400 : 500).json({
+            success: false,
+            message: error.message,
+            errorCode: isOAuthError ? 'OAUTH_EXPIRED' : 'FETCH_FAILED'
+        });
     }
 };
 

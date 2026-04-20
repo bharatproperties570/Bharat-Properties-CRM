@@ -19,7 +19,8 @@ import {
     broadcastToHub,
     importAudience,
     getScheduledCampaigns,
-    deleteScheduledCampaign
+    deleteScheduledCampaign,
+    publishMarketingContent
 } from '../controllers/marketing.controller.js';
 import multer from 'multer';
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }); // 5MB limit

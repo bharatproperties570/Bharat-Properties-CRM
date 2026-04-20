@@ -1,758 +1,938 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
-import CommunicationFilterPanel from './components/CommunicationFilterPanel';
-import { applyCommunicationFilters } from '../../utils/communicationFilterLogic';
-import ActiveFiltersChips from '../../components/ActiveFiltersChips';
-import { activitiesAPI, emailAPI } from '../../utils/api';
+/**
+ * CommunicationPage.jsx — Enterprise Omnichannel Hub v4.0
+ * 100% backend-live · No mock data · Light + Dark theme · Real message dispatch
+ */
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import { activitiesAPI, emailAPI, conversationAPI } from '../../utils/api';
 import ComposeEmailModal from './components/ComposeEmailModal';
 import ViewEmailModal from './components/ViewEmailModal';
-import AIStatusPanel from './components/AIStatusPanel';
-import AIConversationsTab from './components/AIConversationsTab';
-import AICallPanel from './components/AICallPanel';
-import ConversationThread from './components/ConversationThread';
-import './components/ConversationThread.css';
+import CommunicationFilterPanel from './components/CommunicationFilterPanel';
+import { applyCommunicationFilters } from '../../utils/communicationFilterLogic';
+import { toast } from 'react-hot-toast';
 
-function CommunicationPage() {
-    const [activeTab, setActiveTab] = useState('AI Conversations');
-    const [activeSubTab, setActiveSubTab] = useState('Matched');
-    const [selectedIds, setSelectedIds] = useState([]);
-    const [selectedConversation, setSelectedConversation] = useState(null);
+/* ── Theme tokens ─────────────────────────────────────────────────────────── */
+const DARK = {
+    bg: '#0c0e1a', bg2: '#10131f', surface: '#151829', surfaceHov: '#1c2038',
+    border: 'rgba(255,255,255,0.07)', borderStrong: 'rgba(255,255,255,0.12)',
+    text: '#e2e8f0', text2: '#94a3b8', text3: '#475569',
+    accent: '#6366f1', accentSoft: 'rgba(99,102,241,0.15)',
+    bubble_in: 'rgba(255,255,255,0.07)', bubble_out: 'linear-gradient(135deg,#4f46e5,#6366f1)',
+    input: 'rgba(255,255,255,0.05)', inputBorder: 'rgba(255,255,255,0.1)',
+    badge: 'rgba(255,255,255,0.06)', badgeText: '#94a3b8',
+};
+const LIGHT = {
+    bg: '#f0f4ff', bg2: '#e8edf8', surface: '#ffffff', surfaceHov: '#f8fafc',
+    border: '#e2e8f0', borderStrong: '#cbd5e1',
+    text: '#0f172a', text2: '#475569', text3: '#94a3b8',
+    accent: '#4f46e5', accentSoft: 'rgba(79,70,229,0.08)',
+    bubble_in: '#f1f5f9', bubble_out: 'linear-gradient(135deg,#4f46e5,#6366f1)',
+    input: '#f8fafc', inputBorder: '#e2e8f0',
+    badge: '#f1f5f9', badgeText: '#475569',
+};
 
-    // Filter State
-    const [isFilterOpen, setIsFilterOpen] = useState(false);
-    const [filters, setFilters] = useState({});
-    const [liveEmails, setLiveEmails] = useState([]);
-    const [isComposeModalOpen, setIsComposeModalOpen] = useState(false);
-    const [selectedEmail, setSelectedEmail] = useState(null);
-    const [isViewModalOpen, setIsViewModalOpen] = useState(false);
-    const [isActionLoading, setIsActionLoading] = useState(null); // UID of being processed email
+/* ── Channel config ───────────────────────────────────────────────────────── */
+const CHANNELS = [
+    { id: 'all',      label: 'All',       icon: '🌐', color: '#6366f1' },
+    { id: 'AI',       label: 'AI Bot',    icon: '🤖', color: '#8b5cf6' },
+    { id: 'WhatsApp', label: 'WhatsApp',  icon: '💬', color: '#22c55e' },
+    { id: 'SMS',      label: 'SMS',       icon: '📱', color: '#f59e0b' },
+    { id: 'Email',    label: 'Email',     icon: '📧', color: '#0ea5e9' },
+    { id: 'Calls',    label: 'Voice',     icon: '📞', color: '#ec4899' },
+];
+const OUTCOME_COLOR = { Read:'#059669', Sent:'#0284c7', Delivered:'#0284c7', Failed:'#ef4444', Received:'#059669' };
+
+/* ── Helpers ─────────────────────────────────────────────────────────────── */
+function timeAgo(d) {
+    if (!d) return '—';
+    const ms = Date.now() - new Date(d).getTime();
+    if (isNaN(ms)) return '—';
+    if (ms < 60000)    return 'Just now';
+    if (ms < 3600000)  return `${Math.floor(ms/60000)}m ago`;
+    if (ms < 86400000) return `${Math.floor(ms/3600000)}h ago`;
+    return new Date(d).toLocaleDateString('en-IN', {day:'numeric', month:'short'});
+}
+function initials(n='') { return n.split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase() || '?'; }
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+export default function CommunicationPage() {
+    const [theme,       setTheme]       = useState('light'); // 'light' | 'dark'
+    const T = theme === 'dark' ? DARK : LIGHT;
+
+    const [channel,     setChannel]     = useState('all');
+    const [subTab,      setSubTab]      = useState('all');   // all | matched | unmatched
+    const [activities,  setActivities]  = useState([]);
+    const [liveEmails,  setLiveEmails]  = useState([]);
+    const [aiConvos,    setAiConvos]    = useState([]);
+    const [selected,    setSelected]    = useState(null);   // thread/email item
+    const [selectedAI,  setSelectedAI]  = useState(null);   // AI conv
+    const [searchQ,     setSearchQ]     = useState('');
+    const [filters,     setFilters]     = useState({});
+    const [isFilterOpen,setFilterOpen]  = useState(false);
+    const [loading,     setLoading]     = useState(true);
+    const [refreshing,  setRefreshing]  = useState(false);
+    const [composing,   setComposing]   = useState(false);
+    const [viewEmail,   setViewEmail]   = useState(false);
+    const [emailTarget, setEmailTarget] = useState(null);
+    const [actionLoading, setActionLoading] = useState(null);
     const [nextPageToken, setNextPageToken] = useState(null);
-    const [isMoreLoading, setIsMoreLoading] = useState(false);
+    const [emailError,    setEmailError]    = useState(null); // 'oauth' | 'network' | null
 
-    // Filter Handlers
-    const handleRemoveFilter = (key) => {
-        const newFilters = { ...filters };
-        delete newFilters[key];
-        setFilters(newFilters);
-    };
-
-    const handleClearAll = () => {
-        setFilters({});
-    };
-
-    const [searchQuery, setSearchQuery] = useState('');
-
-    // Pagination State
-    const [currentPage, setCurrentPage] = useState(1);
-    const [recordsPerPage, setRecordsPerPage] = useState(25);
-
-    const [activities, setActivities] = useState([]);
-
-    // Fetch activities from backend
-    useEffect(() => {
-        const fetchActivities = async () => {
-            try {
-                const response = await activitiesAPI.getMessagingStream();
-                if (response && response.success) {
-                    // Map backend Activity to UI format
-                    const mappedData = response.data.map(act => {
-                        let participantName = 'Unknown Consumer';
-                        let phone = '';
-                        let snippet = act.details?.text || act.details?.message || act.subject || '';
-
-                        // 🔍 SMART IDENTITY RESOLUTION
-                        if (act.participants && act.participants.length > 0) {
-                            participantName = act.participants[0].name;
-                            phone = act.participants[0].mobile;
-                        } else if (act.details?.senderName) {
-                            participantName = act.details.senderName;
-                        } else if (act.details?.from) {
-                            participantName = act.details.from;
-                            phone = act.details.from;
-                        } else if (act.relatedTo && act.relatedTo.length > 0) {
-                            const person = act.relatedTo.find(r => ['Contact', 'Lead'].includes(r.model));
-                            if (person) participantName = person.name;
-                        }
-
-                        // 🏷️ CONTEXTUAL SUBJECT (Like Email)
-                        const project = act.relatedTo?.find(r => r.model === 'Project' || r.model === 'Deal');
-                        const contextLabel = project ? `[${project.name}] ` : '';
-
-                        return {
-                            id: act._id,
-                            participant: participantName,
-                            via: act.type === 'Messaging' ? (act.platform === 'WhatsApp' ? 'WhatsApp' : (act.platform === 'RCS' ? 'RCS' : 'SMS')) : (act.type || 'CALL').toUpperCase(),
-                            type: `${act.details?.direction || 'Inbound'} ${act.type || 'Message'}`,
-                            subject: contextLabel + (snippet.length > 50 ? snippet.substring(0, 50) + '...' : snippet),
-                            snippet: snippet,
-                            outcome: act.details?.status || act.status || 'Delivered',
-                            duration: act.details?.duration || '--',
-                            date: new Date(act.createdAt).toLocaleString(),
-                            platform: act.details?.platform || (act.type === 'Messaging' && act.platform !== 'WhatsApp' ? 'SMS Hub' : 'WhatsApp Cloud'),
-                            isMatched: !!(act.entityId || (act.relatedTo && act.relatedTo.length > 0)),
-                            phone: phone,
-                            thread: act.thread || act.details?.conversationThread || []
-                        };
-                    });
-                    setActivities(mappedData);
-                }
-            } catch (error) {
-                console.error('[EnterpriseHub] ❌ STREAM SYNC FAILURE:', error);
-            }
-        };
-        fetchActivities();
-    }, []);
-
-    // Help to map emails consistency
-    const mapEmails = useCallback((emails) => {
-        return emails.map(email => ({
-            id: email.id || email.uid,
-            participant: email.fromName || email.from,
-            via: 'EMAIL',
-            type: 'Incoming Email',
-            outcome: 'Received',
-            duration: '--',
-            associatedDeals: '--',
-            date: new Date(email.date).toLocaleString(),
-            platform: 'Gmail',
-            subject: email.subject,
-            snippet: email.snippet,
-            fromEmail: email.from,
-            fromName: email.fromName,
-            labels: email.labels || [],
-            associated: email.associated,
-            isLive: true,
-            isMatched: !!email.associated
-        }));
-    }, []);
-
-    // Fetch live emails
-    const fetchInbox = useCallback(async (shouldAppend = false, token = null) => {
-        if (shouldAppend) setIsMoreLoading(true);
-
+    /* ── Fetch messaging activities ─── */
+    const fetchActivities = useCallback(async (silent = false) => {
+        if (!silent) setLoading(true); else setRefreshing(true);
         try {
-            console.log(`[EnterpriseEmail] 📬 FETCHING INBOX — Token: ${token || 'INITIAL'} | Append: ${shouldAppend}`);
-            const response = await emailAPI.getInbox({ pageToken: token, limit: 25 });
-            
-            if (response && response.success) {
-                // Enterprise Reliability: Handle both { emails: [] } and direct [] structures
-                const rawData = response.data;
-                const emailList = Array.isArray(rawData) ? rawData : (rawData?.emails || []);
-                
-                const newEmails = mapEmails(emailList);
-                console.log(`[EnterpriseEmail] ✅ FETCH SUCCESS — Count: ${newEmails.length}`);
+            const res = await activitiesAPI.getMessagingStream();
+            if (res?.success) {
+                setActivities(res.data.map(act => {
+                    let name = '', phone = '';
+                    if (act.participants?.length)      { name = act.participants[0].name; phone = act.participants[0].mobile; }
+                    else if (act.participantName)      { name = act.participantName; phone = act.participantMobile || ''; }
+                    else if (act.details?.senderName)  { name = act.details.senderName; }
+                    else if (act.details?.from)        { name = phone = act.details.from; }
+                    else { const p = act.relatedTo?.find(r => ['Contact','Lead'].includes(r.model)); if (p) name = p.name; }
+                    if (!name) name = phone || 'Unknown';
 
-                if (shouldAppend) {
-                    setLiveEmails(prev => [...prev, ...newEmails]);
-                } else {
-                    setLiveEmails(newEmails);
-                }
-                setNextPageToken(rawData?.nextPageToken || null);
+                    let via = 'SMS';
+                    const t  = (act.type||'').toLowerCase();
+                    const pl = (act.platform||act.details?.platform||'').toLowerCase();
+                    if (t==='call'||t==='calls')                          via = 'Calls';
+                    else if (pl==='whatsapp'||t==='whatsapp')             via = 'WhatsApp';
+                    else if (pl==='rcs')                                  via = 'RCS';
+
+                    const snip = act.details?.text||act.details?.message||act.description||act.subject||'';
+                    const proj = act.relatedTo?.find(r=>r.model==='Project'||r.model==='Deal');
+                    return {
+                        id: act._id, participant: name, via, type: act.type||'Messaging',
+                        subject: (proj?`[${proj.name}] `:'')+(snip.length>80?snip.slice(0,80)+'…':snip),
+                        snippet: snip,
+                        outcome: act.details?.status||act.outcome||act.status||'Delivered',
+                        duration: act.details?.duration||'--',
+                        date: act.timestamp||act.createdAt||act.updatedAt,
+                        platform: act.details?.platform||act.platform||'Direct',
+                        isMatched: act.isMatched!==undefined ? act.isMatched : !!(act.entityId||act.relatedTo?.length),
+                        phone, entityId: act.entityId, entityType: act.entityType,
+                        thread: act.thread||act.details?.conversationThread||[],
+                        phoneNumber: phone||act.phoneNumber,
+                    };
+                }));
             }
-        } catch (error) {
-            console.error('[EnterpriseEmail] ❌ INBOX FETCH FAILURE:', error);
-        } finally {
-            setIsMoreLoading(false);
+        } catch(e){ console.error(e); } finally { setLoading(false); setRefreshing(false); }
+    }, []);
+
+    /* ── Fetch emails ─── */
+    const mapEmails = useCallback(emails => emails.map(e => ({
+        id: e.id||e.uid, participant: e.fromName||e.from||'Unknown',
+        via: 'Email', type: 'Email',
+        subject: e.subject||'(No subject)', snippet: e.snippet||'',
+        outcome: 'Received', duration: '--', date: e.date, platform: 'Gmail',
+        fromEmail: e.from, fromName: e.fromName, labels: e.labels||[],
+        associated: e.associated, isMatched: !!e.associated, thread: [],
+    })), []);
+
+    const fetchEmails = useCallback(async (append=false, token=null) => {
+        setEmailError(null);
+        try {
+            const res = await emailAPI.getInbox({ pageToken: token, limit: 25 });
+            if (res?.success) {
+                const raw = Array.isArray(res.data) ? res.data : (res.data?.emails||[]);
+                const mapped = mapEmails(raw);
+                if (append) setLiveEmails(p=>[...p,...mapped]); else setLiveEmails(mapped);
+                setNextPageToken(res.data?.nextPageToken||null);
+            } else {
+                // Structured error code from backend takes priority
+                if (res?.errorCode === 'OAUTH_EXPIRED') { setEmailError('oauth'); return; }
+                const msg = (res?.message||'').toLowerCase();
+                if (msg.includes('invalid_grant')||msg.includes('oauth')||msg.includes('token')||msg.includes('401')) {
+                    setEmailError('oauth');
+                } else {
+                    setEmailError('network');
+                }
+            }
+        } catch(e){
+            console.error(e);
+            // If we have a structured response in the error (from axios)
+            const errorData = e.response?.data;
+            if (errorData?.errorCode === 'OAUTH_EXPIRED') {
+                setEmailError('oauth');
+                return;
+            }
+
+            const msg = (e?.message||'').toLowerCase();
+            const status = e.response?.status;
+            if (msg.includes('invalid_grant')||msg.includes('oauth')||msg.includes('401')||msg.includes('400')||status === 401||status === 400) {
+                setEmailError('oauth');
+            } else {
+                setEmailError('network');
+            }
         }
     }, [mapEmails]);
 
-    // Fetch live emails when Email tab is active
+    /* ── Fetch AI Conversations ─── */
+    const fetchAIConvos = useCallback(async () => {
+        try {
+            const res = await conversationAPI.getActive();
+            if (res?.success && res.data) {
+                setAiConvos(res.data.map(conv => {
+                    let name = 'Unmatched';
+                    let phone = conv.phoneNumber||'';
+                    let lead = null;
+                    if (conv.lead) {
+                        name = `${conv.lead.firstName||''} ${conv.lead.lastName||''}`.trim()||'Lead';
+                        phone = conv.lead.mobile||phone;
+                        lead = conv.lead;
+                    } else if (conv.contact) {
+                        name = `${conv.contact.firstName||''} ${conv.contact.lastName||''}`.trim()||'Contact';
+                        phone = conv.contact.phones?.[0]?.number||phone;
+                    }
+                    return {
+                        id: conv._id, name, phone,
+                        channel: conv.channel==='whatsapp'?'WhatsApp':(conv.channel||'WhatsApp').toUpperCase(),
+                        isMatched: !!(conv.lead||conv.contact),
+                        status: conv.status,
+                        isHandedOff: conv.status==='handed_off',
+                        lead,
+                        messages: (conv.messages||[]).map(m => ({
+                            sender: m.role==='user'?'customer':(m.role==='assistant'?'ai':'system'),
+                            text: m.content, time: m.timestamp,
+                        })),
+                        updatedAt: conv.updatedAt,
+                    };
+                }));
+            }
+        } catch(e){ console.error(e); }
+    }, []);
+
+    /* ── Init & refresh ─── */
+    useEffect(() => { fetchActivities(); fetchAIConvos(); }, [fetchActivities, fetchAIConvos]);
+    useEffect(() => { if (channel==='Email' && !liveEmails.length && !emailError) fetchEmails(); }, [channel, liveEmails.length, fetchEmails, emailError]);
+
+    // Auto-refresh AI convos every 15s
     useEffect(() => {
-        if (activeTab === 'Email' && liveEmails.length === 0) {
-            fetchInbox();
-        }
-    }, [activeTab, liveEmails.length, fetchInbox]);
+        if (channel !== 'AI') return;
+        const t = setInterval(fetchAIConvos, 15000);
+        return () => clearInterval(t);
+    }, [channel, fetchAIConvos]);
 
-    const handleLoadMore = () => {
-        if (nextPageToken) {
-            fetchInbox(true, nextPageToken);
-        }
+    const handleRefresh = () => {
+        if (channel==='Email') fetchEmails();
+        else if (channel==='AI') fetchAIConvos();
+        else fetchActivities(true);
     };
 
-    // Filter Logic
-    const communicationData = useMemo(() => {
-        let data = [];
-        if (activeTab === 'Email') {
-            data = [...liveEmails];
-        } else {
-            data = activities.filter(item => {
-                if (activeTab === 'Calls') return item.via === 'CALL';
-                if (activeTab === 'WhatsApp') return item.via === 'WhatsApp' || item.via === 'WHATSAPP';
-                if (activeTab === 'SMS') return item.via === 'SMS';
-                if (activeTab === 'RCS') return item.via === 'RCS';
-                return true;
+    /* ── Filtered list ─── */
+    const allItems = useMemo(() => {
+        if (channel==='AI')    return [];
+        if (channel==='Email') return liveEmails;
+        const base = channel==='all' ? activities : activities.filter(a=>a.via===channel);
+        return applyCommunicationFilters(base, filters, searchQ);
+    }, [channel, activities, liveEmails, filters, searchQ]);
+
+    const displayItems = useMemo(() => {
+        if (subTab==='matched')   return allItems.filter(i=>i.isMatched);
+        if (subTab==='unmatched') return allItems.filter(i=>!i.isMatched);
+        return allItems;
+    }, [allItems, subTab]);
+
+    /* ── KPIs ─── */
+    const kpis = useMemo(() => {
+        const all = [...activities, ...liveEmails];
+        return {
+            total:   all.length + aiConvos.length,
+            matched: all.filter(i=>i.isMatched).length + aiConvos.filter(c=>c.isMatched).length,
+            ai:      aiConvos.length,
+            failed:  activities.filter(a=>a.outcome==='Failed').length,
+        };
+    }, [activities, liveEmails, aiConvos]);
+
+    /* ── Actions ─── */
+    const handleSendMessage = async (text, ch) => {
+        if (!selected?.phoneNumber && !selected?.phone) return toast.error('No phone number for this thread');
+        const phone = selected.phoneNumber || selected.phone;
+        try {
+            const res = await activitiesAPI.sendReply({
+                phoneNumber: phone, message: text, channel: ch.toLowerCase(),
+                entityId: selected.entityId, entityType: selected.entityType,
             });
+            if (res?.success) {
+                setSelected(p => ({ ...p, thread: [...(p.thread||[]), { sender:'agent', text, time: new Date().toISOString() }] }));
+                toast.success('Message sent!');
+            } else throw new Error(res?.error || 'Failed');
+        } catch(e) { 
+            const errorMsg = e.response?.data?.error || e.message || 'Send failed';
+            toast.error(errorMsg); 
         }
-
-        // Sub-tab Filtering: Matched vs Unmatched
-        data = data.filter(item => {
-            if (activeSubTab === 'Matched') return item.isMatched === true;
-            if (activeSubTab === 'Unmatched') return item.isMatched === false;
-            return true;
-        });
-
-        return applyCommunicationFilters(data, filters, searchQuery);
-    }, [activeTab, activeSubTab, activities, liveEmails, filters, searchQuery]);
-
-    // Pagination Helpers
-    const totalRecords = communicationData.length;
-    const totalPages = Math.ceil(totalRecords / recordsPerPage);
-    const paginatedData = communicationData.slice(
-        (currentPage - 1) * recordsPerPage,
-        currentPage * recordsPerPage
-    );
-
-    const goToNextPage = () => {
-        if (currentPage < totalPages) setCurrentPage(currentPage + 1);
     };
 
-    const goToPreviousPage = () => {
-        if (currentPage > 1) setCurrentPage(currentPage - 1);
-    };
-
-    const handleRecordsPerPageChange = (e) => {
-        setRecordsPerPage(Number(e.target.value));
-        setCurrentPage(1);
-    };
-
-    const toggleSelect = (id) => {
-        setSelectedIds(prev =>
-            prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
-        );
-    };
-
-    const isAllSelected = communicationData.length > 0 && selectedIds.length === communicationData.length;
-    const isIndeterminate = selectedIds.length > 0 && selectedIds.length < communicationData.length;
-
-    const handleDeleteClick = async () => {
-        if (!window.confirm(`Are you sure you want to delete ${selectedIds.length} items? This action cannot be undone.`)) return;
-        
-        setIsActionLoading(true);
+    const handleAITakeover = async (convId, currentlyHandedOff) => {
         try {
-            // Bulk delete logic - assuming activitiesAPI.delete exists or we loop
-            let successCount = 0;
-            for (const id of selectedIds) {
-                const response = await (activeTab === 'Email' ? emailAPI.deleteEmail(id) : activitiesAPI.delete(id));
-                if (response && response.success) successCount++;
-            }
-            alert(`Deleted ${successCount} items.`);
-            // Refresh data
-            window.location.reload(); 
-        } catch (error) {
-            console.error('Error deleting items:', error);
-            alert('Failed to delete some items.');
-        } finally {
-            setIsActionLoading(false);
-            setSelectedIds([]);
-        }
-    };
-
-    const handleBulkConvertToLead = async () => {
-        if (selectedIds.length === 0) return;
-        setIsActionLoading(true);
-        try {
-            let successCount = 0;
-            for (const uid of selectedIds) {
-                const response = await emailAPI.convertToLead(uid);
-                if (response && response.success) successCount++;
-            }
-            if (successCount > 0) {
-                alert(`Successfully processed ${successCount} leads.`);
-                // Refresh inbox
-                const refreshRes = await emailAPI.getInbox();
-                if (refreshRes && refreshRes.success) {
-                    setLiveEmails(mapEmails(refreshRes.data));
-                }
-                setSelectedIds([]);
-            }
-        } catch (error) {
-            console.error('Error during bulk lead conversion:', error);
-            alert(error.message || 'An error occurred during lead conversion.');
-        } finally {
-            setIsActionLoading(false);
-        }
+            const newStatus = currentlyHandedOff ? 'active' : 'handed_off';
+            await conversationAPI.updateStatus(convId, newStatus);
+            setAiConvos(p => p.map(c => c.id===convId ? {...c, isHandedOff: !currentlyHandedOff, status: newStatus} : c));
+            toast.success(currentlyHandedOff ? '🤖 AI Resumed' : '👨‍💼 Human takeover active');
+        } catch(e) { toast.error('Status update failed'); }
     };
 
     const handleConvertToLead = async (uid) => {
-        setIsActionLoading(uid);
+        setActionLoading(uid);
         try {
-            const response = await emailAPI.convertToLead(uid);
-            if (response && response.success) {
-                alert('Lead created successfully!');
-                // Refresh inbox to update "Associated" status
-                const inboxResponse = await emailAPI.getInbox();
-                if (inboxResponse && inboxResponse.success) {
-                    setLiveEmails(mapEmails(inboxResponse.data));
-                }
-            } else {
-                alert(response.message || 'Failed to create lead.');
-            }
-        } catch (error) {
-            console.error('Error converting to lead:', error);
-            alert(error.message || 'An error occurred while creating the lead.');
-        } finally {
-            setIsActionLoading(null);
-        }
+            const res = await emailAPI.convertToLead(uid);
+            if (res?.success) { toast.success('Lead created!'); fetchEmails(); }
+            else toast.error(res?.message || 'Failed');
+        } catch(e) { toast.error('Error'); } finally { setActionLoading(null); }
     };
 
-    const handleViewProfile = (associated) => {
-        if (!associated) return;
-        const type = associated.type?.toLowerCase() === 'lead' ? 'leads' : 'contacts';
-        window.open(`/${type}/${associated.id}`, '_blank');
-    };
-
-    const handleAddActivity = (associated) => {
-        if (!associated) return;
-        // Logic to open activity modal for this lead/contact
-        // Since we don't have a direct "OpenActivityModal" here, 
-        // we might redirect or use a shared state if available.
-        // For now, let's redirect to lead detail where activities can be added.
-        const type = associated.type?.toLowerCase() === 'lead' ? 'leads' : 'contacts';
-        window.location.href = `/${type}/${associated.id}?action=addActivity`;
-    };
-
-    const handleReply = (email) => {
-        setSelectedEmail(email);
-        setIsComposeModalOpen(true);
-    };
-
-    const handleSendMessage = async (text, channel) => {
-        if (!selectedConversation || !text) return;
-        
-        const phone = selectedConversation.phoneNumber || selectedConversation.phone;
-        if (!phone) {
-            alert('Cannot send message: No phone number associated with this thread.');
-            return;
-        }
-
-        try {
-            const response = await activitiesAPI.sendReply({
-                phoneNumber: phone,
-                message: text,
-                channel: channel.toLowerCase(),
-                entityId: selectedConversation.entityId,
-                entityType: selectedConversation.entityType
-            });
-
-            if (response && response.success) {
-                // Optimistically update the thread UI
-                const newMessage = { sender: 'agent', text, time: new Date().toISOString() };
-                setSelectedConversation(prev => ({
-                    ...prev,
-                    thread: [...(prev.thread || []), newMessage]
-                }));
-            } else {
-                alert(response.error || 'Failed to send message.');
-            }
-        } catch (error) {
-            console.error('[EnterpriseHub] ❌ SEND FAILURE:', error);
-            alert('Interruption in secure message tunnel. Please retry.');
-        }
-    };
-
-    const toggleSelectAll = () => {
-        setSelectedIds(prev =>
-            prev.length === communicationData.length ? [] : communicationData.map(c => c.id)
-        );
-    };
+    /* ══════════════════════════ RENDER ══════════════════════════════════════ */
+    const isDark = theme === 'dark';
 
     return (
-        <section className="main-content" style={{ background: '#f8fafc' }}>
-            <div className="page-container" style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
-                
-                {/* 🚀 Enterprise Header: The Neural Pulse */}
-                <div style={{ 
-                    padding: '1.25rem 2rem', 
-                    background: 'rgba(255, 255, 255, 0.8)', 
-                    backdropFilter: 'blur(10px)', 
-                    borderBottom: '1px solid #e2e8f0',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    position: 'sticky',
-                    top: 0,
-                    zIndex: 100
-                }}>
-                    <div className="page-title-group">
-                        <div style={{ 
-                            width: '48px', 
-                            height: '48px', 
-                            background: 'linear-gradient(135deg, #0ea5e9 0%, #0369a1 100%)', 
-                            borderRadius: '12px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            boxShadow: '0 4px 12px rgba(14, 165, 233, 0.25)',
-                            marginRight: '16px'
-                        }}>
-                            <i className="fas fa-satellite-dish" style={{ color: '#fff', fontSize: '1.2rem' }}></i>
-                        </div>
-                        <div>
-                            <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', margin: 0, letterSpacing: '-0.02em' }}>Communication Hub</h1>
-                            <p style={{ fontSize: '0.85rem', color: '#64748b', margin: '2px 0 0 0' }}>Manage omni-channel interactions and AI automation</p>
-                        </div>
-                    </div>
+        <div style={{ background: T.bg, height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden', fontFamily:"'Inter', sans-serif", color: T.text, transition:'background 0.3s, color 0.3s' }}>
 
-                    <div style={{ display: 'flex', gap: '12px' }}>
-                        <div style={{ 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            gap: '12px', 
-                            padding: '4px 16px', 
-                            background: '#fff', 
-                            border: '1px solid #e2e8f0', 
-                            borderRadius: '100px',
-                            boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
-                        }}>
-                            <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', fontWeight: 600, color: '#059669' }}>
-                                <span style={{ width: '8px', height: '8px', background: '#059669', borderRadius: '50%', display: 'inline-block' }}></span>
-                                3 Bots Active
-                            </span>
-                            <div style={{ width: '1px', height: '16px', background: '#e2e8f0' }}></div>
-                            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#475569' }}>1.2k processed total</span>
+            {/* ── HEADER ── */}
+            <div style={{ background: T.surface, borderBottom:`1px solid ${T.border}`, padding:'0 1.5rem', flexShrink:0, boxShadow: isDark ? 'none' : '0 1px 3px rgba(0,0,0,0.06)' }}>
+
+                {/* KPI Row */}
+                <div style={{ display:'flex', gap:'12px', padding:'14px 0 10px', borderBottom:`1px solid ${T.border}` }}>
+                    {[
+                        { icon:'🌐', label:'Total Streams',  val: kpis.total,   color:'#6366f1' },
+                        { icon:'🔗', label:'CRM Matched',    val: kpis.matched, color:'#22c55e' },
+                        { icon:'🤖', label:'AI Threads',     val: kpis.ai,      color:'#8b5cf6' },
+                        { icon:'⚠️', label:'Failed Sends',   val: kpis.failed,  color:'#ef4444' },
+                    ].map(k => (
+                        <div key={k.label} style={{ display:'flex', alignItems:'center', gap:'10px', padding:'8px 16px', borderRadius:'10px', background: T.badge, border:`1px solid ${T.border}`, flex:1 }}>
+                            <span style={{ fontSize:'1.5rem' }}>{k.icon}</span>
+                            <div>
+                                <div style={{ fontSize:'1.4rem', fontWeight:800, color:k.color, lineHeight:1 }}>{k.val}</div>
+                                <div style={{ fontSize:'0.65rem', fontWeight:700, color: T.text2, textTransform:'uppercase', letterSpacing:'0.04em' }}>{k.label}</div>
+                            </div>
                         </div>
-                        
-                        <button 
-                            className="btn-primary" 
-                            onClick={() => setIsComposeModalOpen(true)}
-                            style={{ 
-                                display: 'flex', 
-                                alignItems: 'center', 
-                                gap: '8px', 
-                                padding: '8px 20px', 
-                                borderRadius: '10px',
-                                background: '#0f172a',
-                                color: '#fff',
-                                fontWeight: 600,
-                                border: 'none',
-                                cursor: 'pointer',
-                                transition: 'transform 0.2s'
-                            }}
-                        >
-                            <i className="fas fa-paper-plane"></i>
-                            New Message
-                        </button>
-                    </div>
+                    ))}
                 </div>
 
-                <div className="content-body" style={{ 
-                    display: 'flex', 
-                    flexDirection: 'row', // Force horizontal
-                    flex: 1, 
-                    overflow: 'hidden',
-                    width: '100%',
-                    position: 'relative'
-                }}>
-                    
-                    {/* 🔧 Sidebar: Advanced Filters & Channel Selection */}
-                    <div style={{ 
-                        width: '280px', 
-                        minWidth: '280px', // Prevent shrinking
-                        background: '#fff', 
-                        borderRight: '1px solid #e2e8f0', 
-                        display: 'flex', 
-                        flexDirection: 'column',
-                        padding: '1.5rem',
-                        height: '100%'
-                    }}>
-                        <div style={{ marginBottom: '2rem' }}>
-                            <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '12px', display: 'block' }}>Communication Channels</label>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                {[
-                                    { id: 'AI Conversations', icon: 'fas fa-robot', color: '#8b5cf6', label: 'AI Agents' },
-                                    { id: 'WhatsApp', icon: 'fab fa-whatsapp', color: '#22c55e', label: 'WhatsApp' },
-                                    { id: 'SMS', icon: 'fas fa-comment-alt', color: '#f59e0b', label: 'SMS Hub' },
-                                    { id: 'RCS', icon: 'fas fa-comment-dots', color: '#ec4899', label: 'RCS / Rich SMS' },
-                                    { id: 'Email', icon: 'fas fa-envelope', color: '#0ea5e9', label: 'Enterprise Email' },
-                                    { id: 'Calls', icon: 'fas fa-phone-volume', color: '#6366f1', label: 'Voice Activity' }
-                                ].map(tab => (
-                                    <button
-                                        key={tab.id}
-                                        onClick={() => { setActiveTab(tab.id); setSelectedIds([]); }}
-                                        style={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            padding: '10px 14px',
-                                            borderRadius: '8px',
-                                            border: 'none',
-                                            background: activeTab === tab.id ? `${tab.color}10` : 'transparent',
-                                            color: activeTab === tab.id ? tab.color : '#64748b',
-                                            cursor: 'pointer',
-                                            transition: 'all 0.2s',
-                                            textAlign: 'left'
-                                        }}
-                                    >
-                                        <i className={tab.icon} style={{ width: '20px', fontSize: '1.1rem', marginRight: '12px' }}></i>
-                                        <span style={{ fontSize: '0.9rem', fontWeight: activeTab === tab.id ? 700 : 500 }}>{tab.label}</span>
-                                        {activeTab === tab.id && <div style={{ marginLeft: 'auto', width: '6px', height: '6px', borderRadius: '50%', background: tab.color }}></div>}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
+                {/* Nav row */}
+                <div style={{ display:'flex', alignItems:'center', gap:'8px', padding:'10px 0' }}>
 
-                        <div style={{ marginBottom: '2rem' }}>
-                            <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '12px', display: 'block' }}>Filters</label>
-                            <div style={{ position: 'relative', marginBottom: '12px' }}>
-                                <input 
-                                    type="text" 
-                                    placeholder="Search threads..." 
-                                    value={searchQuery}
-                                    onChange={(e) => setSearchQuery(e.target.value)}
-                                    style={{ 
-                                        width: '100%', 
-                                        padding: '10px 12px 10px 36px', 
-                                        borderRadius: '8px', 
-                                        border: '1px solid #e2e8f0',
-                                        fontSize: '0.85rem'
-                                    }}
-                                />
-                                <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '12px', color: '#94a3b8' }}></i>
-                            </div>
-                            
-                            <button 
-                                onClick={() => setIsFilterOpen(true)}
-                                style={{
-                                    width: '100%',
-                                    padding: '10px',
-                                    borderRadius: '8px',
-                                    border: '1px solid #e2e8f0',
-                                    background: '#f8fafc',
-                                    color: '#475569',
-                                    fontSize: '0.85rem',
-                                    fontWeight: 600,
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    gap: '8px'
-                                }}
-                            >
-                                <i className="fas fa-sliders-h"></i>
-                                Advanced Filters
-                            </button>
-                        </div>
-
-                        <div style={{ marginTop: 'auto' }}>
-                             <div style={{ padding: '16px', background: 'linear-gradient(135deg, #0f172a 0%, #334155 100%)', borderRadius: '12px', color: '#fff' }}>
-                                <p style={{ fontSize: '0.7rem', textTransform: 'uppercase', fontWeight: 800, opacity: 0.7, margin: '0 0 8px 0' }}>AI Efficiency</p>
-                                <div style={{ fontSize: '1.2rem', fontWeight: 800 }}>84%</div>
-                                <div style={{ width: '100%', height: '4px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', margin: '8px 0' }}>
-                                    <div style={{ width: '84%', height: '100%', background: '#0ea5e9', borderRadius: '2px' }}></div>
-                                </div>
-                                <p style={{ fontSize: '0.65rem', margin: 0, opacity: 0.8 }}>Automated interactions today.</p>
-                             </div>
+                    {/* Brand */}
+                    <div style={{ display:'flex', alignItems:'center', gap:'10px', marginRight:'20px' }}>
+                        <div style={{ width:36, height:36, borderRadius:'9px', background:'linear-gradient(135deg,#6366f1,#4f46e5)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1.1rem' }}>🛰️</div>
+                        <div>
+                            <div style={{ fontWeight:800, fontSize:'1rem', letterSpacing:'-0.01em', color: T.text }}>Communication Hub</div>
+                            <div style={{ fontSize:'0.65rem', color: T.text2, fontWeight:600 }}>Omnichannel · Real-time · AI-Powered</div>
                         </div>
                     </div>
 
-                    {/* 📊 Main Listing Area */}
-                    <div style={{ 
-                        flex: 1, 
-                        display: 'flex', 
-                        flexDirection: 'column', 
-                        background: '#fff', 
-                        overflow: 'hidden',
-                        minWidth: 0 // CRITICAL: Allows flex child to shrink properly
-                    }}>
-                        
-                        {/* Sub-Header / Selection Status */}
-                        <div style={{ padding: '12px 24px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center' }}>
-                            <div style={{ display: 'flex', background: '#fff', padding: '4px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                                {['Matched', 'Unmatched'].map(sTab => (
-                                    <button
-                                        key={sTab}
-                                        onClick={() => setActiveSubTab(sTab)}
-                                        style={{
-                                            padding: '6px 16px',
-                                            borderRadius: '6px',
-                                            border: 'none',
-                                            background: activeSubTab === sTab ? '#fff' : 'transparent',
-                                            color: activeSubTab === sTab ? '#0f172a' : '#64748b',
-                                            fontSize: '0.85rem',
-                                            fontWeight: 700,
-                                            cursor: 'pointer',
-                                            boxShadow: activeSubTab === sTab ? '0 2px 4px rgba(0,0,0,0.05)' : 'none'
-                                        }}
-                                    >
-                                        {sTab}
-                                    </button>
-                                ))}
-                            </div>
-                            
-                            <div style={{ marginLeft: '16px', display: 'flex', gap: '8px' }}>
-                                <button 
-                                    onClick={() => window.location.reload()} 
-                                    style={{ 
-                                        padding: '6px 12px', 
-                                        borderRadius: '8px', 
-                                        border: '1px solid #e2e8f0', 
-                                        background: '#fff', 
-                                        fontSize: '0.8rem', 
-                                        fontWeight: 600, 
-                                        color: '#475569',
-                                        cursor: 'pointer',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '6px'
-                                    }}
-                                >
-                                    <i className="fas fa-sync-alt"></i>
-                                    Sync Stream
-                                </button>
-                            </div>
+                    {/* Channel pills */}
+                    {CHANNELS.map(ch => (
+                        <button key={ch.id} onClick={() => { setChannel(ch.id); setSelected(null); setSelectedAI(null); }} style={{
+                            padding:'6px 14px', borderRadius:'20px', border:'none', cursor:'pointer',
+                            background: channel===ch.id ? ch.color : (isDark ? 'rgba(255,255,255,0.06)' : '#f1f5f9'),
+                            color: channel===ch.id ? '#fff' : T.text2,
+                            fontSize:'0.75rem', fontWeight:700, transition:'all 0.18s',
+                            display:'flex', alignItems:'center', gap:'5px',
+                            boxShadow: channel===ch.id ? `0 4px 12px ${ch.color}50` : 'none',
+                        }}>
+                            <span style={{fontSize:'0.85rem'}}>{ch.icon}</span>{ch.label}
+                        </button>
+                    ))}
 
-                            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '16px' }}>
-                                <span style={{ fontSize: '0.75rem', color: '#68737d', fontWeight: 600 }}>
-                                    Channel Load: <strong style={{ color: '#0f172a' }}>{totalRecords}</strong>
-                                </span>
-                                <div style={{ display: 'flex', gap: '4px' }}>
-                                    <button onClick={goToPreviousPage} disabled={currentPage === 1} style={{ width: '30px', height: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer' }}><i className="fas fa-chevron-left"></i></button>
-                                    <button onClick={goToNextPage} disabled={currentPage >= totalPages} style={{ width: '30px', height: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #e2e8f0', borderRadius: '6px', background: '#fff', cursor: 'pointer' }}><i className="fas fa-chevron-right"></i></button>
-                                </div>
+                    {/* Spacer */}
+                    <div style={{flex:1}}/>
+
+                    {/* Search */}
+                    <div style={{position:'relative'}}>
+                        <input type="text" placeholder="Search…" value={searchQ} onChange={e=>setSearchQ(e.target.value)} style={{
+                            padding:'7px 12px 7px 32px', borderRadius:'9px',
+                            border:`1px solid ${T.inputBorder}`, background: T.input, color: T.text,
+                            fontSize:'0.8rem', outline:'none', width:'170px',
+                        }}/>
+                        <span style={{position:'absolute',left:'10px',top:'50%',transform:'translateY(-50%)',color:T.text3,fontSize:'0.8rem'}}>🔍</span>
+                    </div>
+
+                    {/* Refresh */}
+                    <button onClick={handleRefresh} style={{ padding:'7px 12px', borderRadius:'9px', border:`1px solid ${T.border}`, background: T.badge, color: T.text2, cursor:'pointer', fontSize:'0.85rem' }}>
+                        {refreshing ? '⏳' : '🔄'}
+                    </button>
+
+                    {/* Filters */}
+                    <button onClick={() => setFilterOpen(true)} style={{
+                        padding:'7px 14px', borderRadius:'9px', cursor:'pointer', fontSize:'0.78rem', fontWeight:700,
+                        background: Object.keys(filters).length ? '#6366f1' : T.badge,
+                        color: Object.keys(filters).length ? '#fff' : T.text2,
+                        border:`1px solid ${Object.keys(filters).length ? '#6366f1' : T.border}`,
+                        display:'flex', alignItems:'center', gap:'5px',
+                    }}>
+                        ⚙️ Filters {Object.keys(filters).length > 0 && <span style={{background:'#fff',color:'#6366f1',borderRadius:'20px',padding:'0 5px',fontSize:'0.6rem'}}>{Object.keys(filters).length}</span>}
+                    </button>
+
+                    {/* Theme toggle */}
+                    <button onClick={() => setTheme(t => t==='dark'?'light':'dark')} title="Toggle theme" style={{
+                        padding:'7px 12px', borderRadius:'9px', border:`1px solid ${T.border}`,
+                        background: T.badge, color: T.text2, cursor:'pointer', fontSize:'1rem',
+                    }}>
+                        {isDark ? '☀️' : '🌙'}
+                    </button>
+
+                    {/* Compose */}
+                    <button onClick={() => setComposing(true)} style={{
+                        padding:'7px 18px', borderRadius:'9px', background:'linear-gradient(135deg,#6366f1,#4f46e5)',
+                        color:'#fff', border:'none', cursor:'pointer', fontWeight:700, fontSize:'0.8rem',
+                        boxShadow:'0 4px 12px rgba(99,102,241,0.35)', display:'flex', alignItems:'center', gap:'6px',
+                    }}>
+                        ✉️ Compose
+                    </button>
+                </div>
+            </div>
+
+            {/* ── BODY ── */}
+            <div style={{ display:'flex', flex:1, overflow:'hidden', minHeight:0 }}>
+
+                {/* ── LEFT: List Panel ── */}
+                <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', minWidth:0 }}>
+
+                    {/* Sub-tab bar (only for non-AI tabs) */}
+                    {channel !== 'AI' && (
+                        <div style={{ display:'flex', alignItems:'center', gap:'6px', padding:'8px 16px', background: T.surface, borderBottom:`1px solid ${T.border}`, flexShrink:0 }}>
+                            {[
+                                { id:'all',       label:`All (${allItems.length})` },
+                                { id:'matched',   label:`✅ Matched (${allItems.filter(i=>i.isMatched).length})` },
+                                { id:'unmatched', label:`⚠️ Unmatched (${allItems.filter(i=>!i.isMatched).length})` },
+                            ].map(st => (
+                                <button key={st.id} onClick={() => setSubTab(st.id)} style={{
+                                    padding:'5px 13px', borderRadius:'6px', border:'none', cursor:'pointer',
+                                    background: subTab===st.id ? T.accentSoft : 'transparent',
+                                    color: subTab===st.id ? T.accent : T.text2,
+                                    fontSize:'0.74rem', fontWeight:700, transition:'all 0.15s',
+                                    borderBottom: subTab===st.id ? `2px solid ${T.accent}` : '2px solid transparent',
+                                }}>{st.label}</button>
+                            ))}
+                            <div style={{marginLeft:'auto', fontSize:'0.68rem', color: T.text3, fontWeight:600}}>
+                                {displayItems.length} record{displayItems.length!==1?'s':''}
                             </div>
                         </div>
+                    )}
 
-                        {/* The Professional List */}
-                        <div style={{ flex: 1, overflowY: 'auto', padding: '1rem 1.5rem', background: '#f8fafc' }}>
-                            {activeTab === 'AI Conversations' ? (
-                                <AIConversationsTab />
-                            ) : activeTab === 'Live AI Calling' ? (
-                                <AICallPanel />
-                            ) : (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                    {paginatedData.map((item) => (
-                                        <div
-                                            key={item.id}
-                                            onClick={() => setSelectedConversation(item)}
-                                            style={{
-                                                background: selectedConversation?.id === item.id ? '#fff' : '#fff',
-                                                border: selectedConversation?.id === item.id ? '2px solid #0ea5e9' : '1px solid #eef2f6',
-                                                borderRadius: '12px',
-                                                padding: '16px 20px',
-                                                display: 'grid',
-                                                gridTemplateColumns: '40px 1fr 140px 140px 100px',
-                                                alignItems: 'center',
-                                                gap: '15px',
-                                                cursor: 'pointer',
-                                                transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                                                position: 'relative',
-                                                overflow: 'hidden',
-                                                boxShadow: selectedConversation?.id === item.id ? '0 10px 15px -3px rgba(14, 165, 233, 0.1)' : '0 1px 2px rgba(0,0,0,0.02)'
-                                            }}
+                    {/* ── AI Bot View ── */}
+                    {channel === 'AI' ? (
+                        <AIBotView T={T} isDark={isDark} convos={aiConvos} selected={selectedAI} onSelect={setSelectedAI} onTakeover={handleAITakeover} onRefresh={fetchAIConvos} />
+                    ) : (
+                        /* ── Inbox List ── */
+                        <div style={{ flex:1, overflowY:'auto', padding:'12px 16px', background: T.bg, display:'flex', flexDirection:'column', gap:'8px' }}>
+
+                            {/* Email OAuth error card */}
+                            {channel === 'Email' && emailError && (
+                                <div style={{ margin:'40px auto', maxWidth:'420px', textAlign:'center', padding:'32px', borderRadius:'16px', background: T.surface, border:`1.5px solid ${emailError==='oauth' ? '#f59e0b40' : '#ef444440'}`, boxShadow:`0 8px 24px ${emailError==='oauth'?'#f59e0b':'#ef4444'}12` }}>
+                                    <div style={{ fontSize:'2.8rem', marginBottom:'14px' }}>{emailError === 'oauth' ? '🔐' : '📡'}</div>
+                                    <div style={{ fontWeight:800, fontSize:'1.05rem', color: T.text, marginBottom:'8px' }}>
+                                        {emailError === 'oauth' ? 'Gmail Reconnect Required' : 'Email Connection Error'}
+                                    </div>
+                                    <div style={{ fontSize:'0.82rem', color: T.text2, lineHeight:1.5, marginBottom:'20px' }}>
+                                        {emailError === 'oauth'
+                                            ? 'Your Gmail OAuth token has expired. Reconnect your account from Settings to restore email access.'
+                                            : 'Unable to reach email service. Check your internet connection and try again.'}
+                                    </div>
+                                    <div style={{ display:'flex', gap:'10px', justifyContent:'center', flexWrap:'wrap' }}>
+                                        {emailError === 'oauth' && (
+                                            <button
+                                                onClick={async () => {
+                                                    try {
+                                                        const res = await emailAPI.getOAuthUrl();
+                                                        if (res?.success && res.data) window.open(res.data, '_blank');
+                                                    } catch(e) { toast.error('Could not get OAuth URL'); }
+                                                }}
+                                                style={{ padding:'9px 20px', borderRadius:'9px', background:'linear-gradient(135deg,#f59e0b,#d97706)', color:'#fff', border:'none', fontWeight:700, fontSize:'0.82rem', cursor:'pointer', boxShadow:'0 4px 12px rgba(245,158,11,0.35)' }}
+                                            >
+                                                🔗 Reconnect Gmail
+                                            </button>
+                                        )}
+                                        <button
+                                            onClick={() => { setEmailError(null); setLiveEmails([]); fetchEmails(); }}
+                                            style={{ padding:'9px 20px', borderRadius:'9px', background: T.badge, color: T.text2, border:`1px solid ${T.border}`, fontWeight:700, fontSize:'0.82rem', cursor:'pointer' }}
                                         >
-                                            <div onClick={(e) => { e.stopPropagation(); toggleSelect(item.id); }}>
-                                                <input type="checkbox" checked={selectedIds.includes(item.id)} onChange={() => {}} style={{ cursor: 'pointer' }} />
-                                            </div>
-
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', minWidth: 0 }}>
-                                                <div style={{ 
-                                                    width: '44px', 
-                                                    height: '44px', 
-                                                    borderRadius: '12px', 
-                                                    background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)', 
-                                                    display: 'flex', 
-                                                    alignItems: 'center', 
-                                                    justifyContent: 'center',
-                                                    fontSize: '1rem',
-                                                    color: '#0f172a',
-                                                    fontWeight: 800,
-                                                    border: '1px solid #e2e8f0'
-                                                }}>
-                                                    {item.participant?.charAt(0) || '?'}
-                                                </div>
-                                                <div style={{ flex: 1, minWidth: 0 }}>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                        <span style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.95rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.participant}</span>
-                                                        {item.isMatched && <i className="fas fa-check-circle" style={{ color: '#0ea5e9', fontSize: '0.8rem' }}></i>}
-                                                    </div>
-                                                    <div style={{ fontSize: '0.8rem', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                                        {item.type === 'Incoming Email' ? item.subject : (item.subject || item.snippet || 'Interactive Session')}
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                    <i className={
-                                                        item.via === 'WhatsApp' || item.via === 'WHATSAPP' ? 'fab fa-whatsapp' : 
-                                                        item.via === 'EMAIL' || item.via === 'Email' ? 'fas fa-envelope' : 
-                                                        item.via === 'SMS' ? 'fas fa-comment-alt' : 
-                                                        item.via === 'RCS' ? 'fas fa-comment-dots' : 'fas fa-phone'
-                                                    } style={{ 
-                                                        fontSize: '0.8rem', 
-                                                        color: (item.via === 'WhatsApp' || item.via === 'WHATSAPP') ? '#22c55e' : (item.via === 'SMS' || item.via === 'RCS') ? '#f59e0b' : '#0ea5e9' 
-                                                    }}></i>
-                                                    <span style={{ fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', color: '#475569' }}>{item.via}</span>
-                                                </div>
-                                                <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>{item.platform}</span>
-                                            </div>
-
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                                                <div style={{ 
-                                                    display: 'flex', 
-                                                    alignItems: 'center', 
-                                                    gap: '4px',
-                                                    fontSize: '0.75rem',
-                                                    fontWeight: 800,
-                                                    color: (item.outcome === 'Sent' || item.outcome === 'Read') ? '#059669' : item.outcome === 'Failed' ? '#dc2626' : '#0284c7'
-                                                }}>
-                                                    <i className={
-                                                        item.outcome === 'Read' ? 'fas fa-check-double' : 
-                                                        item.outcome === 'Sent' ? 'fas fa-check' : 
-                                                        item.outcome === 'Failed' ? 'fas fa-warning' : 'fas fa-clock'
-                                                    } style={{ fontSize: '0.65rem' }}></i>
-                                                    {item.outcome || 'Active'}
-                                                </div>
-                                                <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>{item.duration || 'Session'}</span>
-                                            </div>
-
-                                            <div style={{ textAlign: 'right' }}>
-                                                <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>{item.date.split(',')[0]}</div>
-                                                <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>{item.date.split(',')[1] || 'Today'}</div>
-                                            </div>
-                                        </div>
-                                    ))}
-                                    {paginatedData.length === 0 && (
-                                        <div style={{ padding: '80px', textAlign: 'center', color: '#94a3b8', background: '#fff', borderRadius: '20px', margin: '20px' }}>
-                                            <i className="fas fa-search" style={{ fontSize: '3rem', marginBottom: '20px', opacity: 0.1 }}></i>
-                                            <h3>No Activity Mapped</h3>
-                                            <p>Select another channel or adjust filters.</p>
-                                        </div>
-                                    )}
+                                            🔄 Try Again
+                                        </button>
+                                        <button
+                                            onClick={() => window.open('/settings?tab=integrations','_blank')}
+                                            style={{ padding:'9px 20px', borderRadius:'9px', background: T.badge, color: T.accent, border:`1px solid ${T.border}`, fontWeight:700, fontSize:'0.82rem', cursor:'pointer' }}
+                                        >
+                                            ⚙️ Settings
+                                        </button>
+                                    </div>
                                 </div>
                             )}
-                        </div>
-                    </div>
 
-                    {/* 💬 Live Thread Sidebar (PINS TO RIGHT) */}
-                    {selectedConversation && (
-                        <div style={{ 
-                            width: '420px', 
-                            minWidth: '420px',
-                            background: '#fff', 
-                            borderLeft: '1px solid #e2e8f0', 
-                            display: 'flex', 
-                            flexDirection: 'column',
-                            boxShadow: '-10px 0 30px rgba(0,0,0,0.03)',
-                            zIndex: 10,
-                            height: '100%'
-                        }}>
-                             <ConversationThread 
-                                messages={selectedConversation.thread || []} 
-                                participantName={selectedConversation.participant}
-                                onClose={() => setSelectedConversation(null)}
-                                onSendMessage={handleSendMessage}
-                             />
+                            {loading ? (
+                                [...Array(8)].map((_,i) => (
+                                    <div key={i} style={{ height:80, borderRadius:'12px', background: T.surface, opacity:0.4+i*0.06, animation:'cpulse 1.4s ease-in-out infinite', animationDelay:`${i*0.08}s` }}/>
+                                ))
+                            ) : !emailError && displayItems.length === 0 ? (
+                                <EmptyState T={T} channel={channel} />
+                            ) : !emailError && displayItems.map(item => (
+                                <InboxRow key={item.id} item={item} T={T} isDark={isDark} isSelected={selected?.id===item.id}
+                                    onClick={() => {
+                                        if (item.via==='Email') { setEmailTarget(item); setViewEmail(true); }
+                                        else setSelected(item);
+                                    }}
+                                />
+                            ))}
+
+                            {channel==='Email' && nextPageToken && !emailError && (
+                                <button onClick={() => fetchEmails(true, nextPageToken)} style={{ margin:'10px auto', padding:'7px 22px', borderRadius:'20px', border:`1px solid ${T.border}`, background: T.badge, color: T.accent, fontSize:'0.78rem', fontWeight:700, cursor:'pointer' }}>
+                                    Load more…
+                                </button>
+                            )}
                         </div>
                     )}
                 </div>
 
-                {/* Modals & Overlays */}
-                <CommunicationFilterPanel isOpen={isFilterOpen} onClose={() => setIsFilterOpen(false)} filters={filters} onFilterChange={(k, v) => setFilters(prev => ({...prev, [k]: v}))} onReset={() => setFilters({})} />
-                <ComposeEmailModal isOpen={isComposeModalOpen} onClose={() => setIsComposeModalOpen(false)} onSent={() => fetchInbox()} />
-                <ViewEmailModal isOpen={isViewModalOpen} onClose={() => setIsViewModalOpen(false)} email={selectedEmail} onReply={handleReply} onConvertToLead={handleConvertToLead} onAddActivity={handleAddActivity} isActionLoading={isActionLoading} />
+                {/* ── RIGHT: Thread Panel ── */}
+                {selected && channel !== 'AI' && (
+                    <ThreadPanel item={selected} T={T} isDark={isDark} onClose={() => setSelected(null)} onSend={handleSendMessage} />
+                )}
             </div>
-        </section>
-    );
 
+            {/* CSS animations */}
+            <style>{`@keyframes cpulse{0%,100%{opacity:.3}50%{opacity:.7}}`}</style>
+
+            {/* Modals */}
+            <CommunicationFilterPanel isOpen={isFilterOpen} onClose={()=>setFilterOpen(false)} filters={filters} onFilterChange={(k,v)=>setFilters(p=>({...p,[k]:v}))} onReset={()=>setFilters({})} />
+            <ComposeEmailModal isOpen={composing} onClose={()=>setComposing(false)} onSent={fetchEmails} />
+            <ViewEmailModal isOpen={viewEmail} onClose={()=>setViewEmail(false)} email={emailTarget} onReply={e=>{setEmailTarget(e);setComposing(true);}} onConvertToLead={handleConvertToLead} isActionLoading={actionLoading} />
+        </div>
+    );
 }
 
-export default CommunicationPage;
+/* ══════════════════════════════════════════════════════════════════════════ */
+/* InboxRow                                                                    */
+/* ══════════════════════════════════════════════════════════════════════════ */
+function InboxRow({ item, T, isDark, isSelected, onClick }) {
+    const [hov, setHov] = useState(false);
+    const ch = CHANNELS.find(c => c.id === item.via) || CHANNELS[0];
+    const outcomeColor = OUTCOME_COLOR[item.outcome] || T.text3;
+    const outcomeIcons = { Read:'✓✓', Sent:'✓', Delivered:'✓', Failed:'✗', Received:'✓' };
+
+    return (
+        <div
+            onClick={onClick}
+            onMouseEnter={() => setHov(true)}
+            onMouseLeave={() => setHov(false)}
+            style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '14px',
+                padding: '14px 16px',
+                borderRadius: '12px',
+                cursor: 'pointer',
+                background: isSelected ? `${ch.color}14` : (hov ? T.surfaceHov : T.surface),
+                border: `1.5px solid ${isSelected ? ch.color + '55' : T.border}`,
+                transition: 'all 0.15s',
+                boxShadow: isSelected ? `0 4px 16px ${ch.color}18` : (hov ? '0 2px 8px rgba(0,0,0,0.06)' : 'none'),
+                position: 'relative',
+            }}
+        >
+            {/* Selected accent stripe */}
+            {isSelected && (
+                <div style={{ position:'absolute', left:0, top:'20%', bottom:'20%', width:'3px', background: ch.color, borderRadius:'0 3px 3px 0' }}/>
+            )}
+
+            {/* Avatar */}
+            <div style={{
+                flexShrink: 0,
+                width: 46, height: 46, borderRadius: '12px',
+                background: `linear-gradient(135deg, ${ch.color}30, ${ch.color}10)`,
+                border: `1.5px solid ${ch.color}35`,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: '1.1rem', fontWeight: 800, color: ch.color,
+                letterSpacing: '-0.01em',
+            }}>
+                {initials(item.participant)}
+            </div>
+
+            {/* Main content — takes all remaining space */}
+            <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                {/* Row 1: name + badges */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '5px', flexWrap: 'nowrap' }}>
+                    <span style={{
+                        fontWeight: 800, fontSize: '0.9rem', color: T.text,
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        maxWidth: '45%', flexShrink: 0,
+                    }}>
+                        {item.participant || 'Unknown'}
+                    </span>
+
+                    {/* Channel badge */}
+                    <span style={{
+                        flexShrink: 0,
+                        fontSize: '0.58rem', padding: '2px 8px', borderRadius: '20px',
+                        background: `${ch.color}18`, color: ch.color,
+                        fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em',
+                        border: `1px solid ${ch.color}25`,
+                        whiteSpace: 'nowrap',
+                    }}>
+                        {ch.icon} {item.via}
+                    </span>
+
+                    {item.isMatched && (
+                        <span title="CRM Linked" style={{ flexShrink:0, fontSize:'0.62rem', color:'#22c55e', fontWeight:800, background:'#22c55e10', padding:'1px 6px', borderRadius:'20px', border:'1px solid #22c55e25' }}>✓ CRM</span>
+                    )}
+
+                    {item.phone && (
+                        <span style={{ fontSize:'0.62rem', color: T.text3, fontFamily:'monospace', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', minWidth:0 }}>{item.phone}</span>
+                    )}
+                </div>
+
+                {/* Row 2: subject/snippet */}
+                <div style={{
+                    fontSize: '0.78rem', color: T.text2, lineHeight: 1.4,
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}>
+                    {item.subject || item.snippet || '(no message preview)'}
+                </div>
+
+                {/* Row 3: platform */}
+                {item.platform && item.platform !== 'Direct' && (
+                    <div style={{ fontSize:'0.62rem', color: T.text3, marginTop:'3px' }}>via {item.platform}</div>
+                )}
+            </div>
+
+            {/* Right meta — fixed width */}
+            <div style={{ flexShrink: 0, textAlign: 'right', minWidth: '74px' }}>
+                <div style={{ fontSize:'0.72rem', color: T.text2, fontWeight:600, marginBottom:'5px' }}>{timeAgo(item.date)}</div>
+                <div style={{
+                    display: 'inline-flex', alignItems: 'center', gap:'3px',
+                    fontSize: '0.65rem', fontWeight: 800, color: outcomeColor,
+                    background: `${outcomeColor}12`, padding:'2px 7px', borderRadius:'20px',
+                }}>
+                    {outcomeIcons[item.outcome] || '·'} {item.outcome}
+                </div>
+                {item.duration && item.duration !== '--' && item.duration !== null && (
+                    <div style={{ fontSize:'0.6rem', color: T.text3, marginTop:'4px' }}>⏱ {item.duration}s</div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/* ThreadPanel — right-slide conversation view                                 */
+/* ══════════════════════════════════════════════════════════════════════════ */
+function ThreadPanel({ item, T, isDark, onClose, onSend }) {
+    const [text, setText] = useState('');
+    const [ch, setCh]     = useState(item.via==='WhatsApp'?'WhatsApp':(item.via==='SMS'?'SMS':'WhatsApp'));
+    const [sending, setSending] = useState(false);
+    const bodyRef = useRef(null);
+    const chObj = CHANNELS.find(c=>c.id===item.via)||CHANNELS[0];
+
+    useEffect(() => { if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight; }, [item.thread]);
+
+    const handleSend = async () => {
+        if (!text.trim()||sending) return;
+        setSending(true);
+        try { await onSend(text, ch); setText(''); } finally { setSending(false); }
+    };
+
+    return (
+        <div style={{ width:'400px', minWidth:'400px', display:'flex', flexDirection:'column', background: T.surface, borderLeft:`1px solid ${T.border}`, height:'100%' }}>
+            {/* Header */}
+            <div style={{ padding:'14px 18px', background: `${chObj.color}12`, borderBottom:`1px solid ${T.border}`, display:'flex', alignItems:'center', gap:'11px', flexShrink:0 }}>
+                <div style={{ width:40, height:40, borderRadius:'10px', background:`${chObj.color}25`, border:`1.5px solid ${chObj.color}50`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'0.85rem', fontWeight:800, color:chObj.color }}>
+                    {initials(item.participant)}
+                </div>
+                <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontWeight:800, color: T.text, fontSize:'0.9rem'}}>{item.participant}</div>
+                    <div style={{display:'flex',alignItems:'center',gap:'6px',marginTop:'2px'}}>
+                        <span style={{fontSize:'0.62rem',padding:'2px 7px',borderRadius:'20px',background:`${chObj.color}18`,color:chObj.color,fontWeight:800,textTransform:'uppercase'}}>{chObj.icon} {item.via}</span>
+                        {item.isMatched && <span style={{fontSize:'0.62rem',color:'#22c55e',fontWeight:700}}>✓ CRM Linked</span>}
+                        {item.phone && <span style={{fontSize:'0.62rem',color:T.text3,fontFamily:'monospace'}}>{item.phone}</span>}
+                    </div>
+                </div>
+                <button onClick={onClose} style={{ width:28, height:28, borderRadius:'7px', border:`1px solid ${T.border}`, background: T.badge, color: T.text2, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'0.9rem' }}>✕</button>
+            </div>
+
+            {/* Body */}
+            <div ref={bodyRef} style={{ flex:1, overflowY:'auto', padding:'14px', display:'flex', flexDirection:'column', gap:'9px' }}>
+                {(!item.thread||item.thread.length===0) ? (
+                    <div style={{textAlign:'center',margin:'auto',color:T.text2,padding:'30px'}}>
+                        <div style={{fontSize:'2.2rem',marginBottom:'10px'}}>💬</div>
+                        <div style={{fontWeight:700, color: T.text2}}>No messages yet</div>
+                        <div style={{fontSize:'0.78rem',color:T.text3,marginTop:'4px'}}>Use the input below to start the conversation.</div>
+                    </div>
+                ) : item.thread.map((msg, i) => {
+                    const isOut = msg.sender !== 'customer';
+                    return (
+                        <div key={i} style={{ display:'flex', justifyContent:isOut?'flex-end':'flex-start', alignItems:'flex-end', gap:'7px' }}>
+                            {!isOut && (
+                                <div style={{width:26,height:26,borderRadius:'50%',background:`${chObj.color}25`,color:chObj.color,display:'flex',alignItems:'center',justifyContent:'center',fontSize:'0.65rem',fontWeight:800,flexShrink:0}}>
+                                    {initials(item.participant)}
+                                </div>
+                            )}
+                            <div style={{maxWidth:'76%'}}>
+                                {msg.sender==='ai' && <div style={{fontSize:'0.58rem',color:'#818cf8',fontWeight:800,marginBottom:'2px',textAlign:'right'}}>🤖 AI BOT</div>}
+                                {msg.sender==='agent' && <div style={{fontSize:'0.58rem',color:'#22c55e',fontWeight:800,marginBottom:'2px',textAlign:'right'}}>👨‍💼 AGENT</div>}
+                                <div style={{
+                                    padding:'9px 13px', lineHeight:1.5, fontSize:'0.84rem', wordBreak:'break-word',
+                                    borderRadius: isOut ? '14px 3px 14px 14px' : '3px 14px 14px 14px',
+                                    background: isOut ? (msg.sender==='ai' ? 'linear-gradient(135deg,#4f46e5,#6366f1)' : (msg.sender==='agent' ? 'linear-gradient(135deg,#059669,#10b981)' : `linear-gradient(135deg,${chObj.color},${chObj.color}cc)`)) : T.bubble_in,
+                                    color: isOut ? '#fff' : T.text,
+                                    border: !isOut ? `1px solid ${T.border}` : 'none',
+                                    boxShadow: isOut ? '0 3px 10px rgba(0,0,0,0.15)' : 'none',
+                                }}>
+                                    {msg.text}
+                                </div>
+                                <div style={{fontSize:'0.58rem',color:T.text3,marginTop:'3px',textAlign:isOut?'right':'left'}}>
+                                    {msg.time && !isNaN(new Date(msg.time)) ? new Date(msg.time).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : (msg.time||'')}
+                                    {isOut && ' ✓✓'}
+                                </div>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding:'12px 14px', borderTop:`1px solid ${T.border}`, background: T.surface, flexShrink:0 }}>
+                {/* Channel switcher */}
+                <div style={{display:'flex',gap:'5px',marginBottom:'9px'}}>
+                    {['WhatsApp','SMS','RCS'].map(c2=>(
+                        <button key={c2} onClick={()=>setCh(c2)} style={{
+                            padding:'4px 11px', borderRadius:'20px', border:'none', cursor:'pointer', fontSize:'0.68rem', fontWeight:700, transition:'all 0.14s',
+                            background: ch===c2 ? T.accentSoft : T.badge,
+                            color: ch===c2 ? T.accent : T.text2,
+                        }}>{c2}</button>
+                    ))}
+                </div>
+
+                <div style={{display:'flex',gap:'7px'}}>
+                    <input type="text" value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>e.key==='Enter'&&!e.shiftKey&&handleSend()}
+                        placeholder={`Reply via ${ch}…`} disabled={sending}
+                        style={{ flex:1, padding:'9px 13px', borderRadius:'9px', border:`1px solid ${T.inputBorder}`, background: T.input, color: T.text, fontSize:'0.83rem', outline:'none' }}
+                    />
+                    <button onClick={handleSend} disabled={sending||!text.trim()} style={{
+                        width:40, height:38, borderRadius:'9px', border:'none', cursor:'pointer',
+                        background: 'linear-gradient(135deg,#6366f1,#4f46e5)', color:'#fff',
+                        display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1rem',
+                        boxShadow:'0 3px 10px rgba(99,102,241,0.35)',
+                        opacity: (!text.trim()||sending)?0.5:1, transition:'all 0.18s',
+                    }}>{sending ? '⏳' : '➤'}</button>
+                </div>
+                <div style={{fontSize:'0.6rem',color:T.text3,marginTop:'7px',textAlign:'center'}}>🤖 AI pauses 15 min after manual reply</div>
+            </div>
+        </div>
+    );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/* AIBotView — Professional AI conversation manager                           */
+/* ══════════════════════════════════════════════════════════════════════════ */
+function AIBotView({ T, isDark, convos, selected, onSelect, onTakeover, onRefresh }) {
+    const [replyText, setReplyText] = useState('');
+    const [sendingAI, setSendingAI] = useState(false);
+    const bodyRef = useRef(null);
+
+    useEffect(() => { if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight; }, [selected?.messages]);
+
+    const handleAISend = async () => {
+        if (!replyText.trim()||sendingAI||!selected) return;
+        setSendingAI(true);
+        try {
+            const phone = selected.phone;
+            const res = await activitiesAPI.sendReply({ phoneNumber: phone, message: replyText, channel: 'whatsapp' });
+            if (res?.success) {
+                onSelect(p => ({ ...p, messages: [...(p.messages||[]), { sender:'agent', text:replyText, time: new Date().toISOString() }] }));
+                setReplyText('');
+                toast.success('Message sent!');
+            }
+        } catch(e) { toast.error('Send failed'); } finally { setSendingAI(false); }
+    };
+
+    return (
+        <div style={{ flex:1, display:'flex', overflow:'hidden' }}>
+            {/* Conversation list */}
+            <div style={{ width:'340px', minWidth:'340px', borderRight:`1px solid ${T.border}`, display:'flex', flexDirection:'column', background: T.surface, overflowY:'auto' }}>
+                <div style={{ padding:'12px 14px', borderBottom:`1px solid ${T.border}`, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                    <div style={{ fontWeight:800, color: T.text, fontSize:'0.9rem' }}>
+                        🤖 AI Bot Threads
+                        <span style={{ marginLeft:'8px', padding:'2px 8px', borderRadius:'20px', background:'#8b5cf620', color:'#8b5cf6', fontSize:'0.65rem', fontWeight:700 }}>{convos.length} active</span>
+                    </div>
+                    <button onClick={onRefresh} style={{ fontSize:'0.9rem', background:'none', border:'none', cursor:'pointer', color: T.text2 }}>🔄</button>
+                </div>
+
+                {convos.length === 0 ? (
+                    <div style={{ padding:'40px', textAlign:'center', color: T.text2 }}>
+                        <div style={{fontSize:'2.5rem',marginBottom:'12px'}}>🤖</div>
+                        <div style={{fontWeight:700}}>No active AI conversations</div>
+                        <div style={{fontSize:'0.78rem',color:T.text3,marginTop:'4px'}}>Conversations appear here when leads message via WhatsApp.</div>
+                    </div>
+                ) : convos.map(conv => (
+                    <div key={conv.id} onClick={() => onSelect(conv)} style={{
+                        padding:'13px 14px', borderBottom:`1px solid ${T.border}`, cursor:'pointer',
+                        background: selected?.id===conv.id ? '#8b5cf615' : 'transparent',
+                        borderLeft: selected?.id===conv.id ? '3px solid #8b5cf6' : '3px solid transparent',
+                        transition:'all 0.14s',
+                    }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
+                            <div style={{ width:38, height:38, borderRadius:'10px', background:'#8b5cf620', border:'1.5px solid #8b5cf650', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'0.8rem', fontWeight:800, color:'#8b5cf6' }}>
+                                {initials(conv.name)}
+                            </div>
+                            <div style={{flex:1, minWidth:0}}>
+                                <div style={{display:'flex',alignItems:'center',gap:'6px'}}>
+                                    <span style={{fontWeight:800, fontSize:'0.85rem', color: T.text, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:'140px'}}>{conv.name}</span>
+                                    {conv.isHandedOff && <span style={{fontSize:'0.6rem',padding:'1px 6px',borderRadius:'20px',background:'#f59e0b20',color:'#f59e0b',fontWeight:800}}>AGENT</span>}
+                                    {!conv.isHandedOff && <span style={{fontSize:'0.6rem',padding:'1px 6px',borderRadius:'20px',background:'#22c55e15',color:'#22c55e',fontWeight:800}}>AI</span>}
+                                </div>
+                                <div style={{fontSize:'0.68rem',color: T.text2,fontFamily:'monospace',marginTop:'1px'}}>{conv.phone}</div>
+                                {conv.messages.length > 0 && (
+                                    <div style={{fontSize:'0.7rem',color:T.text3,marginTop:'3px',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
+                                        {conv.messages[conv.messages.length-1]?.text?.slice(0,50)||''}
+                                    </div>
+                                )}
+                            </div>
+                            <div style={{textAlign:'right',flexShrink:0}}>
+                                <div style={{fontSize:'0.62rem',color:T.text3}}>{timeAgo(conv.updatedAt)}</div>
+                                <div style={{fontSize:'0.62rem',color:T.text2,marginTop:'2px'}}>💬 {conv.messages.length}</div>
+                            </div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+
+            {/* Chat view */}
+            <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
+                {!selected ? (
+                    <div style={{ margin:'auto', textAlign:'center', color: T.text2, padding:'40px' }}>
+                        <div style={{fontSize:'3rem',marginBottom:'16px'}}>👈</div>
+                        <div style={{fontWeight:700, fontSize:'1.1rem', color: T.text}}>Select a conversation</div>
+                        <div style={{fontSize:'0.82rem',color:T.text2,marginTop:'6px'}}>Click on a thread from the left panel to view the full conversation and manage AI control.</div>
+                    </div>
+                ) : (
+                    <>
+                        {/* Chat header */}
+                        <div style={{ padding:'14px 20px', background: T.surface, borderBottom:`1px solid ${T.border}`, display:'flex', alignItems:'center', gap:'14px', flexShrink:0 }}>
+                            <div style={{ width:42, height:42, borderRadius:'11px', background:'#8b5cf620', border:'1.5px solid #8b5cf650', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:800, color:'#8b5cf6' }}>
+                                {initials(selected.name)}
+                            </div>
+                            <div style={{flex:1}}>
+                                <div style={{ fontWeight:800, color: T.text, fontSize:'0.95rem' }}>{selected.name}</div>
+                                <div style={{ fontSize:'0.68rem', color: T.text2, fontFamily:'monospace' }}>{selected.phone}</div>
+                            </div>
+
+                            {/* CRM context badges */}
+                            {selected.lead && (
+                                <div style={{ display:'flex', gap:'8px', flexWrap:'wrap' }}>
+                                    {selected.lead.status && <span style={{padding:'3px 9px',borderRadius:'20px',fontSize:'0.63rem',fontWeight:800,background:'#6366f115',color:'#818cf8'}}>Stage: {selected.lead.status}</span>}
+                                    {selected.lead.source && <span style={{padding:'3px 9px',borderRadius:'20px',fontSize:'0.63rem',fontWeight:800,background:'#22c55e15',color:'#22c55e'}}>Source: {selected.lead.source}</span>}
+                                    {selected.lead.intent_index && <span style={{padding:'3px 9px',borderRadius:'20px',fontSize:'0.63rem',fontWeight:800,background:'#f59e0b15',color:'#f59e0b'}}>Intent: {selected.lead.intent_index}%</span>}
+                                </div>
+                            )}
+
+                            {/* Takeover button */}
+                            <button onClick={() => onTakeover(selected.id, selected.isHandedOff)} style={{
+                                padding:'7px 16px', borderRadius:'9px', fontWeight:700, fontSize:'0.78rem', cursor:'pointer', border:'none',
+                                background: selected.isHandedOff ? '#22c55e20' : '#ef444420',
+                                color: selected.isHandedOff ? '#22c55e' : '#ef4444',
+                                display:'flex', alignItems:'center', gap:'6px',
+                            }}>
+                                {selected.isHandedOff ? '🤖 Resume AI' : '👨‍💼 Take Over'}
+                            </button>
+                        </div>
+
+                        {/* Messages */}
+                        <div ref={bodyRef} style={{ flex:1, overflowY:'auto', padding:'16px', display:'flex', flexDirection:'column', gap:'10px', background: T.bg }}>
+                            {selected.isHandedOff && (
+                                <div style={{ textAlign:'center', margin:'8px 0' }}>
+                                    <span style={{ padding:'4px 12px', borderRadius:'20px', background:'#f59e0b15', color:'#f59e0b', fontSize:'0.72rem', fontWeight:700 }}>
+                                        👨‍💼 Human operator active — AI paused
+                                    </span>
+                                </div>
+                            )}
+                            {selected.messages.map((msg, i) => {
+                                const isOut = msg.sender !== 'customer';
+                                return (
+                                    <div key={i} style={{ display:'flex', justifyContent:isOut?'flex-end':'flex-start', gap:'7px', alignItems:'flex-end' }}>
+                                        {!isOut && (
+                                            <div style={{ width:28, height:28, borderRadius:'50%', background:'#8b5cf620', color:'#8b5cf6', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'0.65rem', fontWeight:800, flexShrink:0 }}>
+                                                {initials(selected.name)}
+                                            </div>
+                                        )}
+                                        <div style={{ maxWidth:'72%' }}>
+                                            {msg.sender==='ai' && <div style={{ fontSize:'0.58rem', color:'#818cf8', fontWeight:800, marginBottom:'3px', textAlign:'right', display:'flex', alignItems:'center', justifyContent:'flex-end', gap:'4px' }}><span style={{background:'#4f46e5',color:'#fff',padding:'1px 6px',borderRadius:'20px'}}>🤖 AI</span></div>}
+                                            {msg.sender==='agent' && <div style={{ fontSize:'0.58rem', color:'#22c55e', fontWeight:800, marginBottom:'3px', textAlign:'right', display:'flex', alignItems:'center', justifyContent:'flex-end', gap:'4px' }}><span style={{background:'#059669',color:'#fff',padding:'1px 6px',borderRadius:'20px'}}>👨‍💼 AGENT</span></div>}
+                                            {msg.sender==='system' && <div style={{ fontSize:'0.58rem', color:'#94a3b8', fontWeight:800, marginBottom:'3px', textAlign:'center' }}>⚙️ SYSTEM</div>}
+                                            <div style={{
+                                                padding:'10px 14px', borderRadius: isOut?'14px 3px 14px 14px':'3px 14px 14px 14px',
+                                                lineHeight:1.5, fontSize:'0.84rem', wordBreak:'break-word',
+                                                background: isOut ? (msg.sender==='ai' ? 'linear-gradient(135deg,#4f46e5,#6366f1)' : 'linear-gradient(135deg,#059669,#10b981)') : T.bubble_in,
+                                                color: isOut ? '#fff' : T.text,
+                                                border: !isOut ? `1px solid ${T.border}` : 'none',
+                                                boxShadow: isOut ? '0 3px 10px rgba(0,0,0,0.15)' : 'none',
+                                            }}>
+                                                {msg.text}
+                                            </div>
+                                            <div style={{ fontSize:'0.58rem', color: T.text3, marginTop:'3px', textAlign:isOut?'right':'left' }}>
+                                                {msg.time && !isNaN(new Date(msg.time)) ? new Date(msg.time).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : (msg.time||'')}
+                                                {isOut && ' ✓✓'}
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        {/* Reply input */}
+                        <div style={{ padding:'12px 16px', borderTop:`1px solid ${T.border}`, background: T.surface, flexShrink:0 }}>
+                            <div style={{ display:'flex', gap:'8px', alignItems:'center' }}>
+                                <div style={{ width:6, height:6, borderRadius:'50%', background: selected.isHandedOff ? '#f59e0b' : '#22c55e', flexShrink:0 }} title={selected.isHandedOff ? 'Agent mode' : 'AI mode'}/>
+                                <input type="text" value={replyText} onChange={e=>setReplyText(e.target.value)} onKeyDown={e=>e.key==='Enter'&&!e.shiftKey&&handleAISend()}
+                                    placeholder={selected.isHandedOff ? 'Type manual reply (WhatsApp)…' : 'AI is handling — type to override…'}
+                                    disabled={sendingAI}
+                                    style={{ flex:1, padding:'9px 13px', borderRadius:'9px', border:`1px solid ${T.inputBorder}`, background: T.input, color: T.text, fontSize:'0.83rem', outline:'none' }}
+                                />
+                                <button onClick={handleAISend} disabled={sendingAI||!replyText.trim()} style={{
+                                    width:40, height:38, borderRadius:'9px', border:'none', cursor:'pointer',
+                                    background:'linear-gradient(135deg,#6366f1,#4f46e5)', color:'#fff',
+                                    display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1rem',
+                                    opacity:(!replyText.trim()||sendingAI)?0.5:1
+                                }}>{sendingAI?'⏳':'➤'}</button>
+                            </div>
+
+                            {/* CRM Context strip */}
+                            {selected.lead && (
+                                <div style={{ display:'flex', gap:'12px', marginTop:'10px', padding:'8px 12px', borderRadius:'8px', background: T.badge, border:`1px solid ${T.border}` }}>
+                                    <div style={{flex:1}}>
+                                        <div style={{fontSize:'0.58rem',color:T.text3,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:'3px'}}>CRM Context</div>
+                                        <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
+                                            {selected.lead.budget && <span style={{fontSize:'0.65rem',color:T.text2,fontWeight:600}}>💰 {selected.lead.budget}</span>}
+                                            {selected.lead.location && <span style={{fontSize:'0.65rem',color:T.text2,fontWeight:600}}>📍 {selected.lead.location}</span>}
+                                            {selected.lead.requirementType && <span style={{fontSize:'0.65rem',color:T.text2,fontWeight:600}}>🏠 {selected.lead.requirementType}</span>}
+                                            {selected.lead.campaign && <span style={{fontSize:'0.65rem',color:T.text2,fontWeight:600}}>📢 {selected.lead.campaign}</span>}
+                                            {!selected.lead.budget && !selected.lead.location && !selected.lead.requirementType && (
+                                                <span style={{fontSize:'0.65rem',color:T.text3}}>Lead data available — open profile for more details</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                    {selected.lead._id && (
+                                        <button onClick={() => window.open(`/leads/${selected.lead._id}`, '_blank')} style={{
+                                            padding:'4px 12px', borderRadius:'7px', border:`1px solid ${T.border}`, background:'transparent', color: T.accent, fontSize:'0.68rem', fontWeight:700, cursor:'pointer', whiteSpace:'nowrap'
+                                        }}>Open Profile →</button>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    </>
+                )}
+            </div>
+        </div>
+    );
+}
+
+/* ══════════════════════════════════════════════════════════════════════════ */
+/* EmptyState                                                                  */
+/* ══════════════════════════════════════════════════════════════════════════ */
+function EmptyState({ T, channel }) {
+    const ch = CHANNELS.find(c=>c.id===channel)||CHANNELS[0];
+    return (
+        <div style={{ margin:'80px auto', textAlign:'center', color: T.text2, padding:'20px' }}>
+            <div style={{fontSize:'3rem',marginBottom:'14px'}}>{ch.icon}</div>
+            <div style={{fontWeight:800, fontSize:'1.1rem', color: T.text}}>No {ch.label} activity</div>
+            <div style={{fontSize:'0.82rem', color: T.text2, marginTop:'6px'}}>Switch channel or clear filters to see more.</div>
+        </div>
+    );
+}

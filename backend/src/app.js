@@ -9,6 +9,7 @@ import inventoryRoutes from "../routes/inventory.routes.js";
 import projectRoutes from "../routes/project.routes.js";
 import lookupRoutes from "../routes/lookup.routes.js";
 import activityRoutes from "../routes/activity.routes.js";
+import marketingRoutes from "../routes/marketing.routes.js";
 
 // New settings module routes
 import myFieldRuleRoutes from "../routes/fieldRule.routes.js"; // My implementation
@@ -96,6 +97,7 @@ app.use("/projects", projectRoutes);
 app.use("/lookup", lookupRoutes);
 app.use("/lookups", lookupRoutes); // Alias for RESTful style
 app.use("/activities", activityRoutes);
+app.use("/marketing", marketingRoutes);
 app.use("/field-rules", myFieldRuleRoutes);
 app.use("/distribution-rules", myDistributionRuleRoutes);
 app.use("/companies", companyRoutes);
