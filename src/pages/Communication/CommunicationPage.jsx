@@ -84,35 +84,60 @@ export default function CommunicationPage() {
             const res = await activitiesAPI.getMessagingStream();
             if (res?.success) {
                 setActivities(res.data.map(act => {
-                    let name = '', phone = '';
-                    if (act.participants?.length)      { name = act.participants[0].name; phone = act.participants[0].mobile; }
-                    else if (act.participantName)      { name = act.participantName; phone = act.participantMobile || ''; }
-                    else if (act.details?.senderName)  { name = act.details.senderName; }
-                    else if (act.details?.from)        { name = phone = act.details.from; }
-                    else { const p = act.relatedTo?.find(r => ['Contact','Lead'].includes(r.model)); if (p) name = p.name; }
+                    // 1. Participant Identity
+                    let name = act.participant || act.participantName || '';
+                    let phone = act.phone || act.phoneNumber || act.participantMobile || '';
+
+                    if (!name) {
+                        if (act.participants?.length) { 
+                            name = act.participants[0].name; 
+                            phone = act.participants[0].mobile || phone; 
+                        }
+                        else if (act.details?.senderName) { name = act.details.senderName; }
+                        else if (act.details?.from) { name = phone = act.details.from; }
+                    }
+                    
+                    if (!name) {
+                        const p = act.relatedTo?.find(r => ['Contact','Lead'].includes(r.model));
+                        if (p) name = p.name;
+                    }
+                    
                     if (!name) name = phone || 'Unknown';
 
-                    let via = 'SMS';
+                    // 2. Channel Identification (Via)
+                    // If backend sends 'via', we trust it. Otherwise fallback to type logic.
+                    let via = act.via || 'SMS';
                     const t  = (act.type||'').toLowerCase();
                     const pl = (act.platform||act.details?.platform||'').toLowerCase();
-                    if (t==='call'||t==='calls')                          via = 'Calls';
-                    else if (pl==='whatsapp'||t==='whatsapp')             via = 'WhatsApp';
-                    else if (pl==='rcs')                                  via = 'RCS';
 
-                    const snip = act.details?.text||act.details?.message||act.description||act.subject||'';
+                    if (!act.via) {
+                        if (t==='call'||t==='calls')                          via = 'Calls';
+                        else if (pl==='whatsapp'||t==='whatsapp')             via = 'WhatsApp';
+                        else if (pl==='rcs')                                  via = 'RCS';
+                        else if (t==='email' || pl==='email')                 via = 'Email';
+                    }
+
+                    // 3. Content & Metadata
+                    const snip = act.snippet || act.details?.text || act.details?.message || act.description || act.subject || '';
                     const proj = act.relatedTo?.find(r=>r.model==='Project'||r.model==='Deal');
+                    
                     return {
-                        id: act._id, participant: name, via, type: act.type||'Messaging',
-                        subject: (proj?`[${proj.name}] `:'')+(snip.length>80?snip.slice(0,80)+'…':snip),
+                        id: act._id, 
+                        participant: name, 
+                        via, 
+                        type: act.type || 'Messaging',
+                        subject: (proj ? `[${proj.name}] ` : '') + (snip.length > 80 ? snip.slice(0, 80) + '…' : snip),
                         snippet: snip,
-                        outcome: act.details?.status||act.outcome||act.status||'Delivered',
-                        duration: act.details?.duration||'--',
-                        date: act.timestamp||act.createdAt||act.updatedAt,
-                        platform: act.details?.platform||act.platform||'Direct',
-                        isMatched: act.isMatched!==undefined ? act.isMatched : !!(act.entityId||act.relatedTo?.length),
-                        phone, entityId: act.entityId, entityType: act.entityType,
-                        thread: act.thread||act.details?.conversationThread||[],
-                        phoneNumber: phone||act.phoneNumber,
+                        outcome: act.outcome || act.details?.status || act.status || 'Delivered',
+                        duration: act.duration || act.details?.duration || '--',
+                        date: act.date || act.timestamp || act.createdAt || act.updatedAt,
+                        platform: act.platform || act.details?.platform || 'Direct',
+                        isMatched: act.isMatched !== undefined ? act.isMatched : !!(act.entityId || act.relatedTo?.length),
+                        phone, 
+                        entityId: act.entityId, 
+                        entityType: act.entityType,
+                        thread: act.thread || act.details?.conversationThread || [],
+                        phoneNumber: phone || act.phone || act.phoneNumber,
                     };
                 }));
             }

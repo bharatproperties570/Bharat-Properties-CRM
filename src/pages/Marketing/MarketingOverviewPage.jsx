@@ -194,6 +194,14 @@ const CAMP_KPIS = [
   { label: 'CONVERSIONS', val: '12', sub: 'This month', type: 'blue' }
 ];
 
+const PORTAL_DATA = [
+  { n: '99acres', i: '🏢', pkg: 'Gold Pro', cost: 15500, listings: 45, leads: 128, cpl: 121, resp: '12m', perf: 92, color: 'var(--blue)' },
+  { n: 'MagicBricks', i: '🏠', pkg: 'Platinum', cost: 22000, listings: 60, leads: 184, cpl: 119, resp: '8m', perf: 96, color: 'var(--green)' },
+  { n: 'Housing.com', i: '🏙️', pkg: 'Elite', cost: 12500, listings: 30, leads: 82, cpl: 152, resp: '15m', perf: 84, color: 'var(--gold)' },
+  { n: 'CommonFloor', i: '🏘️', pkg: 'Standard', cost: 8500, listings: 15, leads: 34, cpl: 250, resp: '24m', perf: 68, color: 'var(--purple)' },
+  { n: 'SquareYards', i: '📍', pkg: 'Enterprise', cost: 35000, listings: 120, leads: 412, cpl: 85, resp: '5m', perf: 98, color: 'var(--red)' }
+];
+
 export default function MarketingOverviewPage() {
   // ── CORE STATE WITH MIRROR PROTOCOL ──
   const { projects: dynamicProjects = [], propertyConfig = {}, sizes = [] } = usePropertyConfig();

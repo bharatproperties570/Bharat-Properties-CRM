@@ -835,9 +835,10 @@ export const getMessagingActivities = async (req, res) => {
                 return {
                     _id: a._id,
                     type: a.type,
-                    via: a.type === 'WhatsApp' ? 'WhatsApp' : 'Direct',
+                    via: a.details?.platform === 'WhatsApp' || a.type === 'WhatsApp' ? 'WhatsApp' : 'SMS',
                     subject: a.subject,
                     description: a.description,
+                    snippet: a.description,
                     timestamp: a.createdAt,
                     entityType: a.entityType,
                     entityId: a.entityId,
@@ -846,6 +847,10 @@ export const getMessagingActivities = async (req, res) => {
                     details: a.details,
                     platform: a.details?.platform || (a.type === 'WhatsApp' ? 'WhatsApp' : 'Direct'),
                     phoneNumber: phone,
+                    phone: phone,
+                    participant: participantName,
+                    outcome: a.details?.status || a.outcome || a.status || 'Delivered',
+                    date: a.createdAt,
                     thread: matchingConv ? matchingConv.messages.map(m => ({
                         sender: m.role === 'user' ? 'customer' : 'ai',
                         text: m.content,
@@ -886,8 +891,10 @@ export const getMessagingActivities = async (req, res) => {
                 return {
                     _id: c._id,
                     type: 'WhatsApp',
+                    via: 'WhatsApp',
                     subject: 'AI Bot Conversation',
                     description: lastMsg?.content || 'Conversation started',
+                    snippet: lastMsg?.content || 'Conversation started',
                     timestamp: c.updatedAt,
                     entityType: 'Lead',
                     entityId: c.lead?._id || c.lead,
