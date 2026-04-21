@@ -59,7 +59,7 @@ export const getInventory = async (req, res) => {
             page = 1, limit = 10, search = "", 
             category, subCategory, unitType, status, 
             project, block, location, area, contactId, 
-            statusCategory, ownerPhone 
+            statusCategory, ownerPhone, feedbackOutcome, feedbackReason
         } = req.query;
         const visibilityFilter = await getVisibilityFilter(req.user);
 
@@ -102,10 +102,16 @@ export const getInventory = async (req, res) => {
             query.block = { $regex: escapeRegExp(location), $options: "i" };
         }
 
-        // Support for project name filtering via 'area' (used in some modals)
         if (area && !project) {
             query.projectName = area;
         }
+
+        // [FEEDBACK FILTERS] Support for filtering by interaction history
+        const feedbackOutcomeFilter = await resolveMultiFilter('propertyOwnerFeedback', feedbackOutcome || req.query['feedbackOutcome[]']);
+        if (feedbackOutcomeFilter) query['history.details.result'] = feedbackOutcomeFilter;
+
+        const feedbackReasonFilter = await resolveMultiFilter('feedbackReasons', feedbackReason || req.query['feedbackReason[]']);
+        if (feedbackReasonFilter) query['history.details.reason'] = feedbackReasonFilter;
 
         if (contactId) {
             const ids = contactId.split(',');

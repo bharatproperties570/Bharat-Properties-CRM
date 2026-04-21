@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { useActivities } from '../context/ActivityContext';
 import { renderValue } from '../utils/renderUtils';
+import { api } from '../utils/api';
+import toast from 'react-hot-toast';
 
 const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialIntent }) => {
     const { masterFields } = usePropertyConfig();
@@ -256,11 +258,43 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
         return Object.keys(newErrors).length === 0;
     };
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
         if (validate()) {
-            // Professional Fix: Ensure we pass more than just the form data to onSave if needed
-            // But usually onSave handles the logic in the parent.
-            onSave(formData);
+            try {
+                // Professional Fix: Persist feedback to backend
+                const updatePayload = {
+                    interactions: [{
+                        note: `${formData.result}${formData.reason ? ` (${formData.reason})` : ''} - ${formData.feedback}`,
+                        actor: formData.selectedOwner,
+                        details: {
+                            result: formData.result,
+                            reason: formData.reason,
+                            feedback: formData.feedback,
+                            owner: formData.selectedOwner,
+                            ownerRole: formData.selectedOwnerRole
+                        }
+                    }]
+                };
+
+                // Automation: Update Inventory Status if necessary
+                if (formData.markAsSold) {
+                    // Map feedback outcome to actual system status
+                    if (formData.result.includes('Sold')) updatePayload.status = 'Sold Out';
+                    else if (formData.result.includes('Rent')) updatePayload.status = 'Rented Out';
+                    else updatePayload.status = 'Inactive';
+                }
+
+                const response = await api.put(`inventory/${inventory._id}`, updatePayload);
+
+                if (response.data && response.data.success) {
+                    onSave && onSave(formData);
+                } else {
+                    toast.error("Failed to save feedback");
+                }
+            } catch (err) {
+                console.error("Feedback Save Error:", err);
+                toast.error("Error saving feedback");
+            }
 
             // 1. Log Automated Messages (Triggers)
             const activeTriggersList = Object.entries(activeTriggers).filter(([, isActive]) => isActive).map(([ch]) => ch.toUpperCase());
