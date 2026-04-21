@@ -819,6 +819,9 @@ export const matchInventory = async (req, res) => {
 // Helper to resolve lookup (Find or Create)
 // Optimized with in-memory cache for bulk operations
 const lookupCache = new Map(); // Key: "type:value" -> ID
+const userCache = new Map();   // Key: identifier -> ID
+const teamCache = new Map();   // Key: identifier -> ID
+const contactCache = new Map(); // Key: identifier -> ID
 
 const resolveLookup = async (type, value, createIfMissing = true) => {
     if (!value) return null;
@@ -894,7 +897,14 @@ export const resolveSizeLookup = async (value, projectName, blockName) => {
 // Helper to resolve User (By Name or Email)
 const resolveUser = async (identifier) => {
     if (!identifier) return null;
-    if (mongoose.Types.ObjectId.isValid(identifier)) return new mongoose.Types.ObjectId(identifier.toString());
+    const cacheKey = String(identifier).toLowerCase();
+    if (userCache.has(cacheKey)) return userCache.get(cacheKey);
+
+    if (mongoose.Types.ObjectId.isValid(identifier)) {
+        const id = new mongoose.Types.ObjectId(identifier.toString());
+        userCache.set(cacheKey, id);
+        return id;
+    }
 
     const escapedIdentifier = escapeRegExp(identifier);
     const user = await User.findOne({
@@ -903,8 +913,11 @@ const resolveUser = async (identifier) => {
             { email: identifier.toLowerCase() },
             { name: { $regex: new RegExp(`^${escapedIdentifier}$`, 'i') } }
         ]
-    });
-    return user ? user._id : null;
+    }).select('_id').lean();
+    
+    const resultId = user ? user._id : null;
+    if (resultId) userCache.set(cacheKey, resultId);
+    return resultId;
 };
 
 // Helper to resolve Team (By Name or ID)
@@ -916,13 +929,23 @@ const resolveTeam = async (identifier) => {
         return await Promise.all(identifier.map(id => resolveTeam(id)));
     }
 
-    if (mongoose.Types.ObjectId.isValid(identifier)) return new mongoose.Types.ObjectId(identifier.toString());
+    const cacheKey = String(identifier).toLowerCase();
+    if (teamCache.has(cacheKey)) return teamCache.get(cacheKey);
+
+    if (mongoose.Types.ObjectId.isValid(identifier)) {
+        const id = new mongoose.Types.ObjectId(identifier.toString());
+        teamCache.set(cacheKey, id);
+        return id;
+    }
 
     const escapedIdentifier = escapeRegExp(identifier);
     const team = await Team.findOne({
         name: { $regex: new RegExp(`^${escapedIdentifier}$`, 'i') }
-    });
-    return team ? team._id : null;
+    }).select('_id').lean();
+    
+    const resultId = team ? team._id : null;
+    if (resultId) teamCache.set(cacheKey, resultId);
+    return resultId;
 };
 
 
@@ -945,6 +968,9 @@ export const importInventory = async (req, res) => {
         
         // Clear cache for a fresh import session
         lookupCache.clear();
+        userCache.clear();
+        teamCache.clear();
+        contactCache.clear();
 
         // Fetch property sizes from Lookups for auto-populating area details
         const sizeLookups = await Lookup.find({ lookup_type: 'Size' }).lean();
@@ -1069,26 +1095,33 @@ export const importInventory = async (req, res) => {
 
                 if (item.ownerName || item.ownerPhone || item.ownerEmail) {
                     try {
-                        const query = [];
-                        if (item.ownerPhone) query.push({ 'phones.number': { $regex: escapeRegExp(item.ownerPhone), $options: 'i' } });
-                        if (item.ownerEmail) query.push({ 'emails.address': { $regex: escapeRegExp(item.ownerEmail), $options: 'i' } });
-
+                        const contactKey = `${item.ownerName || ''}:${item.ownerPhone || ''}:${item.ownerEmail || ''}`.toLowerCase();
                         let contact = null;
-                        if (query.length > 0) {
-                            contact = await Contact.findOne({ $or: query });
-                        }
-                        if (!contact && item.ownerName) {
-                            contact = await Contact.findOne({ name: { $regex: new RegExp(`^${escapeRegExp(item.ownerName)}$`, 'i') } });
-                        }
 
-                        if (!contact) {
-                            const newContactData = {
-                                name: item.ownerName || 'Unknown Owner',
-                                phones: item.ownerPhone ? [{ number: item.ownerPhone, type: 'Personal' }] : [],
-                                emails: item.ownerEmail ? [{ address: item.ownerEmail, type: 'Personal' }] : [],
-                                source: await resolveLookup('Source', 'Data Import')
-                            };
-                            contact = await Contact.create(newContactData);
+                        if (contactCache.has(contactKey)) {
+                            contact = { _id: contactCache.get(contactKey) };
+                        } else {
+                            const query = [];
+                            if (item.ownerPhone) query.push({ 'phones.number': item.ownerPhone });
+                            if (item.ownerEmail) query.push({ 'emails.address': item.ownerEmail.toLowerCase() });
+
+                            if (query.length > 0) {
+                                contact = await Contact.findOne({ $or: query }).select('_id name').lean();
+                            }
+                            if (!contact && item.ownerName) {
+                                contact = await Contact.findOne({ name: { $regex: new RegExp(`^${escapeRegExp(item.ownerName)}$`, 'i') } }).select('_id name').lean();
+                            }
+
+                            if (!contact) {
+                                const newContactData = {
+                                    name: item.ownerName || 'Unknown Owner',
+                                    phones: item.ownerPhone ? [{ number: item.ownerPhone, type: 'Personal' }] : [],
+                                    emails: item.ownerEmail ? [{ address: item.ownerEmail, type: 'Personal' }] : [],
+                                    source: await resolveLookup('Source', 'Data Import')
+                                };
+                                contact = await Contact.create(newContactData);
+                            }
+                            contactCache.set(contactKey, contact._id);
                         }
 
                         result.owners = [contact._id];
