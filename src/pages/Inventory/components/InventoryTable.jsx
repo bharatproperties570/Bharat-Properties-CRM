@@ -46,9 +46,8 @@ const InventoryTable = ({
                 <div>Orientation</div>
                 <div>Owner Profile</div>
                 <div>Associate Contact</div>
-                <div>Status</div>
+                <div style={{ textAlign: 'left' }}>Intersaction</div>
                 <div style={{ textAlign: 'right', paddingRight: '1rem' }}>Assignment</div>
-                <div style={{ textAlign: 'center' }}>Actions</div>
             </div>
 
             {/* Grid Body */}
@@ -214,13 +213,27 @@ const InventoryTable = ({
                                 )}
                             </div>
 
-                            {/* Col 7: Status */}
+                            {/* Col 7: Intersaction */}
                             <div className="super-cell">
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: isActive ? '#22c55e' : '#94a3b8' }}></span>
-                                    <span style={{ fontSize: '0.72rem', fontWeight: 800, color: isActive ? '#16a34a' : '#64748b', textTransform: 'uppercase' }}>
-                                        {renderValue(getLookupValue('Status', item.status))}
-                                    </span>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: isActive ? '#22c55e' : '#94a3b8' }}></span>
+                                        <span style={{ fontSize: '0.72rem', fontWeight: 800, color: isActive ? '#16a34a' : '#64748b', textTransform: 'uppercase' }}>
+                                            {renderValue(getLookupValue('Status', item.status))}
+                                        </span>
+                                    </div>
+                                    <button 
+                                        onClick={(e) => { e.stopPropagation(); onAction && onAction('match', item); }}
+                                        style={{ 
+                                            background: '#f0f9ff', border: '1px solid #bae6fd', 
+                                            borderRadius: '6px', padding: '2px 8px',
+                                            fontSize: '0.62rem', fontWeight: 800, color: '#0284c7',
+                                            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px'
+                                        }}
+                                    >
+                                        <i className="fas fa-sync-alt" style={{ fontSize: '0.55rem' }}></i>
+                                        MATCH
+                                    </button>
                                 </div>
 
                                 {(() => {
@@ -299,30 +312,6 @@ const InventoryTable = ({
                                 </div>
                             </div>
 
-                            {/* Col 9: Actions */}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}>
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); onAction && onAction('share', item); }}
-                                    title="Share to Social"
-                                    style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', width: '32px', height: '32px', cursor: 'pointer', color: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: '0.2s' }}
-                                >
-                                    <i className="fas fa-share-alt"></i>
-                                </button>
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); onAction && onAction('edit', item); }}
-                                    title="Edit Property"
-                                    style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px', width: '32px', height: '32px', cursor: 'pointer', color: '#f59e0b', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: '0.2s' }}
-                                >
-                                    <i className="fas fa-edit"></i>
-                                </button>
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); onAction && onAction('delete', item); }}
-                                    title="Delete Property"
-                                    style={{ background: '#fef2f2', border: '1px solid #fee2e2', borderRadius: '8px', width: '32px', height: '32px', cursor: 'pointer', color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: '0.2s' }}
-                                >
-                                    <i className="fas fa-trash-alt"></i>
-                                </button>
-                            </div>
                         </div>
                     );
                 })}
