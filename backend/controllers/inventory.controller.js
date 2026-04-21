@@ -1029,7 +1029,7 @@ export const importInventory = async (req, res) => {
                     ownerEmail: item.ownerEmail || item['Owner Email'],
                     ownerAddress: item.ownerAddress || item['Owner Address'],
 
-                    teams: item.teams || globalTeams,
+                    teams: await resolveTeam(item.teams || globalTeams),
                     team: await resolveTeam(item.team || item['Team']),
                     visibleTo: item.visibleTo || item['Visible To'] || 'Everyone'
                 };

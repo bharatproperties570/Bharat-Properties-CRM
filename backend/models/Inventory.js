@@ -173,7 +173,14 @@ const InventorySchema = new mongoose.Schema({
         source: String
     }]
 }, { timestamps: true, strict: true });
-
+ 
+// ━━ PERFORMANCE INDEXES (Harden for Bulk Operations) ━━━━━━━━━━━━━━━━━━━━━━
+// Optimized for Import/Sync deduplication and dashboard visibility
+InventorySchema.index({ projectName: 1, block: 1, unitNo: 1 });
+InventorySchema.index({ projectName: 1, block: 1, unitNumber: 1 });
+InventorySchema.index({ teams: 1, status: 1 });
+InventorySchema.index({ assignedTo: 1, status: 1 });
+ 
 // Permanent Fix: Deep Data Integrity Hooks
 const escapeRegExp = (string) => {
     if (!string) return '';

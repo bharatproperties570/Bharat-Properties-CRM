@@ -168,12 +168,9 @@ export const MODULE_CONFIG = {
             { key: 'unitNo', label: 'Unit Number', required: true },
             { key: 'unitType', label: 'Unit Type' },
             { key: 'category', label: 'Category' },
-            { key: 'category_id', label: 'Category ID (Backend)' },
             { key: 'subCategory', label: 'Sub Category' },
-            { key: 'subCategory_id', label: 'Sub Category ID (Backend)' },
             { key: 'sizeLabel', label: 'Size Label *', required: true },
             { key: 'builtupType', label: 'Builtup Type' },
-            { key: 'builtupType_id', label: 'Builtup Type ID (Backend)' },
             { key: 'block', label: 'Block' },
             { key: 'size', label: 'Size' },
             { key: 'direction', label: 'Direction / Orientation' },
@@ -209,10 +206,8 @@ export const MODULE_CONFIG = {
 
             // System Details
             { key: 'assignedTo', label: 'Assigned To' },
-            { key: 'assignedTo_id', label: 'Assigned To ID (Backend)' },
             { key: 'team', label: 'Team' },
             { key: 'status', label: 'Status' },
-            { key: 'status_id', label: 'Status ID (Backend)' },
             { key: 'visibleTo', label: 'Visible To' }
         ]
     },
