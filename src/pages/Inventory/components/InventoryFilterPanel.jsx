@@ -422,12 +422,29 @@ const InventoryFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
                                         <span style={{ fontSize: '0.75rem', fontWeight: '400', color: '#22c55e', marginLeft: '6px' }}>(Filtered by Location)</span>
                                     )}
                                 </label>
-                                <select style={styles.select} value={filters.project || ''} onChange={(e) => updateFilter('project', e.target.value)}>
+                                <select style={styles.select} value={filters.project || ''} onChange={(e) => {
+                                    onFilterChange({ ...filters, project: e.target.value, block: '' });
+                                }}>
                                     <option value="">Select Project</option>
                                     {projectOptions.map(proj => (
                                         <option key={proj} value={proj}>{proj}</option>
                                     ))}
                                 </select>
+                            </div>
+                            <div>
+                                <label style={styles.label}>Block / Phase</label>
+                                <div style={{ position: 'relative' }}>
+                                    <i className="fas fa-th-large" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.9rem' }}></i>
+                                    <input
+                                        type="text"
+                                        placeholder="Enter Block (e.g. A, Sector 1...)"
+                                        style={{ ...styles.input, paddingLeft: '36px' }}
+                                        value={filters.block || ''}
+                                        onChange={(e) => updateFilter('block', e.target.value)}
+                                        onFocus={e => e.target.style.borderColor = '#0066ff'}
+                                        onBlur={e => e.target.style.borderColor = '#cbd5e1'}
+                                    />
+                                </div>
                             </div>
                         </div>
                     </section>

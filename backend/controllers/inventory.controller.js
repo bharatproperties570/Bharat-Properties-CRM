@@ -91,9 +91,12 @@ export const getInventory = async (req, res) => {
             }
         }
 
-        // Support for block/location filtering
-        if (block || location) {
-            query.block = block || location;
+        // [ENTERPRISE FILTERING] Support for Block/Phase partial matching
+        if (block) {
+            query.block = { $regex: escapeRegExp(block), $options: "i" };
+        } else if (location) {
+            // Fallback for location-based searching in block field if block not explicitly provided
+            query.block = { $regex: escapeRegExp(location), $options: "i" };
         }
 
         // Support for project name filtering via 'area' (used in some modals)
