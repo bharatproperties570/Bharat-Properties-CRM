@@ -253,6 +253,17 @@ export const getInventory = async (req, res) => {
 
         const unitTypeFilter = await resolveMultiFilter('Size', unitTypeReq);
         if (unitTypeFilter) query.unitType = unitTypeFilter;
+
+        // [ORIENTATION FILTERS]
+        const directionFilter = await resolveMultiFilter('Direction', req.query.direction || req.query['direction[]']);
+        if (directionFilter) query.direction = directionFilter;
+
+        const roadWidthFilter = await resolveMultiFilter('RoadWidth', req.query.roadWidth || req.query['roadWidth[]']);
+        if (roadWidthFilter) query.roadWidth = roadWidthFilter;
+
+        const facingFilter = await resolveMultiFilter('Facing', req.query.facing || req.query['facing[]']);
+        if (facingFilter) query.facing = facingFilter;
+
         if (project) {
             const projectConditions = [
                 { projectId: mongoose.Types.ObjectId.isValid(project) ? project : undefined },
