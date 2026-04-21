@@ -4,6 +4,7 @@ import { PROJECTS_LIST } from '../../../constants/projectConstants';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import { calculateDistance } from '../../../utils/inventoryFilterLogic';
 import { renderValue } from '../../../utils/renderUtils';
+import { api } from '../../../utils/api';
 
 // ==================================================================================
 // STYLES
@@ -173,6 +174,30 @@ const InventoryFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
     const { masterFields = {}, propertyConfig = {}, projects: dynamicProjects = [] } = usePropertyConfig();
     const [isVisible, setIsVisible] = useState(false);
     const [sizeMode, setSizeMode] = useState('type'); // 'type' | 'range'
+    const [availableBlocks, setAvailableBlocks] = useState([]);
+    const [loadingBlocks, setLoadingBlocks] = useState(false);
+
+    useEffect(() => {
+        const fetchBlocks = async () => {
+            if (!filters.project) {
+                setAvailableBlocks([]);
+                return;
+            }
+            setLoadingBlocks(true);
+            try {
+                const res = await api.get(`inventory/blocks?project=${encodeURIComponent(filters.project)}`);
+                if (res.data && res.data.success) {
+                    setAvailableBlocks(res.data.blocks || []);
+                }
+            } catch (err) {
+                console.error("Error fetching blocks:", err);
+            } finally {
+                setLoadingBlocks(false);
+            }
+        };
+
+        fetchBlocks();
+    }, [filters.project]);
 
     useEffect(() => {
         if (filters.sizeMode) setSizeMode(filters.sizeMode);
@@ -433,18 +458,13 @@ const InventoryFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
                             </div>
                             <div>
                                 <label style={styles.label}>Block / Phase</label>
-                                <div style={{ position: 'relative' }}>
-                                    <i className="fas fa-th-large" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.9rem' }}></i>
-                                    <input
-                                        type="text"
-                                        placeholder="Enter Block (e.g. A, Sector 1...)"
-                                        style={{ ...styles.input, paddingLeft: '36px' }}
-                                        value={filters.block || ''}
-                                        onChange={(e) => updateFilter('block', e.target.value)}
-                                        onFocus={e => e.target.style.borderColor = '#0066ff'}
-                                        onBlur={e => e.target.style.borderColor = '#cbd5e1'}
-                                    />
-                                </div>
+                                <MultiSelectDropdown
+                                    options={availableBlocks}
+                                    selected={Array.isArray(filters.block) ? filters.block : (filters.block ? [filters.block] : [])}
+                                    onChange={(val) => updateFilter('block', val)}
+                                    placeholder={loadingBlocks ? "Loading blocks..." : "Select Blocks"}
+                                    disabled={!filters.project || loadingBlocks}
+                                />
                             </div>
                         </div>
                     </section>

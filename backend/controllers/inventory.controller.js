@@ -91,9 +91,12 @@ export const getInventory = async (req, res) => {
             }
         }
 
-        // [ENTERPRISE FILTERING] Support for Block/Phase partial matching
+        // [ENTERPRISE FILTERING] Support for Block/Phase multi-select or partial matching
         if (block) {
-            query.block = { $regex: escapeRegExp(block), $options: "i" };
+            let blockVals = Array.isArray(block) ? block : String(block).split(',').map(s => s.trim()).filter(Boolean);
+            if (blockVals.length > 0) {
+                query.block = { $in: blockVals };
+            }
         } else if (location) {
             // Fallback for location-based searching in block field if block not explicitly provided
             query.block = { $regex: escapeRegExp(location), $options: "i" };
@@ -1500,5 +1503,18 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
     } catch (error) {
         console.error("Bulk Owner Update Fatal Error:", error);
         res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+export const getUniqueBlocks = async (req, res) => {
+    try {
+        const { project } = req.query;
+        if (!project) return res.status(200).json({ success: true, blocks: [] });
+        const blocks = await Inventory.distinct("block", { projectName: project, block: { $ne: null, $exists: true } });
+        const sortedBlocks = blocks.filter(b => b && b.trim() !== "").sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+        res.status(200).json({ success: true, blocks: sortedBlocks });
+    } catch (error) {
+        console.error("[GET_BLOCKS_ERROR]", error);
+        res.status(500).json({ success: false, error: "Failed to fetch blocks" });
     }
 };
