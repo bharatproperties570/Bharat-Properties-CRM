@@ -597,16 +597,7 @@ export const updateInventory = async (req, res) => {
         const data = { ...req.body };
         console.log(`[DEBUG] Payload keys: ${Object.keys(data).join(', ')}`);
 
-        // Resolve Reference Fields to prevent CastErrors
-        if (data.category) data.category = await resolveLookup('Category', data.category, false);
-        if (data.subCategory) data.subCategory = await resolveLookup('SubCategory', data.subCategory, false);
-        if (data.unitType) data.unitType = await resolveLookup('Size', data.unitType, false);
-        if (data.status) data.status = await resolveLookup('Status', data.status, false); else data.status = await resolveLookup('Status', 'Inactive', false);
-        if (data.facing) data.facing = await resolveLookup('Facing', data.facing, false);
-        if (data.direction) data.direction = await resolveLookup('Direction', data.direction, false);
-        if (data.orientation) data.orientation = await resolveLookup('Orientation', data.orientation, false);
-        if (data.intent) data.intent = await resolveLookup('Intent', data.intent, false);
-        if (data.builtupType) data.builtupType = await resolveLookup('BuiltupType', data.builtupType, false);
+        // Resolve Reference Fields to prevent CastErrors (Let model hooks handle the heavy lifting)
         if (data.assignedTo) data.assignedTo = await resolveUser(data.assignedTo);
         if (data.teams) data.teams = await resolveTeam(data.teams);
         else if (data.team) data.team = await resolveTeam(data.team);
