@@ -1510,7 +1510,13 @@ export const getUniqueBlocks = async (req, res) => {
     try {
         const { project } = req.query;
         if (!project) return res.status(200).json({ success: true, blocks: [] });
-        const blocks = await Inventory.distinct("block", { projectName: project, block: { $ne: null, $exists: true } });
+        
+        // [SENIOR FIX] Use case-insensitive matching for project name to ensure data consistency
+        const blocks = await Inventory.distinct("block", { 
+            projectName: { $regex: new RegExp(`^${escapeRegExp(project)}$`, 'i') }, 
+            block: { $ne: null, $exists: true } 
+        });
+        
         const sortedBlocks = blocks.filter(b => b && b.trim() !== "").sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
         res.status(200).json({ success: true, blocks: sortedBlocks });
     } catch (error) {

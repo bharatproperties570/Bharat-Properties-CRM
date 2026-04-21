@@ -146,24 +146,31 @@ const MultiSelectDropdown = ({ options, selected, onChange, placeholder, disable
                 <div style={{
                     position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '4px',
                     backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px',
-                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)', zIndex: 2001, maxHeight: '200px', overflowY: 'auto'
+                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)', zIndex: 2001, maxHeight: '200px', overflowY: 'auto'
                 }}>
-                    {options.map(option => (
-                        <div
-                            key={option}
-                            onClick={() => handleSelect(option)}
-                            style={{
-                                padding: '8px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px',
-                                backgroundColor: selected.includes(option) ? '#eff6ff' : 'transparent',
-                                color: selected.includes(option) ? '#0066ff' : '#0f172a', fontSize: '0.9rem'
-                            }}
-                            onMouseEnter={e => e.currentTarget.style.backgroundColor = selected.includes(option) ? '#eff6ff' : '#f8fafc'}
-                            onMouseLeave={e => e.currentTarget.style.backgroundColor = selected.includes(option) ? '#eff6ff' : 'transparent'}
-                        >
-                            <input type="checkbox" checked={selected.includes(option)} readOnly style={{ pointerEvents: 'none' }} />
-                            {renderValue(option)}
+                    {options.length === 0 ? (
+                        <div style={{ padding: '16px', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem', fontStyle: 'italic' }}>
+                            <i className="fas fa-info-circle" style={{ marginBottom: '8px', display: 'block', fontSize: '1.2rem', opacity: 0.5 }}></i>
+                            No blocks found for this project
                         </div>
-                    ))}
+                    ) : (
+                        options.map(option => (
+                            <div
+                                key={option}
+                                onClick={() => handleSelect(option)}
+                                style={{
+                                    padding: '8px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px',
+                                    backgroundColor: selected.includes(option) ? '#eff6ff' : 'transparent',
+                                    color: selected.includes(option) ? '#0066ff' : '#0f172a', fontSize: '0.9rem'
+                                }}
+                                onMouseEnter={e => e.currentTarget.style.backgroundColor = selected.includes(option) ? '#eff6ff' : '#f8fafc'}
+                                onMouseLeave={e => e.currentTarget.style.backgroundColor = selected.includes(option) ? '#eff6ff' : 'transparent'}
+                            >
+                                <input type="checkbox" checked={selected.includes(option)} readOnly style={{ pointerEvents: 'none' }} />
+                                {renderValue(option)}
+                            </div>
+                        ))
+                    )}
                 </div>
             )}
         </div>
