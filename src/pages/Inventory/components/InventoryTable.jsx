@@ -215,25 +215,11 @@ const InventoryTable = ({
 
                             {/* Col 7: Intersaction */}
                             <div className="super-cell">
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: isActive ? '#22c55e' : '#94a3b8' }}></span>
-                                        <span style={{ fontSize: '0.72rem', fontWeight: 800, color: isActive ? '#16a34a' : '#64748b', textTransform: 'uppercase' }}>
-                                            {renderValue(getLookupValue('Status', item.status))}
-                                        </span>
-                                    </div>
-                                    <button 
-                                        onClick={(e) => { e.stopPropagation(); onAction && onAction('match', item); }}
-                                        style={{ 
-                                            background: '#f0f9ff', border: '1px solid #bae6fd', 
-                                            borderRadius: '6px', padding: '2px 8px',
-                                            fontSize: '0.62rem', fontWeight: 800, color: '#0284c7',
-                                            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px'
-                                        }}
-                                    >
-                                        <i className="fas fa-sync-alt" style={{ fontSize: '0.55rem' }}></i>
-                                        MATCH
-                                    </button>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: isActive ? '#22c55e' : '#94a3b8' }}></span>
+                                    <span style={{ fontSize: '0.72rem', fontWeight: 800, color: isActive ? '#16a34a' : '#64748b', textTransform: 'uppercase' }}>
+                                        {renderValue(getLookupValue('Status', item.status))}
+                                    </span>
                                 </div>
 
                                 {(() => {
