@@ -145,14 +145,14 @@ const CaptureFormPage = ({ slug = 'professional-deal-capture' }) => {
         return (
             <div className="success-overlay" style={{
                 height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', color: '#fff', textAlign: 'center'
+                background: '#f8fafc', color: '#0f172a', textAlign: 'center', padding: '20px'
             }}>
-                <div style={{ padding: '60px', background: 'rgba(255,255,255,0.05)', backdropFilter: 'blur(20px)', borderRadius: '40px', border: '1px solid rgba(255,255,255,0.1)', maxWidth: '600px' }}>
+                <div className="success-card" style={{ padding: '60px', background: '#ffffff', borderRadius: '40px', border: '1px solid #e2e8f0', boxShadow: '0 20px 40px -10px rgba(0,0,0,0.05)', maxWidth: '600px', width: '100%', boxSizing: 'border-box' }}>
                     <div style={{ fontSize: '4rem', color: '#22c55e', marginBottom: '24px' }}>✓</div>
                     <h2 style={{ fontSize: '2.5rem', fontWeight: 900, marginBottom: '16px' }}>Mission Accomplished</h2>
-                    <p style={{ fontSize: '1.2rem', color: '#94a3b8', lineHeight: '1.6' }}>{formConfig.settings.successMessage}</p>
+                    <p style={{ fontSize: '1.2rem', color: '#475569', lineHeight: '1.6' }}>{formConfig.settings?.successMessage || 'Deal captured successfully!'}</p>
                     <button onClick={() => window.location.reload()} style={{
-                        marginTop: '40px', padding: '16px 32px', borderRadius: '16px', border: 'none', background: '#3b82f6', color: '#fff', fontWeight: 700, cursor: 'pointer'
+                        marginTop: '40px', padding: '16px 32px', borderRadius: '16px', border: 'none', background: '#3b82f6', color: '#fff', fontWeight: 700, cursor: 'pointer', width: '100%', maxWidth: '300px'
                     }}>Capture Another Deal</button>
                 </div>
             </div>
@@ -160,41 +160,26 @@ const CaptureFormPage = ({ slug = 'professional-deal-capture' }) => {
     }
 
     return (
-        <div style={{
-            minHeight: '100vh',
-            background: '#0f172a',
-            backgroundImage: 'radial-gradient(circle at 0% 0%, rgba(59, 130, 246, 0.1) 0%, transparent 50%), radial-gradient(circle at 100% 100%, rgba(147, 51, 234, 0.1) 0%, transparent 50%)',
-            padding: '60px 20px',
-            fontFamily: "'Inter', sans-serif"
-        }}>
+        <div className="capture-wrapper">
             <Toaster position="top-right" />
-            <div style={{
-                maxWidth: '850px',
-                margin: '0 auto',
-                background: 'rgba(255, 255, 255, 0.02)',
-                backdropFilter: 'blur(30px)',
-                borderRadius: '40px',
-                border: '1px solid rgba(255, 255, 255, 0.08)',
-                overflow: 'hidden',
-                boxShadow: '0 50px 100px -20px rgba(0,0,0,0.5)'
-            }}>
-                <div style={{ padding: '60px 60px 40px 60px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '12px' }}>
+            <div className="capture-card">
+                <div className="capture-header">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '12px', justifyContent: 'center' }}>
                         <div style={{ width: '40px', height: '4px', background: '#3b82f6', borderRadius: '2px' }}></div>
                         <span style={{ color: '#3b82f6', fontWeight: 800, letterSpacing: '2px', fontSize: '0.8rem', textTransform: 'uppercase' }}>Secure Deal Intake</span>
                     </div>
-                    <h1 style={{ color: '#fff', fontSize: '2.5rem', fontWeight: 900, margin: 0 }}>{formConfig.name}</h1>
-                    <p style={{ color: '#94a3b8', marginTop: '16px', fontSize: '1.1rem', maxWidth: '600px', lineHeight: '1.6' }}>{formConfig.description}</p>
+                    <h1 className="capture-title">{formConfig.name}</h1>
+                    <p className="capture-desc">{formConfig.description}</p>
                 </div>
 
-                <form onSubmit={handleSubmit} style={{ padding: '40px 60px' }}>
+                <form onSubmit={handleSubmit} className="capture-form-body">
                     {formConfig.sections.map(section => (
                         <div key={section.id} style={{ marginBottom: '50px' }}>
-                            <h3 style={{ color: '#f1f5f9', fontSize: '1.2rem', fontWeight: 800, marginBottom: '32px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <h3 style={{ color: '#0f172a', fontSize: '1.2rem', fontWeight: 800, marginBottom: '32px', display: 'flex', alignItems: 'center', gap: '12px' }}>
                                 <span style={{ color: '#3b82f6' }}>#</span> {section.title}
                             </h3>
 
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '30px' }}>
+                            <div className="capture-grid">
                                 {section.fields.map(field => {
                                     // Conditional Logic for Relationship field
                                     if (field.mappingField === 'relationship') {
@@ -204,7 +189,7 @@ const CaptureFormPage = ({ slug = 'professional-deal-capture' }) => {
 
                                     return (
                                         <div key={field.id} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                            <label style={{ color: '#94a3b8', fontSize: '0.9rem', fontWeight: 600 }}>
+                                            <label style={{ color: '#475569', fontSize: '0.9rem', fontWeight: 600 }}>
                                                 {field.label} {field.required && <span style={{ color: '#ef4444' }}>*</span>}
                                             </label>
 
@@ -263,7 +248,7 @@ const CaptureFormPage = ({ slug = 'professional-deal-capture' }) => {
                                             ) : field.type === 'radio' ? (
                                                 <div style={{ display: 'flex', gap: '20px', padding: '10px 0' }}>
                                                     {field.options && field.options.map(opt => (
-                                                        <label key={opt} style={{ color: '#f1f5f9', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                        <label key={opt} style={{ color: '#0f172a', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                             <input
                                                                 type="radio"
                                                                 name={field.id}
@@ -296,7 +281,7 @@ const CaptureFormPage = ({ slug = 'professional-deal-capture' }) => {
 
                     {/* Remarks Section */}
                     <div style={{ marginBottom: '50px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                        <label style={{ color: '#94a3b8', fontSize: '0.9rem', fontWeight: 600 }}>
+                        <label style={{ color: '#475569', fontSize: '0.9rem', fontWeight: 600 }}>
                             Remarks / Special Instructions
                         </label>
                         <textarea
@@ -322,48 +307,160 @@ const CaptureFormPage = ({ slug = 'professional-deal-capture' }) => {
                     </button>
                 </form>
 
-                <div style={{ padding: '30px 60px', background: 'rgba(255,255,255,0.02)', borderTop: '1px solid rgba(255,255,255,0.05)', textAlign: 'center' }}>
-                    <p style={{ color: '#475569', fontSize: '0.85rem', fontWeight: 500 }}>
+                <div className="capture-footer">
+                    <p style={{ margin: 0, color: '#64748b', fontSize: '0.85rem', fontWeight: 500 }}>
                         Powered by Bharat Properties Enterprise Engine • Encrypted Connection
                     </p>
                 </div>
             </div>
 
             <style>{`
+                @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+                
+                body { margin: 0; padding: 0; }
+                
+                .capture-wrapper {
+                    min-height: 100vh;
+                    background: #f8fafc;
+                    padding: 60px 20px;
+                    font-family: 'Inter', sans-serif;
+                }
+                
+                .capture-card {
+                    max-width: 850px;
+                    margin: 0 auto;
+                    background: #ffffff;
+                    border-radius: 40px;
+                    border: 1px solid #e2e8f0;
+                    overflow: hidden;
+                    box-shadow: 0 20px 40px -10px rgba(0,0,0,0.05), 0 10px 15px -3px rgba(0,0,0,0.02);
+                }
+                
+                .capture-header {
+                    padding: 60px;
+                    border-bottom: 1px solid #e2e8f0;
+                    background: linear-gradient(180deg, #f1f5f9 0%, #ffffff 100%);
+                    text-align: center;
+                }
+                
+                .capture-title {
+                    color: #0f172a;
+                    font-size: 2.5rem;
+                    font-weight: 900;
+                    margin: 0;
+                    letter-spacing: -0.02em;
+                }
+                
+                .capture-desc {
+                    color: #475569;
+                    margin-top: 16px;
+                    font-size: 1.1rem;
+                    max-width: 600px;
+                    line-height: 1.6;
+                    margin-left: auto;
+                    margin-right: auto;
+                }
+                
+                .capture-form-body {
+                    padding: 40px 60px;
+                }
+                
+                .capture-grid {
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    gap: 30px;
+                }
+                
+                .capture-footer {
+                    padding: 30px 60px;
+                    background: #f8fafc;
+                    border-top: 1px solid #e2e8f0;
+                    text-align: center;
+                }
+                
                 .premium-input {
                     padding: 16px 20px;
                     border-radius: 16px;
-                    background: rgba(255, 255, 255, 0.03);
-                    border: 1px solid rgba(255, 255, 255, 0.1);
-                    color: #fff;
+                    background: #f1f5f9;
+                    border: 1px solid #cbd5e1;
+                    color: #0f172a;
                     font-size: 1rem;
                     outline: none;
                     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
                     width: 100%;
                     box-sizing: border-box;
+                    font-family: inherit;
                 }
                 .premium-input:focus {
-                    background: rgba(255, 255, 255, 0.05);
+                    background: #ffffff;
                     border-color: #3b82f6;
-                    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+                    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15);
                 }
                 .premium-input::placeholder {
-                    color: #475569;
+                    color: #94a3b8;
+                }
+                .premium-input:disabled {
+                    background: #e2e8f0;
+                    opacity: 0.7;
+                    cursor: not-allowed;
                 }
                 select.premium-input option {
-                    background: #1e293b;
-                    color: #fff;
+                    background: #ffffff;
+                    color: #0f172a;
                     padding: 10px;
                 }
+                
                 .loading-container, .error-container {
                     height: 100vh;
                     display: flex;
                     align-items: center;
                     justify-content: center;
-                    background: #0f172a;
-                    color: #94a3b8;
+                    background: #f8fafc;
+                    color: #475569;
                     font-family: 'Inter', sans-serif;
                     font-weight: 600;
+                    font-size: 1.2rem;
+                }
+                
+                /* Responsive Mobile Styling */
+                @media (max-width: 768px) {
+                    .capture-wrapper {
+                        padding: 24px 16px;
+                    }
+                    .capture-grid {
+                        grid-template-columns: 1fr;
+                        gap: 20px;
+                    }
+                    .capture-header, .capture-form-body, .capture-footer {
+                        padding: 30px 24px;
+                    }
+                    .capture-title {
+                        font-size: 2rem;
+                    }
+                    .capture-card {
+                        border-radius: 28px;
+                    }
+                }
+                
+                @media (max-width: 480px) {
+                    .capture-wrapper {
+                        padding: 16px 12px;
+                    }
+                    .capture-header {
+                        padding: 24px 16px;
+                    }
+                    .capture-form-body {
+                        padding: 24px 16px;
+                    }
+                    .capture-footer {
+                        padding: 24px 16px;
+                    }
+                    .capture-title {
+                        font-size: 1.75rem;
+                    }
+                    .premium-input {
+                        padding: 14px 16px;
+                    }
                 }
             `}</style>
         </div>
