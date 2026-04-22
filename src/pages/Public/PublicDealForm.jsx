@@ -202,11 +202,17 @@ const PublicDealForm = ({ slug }) => {
     }
 
     return (
-        <div style={{ minHeight: '100vh', background: '#020617', padding: '60px 20px', fontFamily: "'Inter', sans-serif" }}>
+        <div className="public-wrapper">
             <Toaster position="top-right" />
             <style>{`
                 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
                 body { margin: 0; padding: 0; }
+                .public-wrapper {
+                    min-height: 100vh;
+                    background: #020617;
+                    padding: 60px 20px;
+                    font-family: 'Inter', sans-serif;
+                }
                 .public-glass-card {
                     background: rgba(30, 41, 59, 0.4);
                     backdrop-filter: blur(12px);
@@ -214,12 +220,39 @@ const PublicDealForm = ({ slug }) => {
                     border: 1px solid rgba(255,255,255,0.08);
                     border-radius: 32px;
                     box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
+                    max-width: 750px;
+                    margin: 0 auto;
+                    overflow: hidden;
+                }
+                .form-header {
+                    padding: 60px 40px;
+                    text-align: center;
+                    border-bottom: 1px solid rgba(255,255,255,0.05);
+                    background: linear-gradient(180deg, rgba(201,146,26,0.05) 0%, transparent 100%);
+                }
+                .form-title {
+                    margin: 0;
+                    font-size: 2.5rem;
+                    font-weight: 900;
+                    color: #fff;
+                    letter-spacing: -0.03em;
+                }
+                .form-body {
+                    padding: 40px;
+                }
+                .form-footer {
+                    padding: 30px 40px;
+                    background: rgba(0,0,0,0.2);
+                    border-top: 1px solid rgba(255,255,255,0.05);
+                    text-align: center;
                 }
                 .form-input-premium {
                     background: rgba(15, 23, 42, 0.6);
                     border: 1px solid rgba(255,255,255,0.1);
                     color: #f8fafc;
                     transition: all 0.2s ease;
+                    width: 100%;
+                    box-sizing: border-box;
                 }
                 .form-input-premium:focus {
                     border-color: #c9921a;
@@ -230,20 +263,63 @@ const PublicDealForm = ({ slug }) => {
                     opacity: 0.5;
                     cursor: not-allowed;
                 }
+                
+                @media (max-width: 768px) {
+                    .public-wrapper {
+                        padding: 24px 16px;
+                    }
+                    .public-glass-card {
+                        border-radius: 24px;
+                    }
+                    .form-header {
+                        padding: 40px 24px;
+                    }
+                    .form-title {
+                        font-size: 2rem;
+                    }
+                    .form-body {
+                        padding: 24px;
+                    }
+                    .form-footer {
+                        padding: 24px;
+                    }
+                    button[type="submit"] {
+                        padding: 16px;
+                        font-size: 1rem;
+                    }
+                }
+                
+                @media (max-width: 480px) {
+                    .public-wrapper {
+                        padding: 16px 12px;
+                    }
+                    .form-header {
+                        padding: 30px 16px;
+                    }
+                    .form-title {
+                        font-size: 1.5rem;
+                    }
+                    .form-body {
+                        padding: 20px 16px;
+                    }
+                    .form-input-premium {
+                        padding: 14px;
+                    }
+                }
             `}</style>
             
-            <div className="public-glass-card" style={{ maxWidth: '750px', margin: '0 auto', overflow: 'hidden' }}>
+            <div className="public-glass-card">
 
                 {/* Header */}
-                <div style={{ padding: '60px 40px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', background: 'linear-gradient(180deg, rgba(201,146,26,0.05) 0%, transparent 100%)' }}>
-                    <h1 style={{ margin: 0, fontSize: '2.5rem', fontWeight: 900, color: '#fff', letterSpacing: '-0.03em' }}>{formConfig.name}</h1>
+                <div className="form-header">
+                    <h1 className="form-title">{formConfig.name}</h1>
                     {formConfig.description && (
                         <p style={{ margin: '16px 0 0', color: '#94a3b8', fontSize: '1.1rem', lineHeight: '1.6' }}>{formConfig.description}</p>
                     )}
                 </div>
 
                 {/* Form */}
-                <form onSubmit={handleSubmit} style={{ padding: '40px' }}>
+                <form onSubmit={handleSubmit} className="form-body">
                     {formConfig.sections.map(section => (
                         <div key={section.id} style={{ marginBottom: '40px' }}>
                             <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#c9921a', marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '12px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
@@ -413,7 +489,7 @@ const PublicDealForm = ({ slug }) => {
                 </form>
 
                 {/* Footer */}
-                <div style={{ padding: '30px 40px', background: 'rgba(0,0,0,0.2)', borderTop: '1px solid rgba(255,255,255,0.05)', textAlign: 'center' }}>
+                <div className="form-footer">
                     <p style={{ margin: 0, color: '#64748b', fontSize: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
                         <i className="fas fa-shield-alt" style={{ color: '#c9921a' }}></i>
                         Bharat Properties Secure Deal Entry
