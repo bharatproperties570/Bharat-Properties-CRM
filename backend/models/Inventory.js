@@ -201,18 +201,51 @@ InventorySchema.pre('save', async function (next) {
             return lookup._id;
         };
 
-        if (this.intent && this.intent.length > 0) {
-            this.intent = await Promise.all(this.intent.map(async (val) => {
+        if (this.intent !== undefined) {
+            this.intent = await Promise.all((Array.isArray(this.intent) ? this.intent : [this.intent]).map(async (val) => {
+                if (!val) return null;
                 if (mongoose.Types.ObjectId.isValid(val)) return val;
                 return await resolveLookupLocal('Intent', val);
             }));
+            this.intent = this.intent.filter(Boolean);
         }
-        if (this.status && !mongoose.Types.ObjectId.isValid(this.status)) this.status = await resolveLookupLocal('Status', this.status);
-        if (this.builtupType) {
-            if (typeof this.builtupType === 'object' && this.builtupType !== null && this.builtupType._id) this.builtupType = this.builtupType._id;
-            if (!mongoose.Types.ObjectId.isValid(this.builtupType)) {
-                this.builtupType = await resolveLookupLocal('BuiltupType', this.builtupType);
-            }
+        if (this.status !== undefined && !mongoose.Types.ObjectId.isValid(this.status)) {
+            this.status = await resolveLookupLocal('Status', this.status);
+        }
+        if (this.builtupType !== undefined && !mongoose.Types.ObjectId.isValid(this.builtupType)) {
+            this.builtupType = await resolveLookupLocal('BuiltupType', this.builtupType);
+        }
+        if (this.category !== undefined && !mongoose.Types.ObjectId.isValid(this.category)) {
+            this.category = await resolveLookupLocal('Category', this.category);
+        }
+        if (this.subCategory !== undefined && !mongoose.Types.ObjectId.isValid(this.subCategory)) {
+            this.subCategory = await resolveLookupLocal('SubCategory', this.subCategory);
+        }
+        if (this.unitType !== undefined && !mongoose.Types.ObjectId.isValid(this.unitType)) {
+            this.unitType = await resolveLookupLocal('UnitType', this.unitType);
+        }
+        if (this.facing !== undefined && !mongoose.Types.ObjectId.isValid(this.facing)) {
+            this.facing = await resolveLookupLocal('Facing', this.facing);
+        }
+        if (this.direction !== undefined && !mongoose.Types.ObjectId.isValid(this.direction)) {
+            this.direction = await resolveLookupLocal('Direction', this.direction);
+        }
+        if (this.orientation !== undefined && !mongoose.Types.ObjectId.isValid(this.orientation)) {
+            this.orientation = await resolveLookupLocal('Orientation', this.orientation);
+        }
+        if (this.roadWidth !== undefined && !mongoose.Types.ObjectId.isValid(this.roadWidth)) {
+            this.roadWidth = await resolveLookupLocal('Road Width', this.roadWidth);
+        }
+        if (this.sizeConfig !== undefined && !mongoose.Types.ObjectId.isValid(this.sizeConfig)) {
+            this.sizeConfig = await resolveLookupLocal('Size', this.sizeConfig);
+        }
+
+        // --- Address Sanitization ---
+        if (this.address) {
+            const addressRefs = ['city', 'state', 'country', 'location', 'area', 'locality', 'tehsil', 'postOffice'];
+            addressRefs.forEach(f => {
+                if (this.address[f] === "") this.address[f] = null;
+            });
         }
 
         // --- Assignment & Visibility Synchronization ---
