@@ -3,6 +3,7 @@ import Deal from "../models/Deal.js";
 import Lookup from "../models/Lookup.js";
 import Contact from "../models/Contact.js";
 import Inventory from "../models/Inventory.js";
+import Project from "../models/Project.js";
 import MarketingService from "../services/MarketingService.js";
 
 
@@ -224,8 +225,12 @@ export const submitDealForm = async (req, res) => {
 
 export const getPublicInventoryProjects = async (req, res, next) => {
     try {
-        const projects = await Inventory.distinct('projectName');
-        res.json({ success: true, data: projects.filter(Boolean).sort() });
+        const inventoryProjects = await Inventory.distinct('projectName');
+        const configuredProjects = await Project.distinct('name');
+        
+        // Merge and deduplicate
+        const allProjects = [...new Set([...inventoryProjects, ...configuredProjects])];
+        res.json({ success: true, data: allProjects.filter(Boolean).sort() });
     } catch (error) {
         next(error);
     }
@@ -235,8 +240,17 @@ export const getPublicInventoryBlocks = async (req, res, next) => {
     try {
         const { projectName } = req.query;
         if (!projectName) return res.status(400).json({ success: false, message: "Project Name is required" });
-        const blocks = await Inventory.distinct('block', { projectName });
-        res.json({ success: true, data: blocks.filter(Boolean).sort() });
+        
+        // From Inventory
+        const inventoryBlocks = await Inventory.distinct('block', { projectName });
+        
+        // From Project Master
+        const projectRecord = await Project.findOne({ name: projectName }, 'blocks.name');
+        const configuredBlocks = projectRecord && projectRecord.blocks ? projectRecord.blocks.map(b => b.name) : [];
+        
+        // Merge and deduplicate
+        const allBlocks = [...new Set([...inventoryBlocks, ...configuredBlocks])];
+        res.json({ success: true, data: allBlocks.filter(Boolean).sort() });
     } catch (error) {
         next(error);
     }
