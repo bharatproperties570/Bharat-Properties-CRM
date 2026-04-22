@@ -5,6 +5,7 @@ import User from "../models/User.js";
 
 import Contact from "../models/Contact.js";
 import Team from "../models/Team.js";
+import Project from "../models/Project.js"; // REQUIRED for population
 import { paginate } from "../utils/pagination.js";
 import mongoose from "mongoose";
 import { getVisibilityFilter } from "../utils/visibility.js";
@@ -18,6 +19,48 @@ import { syncDocumentsToContact } from "../utils/sync.js";
 const escapeRegExp = (string) => {
     if (!string) return '';
     return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+};
+
+/**
+ * Resolves multi-select filters (names or IDs) to a MongoDB $in query
+ * supports ObjectIds, String IDs, and raw names for Mixed fields.
+ */
+const resolveMultiFilter = async (type, values) => {
+    if (!values) return null;
+    let vals = Array.isArray(values) ? values : String(values).split(',').map(s => s.trim()).filter(Boolean);
+    if (vals.length === 0) return null;
+
+    const results = { ids: [], names: [], idStrings: [] };
+
+    await Promise.all(vals.map(async (v) => {
+        if (mongoose.Types.ObjectId.isValid(v)) {
+            results.ids.push(new mongoose.Types.ObjectId(v.toString()));
+            results.idStrings.push(v.toString());
+            return;
+        }
+        
+        results.names.push(v);
+        const lookup = await mongoose.model('Lookup').findOne({ 
+            lookup_type: type, 
+            lookup_value: { $regex: new RegExp(`^${escapeRegExp(v)}$`, 'i') } 
+        }).select('_id').lean();
+        
+        if (lookup) {
+            results.ids.push(lookup._id);
+            results.idStrings.push(lookup._id.toString());
+        }
+    }));
+
+    const allPossibleMatches = [...new Set([
+        ...results.ids.map(id => id.toString()), 
+        ...results.idStrings, 
+        ...results.names
+    ])];
+
+    // Map back to ObjectIds where valid for Mongoose internal casting
+    const finalMatches = allPossibleMatches.map(m => mongoose.Types.ObjectId.isValid(m) ? new mongoose.Types.ObjectId(m) : m);
+
+    return finalMatches.length > 0 ? { $in: finalMatches } : null;
 };
 
 const populateFields = [
@@ -207,27 +250,6 @@ export const getInventory = async (req, res) => {
             }
         }
 
-        const resolveMultiFilter = async (type, values) => {
-            if (!values) return null;
-            // Handle Axios array serialization (status, status[], etc.)
-            let vals = values;
-            if (!Array.isArray(vals)) {
-                vals = String(vals).split(',').map(s => s.trim()).filter(Boolean);
-            }
-            if (vals.length === 0) return null;
-
-            const resolved = await Promise.all(vals.map(async (v) => {
-                if (mongoose.Types.ObjectId.isValid(v)) return v;
-                const lookup = await Lookup.findOne({ 
-                    lookup_type: type, 
-                    lookup_value: { $regex: new RegExp(`^${escapeRegExp(v)}$`, 'i') } 
-                }).select('_id').lean();
-                return lookup ? lookup._id : null;
-            }));
-            const filtered = resolved.filter(Boolean);
-            return filtered.length > 0 ? { $in: filtered } : null;
-        };
-
         // Standardize multi-select keys (handle status vs status[])
         const statusReq = status || req.query['status[]'];
         const categoryReq = category || req.query['category[]'];
@@ -331,45 +353,53 @@ export const getInventory = async (req, res) => {
         const categoryStatsQuery = { ...query };
         delete categoryStatsQuery.category;
 
-        const [statsAggregation, categoryStatsAggregation] = await Promise.all([
-            Inventory.aggregate([
-                { $match: query },
-                {
-                    $facet: {
-                        active: [
-                            { 
-                                $match: { 
-                                    $or: [
-                                        { status: { $in: activeStatusIds } }, 
-                                        { status: { $in: activeStatusIdStrings } },
-                                        { status: { $in: activeStatusNames } }
-                                    ] 
-                                } 
-                            },
-                            { $count: "count" }
-                        ],
-                        inactive: [
-                            { 
-                                $match: { 
-                                    $or: [
-                                        { status: { $in: inactiveStatusIds } }, 
-                                        { status: { $in: inactiveStatusIdStrings } },
-                                        { status: { $in: inactiveStatusNames } }
-                                    ] 
-                                } 
-                            },
-                            { $count: "count" }
-                        ]
+        let statsAggregation = [], categoryStatsAggregation = [];
+        try {
+            [statsAggregation, categoryStatsAggregation] = await Promise.all([
+                Inventory.aggregate([
+                    { $match: query },
+                    {
+                        $facet: {
+                            active: [
+                                { 
+                                    $match: { 
+                                        $or: [
+                                            { status: { $in: activeStatusIds } }, 
+                                            { status: { $in: activeStatusIdStrings } },
+                                            { status: { $in: activeStatusNames } }
+                                        ] 
+                                    } 
+                                },
+                                { $count: "count" }
+                            ],
+                            inactive: [
+                                { 
+                                    $match: { 
+                                        $or: [
+                                            { status: { $in: inactiveStatusIds } }, 
+                                            { status: { $in: inactiveStatusIdStrings } },
+                                            { status: { $in: inactiveStatusNames } }
+                                        ] 
+                                    } 
+                                },
+                                { $count: "count" }
+                            ]
+                        }
                     }
-                }
-            ]),
-            Inventory.aggregate([
-                { $match: categoryStatsQuery },
-                { $group: { _id: "$category", count: { $sum: 1 } } }
-            ])
-        ]);
+                ]),
+                Inventory.aggregate([
+                    { $match: categoryStatsQuery },
+                    { $group: { _id: "$category", count: { $sum: 1 } } }
+                ])
+            ]);
+        } catch (aggError) {
+            console.error("[INVENTORY_AGG] Aggregation failed:", aggError.message);
+            // Non-fatal: Allow the request to continue with partial stats
+            statsAggregation = [{ active: [], inactive: [] }];
+            categoryStatsAggregation = [];
+        }
 
-        const stats = statsAggregation[0];
+        const stats = statsAggregation[0] || { active: [], inactive: [] };
         const activeCount = stats.active[0]?.count || 0;
         const inactiveCount = stats.inactive[0]?.count || 0;
 
@@ -383,20 +413,21 @@ export const getInventory = async (req, res) => {
             count: c.count
         }));
 
-        // Apply Status Category Filter if requested (optimized)
+        // Apply Status Category Filter if requested (optimized + legacy string support)
         if (statusCategory === 'Active') {
-            query.status = { $in: [...activeStatusIds, ...activeStatusNames] };
+            query.status = { $in: [...activeStatusIds, ...activeStatusIdStrings, ...activeStatusNames] };
         } else if (statusCategory === 'InActive') {
-            query.status = { $in: [...inactiveStatusIds, ...inactiveStatusNames] };
+            query.status = { $in: [...inactiveStatusIds, ...inactiveStatusIdStrings, ...inactiveStatusNames] };
         }
 
-        // Fetch paginated results with limited population
-        const results = await paginate(Inventory, query, Number(page), Number(limit), { unitNo: 1 }, populateFields, { locale: 'en', numericOrdering: true });
+        // Fetch paginated results
+        // Collation removed to ensure compatibility with older MongoDB instances on live/AWS
+        const results = await paginate(Inventory, query, Number(page), Number(limit), { unitNo: 1 }, populateFields);
 
         // Check for deals
         const inventoryIds = results.records.map(item => item._id);
-        const deals = await mongoose.model('Deal').find({ inventoryId: { $in: inventoryIds } }).select('inventoryId').lean();
-        const dealInventoryIds = new Set(deals.map(d => d.inventoryId.toString()));
+        const deals = await Deal.find({ inventoryId: { $in: inventoryIds } }).select('inventoryId').lean();
+        const dealInventoryIds = new Set(deals.map(d => d.inventoryId?.toString()).filter(Boolean));
 
         results.records = results.records.map(item => {
             const itemObj = item.toObject ? item.toObject() : item;

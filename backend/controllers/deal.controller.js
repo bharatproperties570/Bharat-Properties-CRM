@@ -21,6 +21,23 @@ const escapeRegExp = (string) => {
     return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 };
 
+const resolveFilter = async (type, value) => {
+    if (!value) return null;
+    if (mongoose.Types.ObjectId.isValid(value)) return new mongoose.Types.ObjectId(value.toString());
+
+    const cacheKey = `${type}:${value}`;
+    if (_lookupResolveCache.has(cacheKey)) return _lookupResolveCache.get(cacheKey);
+
+    const lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: new RegExp(`^${escapeRegExp(value)}$`, 'i') } });
+    const result = lookup ? lookup._id : null;
+    
+    if (result) {
+        if (_lookupResolveCache.size > 200) _lookupResolveCache.clear();
+        _lookupResolveCache.set(cacheKey, result);
+    }
+    return result;
+};
+
 const resolveLookup = async (type, value, createIfMissing = true) => {
     if (!value) return null;
     if (mongoose.Types.ObjectId.isValid(value)) return new mongoose.Types.ObjectId(value.toString());
@@ -325,37 +342,68 @@ export const getDeals = async (req, res) => {
         }
         console.log(`[VISIBLE_AUDIT] Generated Filter: ${JSON.stringify(visibilityFilter, null, 2)}`);
 
+        // [ENTERPRISE FILTERS] Multi-Source Visibility & Query Resolution
         let query = { ...visibilityFilter, isVisible: { $ne: false } };
 
-        if (contactPhone) {
-            query.$or = [
-                { "partyStructure.buyer.mobile": { $regex: new RegExp(`${contactPhone}$`) } },
-                { "partyStructure.owner.mobile": { $regex: new RegExp(`${contactPhone}$`) } }
-            ];
-        }
-
-        // ROBUST FILTER RESOLUTION (Handle both Names and IDs)
-        const escapeRegExp = (string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const resolveFilter = async (type, value) => {
+        // ROBUST MULTI-FILTER RESOLUTION
+        const resolveMultiFilter = async (type, value) => {
             if (!value) return null;
-            if (mongoose.Types.ObjectId.isValid(value)) return new mongoose.Types.ObjectId(value.toString());
+            const values = Array.isArray(value) ? value : String(value).split(',').filter(Boolean);
+            if (values.length === 0) return null;
 
-            const cacheKey = `${type}:${value}`;
-            if (_lookupResolveCache.has(cacheKey)) return _lookupResolveCache.get(cacheKey);
-
-            const lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: new RegExp(`^${escapeRegExp(value)}$`, 'i') } });
-            const result = lookup ? lookup._id : null;
-            
-            if (result) {
-                if (_lookupResolveCache.size > 200) _lookupResolveCache.clear();
-                _lookupResolveCache.set(cacheKey, result);
-            }
-            return result;
+            const ids = await Promise.all(values.map(val => resolveFilter(type, val)));
+            const validIds = ids.filter(Boolean);
+            return validIds.length > 0 ? { $in: validIds } : null;
         };
 
-        if (category) query.category = await resolveFilter('Category', category);
-        if (subCategory) query.subCategory = await resolveFilter('SubCategory', subCategory);
-        if (status) query.status = await resolveFilter('Status', status);
+        const { 
+            direction, facing, roadWidth, block, range, location, 
+            minPrice, maxPrice, dealType, transactionType, source,
+            intent: queryIntent, stage: queryStage, unitType: queryUnitType
+        } = req.query;
+
+        if (category) query.category = await resolveMultiFilter('Category', category);
+        if (subCategory) query.subCategory = await resolveMultiFilter('SubCategory', subCategory);
+        if (status) query.status = await resolveMultiFilter('Status', status);
+        
+        // Orientation Filters (Joined via Inventory)
+        if (direction || facing || roadWidth) {
+            const invQuery = {};
+            if (direction) invQuery.direction = await resolveMultiFilter('Direction', direction);
+            if (facing) invQuery.facing = await resolveMultiFilter('Facing', facing);
+            if (roadWidth) invQuery.roadWidth = await resolveMultiFilter('RoadWidth', roadWidth);
+            
+            const matchingInvs = await Inventory.find(invQuery).select('_id').lean();
+            query.inventoryId = { $in: matchingInvs.map(i => i._id) };
+        }
+
+        // Project & Block Filters
+        if (projectId) query.projectId = projectId;
+        if (block) {
+            const blocks = Array.isArray(block) ? block : block.split(',').filter(Boolean);
+            if (blocks.length > 0) query.block = { $in: blocks.map(b => new RegExp(`^${escapeRegExp(b)}$`, 'i')) };
+        }
+
+        // Deal State Filters
+        if (queryIntent) query.intent = await resolveMultiFilter('Intent', queryIntent);
+        if (queryStage) {
+            const stages = Array.isArray(queryStage) ? queryStage : queryStage.split(',').filter(Boolean);
+            if (stages.length > 0) query.stage = { $in: stages };
+        }
+        if (queryUnitType) {
+            const unitTypes = Array.isArray(queryUnitType) ? queryUnitType : queryUnitType.split(',').filter(Boolean);
+            if (unitTypes.length > 0) query.unitType = { $in: unitTypes };
+        }
+
+        // Budget & Detail Filters
+        if (minPrice || maxPrice) {
+            query.price = {};
+            if (minPrice) query.price.$gte = parseFloat(minPrice);
+            if (maxPrice) query.price.$lte = parseFloat(maxPrice);
+        }
+        if (dealType) query.dealType = { $in: Array.isArray(dealType) ? dealType : dealType.split(',') };
+        if (transactionType) query.transactionType = { $in: Array.isArray(transactionType) ? transactionType : transactionType.split(',') };
+        if (source) query.source = { $in: Array.isArray(source) ? source : source.split(',') };
 
         if (search) {
             query = {
@@ -1222,5 +1270,23 @@ export const closeDeal = async (req, res) => {
         res.json({ success: true, message: "Deal closed successfully", data: deal });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+export const getUniqueBlocks = async (req, res) => {
+    try {
+        const { project } = req.query;
+        if (!project) return res.status(200).json({ success: true, blocks: [] });
+        
+        const blocks = await Deal.distinct("block", { 
+            projectName: { $regex: new RegExp(`^${escapeRegExp(project)}$`, 'i') }, 
+            block: { $ne: null, $exists: true } 
+        });
+        
+        const sortedBlocks = blocks.filter(b => b && b.trim() !== "").sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+        res.status(200).json({ success: true, blocks: sortedBlocks });
+    } catch (error) {
+        console.error("[GET_BLOCKS_ERROR_DEAL]", error);
+        res.status(500).json({ success: false, error: "Internal server error" });
     }
 };

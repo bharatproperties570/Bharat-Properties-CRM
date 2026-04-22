@@ -4,6 +4,8 @@ import { PROPERTY_CATEGORIES } from '../../../constants/propertyConstants';
 import { PROJECTS_LIST } from '../../../constants/projectConstants';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import { calculateDistance } from '../../../utils/inventoryFilterLogic';
+import { api } from '../../../utils/api';
+import { renderValue } from '../../../utils/renderUtils';
 
 // ==================================================================================
 // STYLES
@@ -170,9 +172,34 @@ const MultiSelectDropdown = ({ options, selected, onChange, placeholder, disable
 };
 
 const DealsFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
-    const { masterFields } = usePropertyConfig();
+    const { masterFields = {}, propertyConfig = {} } = usePropertyConfig();
     const [isVisible, setIsVisible] = useState(false);
     const [sizeMode, setSizeMode] = useState('type');
+    const [availableBlocks, setAvailableBlocks] = useState([]);
+    const [loadingBlocks, setLoadingBlocks] = useState(false);
+
+    useEffect(() => {
+        const fetchBlocks = async () => {
+            if (!filters.project) {
+                setAvailableBlocks([]);
+                return;
+            }
+            setLoadingBlocks(true);
+            try {
+                // Professional Fix: Fetch unique blocks for the selected project in deals
+                const res = await api.get(`deals/blocks?project=${encodeURIComponent(filters.project)}`);
+                if (res.data && res.data.success) {
+                    setAvailableBlocks(res.data.blocks || []);
+                }
+            } catch (err) {
+                console.error("Error fetching blocks for deals:", err);
+            } finally {
+                setLoadingBlocks(false);
+            }
+        };
+
+        fetchBlocks();
+    }, [filters.project]);
 
     useEffect(() => {
         if (filters.sizeMode) setSizeMode(filters.sizeMode);
@@ -237,14 +264,14 @@ const DealsFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
     const selectedSubCategories = filters.subCategory || [];
 
     const availableSubCategories = selectedCategories.length > 0
-        ? selectedCategories.reduce((acc, cat) => PROPERTY_CATEGORIES[cat] ? [...acc, ...PROPERTY_CATEGORIES[cat].subCategories.map(sc => sc.name)] : acc, [])
+        ? selectedCategories.reduce((acc, cat) => propertyConfig[cat] ? [...acc, ...propertyConfig[cat].subCategories.map(sc => sc.name)] : acc, [])
         : [];
 
     const availableSizeTypes = selectedSubCategories.length > 0
         ? selectedCategories.reduce((acc, cat) => {
-            if (PROPERTY_CATEGORIES[cat]) {
-                const matchingSubs = PROPERTY_CATEGORIES[cat].subCategories.filter(sc => selectedSubCategories.includes(sc.name));
-                const types = matchingSubs.reduce((tAcc, sub) => [...tAcc, ...sub.types.map(t => t.name)], []);
+            if (propertyConfig[cat]) {
+                const matchingSubs = propertyConfig[cat].subCategories.filter(sc => selectedSubCategories.includes(sc.name));
+                const types = matchingSubs.reduce((tAcc, sub) => [...tAcc, ...(sub.types || []).map(t => t.name)], []);
                 return [...acc, ...types];
             }
             return acc;
@@ -346,7 +373,7 @@ const DealsFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
                             <div>
                                 <label style={styles.label}>Category</label>
                                 <MultiSelectDropdown
-                                    options={Object.keys(PROPERTY_CATEGORIES)}
+                                    options={Object.keys(propertyConfig)}
                                     selected={filters.category || []}
                                     onChange={(val) => {
                                         onFilterChange({ ...filters, category: val, subCategory: [], sizeType: [] });
@@ -459,12 +486,34 @@ const DealsFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
                                         <span style={{ fontSize: '0.75rem', fontWeight: '400', color: '#22c55e', marginLeft: '6px' }}>(Filtered by Location)</span>
                                     )}
                                 </label>
-                                <select style={styles.select} value={filters.project || ''} onChange={(e) => updateFilter('project', e.target.value)}>
+                                <select 
+                                    style={styles.select} 
+                                    value={filters.project || ''} 
+                                    onChange={(e) => {
+                                        // Reset block when project changes to maintain data integrity
+                                        onFilterChange({ ...filters, project: e.target.value, block: [] });
+                                    }}
+                                >
                                     <option value="">Select Project</option>
                                     {projectOptions.map(proj => (
                                         <option key={proj} value={proj}>{proj}</option>
                                     ))}
                                 </select>
+                            </div>
+
+                            {/* 🚀 NEW: Dynamic Block Filter (Enterprise Grade) */}
+                            <div>
+                                <label style={styles.label}>
+                                    Block
+                                    {loadingBlocks && <i className="fas fa-spinner fa-spin" style={{ marginLeft: '8px', color: '#0066ff' }}></i>}
+                                </label>
+                                <MultiSelectDropdown
+                                    options={availableBlocks}
+                                    selected={filters.block || []}
+                                    onChange={(val) => updateFilter('block', val)}
+                                    placeholder={filters.project ? "Select Blocks" : "Select project first"}
+                                    disabled={!filters.project || loadingBlocks}
+                                />
                             </div>
                         </div>
                     </section>

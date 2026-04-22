@@ -1,5 +1,5 @@
 import express from "express";
-import { getDeals, matchDeals, getDealById, addDeal, updateDeal, deleteDeal, bulkDeleteDeals, importDeals, closeDeal } from "../controllers/deal.controller.js";
+import { getDeals, matchDeals, getDealById, addDeal, updateDeal, deleteDeal, bulkDeleteDeals, importDeals, closeDeal, getUniqueBlocks } from "../controllers/deal.controller.js";
 import { authenticate } from "../src/middlewares/auth.middleware.js";
 
 const router = express.Router();
@@ -8,6 +8,7 @@ const router = express.Router();
 router.use(authenticate);
 
 router.get("/", getDeals);
+router.get("/blocks", getUniqueBlocks);
 router.get("/match", matchDeals);
 router.post("/import", importDeals);
 router.get("/:id", getDealById);

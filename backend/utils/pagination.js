@@ -26,9 +26,9 @@ export const paginate = async (model, query, page, limit, sort = {}, populate = 
             currentPage: Number(page)
         };
     } catch (error) {
-        // If mockMode is enabled, return empty records on failure immediately
-        const { config: envConfig } = await import("../src/config/env.js");
-        if (envConfig.mockMode) {
+        // Diagnostic check for Mock Mode
+        const envConfig = (await import("../src/config/env.js")).default;
+        if (envConfig && envConfig.mockMode) {
             console.warn(`[PAGINATION MOCK] Database unavailable, returning empty records for ${model.modelName}`);
             return {
                 records: [],
@@ -38,9 +38,9 @@ export const paginate = async (model, query, page, limit, sort = {}, populate = 
             };
         }
 
-        console.error(`[PAGINATION ERROR] Model: ${model.modelName}, Query: ${JSON.stringify(query)}`);
+        console.error(`[PAGINATION ERROR] Model: ${model.modelName} | Page: ${page} | Limit: ${limit}`);
+        console.error(`[PAGINATION ERROR] Query: ${JSON.stringify(query)}`);
         console.error(`[PAGINATION ERROR] Error Message: ${error.message}`);
-        if (error.stack) console.error(`[PAGINATION ERROR] Stack: ${error.stack}`);
 
         // If it's a CastError, it might be in one of the records
         if (error.name === 'CastError') {
