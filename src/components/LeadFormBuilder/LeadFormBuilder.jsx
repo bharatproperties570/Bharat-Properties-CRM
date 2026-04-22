@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { api } from '../../utils/api';
 import { 
     LucideChevronLeft, 
@@ -27,9 +27,36 @@ const LeadFormBuilder = ({ form, onSave, onCancel }) => {
         }
     });
 
-    const [activeSectionId, setActiveSectionId] = useState('sec_1');
+    const [activeSectionId, setActiveSectionId] = useState(form?.sections?.[0]?.id || 'sec_1');
     const [selectedFieldId, setSelectedFieldId] = useState(null);
     const [isPreviewMode, setIsPreviewMode] = useState(false);
+
+    // Sync state when form prop changes (essential for Edit Builder flow)
+    useEffect(() => {
+        if (form) {
+            setFormData(form);
+            if (form.sections?.length > 0) {
+                setActiveSectionId(form.sections[0].id);
+            }
+        } else {
+            // Reset to default
+            setFormData({
+                name: 'New Lead Form',
+                slug: 'new-lead-form',
+                isActive: true,
+                sections: [
+                    { id: 'sec_1', title: 'Basic Information', fields: [] }
+                ],
+                settings: {
+                    successMessage: "Thank you for your interest! We will contact you soon.",
+                    autoTags: ['Web Lead'],
+                    enableUTMTracking: true,
+                    theme: { primaryColor: '#10b981', layout: 'single' }
+                }
+            });
+            setActiveSectionId('sec_1');
+        }
+    }, [form]);
 
     // --- Actions ---
 

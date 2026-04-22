@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { toast } from 'react-hot-toast';
 import { LucidePlus, LucideTrash2, LucideMoveUp, LucideMoveDown, LucideChevronLeft, LucideSave, LucideEye } from 'lucide-react';
 import { api } from '../../utils/api';
@@ -19,9 +19,36 @@ const DealFormBuilder = ({ form, onSave, onCancel }) => {
         }
     });
 
-    const [activeSectionId, setActiveSectionId] = useState('sec_1');
+    const [activeSectionId, setActiveSectionId] = useState(form?.sections?.[0]?.id || 'sec_1');
     const [selectedFieldId, setSelectedFieldId] = useState(null);
     const [isPreviewMode, setIsPreviewMode] = useState(false);
+
+    // Sync state when form prop changes (essential for Edit Builder flow)
+    useEffect(() => {
+        if (form) {
+            setFormData(form);
+            if (form.sections?.length > 0) {
+                setActiveSectionId(form.sections[0].id);
+            }
+        } else {
+            // Reset to default if form becomes null (Create New flow)
+            setFormData({
+                name: 'New Deal Form',
+                slug: 'new-deal-form',
+                isActive: true,
+                sections: [
+                    { id: 'sec_1', title: 'Deal Information', fields: [] }
+                ],
+                settings: {
+                    successMessage: "Deal captured successfully! Our team will get back to you.",
+                    autoTags: ['Web Deal'],
+                    enableUTMTracking: true,
+                    theme: { primaryColor: '#3b82f6', layout: 'single' }
+                }
+            });
+            setActiveSectionId('sec_1');
+        }
+    }, [form]);
 
     // --- Actions ---
 

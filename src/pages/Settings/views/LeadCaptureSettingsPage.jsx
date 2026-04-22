@@ -60,6 +60,7 @@ const LeadCaptureSettingsPage = () => {
     if (view === 'builder') {
         return (
             <LeadFormBuilder
+                key={selectedForm?._id || 'new'}
                 form={selectedForm}
                 onSave={handleSave}
                 onCancel={() => setView('list')}

@@ -60,6 +60,7 @@ const DealCaptureSettingsPage = () => {
     if (view === 'builder') {
         return (
             <DealFormBuilder
+                key={selectedForm?._id || 'new'}
                 form={selectedForm}
                 onSave={handleSave}
                 onCancel={() => setView('list')}
