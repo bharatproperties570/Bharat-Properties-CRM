@@ -186,13 +186,13 @@ const PublicDealForm = ({ slug }) => {
 
     if (status === 'success') {
         return (
-            <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#020617', padding: '20px' }}>
-                <div style={{ textAlign: 'center', padding: '60px', background: 'rgba(30, 41, 59, 0.5)', backdropFilter: 'blur(16px)', borderRadius: '32px', border: '1px solid rgba(255,255,255,0.1)', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)', maxWidth: '500px' }}>
-                    <div style={{ width: '80px', height: '80px', background: 'rgba(201, 146, 26, 0.1)', color: '#c9921a', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2.5rem', margin: '0 auto 24px', boxShadow: '0 0 20px rgba(201, 146, 26, 0.2)' }}>
+            <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', padding: '20px' }}>
+                <div style={{ textAlign: 'center', padding: '60px', background: '#ffffff', borderRadius: '32px', border: '1px solid #e2e8f0', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.05)', maxWidth: '500px' }}>
+                    <div style={{ width: '80px', height: '80px', background: 'rgba(201, 146, 26, 0.1)', color: '#c9921a', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2.5rem', margin: '0 auto 24px' }}>
                         <i className="fas fa-check"></i>
                     </div>
-                    <h2 style={{ margin: 0, color: '#fff', fontSize: '1.75rem', fontWeight: 900, letterSpacing: '-0.02em' }}>Deal Captured!</h2>
-                    <p style={{ color: '#94a3b8', marginTop: '16px', lineHeight: '1.6', fontSize: '1.1rem' }}>{formConfig.settings.successMessage}</p>
+                    <h2 style={{ margin: 0, color: '#0f172a', fontSize: '1.75rem', fontWeight: 900, letterSpacing: '-0.02em' }}>Deal Captured!</h2>
+                    <p style={{ color: '#475569', marginTop: '16px', lineHeight: '1.6', fontSize: '1.1rem' }}>{formConfig.settings.successMessage}</p>
                     {formConfig.settings.redirectUrl && (
                         <p style={{ marginTop: '24px', color: '#64748b', fontSize: '0.9rem' }}>Redirecting you shortly...</p>
                     )}
@@ -209,17 +209,15 @@ const PublicDealForm = ({ slug }) => {
                 body { margin: 0; padding: 0; }
                 .public-wrapper {
                     min-height: 100vh;
-                    background: #020617;
+                    background: #f8fafc;
                     padding: 60px 20px;
                     font-family: 'Inter', sans-serif;
                 }
                 .public-glass-card {
-                    background: rgba(30, 41, 59, 0.4);
-                    backdrop-filter: blur(12px);
-                    -webkit-backdrop-filter: blur(12px);
-                    border: 1px solid rgba(255,255,255,0.08);
+                    background: #ffffff;
+                    border: 1px solid #e2e8f0;
                     border-radius: 32px;
-                    box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
+                    box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05), 0 8px 10px -6px rgba(0,0,0,0.01);
                     max-width: 750px;
                     margin: 0 auto;
                     overflow: hidden;
@@ -227,14 +225,14 @@ const PublicDealForm = ({ slug }) => {
                 .form-header {
                     padding: 60px 40px;
                     text-align: center;
-                    border-bottom: 1px solid rgba(255,255,255,0.05);
-                    background: linear-gradient(180deg, rgba(201,146,26,0.05) 0%, transparent 100%);
+                    border-bottom: 1px solid #e2e8f0;
+                    background: linear-gradient(180deg, rgba(201,146,26,0.05) 0%, #ffffff 100%);
                 }
                 .form-title {
                     margin: 0;
                     font-size: 2.5rem;
                     font-weight: 900;
-                    color: #fff;
+                    color: #0f172a;
                     letter-spacing: -0.03em;
                 }
                 .form-body {
@@ -242,25 +240,27 @@ const PublicDealForm = ({ slug }) => {
                 }
                 .form-footer {
                     padding: 30px 40px;
-                    background: rgba(0,0,0,0.2);
-                    border-top: 1px solid rgba(255,255,255,0.05);
+                    background: #f8fafc;
+                    border-top: 1px solid #e2e8f0;
                     text-align: center;
                 }
                 .form-input-premium {
-                    background: rgba(15, 23, 42, 0.6);
-                    border: 1px solid rgba(255,255,255,0.1);
-                    color: #f8fafc;
+                    background: #f1f5f9;
+                    border: 1px solid #cbd5e1;
+                    color: #0f172a;
                     transition: all 0.2s ease;
                     width: 100%;
                     box-sizing: border-box;
                 }
                 .form-input-premium:focus {
                     border-color: #c9921a;
+                    background: #ffffff;
                     box-shadow: 0 0 0 4px rgba(201, 146, 26, 0.15);
                     outline: none;
                 }
                 .form-input-premium:disabled {
-                    opacity: 0.5;
+                    opacity: 0.6;
+                    background: #e2e8f0;
                     cursor: not-allowed;
                 }
                 
@@ -314,7 +314,7 @@ const PublicDealForm = ({ slug }) => {
                 <div className="form-header">
                     <h1 className="form-title">{formConfig.name}</h1>
                     {formConfig.description && (
-                        <p style={{ margin: '16px 0 0', color: '#94a3b8', fontSize: '1.1rem', lineHeight: '1.6' }}>{formConfig.description}</p>
+                        <p style={{ margin: '16px 0 0', color: '#475569', fontSize: '1.1rem', lineHeight: '1.6' }}>{formConfig.description}</p>
                     )}
                 </div>
 
@@ -337,7 +337,7 @@ const PublicDealForm = ({ slug }) => {
 
                                     return (
                                         <div key={field.id} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                        <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                        <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                                             {field.label}
                                             {field.required && <span style={{ color: '#ef4444', marginLeft: '4px' }}>*</span>}
                                         </label>
@@ -350,8 +350,8 @@ const PublicDealForm = ({ slug }) => {
                                                 className="form-input-premium"
                                                 style={{ padding: '16px', borderRadius: '14px', fontSize: '1rem' }}
                                             >
-                                                <option value="" style={{ background: '#1e293b' }}>Select Project</option>
-                                                {inventoryData.projects.map(p => <option key={p} value={p} style={{ background: '#1e293b' }}>{p}</option>)}
+                                                <option value="" style={{ background: '#fff' }}>Select Project</option>
+                                                {inventoryData.projects.map(p => <option key={p} value={p} style={{ background: '#fff' }}>{p}</option>)}
                                             </select>
                                         ) : field.mappingField === 'block' ? (
                                             <select
@@ -362,8 +362,8 @@ const PublicDealForm = ({ slug }) => {
                                                 style={{ padding: '16px', borderRadius: '14px', fontSize: '1rem' }}
                                                 disabled={!formData[formConfig.sections.flatMap(s => s.fields).find(f => f.mappingField === 'projectName')?.id]}
                                             >
-                                                <option value="" style={{ background: '#1e293b' }}>Select Block</option>
-                                                {inventoryData.blocks.map(b => <option key={b} value={b} style={{ background: '#1e293b' }}>{b}</option>)}
+                                                <option value="" style={{ background: '#fff' }}>Select Block</option>
+                                                {inventoryData.blocks.map(b => <option key={b} value={b} style={{ background: '#fff' }}>{b}</option>)}
                                             </select>
                                         ) : field.mappingField === 'unitNo' ? (
                                             <select
@@ -374,8 +374,8 @@ const PublicDealForm = ({ slug }) => {
                                                 style={{ padding: '16px', borderRadius: '14px', fontSize: '1rem' }}
                                                 disabled={!formData[formConfig.sections.flatMap(s => s.fields).find(f => f.mappingField === 'block')?.id]}
                                             >
-                                                <option value="" style={{ background: '#1e293b' }}>Select Unit</option>
-                                                {inventoryData.units.map(u => <option key={u} value={u} style={{ background: '#1e293b' }}>{u}</option>)}
+                                                <option value="" style={{ background: '#fff' }}>Select Unit</option>
+                                                {inventoryData.units.map(u => <option key={u} value={u} style={{ background: '#fff' }}>{u}</option>)}
                                             </select>
                                         ) : field.mappingField === 'relationship' ? (
                                             <select
@@ -385,8 +385,8 @@ const PublicDealForm = ({ slug }) => {
                                                 className="form-input-premium"
                                                 style={{ padding: '16px', borderRadius: '14px', fontSize: '1rem' }}
                                             >
-                                                <option value="" style={{ background: '#1e293b' }}>Select Relationship</option>
-                                                {inventoryData.relations.map(rel => <option key={rel} value={rel} style={{ background: '#1e293b' }}>{rel}</option>)}
+                                                <option value="" style={{ background: '#fff' }}>Select Relationship</option>
+                                                {inventoryData.relations.map(rel => <option key={rel} value={rel} style={{ background: '#fff' }}>{rel}</option>)}
                                             </select>
                                         ) : field.type === 'select' || field.type === 'multi-select' ? (
                                             <select
@@ -397,13 +397,13 @@ const PublicDealForm = ({ slug }) => {
                                                 className="form-input-premium"
                                                 style={{ padding: '16px', borderRadius: '14px', fontSize: '1rem' }}
                                             >
-                                                <option value="" style={{ background: '#1e293b' }}>Select an option</option>
-                                                {field.options.map(opt => <option key={opt} value={opt} style={{ background: '#1e293b' }}>{opt}</option>)}
+                                                <option value="" style={{ background: '#fff' }}>Select an option</option>
+                                                {field.options.map(opt => <option key={opt} value={opt} style={{ background: '#fff' }}>{opt}</option>)}
                                             </select>
                                         ) : field.type === 'radio' ? (
                                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '20px', marginTop: '4px' }}>
                                                 {field.options.map(opt => (
-                                                    <label key={opt} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '1rem', color: '#e2e8f0' }}>
+                                                    <label key={opt} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '1rem', color: '#0f172a' }}>
                                                         <input
                                                             type="radio"
                                                             name={field.id}
@@ -438,7 +438,7 @@ const PublicDealForm = ({ slug }) => {
 
                     {/* Remarks Section */}
                     <div style={{ marginBottom: '40px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                             Remarks / Special Instructions
                         </label>
                         <textarea
