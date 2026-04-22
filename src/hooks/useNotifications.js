@@ -7,35 +7,50 @@ export const useNotifications = (onNavigate) => {
     const [unreadCount, setUnreadCount] = useState(0);
     const [notifications, setNotifications] = useState([]);
     const [loading, setLoading] = useState(false);
+    const [knownIds, setKnownIds] = useState(new Set());
+    const [isFirstLoad, setIsFirstLoad] = useState(true);
+    
+    // Professional Ping Sound
     const audioRef = useRef(new Audio('https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3'));
 
     const fetchNotifications = useCallback(async () => {
         try {
-            setLoading(true);
             const res = await getNotifications();
-            if (res.success) {
-                const newNotifications = res.data.notifications || [];
-                const newUnreadCount = res.data.unreadCount || 0;
+            // Unwrap res.data since api.js now handles the return structure
+            const responseData = res?.data || res;
+            
+            if (responseData && responseData.notifications) {
+                const newNotifications = responseData.notifications;
+                const newUnreadCount = responseData.unreadCount || 0;
 
-                // Play sound if unread count increased
-                if (newUnreadCount > unreadCount) {
-                    audioRef.current.play().catch(e => console.log('Audio play failed:', e));
+                // 🔔 Intelligent Detection: Look for IDs we haven't seen before
+                const currentIds = new Set(newNotifications.map(n => n._id));
+                const hasNewArrival = newNotifications.some(n => !knownIds.has(n._id));
+
+                if (!isFirstLoad && hasNewArrival && newUnreadCount > 0) {
+                    console.log('[NotificationEngine] 🔔 New Notification Detected! Triggering Alert...');
+                    audioRef.current.currentTime = 0;
+                    audioRef.current.play().catch(e => {
+                        console.warn('[Audio] Autoplay blocked. Interaction needed.');
+                    });
+                    window.dispatchEvent(new CustomEvent('new-notification-alert'));
                 }
 
                 setNotifications(newNotifications);
                 setUnreadCount(newUnreadCount);
+                setKnownIds(currentIds);
+                setIsFirstLoad(false);
             }
         } catch (error) {
             console.error('Failed to fetch notifications:', error);
         } finally {
             setLoading(false);
         }
-    }, [unreadCount]);
+    }, [knownIds, isFirstLoad]);
 
     useEffect(() => {
         fetchNotifications();
-        // Senior Tweak: Reduced polling from 60s to 15s for "Real-time" enterprise feel
-        const interval = setInterval(fetchNotifications, 15000);
+        const interval = setInterval(fetchNotifications, 8000);
         return () => clearInterval(interval);
     }, [fetchNotifications]);
 

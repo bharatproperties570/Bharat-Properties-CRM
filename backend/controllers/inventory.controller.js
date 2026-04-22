@@ -13,6 +13,7 @@ import { getVisibilityFilter } from "../utils/visibility.js";
 import DuplicationRule from "../models/DuplicationRule.js";
 import Deal from "../models/Deal.js"; // Explicitly load to prevent registration errors
 import { syncDocumentsToContact } from "../utils/sync.js";
+import { createNotification } from "./notification.controller.js";
 
 
 // ROBUST FILTER RESOLUTION (Handle both Names and IDs)
@@ -429,13 +430,48 @@ export const getInventory = async (req, res) => {
         const deals = await Deal.find({ inventoryId: { $in: inventoryIds } }).select('inventoryId').lean();
         const dealInventoryIds = new Set(deals.map(d => d.inventoryId?.toString()).filter(Boolean));
 
-        results.records = results.records.map(item => {
+        // [ROBUST FALLBACK] Manual population for IDs if paginate populate failed
+        // This happens if ANY record has a bad ObjectId (like "") in the collection
+        results.records = await Promise.all(results.records.map(async (item) => {
             const itemObj = item.toObject ? item.toObject() : item;
+            
+            // 1. Top level lookup fields
+            const topFields = ['category', 'subCategory', 'status', 'unitType', 'facing', 'direction', 'orientation', 'sizeConfig', 'roadWidth', 'builtupType'];
+            for (const field of topFields) {
+                if (itemObj[field] && typeof itemObj[field] === 'string' && mongoose.Types.ObjectId.isValid(itemObj[field])) {
+                    try {
+                        const lookup = await Lookup.findById(itemObj[field]).select('lookup_value').lean();
+                        if (lookup) itemObj[field] = lookup;
+                    } catch (e) { /* ignore */ }
+                }
+            }
+
+            // 2. Project fallback
+            if (itemObj.projectId && typeof itemObj.projectId === 'string' && mongoose.Types.ObjectId.isValid(itemObj.projectId)) {
+                try {
+                    const projectDoc = await Project.findById(itemObj.projectId).select('name').lean();
+                    if (projectDoc) itemObj.projectId = projectDoc;
+                } catch (e) { /* ignore */ }
+            }
+
+            // 3. Address lookup fields
+            if (itemObj.address) {
+                const addrFields = ['city', 'location', 'locality', 'area', 'state', 'country', 'tehsil', 'postOffice'];
+                for (const field of addrFields) {
+                    if (itemObj.address[field] && typeof itemObj.address[field] === 'string' && mongoose.Types.ObjectId.isValid(itemObj.address[field])) {
+                        try {
+                            const lookup = await Lookup.findById(itemObj.address[field]).select('lookup_value').lean();
+                            if (lookup) itemObj.address[field] = lookup;
+                        } catch (e) { /* ignore */ }
+                    }
+                }
+            }
+
             return {
                 ...itemObj,
                 hasDeal: dealInventoryIds.has(item._id.toString())
             };
-        });
+        }));
 
         res.status(200).json({
             success: true,
@@ -609,6 +645,37 @@ const sanitizePayload = (data) => {
     return data;
 };
 
+// 🌟 SENIOR ADDITION: Notify Leads matching new Inventory
+const notifyMatchingLeads = async (inventory) => {
+    try {
+        if (!inventory || !inventory.projectId || !inventory.category) return;
+        
+        // Find leads that match this project and property type
+        const matches = await Lead.find({
+            $or: [
+                { project: inventory.projectId },
+                { propertyType: inventory.category }
+            ],
+            stage: { $nin: await Lookup.find({ lookup_value: { $regex: /Won|Lost|Booked/i } }).select('_id') }
+        }).populate('owner').lean();
+
+        for (const lead of matches) {
+            if (lead.owner) {
+                await createNotification(
+                    lead.owner._id,
+                    'inventoryMatch',
+                    '🏷️ New Inventory Match!',
+                    `New unit "${inventory.unitNo || inventory.unitNumber}" in "${inventory.projectName}" matches lead ${lead.firstName}.`,
+                    `/inventory/${inventory._id}`,
+                    { inventoryId: inventory._id, leadId: lead._id }
+                ).catch(() => {});
+            }
+        }
+    } catch (err) {
+        console.error('[InventoryMatch] Notification failed:', err.message);
+    }
+};
+
 export const addInventory = async (req, res) => {
     try {
         const { projectName, block, unitNo, unitNumber } = req.body;
@@ -669,6 +736,12 @@ export const addInventory = async (req, res) => {
         }
 
         inventory = await inventory.populate(populateFields);
+        
+        // 🌟 Trigger Match Notification
+        if (inventory.status?.lookup_value !== 'Sold Out') {
+            notifyMatchingLeads(inventory);
+        }
+
         res.status(201).json({ success: true, data: inventory });
 
     } catch (error) {

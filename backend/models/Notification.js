@@ -6,6 +6,7 @@ const NotificationSchema = new mongoose.Schema({
     title: { type: String, required: true },
     message: { type: String, required: true },
     link: { type: String }, // Optional link to the entity (e.g., /leads/123)
+    priority: { type: String, enum: ['low', 'medium', 'high', 'urgent'], default: 'medium' },
     isRead: { type: Boolean, default: false, index: true },
     metadata: { type: mongoose.Schema.Types.Mixed, default: {} },
     createdAt: { type: Date, default: Date.now }

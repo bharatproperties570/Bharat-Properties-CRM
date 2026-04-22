@@ -69,17 +69,41 @@ const NotificationSettingsPage = () => {
         }
     };
 
+    const handleTestNotification = async () => {
+        try {
+            const res = await api.post('/notifications/test');
+            if (res.data.success) {
+                toast.success('Test notification sent! Check the bell icon.');
+            }
+        } catch (error) {
+            toast.error('Failed to trigger test notification');
+        }
+    };
+
     const categories = [
         { id: 'assignments', name: 'Leads & Deals Assignments', icon: 'fas fa-bullseye' },
         { id: 'reminders', name: 'Activity Reminders', icon: 'fas fa-clock' },
         { id: 'mentions', name: 'Mentions & Comments', icon: 'fas fa-at' },
         { id: 'stageChanges', name: 'Stage Transitions', icon: 'fas fa-exchange-alt' },
+        { id: 'publicForms', name: 'Website Form Submissions', icon: 'fas fa-file-signature' },
+        { id: 'messaging', name: 'Messaging & WhatsApp', icon: 'fas fa-comments' },
+        { id: 'inventoryMatch', name: 'Smart Inventory Matching', icon: 'fas fa-magic' },
+        { id: 'conflictAlerts', name: 'Conflict & Duplicate Alerts', icon: 'fas fa-exclamation-triangle' },
         { id: 'system', name: 'System & Web Alerts', icon: 'fas fa-bell' }
     ];
 
     return (
         <div style={{ flex: 1, background: '#f8fafc', padding: '40px', overflowY: 'auto' }}>
-            <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', marginBottom: '32px' }}>Notification Settings</h1>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
+                <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>Notification Settings</h1>
+                <button 
+                    onClick={handleTestNotification}
+                    className="btn-outline" 
+                    style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', borderRadius: '8px', border: '1px solid #3b82f6', color: '#3b82f6', background: '#fff', fontWeight: 600, cursor: 'pointer' }}
+                >
+                    <i className="fas fa-paper-plane"></i> Send Test Notification
+                </button>
+            </div>
 
             <div style={{ display: 'flex', gap: '32px', borderBottom: '1px solid #e2e8f0', marginBottom: '32px' }}>
                 <div

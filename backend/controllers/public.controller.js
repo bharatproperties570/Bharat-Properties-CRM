@@ -12,6 +12,7 @@ import axios from "axios";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { createNotification } from "./notification.controller.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -775,6 +776,19 @@ export const submitPropertyForm = async (req, res) => {
             message: 'Property submitted successfully. Our team will verify and publish it soon.',
             dealId: deal._id
         });
+
+        // 🌟 SENIOR ADDITION: Notify Admin/Owner of New Public Property Submission
+        const adminUser = await mongoose.model('User').findOne({}).select('_id').lean();
+        if (adminUser) {
+            await createNotification(
+                adminUser._id,
+                'publicForms',
+                '🏢 New Website Property Listing',
+                `${contact.name} listed a new property in ${projectName}.`,
+                `/deals/${deal._id}`,
+                { dealId: deal._id, source: 'public_form' }
+            ).catch(() => {});
+        }
     } catch (error) {
         console.error('Property submission error:', error);
         res.status(500).json({ success: false, message: error.message });
@@ -861,6 +875,19 @@ export const submitLeadForm = async (req, res) => {
             leadId: lead._id,
             activityId: activity._id
         });
+
+        // 🌟 SENIOR ADDITION: Notify Admin of New Public Lead (Service/Inquiry)
+        const adminUser = await mongoose.model('User').findOne({}).select('_id').lean();
+        if (adminUser) {
+            await createNotification(
+                adminUser._id,
+                'publicForms',
+                '🎯 New Website Inquiry',
+                `${name} submitted a new inquiry regarding ${projectName || 'Services'}.`,
+                `/leads/${lead._id}`,
+                { leadId: lead._id, source: 'public_form' }
+            ).catch(() => {});
+        }
     } catch (error) {
         console.error('Lead submission error:', error);
         res.status(500).json({ success: false, message: error.message });

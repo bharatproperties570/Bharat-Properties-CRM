@@ -69,13 +69,14 @@ export const socialAPI = {
     testConnection: () => api.post('/social/test-connection').then(res => res.data),
 };
 
-export const getNotifications = () => api.get('/notifications');
-export const markNotificationAsRead = (id) => api.put(`/notifications/${id}/read`);
-export const markAllNotificationsAsRead = () => api.put('/notifications/read-all');
+export const getNotifications = () => api.get('/notifications').then(res => res.data);
+export const markNotificationAsRead = (id) => api.put(`/notifications/${id}/read`).then(res => res.data);
+export const markAllNotificationsAsRead = () => api.put('/notifications/read-all').then(res => res.data);
+export const triggerTestNotification = () => api.post('/notifications/test').then(res => res.data);
 
 // Create and export axios instance
 export const api = axios.create({
-    baseURL: API_BASE_URL,
+    baseURL: API_BASE_URL.endsWith('/') ? API_BASE_URL : `${API_BASE_URL}/`,
     headers: {
         "Content-Type": "application/json",
     },
@@ -87,6 +88,10 @@ api.interceptors.request.use(
         const token = localStorage.getItem('authToken');
         if (token) {
             config.headers.Authorization = `Bearer ${token}`;
+        }
+        // Also normalize the URL here for safety if called directly
+        if (config.url && config.url.startsWith('/')) {
+            config.url = config.url.substring(1);
         }
         return config;
     },
@@ -174,8 +179,8 @@ const apiRequest = async (endpoint, options = {}) => {
 
     const requestPromise = (async () => {
         try {
-            // Normalize endpoint
-            const url = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+            // Normalize endpoint (ensure NO leading slash to correctly append to baseURL)
+            const url = endpoint.startsWith('/') ? endpoint.substring(1) : endpoint;
 
             // Map standard fetch options to Axios config
             const axiosConfig = {

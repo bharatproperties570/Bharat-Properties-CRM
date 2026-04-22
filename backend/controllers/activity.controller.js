@@ -1,4 +1,5 @@
 import Activity from "../models/Activity.js";
+import User from "../models/User.js";
 import mongoose from "mongoose";
 import AuditLog from "../models/AuditLog.js";
 import Lead from "../models/Lead.js";
@@ -565,14 +566,53 @@ export const getActivityById = async (req, res) => {
 
 // @desc    Add new activity
 // @route   POST /api/activities
+const detectMentions = async (text, actorId, entityInfo) => {
+    try {
+        if (!text || !text.includes('@')) return;
+        
+        // Match @Name or @Surname (handling spaces if quoted or just standard Slack-like pattern)
+        const mentions = text.match(/@(\w+)/g);
+        if (!mentions) return;
+
+        for (const mention of mentions) {
+            const name = mention.substring(1).toLowerCase();
+            // Search for user by name or email
+            const users = await User.find({
+                $or: [
+                    { firstName: { $regex: new RegExp(`^${name}$`, 'i') } },
+                    { lastName: { $regex: new RegExp(`^${name}$`, 'i') } },
+                    { fullName: { $regex: new RegExp(`${name}`, 'i') } }
+                ]
+            }).select('_id fullName').lean();
+
+            for (const user of users) {
+                if (String(user._id) === String(actorId)) continue; // Don't notify self
+
+                await createNotification(
+                    user._id,
+                    'mentions',
+                    '🏷️ You were mentioned',
+                    `${entityInfo.actorName} mentioned you in a ${entityInfo.type}: "${text.substring(0, 50)}..."`,
+                    entityInfo.link,
+                    { sourceEntityId: entityInfo.id },
+                    'high'
+                ).catch(() => {});
+            }
+        }
+    } catch (err) {
+        console.error('[MentionDetection] Failed:', err.message);
+    }
+};
+
 export const addActivity = async (req, res) => {
     try {
         const activityData = { ...req.body };
+        const actorName = req.user?.fullName || req.user?.name || 'A teammate';
         
         // Auto-set performer name from authenticated user
         if (req.user) {
             activityData.createdBy = req.user.id || req.user._id;
-            activityData.performedBy = req.user.fullName || req.user.name || `${req.user.firstName || ''} ${req.user.lastName || ''}`.trim();
+            activityData.performedBy = actorName;
             // Default teams to user's teams if no inheritance happens later
             if (!activityData.teams || activityData.teams.length === 0) {
                 activityData.teams = Array.isArray(req.user.teams) ? req.user.teams : (req.user.team ? [req.user.team] : []);
@@ -595,6 +635,16 @@ export const addActivity = async (req, res) => {
         }
 
         const activity = await Activity.create(activityData);
+        
+        // 🚀 Detect Mentions in Note/Description
+        if (activity.description) {
+            detectMentions(activity.description, req.user?.id || req.user?._id, {
+                actorName,
+                type: activity.type || 'Activity',
+                id: activity.entityId,
+                link: `/${String(activity.entityType || 'lead').toLowerCase()}s/${activity.entityId}`
+            });
+        }
 
         // Auto-run Enrichment if entity is a Lead
         if (activity.entityType?.toLowerCase() === 'lead' && activity.entityId) {
@@ -667,6 +717,21 @@ export const updateActivity = async (req, res) => {
         // If status is changing to Completed, ensure performedBy is set
         if (updateData.status === 'Completed' && req.user) {
             updateData.performedBy = req.user.fullName || req.user.name || `${req.user.firstName || ''} ${req.user.lastName || ''}`.trim();
+        }
+
+        // 🌟 SENIOR ADDITION: Notify on reassignment
+        if (updateData.assignedTo) {
+            const existingAct = await Activity.findById(req.params.id).select('assignedTo subject type').lean();
+            if (existingAct && String(existingAct.assignedTo) !== String(updateData.assignedTo)) {
+                await createNotification(
+                    updateData.assignedTo,
+                    'assignment',
+                    '🔄 Activity Reassigned to You',
+                    `Activity "${existingAct.subject}" has been reassigned to you.`,
+                    `/activities/${req.params.id}`,
+                    { activityId: req.params.id }
+                ).catch(() => {});
+            }
         }
 
         const activity = await Activity.findByIdAndUpdate(

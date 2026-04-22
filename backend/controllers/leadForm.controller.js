@@ -163,6 +163,20 @@ export const submitForm = async (req, res) => {
         enrichmentQueue.add('enrichLead', { leadId: lead._id })
             .catch(err => console.error("[ENRICHMENT QUEUE ERROR] Form Submit:", err));
 
+        // 🚀 Senior Tweak: Notify Owner of New Capture
+        if (lead.owner) {
+            const { createNotification } = await import('./notification.controller.js');
+            createNotification(
+                lead.owner,
+                'publicForms',
+                '🌐 New Website Lead Captured',
+                `A new lead matching your requirement was just captured via form: ${form.name}`,
+                `/leads/${lead._id}`,
+                { leadId: lead._id },
+                'high'
+            ).catch(() => {});
+        }
+
         res.status(201).json({
             success: true,
             message: form.settings.successMessage,

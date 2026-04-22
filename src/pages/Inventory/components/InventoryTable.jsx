@@ -130,11 +130,11 @@ const InventoryTable = ({
                                     overflow: 'hidden',
                                     textOverflow: 'ellipsis'
                                 }}>
-                                    {renderValue(item.projectName)}
+                                    {renderValue(item.projectName) || renderValue(item.projectId?.name) || 'Unknown Project'}
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.75rem', color: '#64748b', marginBottom: '6px' }}>
                                     <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.8rem' }}></i>
-                                    {renderValue(item.address?.locality) || renderValue(item.address?.area)}, {renderValue(item.address?.city)}
+                                    {renderValue(item.address?.location) || renderValue(item.address?.locality) || renderValue(item.address?.area)}, {renderValue(item.address?.city)}
                                 </div>
                                 {item.block && (
                                     <span style={{ fontSize: '0.58rem', padding: '2px 10px', background: '#f1f5f9', color: '#475569', fontWeight: 800, borderRadius: '4px', border: '1px solid #e2e8f0' }}>

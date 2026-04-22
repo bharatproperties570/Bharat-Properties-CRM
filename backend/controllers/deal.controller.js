@@ -11,6 +11,7 @@ import AuditLog from "../models/AuditLog.js";
 import { syncDocumentsToContact } from "../utils/sync.js";
 import CampaignEngine from "../services/CampaignEngine.js";
 import { getVisibilityFilter } from "../utils/visibility.js";
+import { createNotification } from "./notification.controller.js";
 import Project from "../models/Project.js"; // Added to resolve [matchDeals] population error
 
 // --- OPTIMIZATION: In-Memory Lookup Cache (Process Scoped) ---
@@ -987,8 +988,56 @@ export const updateDeal = async (req, res) => {
                     { before: oldRM, after: newRM },
                     `Deal reassigned to a new owner.`
                 );
+
+                // [NOTIFICATION] Notify new owner of reassignment
+                if (String(newRM) !== String(req.user?.id)) {
+                    await createNotification(
+                        newRM,
+                        'assignment',
+                        '🔄 Deal Reassigned to You',
+                        `Deal for project "${existing.projectName}" has been reassigned to you.`,
+                        `/deals/${req.params.id}`,
+                        { dealId: req.params.id, type: 'deal_reassigned' }
+                    ).catch(() => {});
+                }
             }
 
+            // [NOTIFICATION] High-Value Stage Change
+            const milestoneStages = ['Won', 'Booked', 'Token Received', 'Sold Out'];
+            if (sanitizedData.stage && sanitizedData.stage !== existing.stage) {
+                const ownerId = sanitizedData.assignedTo || existing.assignedTo || existing.owner;
+                if (ownerId && String(ownerId) !== String(req.user?.id)) {
+                    await createNotification(
+                        ownerId,
+                        'deal',
+                        `🔥 Deal Stage: ${sanitizedData.stage}`,
+                        `Deal for project "${existing.projectName}" moved to ${sanitizedData.stage}.`,
+                        `/deals/${req.params.id}`,
+                        { dealId: req.params.id, stage: sanitizedData.stage }
+                    ).catch(() => {});
+                }
+
+                // 🌟 SENIOR ADDITION: Global Team Notification for High-Value Stages
+                if (milestoneStages.includes(sanitizedData.stage)) {
+                    // Notify managers or team leads
+                    const User = mongoose.model('User');
+                    const managers = await User.find({ 
+                        $or: [{ role: 'manager' }, { role: 'admin' }],
+                        _id: { $ne: req.user?.id } 
+                    }).select('_id').lean();
+                    
+                    for (const mgr of managers) {
+                        await createNotification(
+                            mgr._id,
+                            'deal',
+                            `💰 Achievement: Deal ${sanitizedData.stage}!`,
+                            `Great news! A deal for "${existing.projectName}" has reached ${sanitizedData.stage} status.`,
+                            `/deals/${req.params.id}`,
+                            { dealId: req.params.id, type: 'milestone' }
+                        ).catch(() => {});
+                    }
+                }
+            }
             if (requiresHistoryUpdate) {
                 const atomicUpdate = { ...historyUpdate };
                 delete atomicUpdate.$push;

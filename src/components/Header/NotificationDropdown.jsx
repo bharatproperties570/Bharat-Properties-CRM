@@ -12,9 +12,20 @@ const NotificationDropdown = ({
 
     const getNotificationIcon = (type) => {
         switch (type) {
-            case 'assignment': return { icon: 'fas fa-bullseye', color: '#2563eb' };
-            case 'task': return { icon: 'fas fa-tasks', color: '#f59e0b' };
-            case 'mention': return { icon: 'fas fa-at', color: '#10b981' };
+            case 'assignment': 
+            case 'assignments': return { icon: 'fas fa-bullseye', color: '#2563eb' };
+            case 'publicForms': return { icon: 'fas fa-file-signature', color: '#0ea5e9' };
+            case 'inventoryMatch': return { icon: 'fas fa-magic', color: '#f59e0b' };
+            case 'conflictAlerts': return { icon: 'fas fa-exclamation-triangle', color: '#ef4444' };
+            case 'whatsapp': 
+            case 'messaging': return { icon: 'fab fa-whatsapp', color: '#25d366' };
+            case 'lead': return { icon: 'fas fa-user-plus', color: '#3b82f6' };
+            case 'deal': return { icon: 'fas fa-handshake', color: '#8b5cf6' };
+            case 'task': 
+            case 'reminder':
+            case 'reminders':
+            case 'activity': return { icon: 'fas fa-clock', color: '#f59e0b' };
+            case 'stageChanges':
             case 'stage_change': return { icon: 'fas fa-exchange-alt', color: '#8b5cf6' };
             case 'system': return { icon: 'fas fa-info-circle', color: '#3b82f6' };
             case 'announcement': return { icon: 'fas fa-bullhorn', color: '#f97316' };

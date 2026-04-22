@@ -274,6 +274,18 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                 conversation.messages.push({ role: 'user', content: messageText });
                 await conversation.save();
 
+                // [NOTIFICATION] Notify Lead/Contact Owner of incoming WhatsApp message via Professional Engine
+                const targetUserId = lead?.assignment?.assignedTo || lead?.owner || contact?.owner || null;
+                const NotificationEngine = (await import('../services/NotificationEngine.js')).default;
+                
+                await NotificationEngine.notifyWhatsApp(
+                    targetUserId,
+                    lead?.firstName || contact?.fullName || contact?.name || fromNumber,
+                    messageText,
+                    lead ? `/leads/${lead._id}` : (contact ? `/contacts/${contact._id}` : '/communication'),
+                    entityId
+                );
+
                 // 3.1 Create formal Activity Log (For Timeline consistency and Feed notifications)
                 await Activity.create({
                     type: 'WhatsApp',
@@ -416,9 +428,20 @@ export const exotelCallback = async (req, res) => {
                 lastCallFailure: Status,
                 callSid: CallSid
             };
-        }
-
         await lead.save();
+
+        // 🔔 TRIGGER SENIOR NOTIFICATION
+        // Dynamic import to avoid circular dependency if any
+        const { default: NotificationEngine } = await import('../services/NotificationEngine.js');
+        await NotificationEngine.notify({
+            userId: lead.owner,
+            type: 'messaging',
+            title: `📞 Call Status: ${Status}`,
+            message: `Lead: ${lead.fullName}. Outcome: ${Status}${Duration ? ` (${Duration}s)` : ''}`,
+            link: `/leads/${lead._id}`,
+            metadata: { leadId: lead._id, callSid: CallSid },
+            priority: Status === 'completed' ? 'medium' : 'high'
+        });
 
         // Log as an Activity
         const Activity = mongoose.model('Activity');

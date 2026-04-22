@@ -573,6 +573,25 @@ export const addLead = async (req, res, next) => {
             console.error("[ENRICHMENT ERROR] Failed in addLead:", enrichError.message);
         }
 
+        // ─── Proactive Duplicate Check & Conflict Notification ───────────────────────
+        if (lead.mobile) {
+            const existingLead = await Lead.findOne({ 
+                _id: { $ne: lead._id }, 
+                mobile: lead.mobile 
+            }).populate('owner').lean();
+            
+            if (existingLead && existingLead.owner) {
+                await createNotification(
+                    existingLead.owner._id,
+                    'conflictAlerts',
+                    '⚠️ Duplicate Lead Attempt',
+                    `Someone just tried to register your client ${lead.firstName} (${lead.mobile}). Lead was merged/blocked.`,
+                    `/leads/${existingLead._id}`,
+                    { duplicateLeadId: lead._id }
+                ).catch(() => {});
+            }
+        }
+
         // ─── Auto-Assign via DistributionService ───────────────────────────────────
         let assignedAgent = null;
         try {
@@ -601,7 +620,7 @@ export const addLead = async (req, res, next) => {
                 // Create Notification for auto-assignment
                 await createNotification(
                     assignment.assignedTo,
-                    'assignment',
+                    'assignments',
                     'New Lead Assigned',
                     `A new lead ${lead.firstName} ${lead.lastName || ''} has been assigned to you.`,
                     `/leads/${lead._id}`,
@@ -718,6 +737,18 @@ export const updateLead = async (req, res, next) => {
                     { before: oldOwner, after: newOwner },
                     `Lead reassigned to a new owner.`
                 );
+
+                // [NOTIFICATION] Notify new owner of reassignment
+                if (String(newOwner) !== String(req.user?.id)) { // Don't notify self
+                    await createNotification(
+                        newOwner,
+                        'assignments',
+                        '🔄 Lead Reassigned to You',
+                        `Lead ${existing.firstName} ${existing.lastName || ''} has been reassigned to you by ${req.user?.fullName || 'Manager'}.`,
+                        `/leads/${req.params.id}`,
+                        { leadId: req.params.id, assignedBy: req.user?.id }
+                    ).catch(() => {});
+                }
             }
 
             if (requiresHistoryUpdate) {

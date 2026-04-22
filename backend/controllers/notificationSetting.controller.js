@@ -4,15 +4,19 @@ import NotificationSetting from '../models/NotificationSetting.js';
 // @route   GET /api/notification-settings
 export const getNotificationSettings = async (req, res) => {
     try {
-        let settings = await NotificationSetting.findOne({ user: req.user.id });
+        const userId = req.user?.id || req.user?._id;
+        if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+        let settings = await NotificationSetting.findOne({ user: userId });
         
         if (!settings) {
             // Create default settings if not exists
             settings = await NotificationSetting.create({
-                user: req.user.id,
+                user: userId,
                 presets: {
                     'assignments': { 'web': true, 'email': true },
-                    'reminders': { 'web': true, 'email': true, 'whatsapp': true }
+                    'reminders': { 'web': true, 'email': true, 'whatsapp': true },
+                    'messaging': { 'web': true, 'email': true, 'whatsapp': true }
                 }
             });
         }
@@ -27,8 +31,9 @@ export const getNotificationSettings = async (req, res) => {
 // @route   PUT /api/notification-settings
 export const updateNotificationSettings = async (req, res) => {
     try {
+        const userId = req.user?.id || req.user?._id;
         const settings = await NotificationSetting.findOneAndUpdate(
-            { user: req.user.id },
+            { user: userId },
             req.body,
             { new: true, upsert: true }
         );
@@ -42,9 +47,10 @@ export const updateNotificationSettings = async (req, res) => {
 // @route   POST /api/notification-settings/personalized
 export const addPersonalizedRule = async (req, res) => {
     try {
+        const userId = req.user?.id || req.user?._id;
         const rule = req.body;
         const settings = await NotificationSetting.findOneAndUpdate(
-            { user: req.user.id },
+            { user: userId },
             { $push: { personalizedRules: rule } },
             { new: true, upsert: true }
         );

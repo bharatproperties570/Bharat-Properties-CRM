@@ -119,6 +119,7 @@ function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompa
                         className="fas fa-bell header-icon"
                         style={{
                             fontSize: '1.4rem',
+                            color: unreadCount > 0 ? '#ef4444' : '#68737d',
                             animation: unreadCount > 0 ? 'bellRing 2s ease-in-out infinite' : 'none'
                         }}
                         onClick={() => setShowNotifications(!showNotifications)}

@@ -1,5 +1,5 @@
 import express from "express";
-import { getNotifications, markAsRead, markAllAsRead } from "../controllers/notification.controller.js";
+import { getNotifications, markAsRead, markAllAsRead, triggerTestNotification } from "../controllers/notification.controller.js";
 import { protect } from "../middleware/auth.js"; // Standard auth middleware if it exists
 
 const router = express.Router();
@@ -8,6 +8,7 @@ const router = express.Router();
 router.use(protect);
 
 router.get("/", getNotifications);
+router.post("/test", triggerTestNotification);
 router.put("/read-all", markAllAsRead);
 router.put("/:id/read", markAsRead);
 

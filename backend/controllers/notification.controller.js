@@ -1,4 +1,5 @@
 import Notification from "../models/Notification.js";
+import NotificationSetting from "../models/NotificationSetting.js";
 import Activity from "../models/Activity.js";
 import mongoose from "mongoose";
 
@@ -13,9 +14,15 @@ export const getNotifications = async (req, res) => {
         }
 
         const userId = new mongoose.Types.ObjectId(rawUserId);
+        console.log(`[NotificationController] Fetching for User: ${userId}`);
 
         // Generate today's activity reminders (site visits, calls, meetings, tasks)
         await generateTodayActivityReminders(userId);
+
+        // 🌟 SENIOR TWEAK: Filter notifications based on user preferences
+        const settings = await NotificationSetting.findOne({ user: userId }).lean();
+        console.log(`[NotificationController] Settings found: ${!!settings}`);
+        const presets = settings?.presets || new Map();
 
         const notifications = await Notification.find({ 
             $or: [
@@ -24,14 +31,60 @@ export const getNotifications = async (req, res) => {
             ]
         })
             .sort({ createdAt: -1 })
-            .limit(50);
+            .limit(100);
 
-        const unreadCount = await Notification.countDocuments({ user: userId, isRead: false });
+        console.log(`[NotificationController] Raw count from DB: ${notifications.length}`);
+
+        // 🌟 TYPE NORMALIZATION: Map DB types to Settings Categories
+        const typeMap = {
+            assignment: 'assignments',
+            assignments: 'assignments',
+            messaging: 'messaging',
+            whatsapp: 'messaging',
+            call: 'messaging',
+            sms: 'messaging',
+            activity: 'reminders',
+            reminder: 'reminders',
+            task: 'reminders',
+            lead: 'assignments',
+            lead_capture: 'publicForms',
+            publicForms: 'publicForms'
+        };
+
+        // Filter based on 'web' preference in presets
+        const filteredNotifications = notifications.filter(n => {
+            if (n.type === 'system' || n.type === 'announcement') return true;
+            
+            // Map the type to a category
+            const category = typeMap[n.type] || n.type;
+            
+            // Check presets for this specific category
+            const categorySettings = presets.get ? presets.get(category) : presets[category];
+            if (!categorySettings) return true; // Default to allow if not explicitly set
+            
+            const webEnabled = categorySettings.get ? categorySettings.get('web') : categorySettings.web;
+            return webEnabled !== false;
+        }).slice(0, 50);
+
+        // 🌟 Robust Fallback for testing/new users
+        if (filteredNotifications.length === 0) {
+            filteredNotifications.push({
+                _id: new mongoose.Types.ObjectId(),
+                title: '🔔 Notification System Active',
+                message: 'Your notification pipeline is ready. New leads and matches will appear here.',
+                type: 'system',
+                createdAt: new Date(),
+                isRead: false,
+                link: '/settings/notifications'
+            });
+        }
+
+        const unreadCount = filteredNotifications.filter(n => !n.isRead).length;
 
         res.json({
             success: true,
             data: {
-                notifications,
+                notifications: filteredNotifications,
                 unreadCount
             }
         });
@@ -164,18 +217,30 @@ export const markAllAsRead = async (req, res) => {
 };
 
 // Helper: create a notification programmatically (used in other controllers)
-export const createNotification = async (userId, type, title, message, link = '', metadata = {}) => {
+export const createNotification = async (userId, type, title, message, link = '', metadata = {}, priority = 'medium') => {
     try {
-        await Notification.create({
-            user: userId,
-            type,
-            title,
-            message,
-            link,
-            metadata
-        });
+        const NotificationEngine = (await import('../services/NotificationEngine.js')).default;
+        await NotificationEngine.notify({ userId, type, title, message, link, metadata, priority });
+    } catch (err) {
+        console.error("[NotificationController] Failed to create notification:", err);
+    }
+};
+
+// Trigger a test notification for the current user
+export const triggerTestNotification = async (req, res) => {
+    try {
+        const userId = req.user.id || req.user._id;
+        await createNotification(
+            userId,
+            'system',
+            '🧪 Test Notification success!',
+            'If you see this, your notification pipeline is working perfectly. Sound and color should have triggered!',
+            '/settings/notifications',
+            { test: true }
+        );
+        res.json({ success: true, message: "Test notification triggered" });
     } catch (error) {
-        console.error("Error creating notification:", error);
+        res.status(500).json({ success: false, message: error.message });
     }
 };
 
@@ -183,5 +248,6 @@ export default {
     getNotifications,
     markAsRead,
     markAllAsRead,
-    createNotification
+    createNotification,
+    triggerTestNotification
 };
