@@ -5,7 +5,7 @@ import Inventory from '../../models/Inventory.js';
 import Deal from '../../models/Deal.js';
 import Contact from '../../models/Contact.js';
 import Activity from '../../models/Activity.js';
-import { normalizePhone } from '../utils/normalization.js';
+import { normalizePhone } from '../../utils/normalization.js';
 
 /**
  * Enterprise Grade Intake Engine
