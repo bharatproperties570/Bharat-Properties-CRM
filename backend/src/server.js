@@ -11,6 +11,7 @@ import "./workers/cronWorker.js";
 import "./workers/googleSyncWorker.js";
 import "./workers/marketingWorker.js"; // Phase D: Marketing blast/drip/social jobs
 import NurtureBot from "../services/NurtureBot.js";
+import { ensureRedisRunning } from "./utils/redisLauncher.js";
 
 
 const logStartup = (msg) => {
@@ -52,67 +53,60 @@ process.stderr.on('error', (err) => {
  * to prevent hangs during index building and model registration in ESM.
  */
 async function startServer() {
+    let app;
+    
     try {
-        // Connect to MongoDB
+        // 0. Ensure Dependencies (Redis)
+        await ensureRedisRunning();
+
+        // 1. Connect to MongoDB (Non-blocking retry logic in db.js)
         await connectDB();
+    } catch (dbErr) {
+        console.error("⚠️ MongoDB Connection Error during startup (Server will continue):", dbErr.message);
+    }
 
-        // Dynamically load app to ensure DB is connected first
-        const { default: app } = await import("../app.js");
+    try {
+        // 2. Dynamically load app
+        const { default: loadedApp } = await import("../app.js");
+        app = loadedApp;
 
+        // 3. Start Listening (Primary goal: avoid Network Error)
         app.listen(config.port, () => {
             const msg = `🚀 CRM Backend running on port ${config.port} (Env: ${config.nodeEnv})`;
             console.log(msg);
             logStartup(msg);
         });
+    } catch (appErr) {
+        console.error("❌ Critical App Initialization Error:", appErr);
+        logStartup(`❌ Critical App Initialization Error: ${appErr.message}`);
+        return; // Total failure
+    }
 
-        // Schedule background jobs
-        try {
-            cronQueue.add('dailyInactivityCheck', {}, {
-                repeat: { pattern: '0 2 * * *' }
-            }).catch(() => {
-                // Silently ignore queue addition errors
-            });
-
-            cronQueue.add('followUpReminders', {}, {
-                repeat: { pattern: '0 * * * *' }
-            }).catch(() => {
-                // Silently ignore queue addition errors
-            });
-            googleSyncQueue.add('processEmails', {}, {
-                repeat: { pattern: '*/15 * * * *' }
-            }).catch(() => {
-                // Silently ignore queue addition errors
-            });
-        } catch (queueErr) {
-            console.warn("⚠️  BullMQ/Redis not fully available locally. Queues inactive.");
-        }
-
-        // ── Phase D: Marketing Queue Health Log ───────────────────────────────
-        // The marketingQueue processes blast/drip/social jobs when Redis is online.
-        // Gracefully skips if Redis is not running.
+    try {
+        // 4. Schedule background jobs
+        cronQueue.add('dailyInactivityCheck', {}, { repeat: { pattern: '0 2 * * *' } }).catch(() => {});
+        cronQueue.add('followUpReminders', {}, { repeat: { pattern: '0 * * * *' } }).catch(() => {});
+        googleSyncQueue.add('processEmails', {}, { repeat: { pattern: '*/15 * * * *' } }).catch(() => {});
+        
         marketingQueue?.getJobCounts?.().then(counts => {
             console.log(`[MarketingQueue] Job counts: waiting=${counts.waiting} active=${counts.active} failed=${counts.failed}`);
-        }).catch(() => { /* Redis offline — ignore */ });
+        }).catch(() => { /* Redis offline */ });
 
-
-        // --- 🤖 UNIVERSAL CRON FALLBACK (NurtureBot) ---
-        // Runs every hour to advance leads through the Nurture Flow automatically.
-        const NURTURE_INTERVAL = 60 * 60 * 1000; // 1 Hour
-        setInterval(() => {
-            console.log(`[Autonomous Agent] Triggering NurtureBot cycle: ${new Date().toLocaleTimeString()}`);
-            NurtureBot.processPendingLeads().catch(err => 
-                console.error('[Autonomous Agent] NurtureBot cycle error:', err.message)
-            );
-        }, NURTURE_INTERVAL);
-
-        // Run immediately on startup
-        NurtureBot.processPendingLeads().catch(() => {});
-
-    } catch (err) {
-        console.error("❌ Critical Startup Error:", err);
-        logStartup(`❌ Critical Startup Error: ${err.message}`);
-        process.exit(1);
+    } catch (queueErr) {
+        console.warn("⚠️ BullMQ/Redis initialization issues. Background jobs may be limited.");
     }
+
+    // 5. Autonomous Agent Fallback
+    const NURTURE_INTERVAL = 60 * 60 * 1000; // 1 Hour
+    setInterval(() => {
+        console.log(`[Autonomous Agent] Triggering NurtureBot cycle: ${new Date().toLocaleTimeString()}`);
+        NurtureBot.processPendingLeads().catch(err => 
+            console.error('[Autonomous Agent] NurtureBot cycle error:', err.message)
+        );
+    }, NURTURE_INTERVAL);
+
+    // Run immediately on startup
+    NurtureBot.processPendingLeads().catch(() => {});
 }
 
 startServer();

@@ -9,7 +9,8 @@ import {
     syncMobileCalls, 
     getMessagingActivities, 
     getActivitiesByEntity,
-    sendReply
+    sendReply,
+    convertToLead
 } from "../controllers/activity.controller.js";
 import { authenticate } from "../src/middlewares/auth.middleware.js";
 
@@ -21,6 +22,7 @@ router.use(authenticate);
 router.get("/", getActivities);
 router.get("/messaging", getMessagingActivities);
 router.post("/messaging/reply", sendReply);
+router.post("/messaging/convert-to-lead", convertToLead);
 router.get("/entity/:entityType/:entityId", getActivitiesByEntity);
 router.get("/:id", getActivityById);
 router.get("/unified/:entityType/:entityId", getUnifiedTimeline);

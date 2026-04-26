@@ -3,6 +3,9 @@ import app from "./app.js";
 import connectDB from "./config/db.js";
 import NurtureBot from "./services/NurtureBot.js";
 
+// 🧠 SENIOR ARCHITECTURE: Initialize background workers
+import "./src/workers/marketingWorker.js"; 
+
 // dotenv.config(); 
 
 const PORT = process.env.PORT || 5000;

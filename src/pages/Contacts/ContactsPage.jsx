@@ -637,7 +637,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                   <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.8rem", color: "#64748b" }}>
                     <span>Show:</span>
                     <select value={recordsPerPage} onChange={handleRecordsPerPageChange} style={{ padding: "4px 8px", border: "1px solid #e2e8f0", borderRadius: "6px", fontSize: "0.8rem", fontWeight: 600, color: "#0f172a", outline: "none", cursor: "pointer" }}>
-                      {[10, 25, 50, 100, 300, 500, 700, 1000].map(v => <option key={v} value={v}>{v}</option>)}
+                      {[10, 25, 50, 100, 300, 500, 750, 1000].map(v => <option key={v} value={v}>{v}</option>)}
                     </select>
                   </div>
                   {/* Pagination Controls */}

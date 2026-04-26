@@ -470,6 +470,9 @@ function ProjectsPage({ onNavigate }) {
                                                     <option value={50}>50</option>
                                                     <option value={100}>100</option>
                                                     <option value={300}>300</option>
+                                                    <option value={500}>500</option>
+                                                    <option value={750}>750</option>
+                                                    <option value={1000}>1000</option>
                                                 </select>
                                             </div>
 
@@ -543,7 +546,6 @@ function ProjectsPage({ onNavigate }) {
                             <div>Property Type</div>
                             <div>Launch Status</div>
                             <div style={{ textAlign: 'center' }}>Assignment</div>
-                            <div style={{ textAlign: 'center' }}>Actions</div>
                         </div>
 
                         <div className="list-content">
@@ -653,31 +655,6 @@ function ProjectsPage({ onNavigate }) {
                                                         {project.createdAt ? new Date(project.createdAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : (project.date || 'N/A')}
                                                     </div>
                                                 </div>
-                                            </div>
-
-                                            {/* Col 8: Actions */}
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}>
-                                                <button
-                                                    onClick={(e) => { e.stopPropagation(); onNavigate('project-detail', project._id); }}
-                                                    title="View Details"
-                                                    style={{ background: '#eff6ff', border: '1px solid #dbeafe', borderRadius: '8px', width: '32px', height: '32px', cursor: 'pointer', color: '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: '0.2s' }}
-                                                >
-                                                    <i className="fas fa-external-link-alt"></i>
-                                                </button>
-                                                <button
-                                                    onClick={(e) => { e.stopPropagation(); setEditProjectData(project); setIsAddModalOpen(true); }}
-                                                    title="Edit Project"
-                                                    style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px', width: '32px', height: '32px', cursor: 'pointer', color: '#f59e0b', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: '0.2s' }}
-                                                >
-                                                    <i className="fas fa-edit"></i>
-                                                </button>
-                                                <button
-                                                    onClick={(e) => { e.stopPropagation(); handleDeleteProject(project._id); }}
-                                                    title="Delete Project"
-                                                    style={{ background: '#fef2f2', border: '1px solid #fee2e2', borderRadius: '8px', width: '32px', height: '32px', cursor: 'pointer', color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: '0.2s' }}
-                                                >
-                                                    <i className="fas fa-trash-alt"></i>
-                                                </button>
                                             </div>
 
                                         </div>

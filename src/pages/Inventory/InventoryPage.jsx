@@ -81,8 +81,14 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
     // -- Derived Handlers --
     const getTeamName = useCallback((tv) => {
         if (!tv) return "";
+        // Case A: tv is a populated object
+        if (typeof tv === 'object') {
+            const name = tv.name || tv.lookup_value || tv.displayName || "";
+            if (name) return String(renderValue(name));
+        }
+        // Case B: tv is an ID string
         const found = teams.find(t => (t._id === tv) || (t.id === tv));
-        const name = found ? (found.name || found.lookup_value) : (typeof tv === 'object' ? (tv.name || tv.lookup_value || "") : "");
+        const name = found ? (found.name || found.lookup_value) : (typeof tv === 'string' ? tv : "");
         return String(renderValue(name));
     }, [teams]);
 

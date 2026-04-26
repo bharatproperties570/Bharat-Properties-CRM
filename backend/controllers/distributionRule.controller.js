@@ -2,8 +2,8 @@ import DistributionRule from "../models/DistributionRule.js";
 
 export const getDistributionRules = async (req, res) => {
     try {
-        const { entity } = req.query;
-        const query = entity ? { entity } : {};
+        const { module: moduleName } = req.query;
+        const query = moduleName ? { module: moduleName } : {};
         const rules = await DistributionRule.find(query).lean();
         res.json(rules);
     } catch (error) {

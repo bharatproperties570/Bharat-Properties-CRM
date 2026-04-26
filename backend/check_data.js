@@ -1,30 +1,38 @@
 import mongoose from 'mongoose';
+import dotenv from 'dotenv';
+import path from 'path';
 
-const uri = "mongodb+srv://bharatproperties:Bharat%40570@cluster0.7dehanz.mongodb.net/bharatproperties1";
+dotenv.config({ path: './.env' });
 
-async function check() {
+const checkData = async () => {
     try {
-        await mongoose.connect(uri);
-        console.log("Connected to MongoDB");
+        await mongoose.connect(process.env.MONGODB_URI, { family: 4 });
+        console.log('✅ Connected to MongoDB');
 
-        const db = mongoose.connection.db;
-
-        const unitTypes = await db.collection('lookups').find({ lookup_type: 'UnitType' }).toArray();
-        console.log("UnitType Lookups:", unitTypes.map(u => u.lookup_value));
-
-        const propertyTypes = await db.collection('lookups').find({ lookup_type: 'PropertyType' }).toArray();
-        console.log("PropertyType Lookups:", propertyTypes.map(p => p.lookup_value));
-
-        const settings = await db.collection('systemsettings').find({ key: 'masterFields' }).toArray();
-        if (settings.length > 0) {
-            console.log("masterFields.unitTypes in systemsettings:", settings[0].value.unitTypes);
+        const collections = ['Lead', 'Deal', 'Contact', 'Project', 'Activity', 'Conversation'];
+        
+        for (const col of collections) {
+            try {
+                // We need to define or get the model. 
+                // Since we don't want to import everything, we can use the connection's collection directly.
+                const count = await mongoose.connection.db.collection(col.toLowerCase() + 's').countDocuments();
+                console.log(`${col}: ${count} documents`);
+            } catch (e) {
+                // Try pluralized or as is
+                try {
+                     const count = await mongoose.connection.db.collection(col).countDocuments();
+                     console.log(`${col}: ${count} documents`);
+                } catch (e2) {
+                     console.log(`${col}: Error or Collection not found`);
+                }
+            }
         }
 
         process.exit(0);
     } catch (err) {
-        console.error(err);
+        console.error('❌ Connection Error:', err.message);
         process.exit(1);
     }
-}
+};
 
-check();
+checkData();

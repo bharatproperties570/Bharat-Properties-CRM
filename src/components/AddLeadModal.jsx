@@ -624,53 +624,118 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
         }
     }, [contactData]);
 
-    // Auto-fill from initialData (Edit Mode)
+    // Auto-fill or Reset Form
     useEffect(() => {
+        if (!isOpen) return;
+
         if (mode === 'edit' && initialData) {
             const normalizeId = (val) => (val && typeof val === 'object') ? (val._id || val.id) : val;
             
             // PRIORITY LOGIC: Use contactDetails if available for live updates
-            const cd = initialData.contactDetails && typeof initialData.contactDetails === 'object' ? initialData.contactDetails : null;
+            const cd = (initialData.contactDetails && typeof initialData.contactDetails === 'object') ? initialData.contactDetails : null;
             
             setFormData(prev => ({
                 ...prev,
                 ...initialData,
+                _id: initialData._id,
                 title: (cd?.title?.lookup_value || cd?.title) || (initialData.title?.lookup_value || initialData.title) || prev.title,
                 name: cd?.name || initialData.firstName || initialData.name || '',
                 surname: cd?.surname || initialData.lastName || initialData.surname || '',
-                phones: cd?.mobile ? [{ number: cd.mobile, type: 'Personal' }] : (initialData.phones && initialData.phones.length > 0 ? initialData.phones : prev.phones),
-                emails: cd?.email ? [{ address: cd.email, type: 'Personal' }] : (initialData.emails && initialData.emails.length > 0 ? initialData.emails : prev.emails),
+                phones: cd?.mobile ? [{ number: cd.mobile, type: 'Personal' }] : (initialData.phones && initialData.phones.length > 0 ? initialData.phones : (initialData.mobile ? [{ number: initialData.mobile, type: 'Personal' }] : prev.phones)),
+                emails: cd?.email ? [{ address: cd.email, type: 'Personal' }] : (initialData.emails && initialData.emails.length > 0 ? initialData.emails : (initialData.email ? [{ address: initialData.email, type: 'Personal' }] : prev.emails)),
                 team: normalizeId(initialData.team) || prev.team,
                 owner: normalizeId(initialData.owner) || prev.owner,
                 visibleTo: initialData.visibleTo || prev.visibleTo,
-                requirement: normalizeId(initialData.requirement) || prev.requirement,
-                subRequirement: normalizeId(initialData.subRequirement) || prev.subRequirement,
+                requirement: getLookupValue('Requirement', initialData.requirement) || initialData.requirement || prev.requirement,
+                subRequirement: getLookupValue('SubRequirement', initialData.subRequirement) || initialData.subRequirement || prev.subRequirement,
                 location: normalizeId(initialData.location) || prev.location,
-                source: normalizeId(initialData.source) || prev.source,
-                status: getLookupValue('Status', initialData.status) || prev.status,
-                budget: getLookupValue('Budget', initialData.budget) || prev.budget,
-                propertyType: Array.isArray(initialData.propertyType) ? initialData.propertyType.map(v => getLookupValue('Category', v)).filter(Boolean) : [],
-                subType: Array.isArray(initialData.subType) ? initialData.subType.map(v => getLookupValue('SubCategory', v)).filter(Boolean) : [],
-                unitType: Array.isArray(initialData.unitType) ? initialData.unitType.map(v => getLookupValue('UnitType', v)).filter(Boolean) : [],
-                facing: Array.isArray(initialData.facing) ? initialData.facing.map(v => getLookupValue('Facing', v)).filter(Boolean) : [],
-                roadWidth: Array.isArray(initialData.roadWidth) ? initialData.roadWidth.map(v => getLookupValue('RoadWidth', v)).filter(Boolean) : [],
-                direction: Array.isArray(initialData.direction) ? initialData.direction.map(v => getLookupValue('Direction', v)).filter(Boolean) : [],
+                source: getLookupValue('Source', initialData.source) || initialData.source || prev.source,
+                status: getLookupValue('Status', initialData.status) || initialData.status || prev.status,
+                budget: getLookupValue('Budget', initialData.budget) || initialData.budget || prev.budget,
+                propertyType: Array.isArray(initialData.propertyType) ? initialData.propertyType.map(v => getLookupValue('Category', v) || v).filter(Boolean) : (initialData.propertyType ? [getLookupValue('Category', initialData.propertyType) || initialData.propertyType] : []),
+                subType: Array.isArray(initialData.subType) ? initialData.subType.map(v => getLookupValue('SubCategory', v) || v).filter(Boolean) : (initialData.subRequirement ? [getLookupValue('SubCategory', initialData.subRequirement) || initialData.subRequirement] : []),
+                unitType: Array.isArray(initialData.unitType) ? initialData.unitType.map(v => getLookupValue('UnitType', v) || v).filter(Boolean) : [],
+                facing: Array.isArray(initialData.facing) ? initialData.facing.map(v => getLookupValue('Facing', v) || v).filter(Boolean) : [],
+                roadWidth: Array.isArray(initialData.roadWidth) ? initialData.roadWidth.map(v => getLookupValue('RoadWidth', v) || v).filter(Boolean) : [],
+                direction: Array.isArray(initialData.direction) ? initialData.direction.map(v => getLookupValue('Direction', v) || v).filter(Boolean) : [],
                 budgetMin: initialData.budgetMin || '',
                 budgetMax: initialData.budgetMax || '',
                 areaMin: initialData.areaMin || '',
                 areaMax: initialData.areaMax || '',
                 locCity: initialData.locCity || '',
                 locArea: initialData.locArea || '',
+                locState: initialData.locState || '',
+                locPinCode: initialData.locPinCode || '',
                 searchLocation: initialData.searchLocation || '',
-                description: initialData.description || '',
+                streetAddress: initialData.streetAddress || '',
+                description: initialData.description || initialData.remarks || '',
                 campaign: normalizeId(initialData.campaign) || prev.campaign,
+                subSource: normalizeId(initialData.subSource) || prev.subSource,
+                contactDetails: normalizeId(initialData.contactDetails) || prev.contactDetails
             }));
 
             if (cd) {
                 setSelectedContact(cd);
             }
+        } else if (mode === 'add') {
+            // Reset form for New Lead
+            setFormData({
+                title: '',
+                name: '',
+                surname: '',
+                countryCode: '+91',
+                phones: [{ number: '', type: 'Personal' }],
+                emails: [{ address: '', type: 'Personal' }],
+                contactDetails: null,
+                description: '',
+                campaign: '',
+                tags: [],
+                team: '',
+                owner: '',
+                visibleTo: 'Public',
+                requirement: 'Buy',
+                propertyType: ['Residential'],
+                purpose: 'End use',
+                nri: false,
+                subType: [],
+                unitType: [],
+                budgetMin: '',
+                budgetMax: '',
+                areaMin: '',
+                areaMax: '',
+                areaMetric: 'Sq Yard',
+                searchLocation: '',
+                areaSearch: '',
+                streetAddress: '',
+                range: 'Within 3 km',
+                locCity: '', locArea: '', locBlock: [], locPinCode: '',
+                locCountry: '', locState: '', locLat: '', locLng: '',
+                facing: [],
+                roadWidth: [],
+                direction: [],
+                funding: '',
+                timeline: '',
+                furnishing: '',
+                propertyUnitType: [],
+                transactionType: '',
+                transactionFlexiblePercent: 50,
+                sendMatchedDeal: [],
+                campaignName: "",
+                source: "",
+                subSource: "",
+                projectName: [],
+                projectCity: '',
+                projectTowers: [],
+                specificUnitType: 'single',
+                propertyNo: '',
+                propertyNoEnd: '',
+            });
+            setSelectedContact(null);
+            setSimilarContacts([]);
+            setIsBlocked(false);
+            setFieldErrors({});
         }
-    }, [initialData, mode, getLookupValue]);
+    }, [isOpen, initialData, mode, getLookupValue]);
 
     const handleInputChange = React.useCallback((field, value) => {
         setFormData(prev => ({

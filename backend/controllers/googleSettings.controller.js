@@ -11,10 +11,14 @@ import SystemSetting from '../src/modules/systemSettings/system.model.js';
 // @route   GET /api/settings/google/auth-url
 export const getGoogleAuthUrl = async (req, res) => {
     try {
+        // 🚀 Senior Fix: Ultimate Origin Detection (Prioritize passed origin from frontend)
+        const passedOrigin = req.query.origin || req.headers.origin || (req.headers.referer ? new URL(req.headers.referer).origin : null);
+        const origin = passedOrigin || process.env.FRONTEND_URL || 'http://localhost:5174';
+        const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${origin}/google-callback`;
         const oauth2Client = new google.auth.OAuth2(
             process.env.GOOGLE_CLIENT_ID,
             process.env.GOOGLE_CLIENT_SECRET,
-            process.env.GOOGLE_REDIRECT_URI || 'http://localhost:4000/api/settings/google/callback'
+            redirectUri
         );
 
         const scopes = [
@@ -52,10 +56,17 @@ export const handleGoogleCallback = async (req, res) => {
     }
 
     try {
+        // 🚀 Senior Fix: Ultimate Origin Detection (Prioritize passed origin from frontend)
+        // Note: For POST callback, origin should ideally come from referer or passed data
+        const passedOrigin = req.body.origin || req.headers.origin || (req.headers.referer ? new URL(req.headers.referer).origin : null);
+        const origin = passedOrigin || process.env.FRONTEND_URL || 'http://localhost:5174';
+        const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${origin}/google-callback`;
+        console.log(`[GoogleCallback] Token Exchange -> RedirectURI: ${redirectUri}`);
+
         const oauth2Client = new google.auth.OAuth2(
             process.env.GOOGLE_CLIENT_ID,
             process.env.GOOGLE_CLIENT_SECRET,
-            process.env.GOOGLE_REDIRECT_URI || 'http://localhost:4000/api/settings/google/callback'
+            redirectUri
         );
 
         const { tokens } = await oauth2Client.getToken(code);
@@ -88,6 +99,9 @@ export const handleGoogleCallback = async (req, res) => {
         });
     } catch (error) {
         console.error('handleGoogleCallback error:', error.message);
+        if (error.response?.data) {
+            console.error('Google API Error Details:', JSON.stringify(error.response.data));
+        }
         res.status(500).json({ success: false, error: error.message });
     }
 };

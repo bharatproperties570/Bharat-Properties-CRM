@@ -134,7 +134,7 @@ const InventoryTable = ({
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.75rem', color: '#64748b', marginBottom: '6px' }}>
                                     <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.8rem' }}></i>
-                                    {renderValue(item.address?.location) || renderValue(item.address?.locality) || renderValue(item.address?.area)}, {renderValue(item.address?.city)}
+                                    {renderValue(getLookupValue('Locality', item.address?.locality) || getLookupValue('Area', item.address?.area) || item.address?.location || item.address?.locality || item.address?.area)}, {renderValue(getLookupValue('City', item.address?.city) || item.address?.city)}
                                 </div>
                                 {item.block && (
                                     <span style={{ fontSize: '0.58rem', padding: '2px 10px', background: '#f1f5f9', color: '#475569', fontWeight: 800, borderRadius: '4px', border: '1px solid #e2e8f0' }}>
@@ -146,14 +146,19 @@ const InventoryTable = ({
                             {/* Col 4: Orientation */}
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
                                 {(() => {
-                                    const orientation = getLookupValue('Orientation', item.orientation);
-                                    const facing = getLookupValue('Facing', item.facing);
-                                    const val = orientation ? renderValue(orientation) : (facing ? renderValue(facing) : null);
-                                    if (!val) return null;
+                                    const orientationLabel = getLookupValue('Orientation', item.orientation);
+                                    const facingLabel = getLookupValue('Facing', item.facing);
+                                    
+                                    // Robust check: Use lookup label, or raw field if it's already a string, or name property if it's an object
+                                    const val = orientationLabel || facingLabel || 
+                                               (typeof item.orientation === 'string' ? item.orientation : (item.orientation?.lookup_value || item.orientation?.name)) ||
+                                               (typeof item.facing === 'string' ? item.facing : (item.facing?.lookup_value || item.facing?.name));
+
+                                    if (!val || val === '-') return null;
                                     return (
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem', fontWeight: 800, color: '#1e293b' }}>
                                             <i className="fas fa-compass" style={{ fontSize: '0.9rem', color: '#4f46e5' }}></i>
-                                            {val}
+                                            {renderValue(val)}
                                         </div>
                                     );
                                 })()}
@@ -188,7 +193,7 @@ const InventoryTable = ({
                                     {renderValue(item.owners?.[0]?.phones?.[0]?.number) || renderValue(item.ownerPhone) || ''}
                                 </div>
                                 <div style={{ fontSize: '0.68rem', color: '#64748b', fontStyle: 'italic', fontWeight: 500 }}>
-                                    - {renderValue(item.address?.city) || 'Kurukshetra'}
+                                    - {renderValue(getLookupValue('City', item.address?.city) || item.address?.city) || 'Kurukshetra'}
                                 </div>
                             </div>
 

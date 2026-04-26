@@ -771,17 +771,30 @@ export const submitPropertyForm = async (req, res) => {
 
         const deal = await Deal.create(dealData);
 
+        // 🧠 SENIOR PROFESSIONAL: Enterprise Distribution Engine (Deals)
+        try {
+            const { distributeEntity } = await import("../src/utils/distributionEngine.js");
+            const assignment = await distributeEntity(deal, 'onDealCapture');
+            
+            if (assignment && assignment.assignedTo) {
+                // assignedUser is used for notification later
+                dealData.assignedTo = assignment.assignedTo;
+            }
+        } catch (distErr) {
+            console.error("[DISTRIBUTION ERROR] Deal Submit:", distErr);
+        }
+
         res.status(201).json({
             success: true,
             message: 'Property submitted successfully. Our team will verify and publish it soon.',
             dealId: deal._id
         });
 
-        // 🌟 SENIOR ADDITION: Notify Admin/Owner of New Public Property Submission
-        const adminUser = await mongoose.model('User').findOne({}).select('_id').lean();
-        if (adminUser) {
+        // 🌟 SENIOR ADDITION: Notify Assigned User (or Admin)
+        const notifyTarget = assignedUser || (await mongoose.model('User').findOne({}).select('_id').lean())?._id;
+        if (notifyTarget) {
             await createNotification(
-                adminUser._id,
+                notifyTarget,
                 'publicForms',
                 '🏢 New Website Property Listing',
                 `${contact.name} listed a new property in ${projectName}.`,
@@ -815,6 +828,16 @@ export const submitLeadForm = async (req, res) => {
                 stage: await resolveLookup('Stage', 'Lead Created'),
                 description: `Captured from website ${activityType || 'Contact'} form.`
             });
+
+            // 🧠 SENIOR PROFESSIONAL: Enterprise Distribution Engine (Leads)
+            try {
+                const { distributeEntity } = await import("../src/utils/distributionEngine.js");
+                await distributeEntity(lead, 'onWebCapture');
+                // Re-fetch lead to get assigned owner
+                lead = await Lead.findById(lead._id);
+            } catch (distErr) {
+                console.error("[DISTRIBUTION ERROR] Lead Submit:", distErr);
+            }
         }
 
         // 2. Prepare Activity Data
@@ -876,11 +899,11 @@ export const submitLeadForm = async (req, res) => {
             activityId: activity._id
         });
 
-        // 🌟 SENIOR ADDITION: Notify Admin of New Public Lead (Service/Inquiry)
-        const adminUser = await mongoose.model('User').findOne({}).select('_id').lean();
-        if (adminUser) {
+        // 🌟 SENIOR ADDITION: Notify Assigned User (or Admin)
+        const notifyTarget = lead.owner || (await mongoose.model('User').findOne({}).select('_id').lean())?._id;
+        if (notifyTarget) {
             await createNotification(
-                adminUser._id,
+                notifyTarget,
                 'publicForms',
                 '🎯 New Website Inquiry',
                 `${name} submitted a new inquiry regarding ${projectName || 'Services'}.`,

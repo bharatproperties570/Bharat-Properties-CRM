@@ -1,5 +1,11 @@
 import mongoose from "mongoose";
 
+const escapeRegExp = (string) => {
+    if (!string) return '';
+    return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+};
+
+
 /**
  * Enterprise Visibility Engine v2 — Hardened
  * Generates robust MongoDB $or filters based on User Data Scope and Team assignments.
@@ -25,18 +31,20 @@ export const getVisibilityFilter = async (user) => {
     const roleName = user.role?.name?.toLowerCase() || '';
     const userEmail = user.email?.toLowerCase() || '';
 
-    // 1. STRICT Elevated Check: ONLY full-scope users bypass the filter.
-    //    Role names (admin, manager) alone do NOT grant bypass — their dataScope config does.
+    // 1. Intelligent Scope Resolution:
+    //    If dataScope is not set, Admins default to 'all', others to 'assigned'.
+    const effectiveScope = user.dataScope || (roleName.includes('admin') ? 'all' : 'assigned');
+
     const OWNER_EMAIL = 'bharatproperties570@gmail.com';
-    const isElevated = user.dataScope === 'all' || userEmail === OWNER_EMAIL;
+    const isElevated = effectiveScope === 'all' || userEmail === OWNER_EMAIL;
 
     console.log(
         `[VISIBLE_AUDIT] 🚦 User: ${user.fullName || user.email} | ` +
-        `Role: ${roleName} | Scope: ${user.dataScope} | Elevated: ${isElevated}`
+        `Role: ${roleName} | Effective Scope: ${effectiveScope} | Elevated: ${isElevated}`
     );
 
     if (isElevated) {
-        console.log(`[VISIBLE_AUDIT] ✅ Full Access — dataScope=all or system owner.`);
+        console.log(`[VISIBLE_AUDIT] ✅ Full Access granted.`);
         return {};
     }
 
@@ -48,84 +56,115 @@ export const getVisibilityFilter = async (user) => {
     }
     const userObjectId = new mongoose.Types.ObjectId(userId.toString());
 
-    // 3. Resolve team IDs (supports both legacy `team` and plural `teams`)
+    // 3. Resolve team IDs
     const rawTeams = Array.isArray(user.teams) ? user.teams : (user.team ? [user.team] : []);
     const userTeams = rawTeams
         .map(t => (t && typeof t === 'object' && t._id) ? t._id : t)
         .filter(t => t && mongoose.Types.ObjectId.isValid(t.toString()))
         .map(t => new mongoose.Types.ObjectId(t.toString()));
 
-    // 4. Department Scope: All teams in the user's department
-    if (user.dataScope === 'department' && user.department) {
-        const TeamModel = mongoose.model('Team');
+    // --- ENTERPRISE VISIBILITY CORE ---
+    const baseFilter = {
+        $or: [
+            { assignedTo: userObjectId },
+            { owner: userObjectId },
+            { 'assignment.assignedTo': userObjectId }
+        ]
+    };
+
+    // Scoped Everyone records: If user is in a department, "Everyone" only means "Everyone in my department".
+    // If user has NO department, "Everyone" means truly global.
+    const everyoneFilter = {
+        $and: [
+            { 
+                $or: [
+                    { visibleTo: 'Everyone' },
+                    { 'assignment.visibleTo': 'Everyone' }
+                ]
+            }
+        ]
+    };
+
+    // 4. Combine based on effective scope
+    let finalFilter;
+    if (effectiveScope === 'department' && user.department) {
+        // Department scope: base + teams in my department
+        const TeamModel = mongoose.models.Team || mongoose.model('Team');
         const deptTeams = await TeamModel.find({ department: user.department, isActive: true }).select('_id');
-        const deptTeamIds = deptTeams
-            .map(t => t._id)
-            .filter(id => mongoose.Types.ObjectId.isValid(id.toString()));
+        const deptTeamIds = deptTeams.map(t => t._id);
 
-        console.log(
-            `[VISIBLE_AUDIT] 🏢 Department scope for ${user.department} — ` +
-            `${deptTeamIds.length} teams found.`
-        );
-
-        return {
+        // For department users, "Everyone" records are also constrained to their department teams
+        // to prevent regional leakage (Mohali vs Kurukshetra).
+        everyoneFilter.$and.push({
             $or: [
-                { assignedTo: userObjectId },
-                { owner: userObjectId },
-                { assign: { $in: [userObjectId] } },
-                { 'assignment.assignedTo': userObjectId },
                 { teams: { $in: deptTeamIds } },
                 { team: { $in: deptTeamIds } },
                 { 'assignment.team': { $in: deptTeamIds } },
-                { visibleTo: { $in: ['Everyone', 'Public'] } },
-                { 'assignment.visibleTo': { $in: ['Everyone', 'Public'] } },
-                { owner: null },
-                { owner: { $exists: false } }
+                { team: { $exists: false } }, // Allow truly orphaned Everyone records? User requested strictness.
+                { teams: { $size: 0 } }
+            ]
+        });
+
+        finalFilter = {
+            $or: [
+                ...baseFilter.$or,
+                { teams: { $in: deptTeamIds } },
+                { team: { $in: deptTeamIds } },
+                { 'assignment.team': { $in: deptTeamIds } },
+                everyoneFilter
+            ]
+        };
+    } else if (effectiveScope === 'team') {
+        // Team scope: base + records in my specific teams
+        finalFilter = {
+            $or: [
+                ...baseFilter.$or,
+                {
+                    $and: [
+                        { 
+                            $or: [
+                                { visibleTo: { $in: ['Team', 'Everyone'] } },
+                                { 'assignment.visibleTo': { $in: ['Team', 'Everyone'] } },
+                                { visibleTo: { $exists: false } }
+                            ]
+                        },
+                        {
+                            $or: [
+                                { teams: { $in: userTeams } },
+                                { team: { $in: userTeams } },
+                                { 'assignment.team': { $in: userTeams } }
+                            ]
+                        }
+                    ]
+                },
+                // Include truly global Everyone records if they aren't tied to any team
+                {
+                    $and: [
+                        { visibleTo: 'Everyone' },
+                        { $or: [{ team: null }, { teams: { $size: 0 } }, { team: { $exists: false } }] }
+                    ]
+                }
+            ]
+        };
+    } else {
+        // Assigned Scope (Default for non-admins)
+        finalFilter = {
+            $or: [
+                ...baseFilter.$or,
+                // Only show Everyone records if they are TRULY global (unassigned to any specific team)
+                // or if the user is explicitly interested.
+                {
+                    $and: [
+                        { visibleTo: 'Everyone' },
+                        { $or: [{ team: null }, { teams: { $size: 0 } }, { team: { $exists: false } }] }
+                    ]
+                }
             ]
         };
     }
 
-    // 5. Team Scope: Restricted to user's assigned teams
-    if (user.dataScope === 'team') {
-        if (userTeams.length === 0) {
-            console.warn(
-                `[VISIBLE_AUDIT] ⚠️  Team scope requested but user ${user.email} has no teams. ` +
-                `Falling back to assigned scope for safety.`
-            );
-            // Falls through to assigned scope below
-        } else {
-            console.log(
-                `[VISIBLE_AUDIT] 👥 Team scope — ${userTeams.length} team(s): ` +
-                `[${userTeams.map(t => t.toString()).join(', ')}]`
-            );
-            return {
-                $or: [
-                    { assignedTo: userObjectId },
-                    { owner: userObjectId },
-                    { assign: { $in: [userObjectId] } },
-                    { 'assignment.assignedTo': userObjectId },
-                    { teams: { $in: userTeams } },
-                    { team: { $in: userTeams } },
-                    { 'assignment.team': { $in: userTeams } },
-                    { visibleTo: { $in: ['Everyone', 'Public'] } },
-                    { 'assignment.visibleTo': { $in: ['Everyone', 'Public'] } },
-                    { owner: null },
-                    { owner: { $exists: false } }
-                ]
-            };
-        }
-    }
-
-    // 6. Default: Assigned Scope (Strict isolation — only own records + public)
-    console.log(`[VISIBLE_AUDIT] 🔒 Assigned scope — strict isolation for ${user.email}.`);
-    return {
-        $or: [
-            { assignedTo: userObjectId },
-            { owner: userObjectId },
-            { assign: { $in: [userObjectId] } },
-            { 'assignment.assignedTo': userObjectId },
-            { visibleTo: { $in: ['Everyone', 'Public'] } },
-            { 'assignment.visibleTo': { $in: ['Everyone', 'Public'] } }
-        ]
-    };
+    console.log(`[VISIBLE_AUDIT] Final Filter generated for effective scope: ${effectiveScope}`);
+    return finalFilter;
 };
+
+

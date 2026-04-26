@@ -1,6 +1,7 @@
 import express from "express";
 import { getContacts, createContact, updateContact, deleteContact, bulkDeleteContacts, getContact, searchDuplicates, importContacts, checkDuplicatesImport, getContactUsage, syncAllContacts } from "../controllers/contact.controller.js";
 import { authenticate } from "../src/middlewares/auth.middleware.js";
+import { validateBusinessRules } from "../src/middlewares/businessRule.middleware.js";
 
 const router = express.Router();
 
@@ -12,10 +13,10 @@ router.get("/search/duplicates", searchDuplicates);
 router.post("/import", importContacts);
 router.post("/check-duplicates", checkDuplicatesImport);
 router.post("/sync-all", syncAllContacts);
-router.post("/", createContact);
+router.post("/", validateBusinessRules('contacts'), createContact);
 router.get("/:id", getContact);
 router.get("/:id/usage", getContactUsage);
-router.put("/:id", updateContact);
+router.put("/:id", validateBusinessRules('contacts'), updateContact);
 router.delete("/bulk", bulkDeleteContacts);
 router.delete("/:id", deleteContact);
 

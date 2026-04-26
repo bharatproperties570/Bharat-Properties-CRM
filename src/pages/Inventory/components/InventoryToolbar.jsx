@@ -111,7 +111,7 @@ const InventoryToolbar = ({
                         <div style={{ display: "flex", alignItems: "center", gap: "10px", fontSize: "0.8rem", color: "#64748b", fontWeight: 600 }}>
                             <span>Show:</span>
                             <select value={recordsPerPage} onChange={(e) => setRecordsPerPage(Number(e.target.value))} style={{ padding: "4px 12px", border: "1px solid #e2e8f0", borderRadius: "6px", fontSize: "0.8rem", fontWeight: 700, color: "#0f172a", outline: "none", cursor: "pointer", background: "#f8fafc" }}>
-                                {[10, 25, 50, 100, 300].map(v => <option key={v} value={v}>{v}</option>)}
+                                {[10, 25, 50, 100, 300, 500, 750, 1000].map(v => <option key={v} value={v}>{v}</option>)}
                             </select>
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: "0" }}>

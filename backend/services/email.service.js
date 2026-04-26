@@ -567,7 +567,7 @@ class EmailService {
                         await createNotification(
                             adminUser._id,
                             'assignment',
-                            'New Lead Ingested (Email)',
+                            'New Lead Ingested (Portal Email)',
                             `New lead ${parsedData.name || 'Unknown'} ingested from ${parsedData.portal}`,
                             `/leads`,
                             { portal: parsedData.portal }
@@ -581,6 +581,41 @@ class EmailService {
                         removeLabelIds: ['UNREAD']
                     });
                 } else {
+                    // 🚀 Enterprise Intake Engine Integration for non-portal emails
+                    const fromHeader = headers.find(h => h.name === 'From')?.value || '';
+                    let fromName = fromHeader;
+                    let fromEmail = fromHeader;
+                    const fromMatch = fromHeader.match(/(.*)<(.*)>/);
+                    if (fromMatch) {
+                        fromName = fromMatch[1].trim() || fromMatch[2].trim();
+                        fromEmail = fromMatch[2].trim();
+                    }
+
+                    // Look for mobile in body for non-portal emails
+                    const mobileMatch = body.match(/([0-9]{10})/);
+                    const mobile = mobileMatch ? mobileMatch[1] : '';
+
+                    if (mobile) {
+                        const intakeEngine = (await import('../src/utils/intakeEngine.js')).default;
+                        const result = await intakeEngine.processIntake({
+                            mobile,
+                            name: fromName,
+                            email: fromEmail,
+                            message: body,
+                            source: 'Email'
+                        });
+
+                        if (result.type !== 'PASSIVE') {
+                            processedCount++;
+                            // Mark as read
+                            await gmail.users.messages.batchModify({
+                                userId: 'me',
+                                ids: [msg.id],
+                                removeLabelIds: ['UNREAD']
+                            });
+                            continue;
+                        }
+                    }
                     skippedCount++;
                 }
             }
@@ -648,37 +683,38 @@ class EmailService {
             if (!fromName) fromName = fromEmail.split('@')[0];
 
             // Try to find mobile in body if not portal
-            // Looking for 10-digit number
             const mobileMatch = bodyContent.match(/([0-9]{10})/);
             const mobile = mobileMatch ? mobileMatch[1] : '';
 
-            const leadData = {
-                portal: 'Direct Email',
-                name: fromName,
-                email: fromEmail,
-                mobile: mobile,
-                listingDetails: subject,
-                raw: bodyContent
-            };
-
-            console.log(`[EmailService] Fallback lead data: ${JSON.stringify({ fromName, fromEmail, mobile })}`);
-
             if (!mobile) {
-                // Return a non-throwing failure object so the controller can handle it gracefully
                 return { 
                     success: false, 
                     message: 'Could not find a valid mobile number in the email. Automatic lead creation requires a phone number.' 
                 };
             }
 
-            const result = await LeadIngestionService.ingestLead(leadData);
-            if (!result) {
-                return { 
-                    success: false, 
-                    message: 'Lead creation failed during manual ingestion.' 
+            // 🚀 Enterprise Intake Engine Integration
+            const intakeEngine = (await import('../src/utils/intakeEngine.js')).default;
+            const intakeResult = await intakeEngine.processIntake({
+                mobile,
+                name: fromName,
+                email: fromEmail,
+                message: bodyContent,
+                source: 'Email'
+            });
+
+            if (intakeResult.type === 'PASSIVE') {
+                return {
+                    success: false,
+                    message: 'No clear Buyer or Seller intent detected in this email. Manual creation skipped to maintain CRM quality.'
                 };
             }
-            return { success: true, lead: result };
+
+            return { 
+                success: true, 
+                message: `Successfully processed as ${intakeResult.type}.`,
+                data: intakeResult.data 
+            };
         } catch (error) {
             console.error('[EmailService] convertToLead Error:', error);
             throw error;

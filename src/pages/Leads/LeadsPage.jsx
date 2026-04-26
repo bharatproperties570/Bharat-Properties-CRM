@@ -270,6 +270,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                         || "Unassigned";
 
                     return {
+                        ...lead,
                         _id: lead._id?.toString() || lead._id || `lead-${index}`,
                         name: name,
                         mobile: contact.phones?.[0]?.number || lead.mobile || "",
@@ -535,9 +536,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                                 className="action-btn"
                                                 title="Edit Lead"
                                                 onClick={() => {
-                                                    console.log('Edit Button Clicked - selectedIds:', selectedIds);
                                                     const selectedLead = leads.find(l => l._id === selectedIds[0]);
-                                                    console.log('Found Lead:', selectedLead);
                                                     if (selectedLead) {
                                                         setEditingLead(selectedLead);
                                                         setIsAddLeadModalOpen(true);
@@ -586,32 +585,15 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                         </button>
                                         <button
                                             className="action-btn"
-                                            title="Send Message"
-                                            onClick={() => {
-                                                const selectedLead = leads.find(l => l._id === selectedIds[0]);
-                                                if (selectedLead) {
-                                                    setSelectedLeadsForMessage([{
-                                                        id: selectedLead.mobile,
-                                                        name: selectedLead.name,
-                                                        mobile: selectedLead.mobile
-                                                    }]);
-                                                    setIsSendMessageOpen(true);
-                                                }
-                                            }}
-                                        >
-                                            <i className="fas fa-comment-dots"></i> Message
-                                        </button>
-                                        <button
-                                            className="action-btn"
                                             title="Add Activity"
                                             onClick={() => {
                                                 const selectedLead = leads.find(l => l._id === selectedIds[0]);
                                                 if (selectedLead && onAddActivity) {
                                                     const relatedAccount = [{
-                                                        id: selectedLead._id, // Fixed: Pass ObjectId instead of mobile number
+                                                        id: selectedLead._id,
                                                         name: selectedLead.name,
                                                         mobile: selectedLead.mobile,
-                                                        model: 'Lead' // Explicitly set to Lead so backend links it to EnterprisePipeline
+                                                        model: 'Lead'
                                                     }];
                                                     onAddActivity(relatedAccount);
                                                 }
@@ -658,6 +640,23 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                         {selectedCount === 1 && <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px' }}></div>}
                                         <button
                                             className="action-btn"
+                                            title="Send Message"
+                                            onClick={() => {
+                                                const selected = getSelectedLeads();
+                                                if (selected.length > 0) {
+                                                    setSelectedLeadsForMessage(selected.map(l => ({
+                                                        id: l._id,
+                                                        name: l.name,
+                                                        mobile: l.mobile
+                                                    })));
+                                                    setIsSendMessageOpen(true);
+                                                }
+                                            }}
+                                        >
+                                            <i className="fas fa-comment-dots"></i> Message
+                                        </button>
+                                        <button
+                                            className="action-btn"
                                             title="Add Tag"
                                             onClick={() => {
                                                 const selected = getSelectedLeads();
@@ -700,19 +699,11 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                             onClick={async () => {
                                                 if (window.confirm(`Mark ${selectedIds.length} leads as dormant?`)) {
                                                     try {
-                                                        const dormantLookup = masterFields.statuses?.find(s => s.lookup_value?.toLowerCase() === 'dormant') || 
-                                                                            masterFields.stages?.find(s => s.lookup_value?.toLowerCase() === 'dormant');
-                                                        
-                                                        if (!dormantLookup) {
-                                                            alert("Dormant lookup not found in configuration.");
-                                                            return;
-                                                        }
-
-                                                        await Promise.all(selectedIds.map(id => api.put(`leads/${id}`, { status: dormantLookup._id || dormantLookup })));
+                                                        const dormantLookup = getLookupValue('Status', 'Dormant') || 'Dormant';
+                                                        await Promise.all(selectedIds.map(id => api.put(`leads/${id}`, { status: dormantLookup })));
                                                         showToast(`Marked ${selectedIds.length} leads as dormant.`);
                                                         setSelectedIds([]);
-                                                        // Refresh leads
-                                                        setCurrentPage(1);
+                                                        setRefreshTrigger(prev => prev + 1);
                                                     } catch (error) {
                                                         console.error("Failed to mark leads as dormant:", error);
                                                         showToast("Failed to update leads.");
@@ -732,13 +723,13 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                                     const res = LeadConversionService.convertLead(lead, 'Manual - Bulk Action', scoringConfig);
                                                     if (res.success) {
                                                         showToast(res.message);
-                                                        // Fire Global Trigger
                                                         await fireEvent('lead_converted', res.contact, { entityType: 'leads' });
                                                     } else {
                                                         showToast(res.message);
                                                     }
                                                 }
                                                 setSelectedIds([]);
+                                                setRefreshTrigger(prev => prev + 1);
                                             }}
                                         >
                                             <i className="fas fa-user-check"></i> Convert
@@ -756,6 +747,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                                 });
                                                 showToast(`Distributed ${count} leads using active rules.`);
                                                 setSelectedIds([]);
+                                                setRefreshTrigger(prev => prev + 1);
                                             }}
                                         >
                                             <i className="fas fa-random"></i> Distribute
@@ -763,7 +755,6 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                     </>
                                 )}
 
-                                {/* Special Case: Merge */}
                                 {selectedCount === 2 && (
                                     <button className="action-btn" title="Merge Leads"><i className="fas fa-code-branch"></i> Merge</button>
                                 )}
@@ -824,7 +815,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                             <option value={100}>100</option>
                                             <option value={300}>300</option>
                                             <option value={500}>500</option>
-                                            <option value={700}>700</option>
+                                            <option value={750}>750</option>
                                             <option value={1000}>1000</option>
                                         </select>
                                     </div>
@@ -1007,25 +998,33 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                 onAssign={async (assignmentDetails) => {
                     if (!selectedLeadsForAssign.length) return;
                     try {
+                        console.log("[Assignment Audit] Starting assignment for", selectedLeadsForAssign.length, "leads");
+                        console.log("[Assignment Audit] Details:", assignmentDetails);
+                        
                         toast.loading(`Assigning ${selectedLeadsForAssign.length} lead(s)...`);
-                        const promises = selectedLeadsForAssign.map(lead =>
-                            api.put(`leads/${lead._id}`, {
+                        const promises = selectedLeadsForAssign.map(lead => {
+                            console.log(`[Assignment Audit] Assigning lead ${lead._id} to ${assignmentDetails.assignedTo}`);
+                            return api.put(`leads/${lead._id}`, {
                                 owner: assignmentDetails.assignedTo,
                                 assignment: {
                                     assignedTo: assignmentDetails.assignedTo,
                                     team: assignmentDetails.team,
                                     method: 'Manual'
                                 }
-                            })
-                        );
-                        await Promise.all(promises);
+                            });
+                        });
+                        
+                        const responses = await Promise.all(promises);
+                        console.log("[Assignment Audit] All requests completed successfully", responses.length);
+                        
                         toast.success(`${selectedLeadsForAssign.length} lead(s) assigned successfully`);
                         setRefreshTrigger(prev => prev + 1);
                         setIsAssignModalOpen(false);
                         setSelectedIds([]);
                     } catch (error) {
-                        console.error("Error assigning leads:", error);
-                        toast.error("Failed to assign leads");
+                        console.error("[Assignment Audit] Error assigning leads:", error);
+                        console.error("[Assignment Audit] API Error details:", error.response?.data || error.message);
+                        toast.error(error.response?.data?.message || "Failed to assign leads");
                     }
                 }}
             />
@@ -1602,8 +1601,8 @@ const LeadItem = React.memo(function LeadItem({
                         {getInitials(lead.owner || 'U')}
                     </div>
                     <div style={{ textAlign: 'right', lineHeight: 1.2 }}>
-                        <div style={{ fontSize: '0.75rem', fontWeight: 900, color: '#0f172a' }}>{renderValue(lead.owner)}</div>
-                        <div style={{ fontSize: '0.6rem', color: '#64748b', fontWeight: 700 }}>{renderValue(lead.team)}</div>
+                        <div style={{ fontSize: '0.75rem', fontWeight: 900, color: '#0f172a' }}>{getUserName(lead.assignment?.assignedTo || lead.owner)}</div>
+                        <div style={{ fontSize: '0.6rem', color: '#64748b', fontWeight: 700 }}>{getTeamName(lead.assignment?.team || lead.team)}</div>
                         <div style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, marginTop: '2px' }}>
                             {lead.updatedAt ? new Date(lead.updatedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' }) + ' ' + new Date(lead.updatedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) : ''}
                         </div>
@@ -1816,8 +1815,8 @@ const LeadCard = React.memo(function LeadCard({
                         {getInitials(getUserName(lead.rawOwner || lead.owner))}
                     </div>
                     <div style={{ lineHeight: 1.2 }}>
-                        <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>{renderValue(getUserName(lead.rawOwner || lead.owner))}</div>
-                        <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 700 }}>{renderValue(getTeamName(lead.team))}</div>
+                        <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>{getUserName(lead.assignment?.assignedTo || lead.owner)}</div>
+                        <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 700 }}>{getTeamName(lead.assignment?.team || lead.team)}</div>
                     </div>
                 </div>
                 <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600 }}>

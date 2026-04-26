@@ -103,7 +103,9 @@ export const getInventory = async (req, res) => {
             page = 1, limit = 10, search = "", 
             category, subCategory, unitType, status, 
             project, block, location, area, contactId, 
-            statusCategory, ownerPhone, feedbackOutcome, feedbackReason
+            statusCategory, ownerPhone, feedbackOutcome, feedbackReason,
+            minSize, maxSize, sizeMin, sizeMax,
+            followUpFrom, followUpTo
         } = req.query;
         const visibilityFilter = await getVisibilityFilter(req.user);
 
@@ -292,20 +294,44 @@ export const getInventory = async (req, res) => {
 
         const facingFilter = await resolveMultiFilter('Facing', req.query.facing || req.query['facing[]']);
         if (facingFilter) query.facing = facingFilter;
+        
+        // [SIZE RANGE FILTERS]
+        const finalMinSize = minSize || sizeMin;
+        const finalMaxSize = maxSize || sizeMax;
+        if (finalMinSize || finalMaxSize) {
+            query['size.value'] = {};
+            if (finalMinSize) query['size.value'].$gte = parseFloat(finalMinSize);
+            if (finalMaxSize) query['size.value'].$lte = parseFloat(finalMaxSize);
+        }
+
+        // [FOLLOW-UP DATE FILTERS]
+        if (followUpFrom || followUpTo) {
+            query.followUpDate = {};
+            if (followUpFrom) query.followUpDate.$gte = new Date(followUpFrom);
+            if (followUpTo) query.followUpDate.$lte = new Date(followUpTo);
+        }
 
         if (project) {
-            const projectConditions = [
-                { projectId: mongoose.Types.ObjectId.isValid(project) ? project : undefined },
-                { projectName: project }
-            ].filter(c => c.projectId || c.projectName);
+            let projectVals = Array.isArray(project) ? project : String(project).split(',').map(s => s.trim()).filter(Boolean);
+            if (projectVals.length > 0) {
+                const projectIds = projectVals.filter(v => mongoose.Types.ObjectId.isValid(v));
+                const projectNames = projectVals; 
+                
+                const projectConditions = [
+                    { projectId: { $in: projectIds } },
+                    { projectName: { $in: projectNames } }
+                ].filter(c => (Array.isArray(c.projectId?.$in) && c.projectId.$in.length > 0) || (Array.isArray(c.projectName?.$in) && c.projectName.$in.length > 0));
 
-            if (query.$or) {
-                if (!query.$and) query.$and = [];
-                query.$and.push({ $or: query.$or });
-                query.$and.push({ $or: projectConditions });
-                delete query.$or;
-            } else {
-                query.$or = projectConditions;
+                if (projectConditions.length > 0) {
+                    if (query.$or) {
+                        if (!query.$and) query.$and = [];
+                        query.$and.push({ $or: query.$or });
+                        query.$and.push({ $or: projectConditions });
+                        delete query.$or;
+                    } else {
+                        query.$or = projectConditions;
+                    }
+                }
             }
         }
 
@@ -325,6 +351,7 @@ export const getInventory = async (req, res) => {
             { path: "sizeConfig" },
             { path: "roadWidth" },
             { path: "team", select: "name" },
+            { path: "teams", select: "name" },
             { path: "assignedTo", select: "fullName" },
             { path: "address.city" },
             { path: "address.tehsil" },
@@ -332,9 +359,7 @@ export const getInventory = async (req, res) => {
             { path: "address.locality" },
             { path: "address.area" },
             { path: "address.location" },
-            { path: "builtupType" },
-            { path: "team", select: "name" },
-            { path: "teams", select: "name" }
+            { path: "builtupType" }
         ];
 
         const [activeStatusDocs, inactiveStatusDocs] = await Promise.all([
@@ -422,8 +447,12 @@ export const getInventory = async (req, res) => {
         }
 
         // Fetch paginated results
-        // Collation removed to ensure compatibility with older MongoDB instances on live/AWS
-        const results = await paginate(Inventory, query, Number(page), Number(limit), { unitNo: 1 }, populateFields);
+        // [PROFESSIONAL SORTING] Prioritize Unit Number Sequence (Numerically)
+        const sortCriteria = { unitNo: 1, projectName: 1, block: 1 };
+        const collation = { locale: "en", numericOrdering: true };
+
+        // Fetch paginated results
+        const results = await paginate(Inventory, query, Number(page), Number(limit), sortCriteria, populateFields, collation);
 
         // Check for deals
         const inventoryIds = results.records.map(item => item._id);
@@ -433,21 +462,69 @@ export const getInventory = async (req, res) => {
         // [ROBUST FALLBACK] Manual population for IDs if paginate populate failed
         // This happens if ANY record has a bad ObjectId (like "") in the collection
         results.records = await Promise.all(results.records.map(async (item) => {
-            const itemObj = item.toObject ? item.toObject() : item;
+            // results.records are already lean objects from paginate
+            const itemObj = { ...item };
             
-            // 1. Top level lookup fields
-            const topFields = ['category', 'subCategory', 'status', 'unitType', 'facing', 'direction', 'orientation', 'sizeConfig', 'roadWidth', 'builtupType'];
-            for (const field of topFields) {
-                if (itemObj[field] && typeof itemObj[field] === 'string' && mongoose.Types.ObjectId.isValid(itemObj[field])) {
+            // Helper to check if a field is a valid ID that needs hydration
+            const needsHydration = (val) => {
+                if (!val) return false;
+                // If it's already a populated object with display fields, it doesn't need hydration
+                if (typeof val === 'object' && (val.lookup_value || val.name || val.fullName || val.title)) return false;
+                
+                // Check for valid ObjectId (string or object)
+                return mongoose.Types.ObjectId.isValid(val);
+            };
+
+            // 1. Top level lookup fields (Categorical)
+            const lookupFields = [
+                { field: 'category', type: 'Category' },
+                { field: 'subCategory', type: 'SubCategory' },
+                { field: 'status', type: 'Status' },
+                { field: 'unitType', type: 'Size' },
+                { field: 'facing', type: 'Facing' },
+                { field: 'direction', type: 'Direction' },
+                { field: 'orientation', type: 'Orientation' },
+                { field: 'sizeConfig', type: 'Size' },
+                { field: 'roadWidth', type: 'RoadWidth' },
+                { field: 'builtupType', type: 'BuiltupType' }
+            ];
+
+            for (const { field } of lookupFields) {
+                if (needsHydration(itemObj[field])) {
                     try {
-                        const lookup = await Lookup.findById(itemObj[field]).select('lookup_value').lean();
+                        const lookup = await Lookup.findById(itemObj[field]).select('lookup_value lookup_type').lean();
                         if (lookup) itemObj[field] = lookup;
                     } catch (e) { /* ignore */ }
                 }
             }
 
-            // 2. Project fallback
-            if (itemObj.projectId && typeof itemObj.projectId === 'string' && mongoose.Types.ObjectId.isValid(itemObj.projectId)) {
+            // 2. Relational Fields (Teams, Users, Projects)
+            if (needsHydration(itemObj.team)) {
+                try {
+                    const teamDoc = await Team.findById(itemObj.team).select('name').lean();
+                    if (teamDoc) itemObj.team = teamDoc;
+                } catch (e) { /* ignore */ }
+            }
+            
+            // Also handle 'teams' array
+            if (Array.isArray(itemObj.teams) && itemObj.teams.length > 0) {
+                itemObj.teams = await Promise.all(itemObj.teams.map(async (t) => {
+                    if (needsHydration(t)) {
+                        const teamDoc = await Team.findById(t).select('name').lean();
+                        return teamDoc || t;
+                    }
+                    return t;
+                }));
+            }
+
+            if (needsHydration(itemObj.assignedTo)) {
+                try {
+                    const userDoc = await User.findById(itemObj.assignedTo).select('fullName name username').lean();
+                    if (userDoc) itemObj.assignedTo = userDoc;
+                } catch (e) { /* ignore */ }
+            }
+
+            if (needsHydration(itemObj.projectId)) {
                 try {
                     const projectDoc = await Project.findById(itemObj.projectId).select('name').lean();
                     if (projectDoc) itemObj.projectId = projectDoc;
@@ -455,12 +532,21 @@ export const getInventory = async (req, res) => {
             }
 
             // 3. Address lookup fields
-            if (itemObj.address) {
-                const addrFields = ['city', 'location', 'locality', 'area', 'state', 'country', 'tehsil', 'postOffice'];
-                for (const field of addrFields) {
-                    if (itemObj.address[field] && typeof itemObj.address[field] === 'string' && mongoose.Types.ObjectId.isValid(itemObj.address[field])) {
+            if (itemObj.address && typeof itemObj.address === 'object') {
+                const addrFields = [
+                    { field: 'city', type: 'City' },
+                    { field: 'location', type: 'Area' },
+                    { field: 'locality', type: 'Area' },
+                    { field: 'area', type: 'Area' },
+                    { field: 'state', type: 'State' },
+                    { field: 'country', type: 'Country' },
+                    { field: 'tehsil', type: 'Area' },
+                    { field: 'postOffice', type: 'Area' }
+                ];
+                for (const { field } of addrFields) {
+                    if (needsHydration(itemObj.address[field])) {
                         try {
-                            const lookup = await Lookup.findById(itemObj.address[field]).select('lookup_value').lean();
+                            const lookup = await Lookup.findById(itemObj.address[field]).select('lookup_value lookup_type').lean();
                             if (lookup) itemObj.address[field] = lookup;
                         } catch (e) { /* ignore */ }
                     }
@@ -469,7 +555,7 @@ export const getInventory = async (req, res) => {
 
             return {
                 ...itemObj,
-                hasDeal: dealInventoryIds.has(item._id.toString())
+                hasDeal: dealInventoryIds.has(item._id?.toString())
             };
         }));
 
@@ -1205,7 +1291,7 @@ export const importInventory = async (req, res) => {
                     ownerAddress: item.ownerAddress || item['Owner Address'],
 
                     teams: await resolveTeam(item.teams || globalTeams),
-                    team: await resolveTeam(item.team || item['Team']),
+                    team: await resolveTeam(item.team || item['Team'] || (globalTeams.length > 0 ? globalTeams[0] : null)),
                     visibleTo: item.visibleTo || item['Visible To'] || 'Everyone'
                 };
 

@@ -1,26 +1,26 @@
 import Redis from "ioredis";
+import { EventEmitter } from 'events';
 
 // Senior Professional Implementation: MockRedis Fallback
 // This ensures productivity and stability in development environments without a local redis-server.
-class MockRedis {
+class MockRedis extends EventEmitter {
     constructor() {
+        super();
         this.data = new Map();
         this.status = 'ready';
         this.isMock = true;
         console.warn('⚠️  Redis: OPERATING IN MOCK MODE (In-memory fallback activated)');
+        setTimeout(() => {
+            this.emit('ready');
+            this.emit('connect');
+        }, 10);
     }
+    setMaxListeners(n) { return this; }
+    getMaxListeners() { return 100; }
     async get(key) { return this.data.get(key) || null; }
     async set(key, val) { this.data.set(key, val); return 'OK'; }
     async del(key) { this.data.delete(key); return 1; }
     async quit() { return 'OK'; }
-    on(event, cb) { 
-        if (event === 'ready' || event === 'connect') setTimeout(cb, 10); 
-        return this; 
-    }
-    once(event, cb) { 
-        if (event === 'ready' || event === 'connect') setTimeout(cb, 10); 
-        return this; 
-    }
     async ping() { return 'PONG'; }
 }
 
@@ -40,41 +40,60 @@ const redisOptions = {
     }
 };
 
-let redisConnection;
+let internalConnection;
 let isRedisOnline = false;
 
+// Initialize connection
 try {
-    redisConnection = new Redis(redisOptions);
+    internalConnection = new Redis(redisOptions);
+    internalConnection.isMock = false; // Explicitly mark as not mock
     
-    redisConnection.on('ready', () => {
+    internalConnection.on('ready', () => {
         isRedisOnline = true;
         console.log('✅ Redis connected successfully');
     });
 
-    redisConnection.on('error', (err) => {
+    internalConnection.on('error', (err) => {
         isRedisOnline = false;
         // If connection fails in development, fallback to mock to prevent crashes
-        if (process.env.NODE_ENV !== 'production' && !redisConnection.isMock) {
+        if (process.env.NODE_ENV !== 'production' && !internalConnection.isMock) {
             console.warn('❌ Redis Error: Forcing Mock mode fallback...');
-            redisConnection = new MockRedis();
+            internalConnection = new MockRedis();
             isRedisOnline = true;
         }
     });
 } catch (err) {
     console.error('CRITICAL: Redis instantiation error. Forcing mock.', err);
-    redisConnection = new MockRedis();
+    internalConnection = new MockRedis();
     isRedisOnline = true;
 }
+
+/**
+ * SENIOR PROFESSIONAL IMPLEMENTATION: Redis Proxy
+ * Since ESM default exports are not live bindings, we use a Proxy to ensure
+ * that any module importing 'redisConnection' always interacts with the 
+ * current active connection (Real or Mock).
+ */
+const redisProxy = new Proxy({}, {
+    get: (target, prop) => {
+        // Handle special properties
+        if (prop === 'isMock') return internalConnection.isMock;
+        if (prop === 'status') return internalConnection.status;
+        
+        const value = internalConnection[prop];
+        if (typeof value === 'function') {
+            return value.bind(internalConnection);
+        }
+        return value;
+    }
+});
 
 export { isRedisOnline };
 
 export const safeRedisCall = async (method, ...args) => {
     try {
-        if (!redisConnection) return null;
-        
-        // Handle mock calls bypass
-        if (redisConnection.isMock) {
-            return await redisConnection[method](...args);
+        if (internalConnection.isMock) {
+            return await internalConnection[method](...args);
         }
 
         if (!isRedisOnline) return null;
@@ -84,7 +103,7 @@ export const safeRedisCall = async (method, ...args) => {
         );
         
         return await Promise.race([
-            redisConnection[method](...args),
+            internalConnection[method](...args),
             timeout
         ]);
     } catch (err) {
@@ -104,5 +123,5 @@ export const invalidateDashboardCache = async (userId) => {
     }
 };
 
-export default redisConnection;
+export default redisProxy;
 

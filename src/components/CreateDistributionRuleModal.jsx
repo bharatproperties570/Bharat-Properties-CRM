@@ -227,6 +227,10 @@ const CreateDistributionRuleModal = ({ isOpen, onClose, editingRule = null }) =>
                                         <option value="onCreate">On Create</option>
                                         <option value="onImport">On Import</option>
                                         <option value="onCampaignIntake">On Campaign Intake</option>
+                                        <option value="onWebCapture">On Web Capture (Public Leads)</option>
+                                        <option value="onDealCapture">On Deal Capture (Public Deals)</option>
+                                        <option value="onWhatsAppCapture">On WhatsApp Capture</option>
+                                        <option value="onEmailCapture">On Email Capture</option>
                                     </select>
                                 </div>
                             </div>

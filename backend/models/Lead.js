@@ -2,7 +2,13 @@ import mongoose from "mongoose";
 import { invalidateDashboardCache } from "../src/config/redis.js";
 import { normalizePhone } from "../utils/normalization.js";
 
+const escapeRegExp = (string) => {
+    if (!string) return '';
+    return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+};
+
 const LeadSchema = new mongoose.Schema({
+
     salutation: { type: String, default: "Mr." },
     firstName: { type: String, required: true },
     lastName: { type: String },
@@ -67,7 +73,8 @@ const LeadSchema = new mongoose.Schema({
         method: String,
         assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
         team: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team' }],
-        visibleTo: { type: String, enum: ['Everyone', 'Team', 'Private'], default: 'Everyone' },
+        visibleTo: { type: String, enum: ['Everyone', 'Team', 'Private'], default: 'Team' },
+
         history: [{
             assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
             assignedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -146,10 +153,7 @@ LeadSchema.virtual("fullName").get(function () {
 });
 
 // Helper to resolve lookup (Find or Create)
-const escapeRegExp = (string) => {
-    if (!string) return '';
-    return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-};
+
 
 export const resolveLeadLookup = async (type, value) => {
     if (!value) return null;
@@ -217,13 +221,29 @@ LeadSchema.pre('save', async function (next) {
     }
 
     // Standardize Multi-Team visibility
-    const primaryTeams = this.teams || this.assignment?.team;
-    if (primaryTeams && Array.isArray(primaryTeams) && primaryTeams.length > 0) {
-        const castedTeams = primaryTeams.map(t => (typeof t === 'string' && mongoose.Types.ObjectId.isValid(t)) ? new mongoose.Types.ObjectId(t) : t);
-        this.teams = castedTeams;
-        if (!this.assignment) this.assignment = {};
-        this.assignment.team = castedTeams;
+    const rawTeams = this.teams || this.assignment?.team || this.team;
+    if (rawTeams) {
+        let teamArray = Array.isArray(rawTeams) ? rawTeams : [rawTeams];
+        const Team = mongoose.models.Team || mongoose.model('Team');
+
+        
+        const resolvedTeams = await Promise.all(teamArray.map(async (t) => {
+            if (!t) return null;
+            if (mongoose.Types.ObjectId.isValid(t)) return new mongoose.Types.ObjectId(t.toString());
+            
+            // Resolve by name if it's a string name
+            const teamDoc = await Team.findOne({ name: { $regex: new RegExp(`^${escapeRegExp(t)}$`, 'i') } }).select('_id').lean();
+            return teamDoc?._id || null;
+        }));
+
+        const filteredTeams = resolvedTeams.filter(Boolean);
+        if (filteredTeams.length > 0) {
+            this.teams = filteredTeams;
+            if (!this.assignment) this.assignment = {};
+            this.assignment.team = filteredTeams;
+        }
     }
+
 
     if (this.owner === "") this.owner = null;
 
@@ -270,18 +290,39 @@ LeadSchema.pre('findOneAndUpdate', async function (next) {
             : primaryRM;
 
         update.owner = primaryRMId;
-        if (update.assignment) update.assignment.assignedTo = primaryRMId;
-        update['assignment.assignedTo'] = primaryRMId;
+        if (update.assignment && typeof update.assignment === 'object') {
+            update.assignment.assignedTo = primaryRMId;
+        } else {
+            update['assignment.assignedTo'] = primaryRMId;
+        }
+
     }
 
     // Sync team fields in updates
-    const primaryTeams = update.teams || (update.assignment && update.assignment.team) || update['assignment.team'];
-    if (primaryTeams && Array.isArray(primaryTeams)) {
-        const castedTeams = primaryTeams.map(t => (typeof t === 'string' && mongoose.Types.ObjectId.isValid(t)) ? new mongoose.Types.ObjectId(t) : t);
-        update.teams = castedTeams;
-        if (update.assignment) update.assignment.team = castedTeams;
-        update['assignment.team'] = castedTeams;
+    const rawTeams = update.teams || (update.assignment && update.assignment.team) || update['assignment.team'] || update.team;
+    if (rawTeams) {
+        let teamArray = Array.isArray(rawTeams) ? rawTeams : [rawTeams];
+        const Team = mongoose.models.Team || mongoose.model('Team');
+
+        
+        const resolvedTeams = await Promise.all(teamArray.map(async (t) => {
+            if (!t) return null;
+            if (mongoose.Types.ObjectId.isValid(t)) return new mongoose.Types.ObjectId(t.toString());
+            const teamDoc = await Team.findOne({ name: { $regex: new RegExp(`^${escapeRegExp(t)}$`, 'i') } }).select('_id').lean();
+            return teamDoc?._id || null;
+        }));
+
+        const filteredTeams = resolvedTeams.filter(Boolean);
+        if (filteredTeams.length > 0) {
+            update.teams = filteredTeams;
+            if (update.assignment && typeof update.assignment === 'object') {
+                update.assignment.team = filteredTeams;
+            } else if (!update.assignment) {
+                update['assignment.team'] = filteredTeams;
+            }
+        }
     }
+
 
     if (update.owner === "") update.owner = null;
 

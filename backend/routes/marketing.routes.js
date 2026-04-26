@@ -20,7 +20,9 @@ import {
     importAudience,
     getScheduledCampaigns,
     deleteScheduledCampaign,
-    publishMarketingContent
+    publishMarketingContent,
+    getSmsTemplates,
+    syncSmsTemplates
 } from '../controllers/marketing.controller.js';
 import multer from 'multer';
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }); // 5MB limit
@@ -65,6 +67,8 @@ router.get('/job-status/:jobId',    getJobStatus);        // Poll job progress
 router.get('/content',      getMarketingContent);
 router.post('/content',     saveMarketingContent);
 router.get('/whatsapp/templates', getWhatsAppTemplates);
+router.get('/sms/templates', getSmsTemplates);
+router.post('/sms/sync',      syncSmsTemplates);
 router.delete('/content/:id', deleteMarketingContent);
 router.post('/publish',        publishMarketingContent);
 console.log('[MarketingRoutes] Mapping /broadcast to:', typeof broadcastToHub);

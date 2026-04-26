@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { conversationAPI } from '../../../utils/api';
+import { conversationAPI, activitiesAPI } from '../../../utils/api';
 import { toast } from 'react-hot-toast';
 
 const AIConversationsTab = () => {
@@ -134,9 +134,45 @@ const AIConversationsTab = () => {
                                     gap: '6px'
                                 }}
                             >
-                                <i className={conv.override ? "fas fa-play" : "fas fa-hand-paper"}></i>
                                 {conv.override ? 'AI Paused (Resume)' : 'Take Over'}
                             </button>
+
+                            {!conv.isMatched && (
+                                <button
+                                    onClick={async () => {
+                                        if (!conv.phone) return;
+                                        toast.loading('Creating lead...', { id: 'conv-lead-' + conv.id });
+                                        try {
+                                            const res = await activitiesAPI.convertToLead({ 
+                                                phoneNumber: conv.phone, 
+                                                name: conv.leadName,
+                                                source: `AI WhatsApp`
+                                            });
+                                            if (res?.success) { 
+                                                toast.success('Lead created!', { id: 'conv-lead-' + conv.id }); 
+                                                fetchConversations(); 
+                                            }
+                                            else toast.error(res?.error || 'Failed', { id: 'conv-lead-' + conv.id });
+                                        } catch(e) { toast.error('Error creating lead', { id: 'conv-lead-' + conv.id }); }
+                                    }}
+                                    style={{
+                                        padding: '6px 16px',
+                                        background: '#059669',
+                                        color: '#fff',
+                                        border: 'none',
+                                        borderRadius: '6px',
+                                        fontWeight: 600,
+                                        fontSize: '0.8rem',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px'
+                                    }}
+                                >
+                                    <i className="fas fa-user-plus"></i>
+                                    Create Lead
+                                </button>
+                            )}
                         </div>
 
                         {/* Chat Stream */}

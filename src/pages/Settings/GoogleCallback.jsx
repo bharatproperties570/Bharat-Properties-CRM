@@ -25,14 +25,16 @@ const GoogleCallback = ({ onNavigate }) => {
 
             try {
                 setStatus('Connecting your Google account...');
-                const response = await googleSettingsAPI.handleCallback(code);
+                const response = await googleSettingsAPI.handleCallback(code, window.location.origin);
                 if (response.success) {
                     toast.success('Google account connected successfully!');
                 } else {
                     toast.error(response.error || 'Failed to connect Google account');
                 }
             } catch (error) {
-                console.error('Google callback error:', error);
+                console.error('CRITICAL: Google callback handshake failed!', error);
+                console.error('Error status:', error.status);
+                console.error('Error message:', error.message);
                 toast.error('An error occurred during connection');
             } finally {
                 // Return to settings

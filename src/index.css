@@ -3097,9 +3097,9 @@ body {
 /* Projects Grid - 8 Column Layout with Actions */
 .project-list-grid {
     display: grid;
-    /* Columns: Checkbox | Identity | Location | Blocks | Category | Status | Assignment | Actions */
-    grid-template-columns: 48px minmax(220px, 1.4fr) minmax(180px, 1.1fr) minmax(110px, 0.7fr) minmax(120px, 0.8fr) 130px 130px 100px;
-    gap: 1rem;
+    /* Columns: Checkbox | Identity | Location | Blocks | Category | Status | Assignment */
+    grid-template-columns: 48px minmax(220px, 1.4fr) minmax(180px, 1.1fr) minmax(110px, 0.7fr) minmax(120px, 0.8fr) 130px 140px;
+    gap: 1.5rem;
     align-items: center;
 }
 

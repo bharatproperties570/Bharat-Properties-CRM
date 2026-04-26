@@ -1,0 +1,1000 @@
+backend/inspect_settings_temp.js-27-
+backend/inspect_settings_temp.js-28-        await mongoose.disconnect();
+backend/inspect_settings_temp.js:29:    } catch (error) {
+backend/inspect_settings_temp.js-30-        console.error('Error:', error);
+backend/inspect_settings_temp.js-31-    }
+--
+backend/list_collections.js-20-        }
+backend/list_collections.js-21-
+backend/list_collections.js:22:    } catch (err) {
+backend/list_collections.js-23-        console.error("❌ Error:", err.message);
+backend/list_collections.js-24-    } finally {
+--
+backend/find_data.js-17-
+backend/find_data.js-18-        process.exit(0);
+backend/find_data.js:19:    } catch (err) {
+backend/find_data.js-20-        console.error(err);
+backend/find_data.js-21-        process.exit(1);
+--
+backend/check_meta_orientation.js-16-
+backend/check_meta_orientation.js-17-        await mongoose.disconnect();
+backend/check_meta_orientation.js:18:    } catch (error) {
+backend/check_meta_orientation.js-19-        console.error('Error:', error);
+backend/check_meta_orientation.js-20-    }
+--
+backend/migrate_settings_keys_v2.js-79-        await mongoose.disconnect();
+backend/migrate_settings_keys_v2.js-80-        console.log('\n--- Migration Completed ---');
+backend/migrate_settings_keys_v2.js:81:    } catch (error) {
+backend/migrate_settings_keys_v2.js-82-        console.error('Migration Error:', error);
+backend/migrate_settings_keys_v2.js-83-    }
+--
+backend/verify_recent.js-24-
+backend/verify_recent.js-25-        await mongoose.disconnect();
+backend/verify_recent.js:26:    } catch (e) {
+backend/verify_recent.js-27-        console.error(e);
+backend/verify_recent.js-28-        await mongoose.disconnect();
+--
+backend/debug_company_addresses.js-43-
+backend/debug_company_addresses.js-44-        await mongoose.disconnect();
+backend/debug_company_addresses.js:45:    } catch (error) {
+backend/debug_company_addresses.js-46-        console.error('Error:', error);
+backend/debug_company_addresses.js-47-    }
+--
+backend/test_status_id.js-15-        }
+backend/test_status_id.js-16-        await mongoose.disconnect();
+backend/test_status_id.js:17:    } catch (error) {
+backend/test_status_id.js-18-        console.error('Error:', error);
+backend/test_status_id.js-19-    }
+--
+backend/inspect_property_config.js-19-        console.log(JSON.stringify(config.value, null, 2));
+backend/inspect_property_config.js-20-
+backend/inspect_property_config.js:21:    } catch (error) {
+backend/inspect_property_config.js-22-        console.error('Error:', error);
+backend/inspect_property_config.js-23-    } finally {
+--
+backend/seedSocialReviews.js-61-        console.log("Mock reviews seeded successfully!");
+backend/seedSocialReviews.js-62-        process.exit(0);
+backend/seedSocialReviews.js:63:    } catch (error) {
+backend/seedSocialReviews.js-64-        console.error("Error seeding reviews:", error);
+backend/seedSocialReviews.js-65-        process.exit(1);
+--
+backend/middleware/auth.js-32-        req.user = user;
+backend/middleware/auth.js-33-        next();
+backend/middleware/auth.js:34:    } catch (err) {
+backend/middleware/auth.js-35-        return res.status(401).json({ success: false, message: "Invalid token" });
+backend/middleware/auth.js-36-    }
+--
+backend/check_c120.js-24-
+backend/check_c120.js-25-        await mongoose.disconnect();
+backend/check_c120.js:26:    } catch (error) {
+backend/check_c120.js-27-        console.error('Error:', error);
+backend/check_c120.js-28-    }
+--
+backend/verify_kc_sharma_fix.js-76-
+backend/verify_kc_sharma_fix.js-77-        await mongoose.disconnect();
+backend/verify_kc_sharma_fix.js:78:    } catch (error) {
+backend/verify_kc_sharma_fix.js-79-        console.error('Error:', error);
+backend/verify_kc_sharma_fix.js-80-        process.exit(1);
+--
+backend/check_settings_orientation.js-16-
+backend/check_settings_orientation.js-17-        await mongoose.disconnect();
+backend/check_settings_orientation.js:18:    } catch (error) {
+backend/check_settings_orientation.js-19-        console.error('Error:', error);
+backend/check_settings_orientation.js-20-    }
+--
+backend/backfill_direction.js-31-        console.log(`Successfully backfilled direction for ${updatedCount} items.`);
+backend/backfill_direction.js-32-
+backend/backfill_direction.js:33:    } catch (err) {
+backend/backfill_direction.js-34-        console.error('Backfill Error:', err);
+backend/backfill_direction.js-35-    } finally {
+--
+backend/migrate_kurukshetra.js-92-        process.exit(0);
+backend/migrate_kurukshetra.js-93-
+backend/migrate_kurukshetra.js:94:    } catch (error) {
+backend/migrate_kurukshetra.js-95-        console.error("Migration Error:", error);
+backend/migrate_kurukshetra.js-96-        process.exit(1);
+--
+backend/test_mysterious_id.js-15-        }
+backend/test_mysterious_id.js-16-        await mongoose.disconnect();
+backend/test_mysterious_id.js:17:    } catch (error) {
+backend/test_mysterious_id.js-18-        console.error('Error:', error);
+backend/test_mysterious_id.js-19-    }
+--
+backend/migrate_settings_keys.js-49-        console.log('Migration complete!');
+backend/migrate_settings_keys.js-50-        await mongoose.disconnect();
+backend/migrate_settings_keys.js:51:    } catch (error) {
+backend/migrate_settings_keys.js-52-        console.error('Migration failed:', error);
+backend/migrate_settings_keys.js-53-        process.exit(1);
+--
+backend/inspect_project.js-22-
+backend/inspect_project.js-23-        process.exit(0);
+backend/inspect_project.js:24:    } catch (error) {
+backend/inspect_project.js-25-        console.error('Error:', error);
+backend/inspect_project.js-26-        process.exit(1);
+--
+backend/list_all_counts.js-25-        }
+backend/list_all_counts.js-26-        await conn.close();
+backend/list_all_counts.js:27:    } catch (err) {
+backend/list_all_counts.js-28-        console.error(`❌ Error ${dbName}:`, err.message);
+backend/list_all_counts.js-29-    }
+--
+backend/simulate_import.js-51-
+backend/simulate_import.js-52-        await mongoose.disconnect();
+backend/simulate_import.js:53:    } catch (error) {
+backend/simulate_import.js-54-        console.error('Error:', error);
+backend/simulate_import.js-55-    }
+--
+backend/list_lookups.js-23-
+backend/list_lookups.js-24-        await mongoose.disconnect();
+backend/list_lookups.js:25:    } catch (error) {
+backend/list_lookups.js-26-        console.error('Error:', error);
+backend/list_lookups.js-27-    }
+--
+backend/debug_data.js-66-
+backend/debug_data.js-67-        process.exit();
+backend/debug_data.js:68:    } catch (error) {
+backend/debug_data.js-69-        console.error("Script Error:", error);
+backend/debug_data.js-70-        process.exit(1);
+--
+backend/diag_activities.js-45-
+backend/diag_activities.js-46-        process.exit(0);
+backend/diag_activities.js:47:    } catch (err) {
+backend/diag_activities.js-48-        console.error(err);
+backend/diag_activities.js-49-        process.exit(1);
+--
+backend/cleanup_duplicate_contacts.js-171-
+backend/cleanup_duplicate_contacts.js-172-        process.exit(0);
+backend/cleanup_duplicate_contacts.js:173:    } catch (error) {
+backend/cleanup_duplicate_contacts.js-174-        console.error('Cleanup failed:', error);
+backend/cleanup_duplicate_contacts.js-175-        process.exit(1);
+--
+backend/migrate_builtup.js-81-
+backend/migrate_builtup.js-82-        process.exit(0);
+backend/migrate_builtup.js:83:    } catch (error) {
+backend/migrate_builtup.js-84-        console.error('Error during migration:', error);
+backend/migrate_builtup.js-85-        process.exit(1);
+--
+backend/check_rates_v2.js-26-
+backend/check_rates_v2.js-27-        await mongoose.disconnect();
+backend/check_rates_v2.js:28:    } catch (error) {
+backend/check_rates_v2.js-29-        console.error('Error:', error);
+backend/check_rates_v2.js-30-    }
+--
+backend/bulkEnrich.js-17-            try {
+backend/bulkEnrich.js-18-                await scanKeywords(lead._id);
+backend/bulkEnrich.js:19:            } catch (err) {
+backend/bulkEnrich.js-20-                console.error(`Failed to enrich lead ${lead._id}:`, err.message);
+backend/bulkEnrich.js-21-            }
+--
+backend/bulkEnrich.js-24-        console.log('Bulk enrichment complete.');
+backend/bulkEnrich.js-25-        process.exit(0);
+backend/bulkEnrich.js:26:    } catch (error) {
+backend/bulkEnrich.js-27-        console.error('Error during bulk enrichment:', error);
+backend/bulkEnrich.js-28-        process.exit(1);
+--
+backend/search_gdrive.js-46-        console.log('No matches found for GDRIVE:');
+backend/search_gdrive.js-47-        process.exit(0);
+backend/search_gdrive.js:48:    } catch (error) {
+backend/search_gdrive.js-49-        console.error('Error:', error);
+backend/search_gdrive.js-50-        process.exit(1);
+--
+backend/check_duplicate_projects.js-16-
+backend/check_duplicate_projects.js-17-        await mongoose.disconnect();
+backend/check_duplicate_projects.js:18:    } catch (error) {
+backend/check_duplicate_projects.js-19-        console.error('Error:', error);
+backend/check_duplicate_projects.js-20-    }
+--
+backend/inspect_raw_lookups.js-20-
+backend/inspect_raw_lookups.js-21-        await mongoose.disconnect();
+backend/inspect_raw_lookups.js:22:    } catch (error) {
+backend/inspect_raw_lookups.js-23-        console.error('Error:', error);
+backend/inspect_raw_lookups.js-24-    }
+--
+backend/migrate_not_interested_to_dormant.js-59-        }
+backend/migrate_not_interested_to_dormant.js-60-
+backend/migrate_not_interested_to_dormant.js:61:    } catch (err) {
+backend/migrate_not_interested_to_dormant.js-62-        console.error("Migration failed:", err);
+backend/migrate_not_interested_to_dormant.js-63-    } finally {
+--
+backend/check_add_projects.js-22-
+backend/check_add_projects.js-23-        process.exit(0);
+backend/check_add_projects.js:24:    } catch (error) {
+backend/check_add_projects.js-25-        console.error('Error:', error);
+backend/check_add_projects.js-26-        process.exit(1);
+--
+backend/count_lookups.js-17-
+backend/count_lookups.js-18-        await mongoose.disconnect();
+backend/count_lookups.js:19:    } catch (error) {
+backend/count_lookups.js-20-        console.error('Error:', error);
+backend/count_lookups.js-21-    }
+--
+backend/migrate_campaigns_to_lookups.js-73-        console.log('Migration completed successfully.');
+backend/migrate_campaigns_to_lookups.js-74-        process.exit(0);
+backend/migrate_campaigns_to_lookups.js:75:    } catch (error) {
+backend/migrate_campaigns_to_lookups.js-76-        console.error('Migration failed:', error);
+backend/migrate_campaigns_to_lookups.js-77-        process.exit(1);
+--
+backend/check_config_structure.js-31-
+backend/check_config_structure.js-32-        await mongoose.disconnect();
+backend/check_config_structure.js:33:    } catch (error) {
+backend/check_config_structure.js-34-        console.error('Error:', error);
+backend/check_config_structure.js-35-    }
+--
+backend/diag_category_counts.js-73-}
+backend/diag_category_counts.js-74-
+backend/diag_category_counts.js:75:checkData().catch(console.error);
+--
+backend/find_recent.js-24-        }
+backend/find_recent.js-25-        await conn.close();
+backend/find_recent.js:26:    } catch (err) {
+backend/find_recent.js-27-        console.error(`❌ Error ${dbName}:`, err.message);
+backend/find_recent.js-28-    }
+--
+backend/check_raw_inventory.js-32-
+backend/check_raw_inventory.js-33-        await mongoose.disconnect();
+backend/check_raw_inventory.js:34:    } catch (error) {
+backend/check_raw_inventory.js-35-        console.error('Error:', error);
+backend/check_raw_inventory.js-36-    }
+--
+backend/cleanup_unit_types.js-68-
+backend/cleanup_unit_types.js-69-        console.log('Cleanup complete.');
+backend/cleanup_unit_types.js:70:    } catch (error) {
+backend/cleanup_unit_types.js-71-        console.error('Cleanup failed:', error);
+backend/cleanup_unit_types.js-72-    } finally {
+--
+backend/check_lookup_ids.js-26-        
+backend/check_lookup_ids.js-27-        process.exit(0);
+backend/check_lookup_ids.js:28:    } catch (error) {
+backend/check_lookup_ids.js-29-        console.error(error);
+backend/check_lookup_ids.js-30-        process.exit(1);
+--
+backend/diag_sms.js-45-                        const dec = decrypt(v);
+backend/diag_sms.js-46-                        console.log(`  ${k}: [ENCRYPTED] decrypted length=${dec.length} ${dec.length === 0 ? '❌ EMPTY!' : '✅'}`);
+backend/diag_sms.js:47:                    } catch (e) {
+backend/diag_sms.js-48-                        console.log(`  ${k}: [ENCRYPTED] ❌ FAILED TO DECRYPT: ${e.message}`);
+backend/diag_sms.js-49-                    }
+--
+backend/diag_sms.js-75-
+backend/diag_sms.js-76-        process.exit(0);
+backend/diag_sms.js:77:    } catch (err) {
+backend/diag_sms.js-78-        console.error('Error:', err.message);
+backend/diag_sms.js-79-        process.exit(1);
+--
+backend/cleanup_dummy_data.js-67-
+backend/cleanup_dummy_data.js-68-        process.exit(0);
+backend/cleanup_dummy_data.js:69:    } catch (error) {
+backend/cleanup_dummy_data.js-70-        console.error('Cleanup failed:', error);
+backend/cleanup_dummy_data.js-71-        process.exit(1);
+--
+backend/test_upsert.js-40-
+backend/test_upsert.js-41-        await mongoose.disconnect();
+backend/test_upsert.js:42:    } catch (error) {
+backend/test_upsert.js-43-        console.error(error);
+backend/test_upsert.js-44-    }
+--
+backend/fix_property_config_ids.js-62-        }
+backend/fix_property_config_ids.js-63-
+backend/fix_property_config_ids.js:64:    } catch (err) {
+backend/fix_property_config_ids.js-65-        console.error(err);
+backend/fix_property_config_ids.js-66-    } finally {
+--
+backend/migrate_projects.js-41-        });
+backend/migrate_projects.js-42-        return user._id;
+backend/migrate_projects.js:43:    } catch (err) {
+backend/migrate_projects.js-44-        console.error(`Failed to create user ${name}: ${err.message}`);
+backend/migrate_projects.js-45-        return null;
+--
+backend/migrate_projects.js-63-        });
+backend/migrate_projects.js-64-        return team._id;
+backend/migrate_projects.js:65:    } catch (err) {
+backend/migrate_projects.js-66-        console.error(`Failed to create team ${name}: ${err.message}`);
+backend/migrate_projects.js-67-        return null;
+--
+backend/migrate_projects.js-139-                    updatedCount++;
+backend/migrate_projects.js-140-                    console.log(`Updated project: ${rawProject.name}`);
+backend/migrate_projects.js:141:                } catch (saveErr) {
+backend/migrate_projects.js-142-                    console.error(`Failed to update project ${rawProject.name}: ${saveErr.message}`);
+backend/migrate_projects.js-143-                }
+--
+backend/migrate_projects.js-147-        console.log(`Migration complete. Updated ${updatedCount} projects.`);
+backend/migrate_projects.js-148-        process.exit(0);
+backend/migrate_projects.js:149:    } catch (error) {
+backend/migrate_projects.js-150-        console.error('Migration failed:', error);
+backend/migrate_projects.js-151-        process.exit(1);
+--
+backend/test_get_contacts.js-4-        const res = await axios.get('http://localhost:4000/api/contacts?limit=1');
+backend/test_get_contacts.js-5-        console.log("Response:", JSON.stringify(res.data).substring(0, 500));
+backend/test_get_contacts.js:6:    } catch (e) {
+backend/test_get_contacts.js-7-        console.error(e.message);
+backend/test_get_contacts.js-8-    }
+--
+backend/check_inv_owners.js-13-
+backend/check_inv_owners.js-14-        await mongoose.disconnect();
+backend/check_inv_owners.js:15:    } catch (err) {
+backend/check_inv_owners.js-16-        console.error('Check failed:', err);
+backend/check_inv_owners.js-17-    }
+--
+backend/test_regex.js-9-    const re = new RegExp(`^${escaped}$`, 'i');
+backend/test_regex.js-10-    console.log("RegExp:", re);
+backend/test_regex.js:11:} catch (e) {
+backend/test_regex.js-12-    console.error("Error:", e.message);
+backend/test_regex.js-13-}
+--
+backend/config/db.js-15-        const conn = await mongoose.connect(process.env.MONGODB_URI, { family: 4 });
+backend/config/db.js-16-        console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
+backend/config/db.js:17:    } catch (error) {
+backend/config/db.js-18-        console.error(`❌ MongoDB Connection Error: ${error.message}`);
+backend/config/db.js-19-        process.exit(1);
+--
+backend/test_auth_goals.js-29-            console.log("✅ Fetch users successful:", usersRes.data.success);
+backend/test_auth_goals.js-30-            console.log("Data count:", usersRes.data.data.length);
+backend/test_auth_goals.js:31:        } catch (err) {
+backend/test_auth_goals.js-32-            console.error("❌ Fetch users failed:", err.response?.status, err.response?.data || err.message);
+backend/test_auth_goals.js-33-        }
+--
+backend/test_auth_goals.js-40-            console.log("✅ Fetch goals successful:", goalsRes.data.success);
+backend/test_auth_goals.js-41-            console.log("Data count:", goalsRes.data.data.length);
+backend/test_auth_goals.js:42:        } catch (err) {
+backend/test_auth_goals.js-43-            console.error("❌ Fetch goals failed:", err.response?.status, err.response?.data || err.message);
+backend/test_auth_goals.js-44-        }
+backend/test_auth_goals.js-45-
+backend/test_auth_goals.js:46:    } catch (error) {
+backend/test_auth_goals.js-47-        console.error("CRITICAL ERROR:", error.response?.status, error.response?.data || error.message);
+backend/test_auth_goals.js-48-    }
+--
+backend/cleanup_data.js-44-        console.log(`Finished. Fixed ${fixedCount} records.`);
+backend/cleanup_data.js-45-        process.exit();
+backend/cleanup_data.js:46:    } catch (err) {
+backend/cleanup_data.js-47-        console.error(err);
+backend/cleanup_data.js-48-        process.exit(1);
+--
+backend/list_orientations.js-14-        });
+backend/list_orientations.js-15-        await mongoose.disconnect();
+backend/list_orientations.js:16:    } catch (error) {
+backend/list_orientations.js-17-        console.error('Error:', error);
+backend/list_orientations.js-18-    }
+--
+backend/find_inventory.js-26-        projects.forEach(p => console.log(`- Project: ${p.name}, ID: ${p._id}`));
+backend/find_inventory.js-27-
+backend/find_inventory.js:28:    } catch (err) {
+backend/find_inventory.js-29-        console.error("❌ Error:", err.message);
+backend/find_inventory.js-30-    } finally {
+--
+backend/server.js-17-        setInterval(() => {
+backend/server.js-18-            console.log(`[Autonomous Agent] Triggering NurtureBot cycle...`);
+backend/server.js:19:            NurtureBot.processPendingLeads().catch(err => 
+backend/server.js-20-                console.error('[Autonomous Agent] NurtureBot cycle error:', err.message)
+backend/server.js-21-            );
+--
+backend/server.js-23-
+backend/server.js-24-        // Run immediately on startup
+backend/server.js:25:        NurtureBot.processPendingLeads().catch(() => {});
+backend/server.js-26-    });
+backend/server.js:27:}).catch(err => {
+backend/server.js-28-    console.error("❌ Failed to connect to DB", err);
+backend/server.js-29-    process.exit(1);
+--
+backend/test_insert_empty.js-23-            const result = await Inventory.insertMany(payload, { ordered: false });
+backend/test_insert_empty.js-24-            console.log("insertMany result:", result);
+backend/test_insert_empty.js:25:        } catch (err) {
+backend/test_insert_empty.js-26-            console.error("insertMany threw an error:", err.name, err.message);
+backend/test_insert_empty.js-27-        }
+backend/test_insert_empty.js-28-
+backend/test_insert_empty.js-29-        await mongoose.disconnect();
+backend/test_insert_empty.js:30:    } catch (e) {
+backend/test_insert_empty.js-31-        console.error("Test failed:", e);
+backend/test_insert_empty.js-32-        await mongoose.disconnect();
+--
+backend/test_lead_error.js-25-        console.log('Status:', response.status);
+backend/test_lead_error.js-26-        console.log('Response:', text);
+backend/test_lead_error.js:27:    } catch (e) {
+backend/test_lead_error.js-28-        console.error('Fetch Error:', e);
+backend/test_lead_error.js-29-    }
+--
+backend/ensure_test_user.js-39-
+backend/ensure_test_user.js-40-        process.exit(0);
+backend/ensure_test_user.js:41:    } catch (err) {
+backend/ensure_test_user.js-42-        console.error('Error:', err);
+backend/ensure_test_user.js-43-        process.exit(1);
+--
+backend/count_inventory.js-18-
+backend/count_inventory.js-19-        await mongoose.disconnect();
+backend/count_inventory.js:20:    } catch (e) {
+backend/count_inventory.js-21-        console.error(e);
+backend/count_inventory.js-22-        await mongoose.disconnect();
+--
+backend/diagnose_inventory_v2.js-55-
+backend/diagnose_inventory_v2.js-56-        process.exit(0);
+backend/diagnose_inventory_v2.js:57:    } catch (error) {
+backend/diagnose_inventory_v2.js-58-        console.error('Error:', error);
+backend/diagnose_inventory_v2.js-59-        process.exit(1);
+--
+backend/verify_team_members.js-133-        console.log('✅ Cleanup completed');
+backend/verify_team_members.js-134-
+backend/verify_team_members.js:135:    } catch (error) {
+backend/verify_team_members.js-136-        console.error('❌ Error during verification:', error);
+backend/verify_team_members.js-137-    } finally {
+--
+backend/search_all.js-39-        }
+backend/search_all.js-40-
+backend/search_all.js:41:    } catch (err) {
+backend/search_all.js-42-        console.error("❌ Error:", err.message);
+backend/search_all.js-43-    } finally {
+--
+backend/check_a1_time.js-19-        }
+backend/check_a1_time.js-20-        await mongoose.disconnect();
+backend/check_a1_time.js:21:    } catch (error) {
+backend/check_a1_time.js-22-        console.error('Error:', error);
+backend/check_a1_time.js-23-    }
+--
+backend/check_inventory_direction.js-35-}
+backend/check_inventory_direction.js-36-
+backend/check_inventory_direction.js:37:check().catch(console.error);
+--
+backend/check_orientation_data.js-34-
+backend/check_orientation_data.js-35-        await mongoose.disconnect();
+backend/check_orientation_data.js:36:    } catch (error) {
+backend/check_orientation_data.js-37-        console.error('Error:', error);
+backend/check_orientation_data.js-38-    }
+--
+backend/debug_syntax.js-6-        await import('./src/server.js');
+backend/debug_syntax.js-7-        console.log('src/server.js loaded');
+backend/debug_syntax.js:8:    } catch (e) {
+backend/debug_syntax.js-9-        console.error('FAIL:', e);
+backend/debug_syntax.js-10-    }
+--
+backend/migrate_lead_arrays.js-60-                        currentVal = JSON.parse(normalized);
+backend/migrate_lead_arrays.js-61-                        needsUpdate = true;
+backend/migrate_lead_arrays.js:62:                    } catch (e) {
+backend/migrate_lead_arrays.js-63-                        console.warn(`Failed to parse ${currentVal}: ${e.message}`);
+backend/migrate_lead_arrays.js-64-                        // Fallback: simple strip and split
+--
+backend/migrate_lead_arrays.js-87-                    await lead.save();
+backend/migrate_lead_arrays.js-88-                    updatedCount++;
+backend/migrate_lead_arrays.js:89:                } catch (saveErr) {
+backend/migrate_lead_arrays.js-90-                    console.error(`Failed to save Lead ${lead._id}:`, saveErr.message);
+backend/migrate_lead_arrays.js-91-                }
+--
+backend/migrate_lead_arrays.js-95-        console.log(`Migration complete. Updated ${updatedCount} leads.`);
+backend/migrate_lead_arrays.js-96-        process.exit(0);
+backend/migrate_lead_arrays.js:97:    } catch (error) {
+backend/migrate_lead_arrays.js-98-        console.error('Migration failed:', error);
+backend/migrate_lead_arrays.js-99-        process.exit(1);
+--
+backend/deal_data_recovery.cjs-31-    console.log(`Successfully fixed ${fixedCount} deals.`);
+backend/deal_data_recovery.cjs-32-    process.exit(0);
+backend/deal_data_recovery.cjs:33:}).catch(err => {
+backend/deal_data_recovery.cjs-34-    console.error(err);
+backend/deal_data_recovery.cjs-35-    process.exit(1);
+--
+backend/test_update_contact.js-72-        const updateRes = await axios.put(`http://localhost:4000/api/contacts/${contact._id}`, finalFormData);
+backend/test_update_contact.js-73-        console.log("Update Success:", updateRes.data);
+backend/test_update_contact.js:74:    } catch (e) {
+backend/test_update_contact.js-75-        if (e.response) {
+backend/test_update_contact.js-76-            console.error("Update Failed:", e.response.status, JSON.stringify(e.response.data, null, 2));
+--
+backend/cleanup_lookups.js-50-
+backend/cleanup_lookups.js-51-        process.exit(0);
+backend/cleanup_lookups.js:52:    } catch (error) {
+backend/cleanup_lookups.js-53-        console.error('[Cleanup] Error:', error);
+backend/cleanup_lookups.js-54-        process.exit(1);
+--
+backend/debug_inventory_fields.js-36-
+backend/debug_inventory_fields.js-37-        process.exit(0);
+backend/debug_inventory_fields.js:38:    } catch (err) {
+backend/debug_inventory_fields.js-39-        console.error(err);
+backend/debug_inventory_fields.js-40-        process.exit(1);
+--
+backend/check_recent_inventory.js-19-
+backend/check_recent_inventory.js-20-        await mongoose.disconnect();
+backend/check_recent_inventory.js:21:    } catch (error) {
+backend/check_recent_inventory.js-22-        console.error('Error:', error.message);
+backend/check_recent_inventory.js-23-    }
+--
+backend/update_rates_test.js-24-
+backend/update_rates_test.js-25-        await mongoose.disconnect();
+backend/update_rates_test.js:26:    } catch (error) {
+backend/update_rates_test.js-27-        console.error('Error:', error);
+backend/update_rates_test.js-28-    }
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--
+--

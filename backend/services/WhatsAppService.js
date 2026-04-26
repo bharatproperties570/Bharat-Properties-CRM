@@ -11,7 +11,9 @@ class WhatsAppService {
         const SystemSetting = mongoose.model('SystemSetting');
         const setting = await SystemSetting.findOne({ key: 'meta_wa_config' }).lean();
         
-        if (setting && setting.value?.token) {
+        const isPlaceholder = (val) => !val || val.includes('YOUR_') || val.includes('SYSTEM_USER');
+
+        if (setting && setting.value?.token && !isPlaceholder(setting.value.token)) {
             return {
                 token: setting.value.token,
                 phoneId: setting.value.phoneId,
@@ -20,7 +22,7 @@ class WhatsAppService {
         }
 
         // Fallback to Env if DB is empty
-        if (process.env.META_WA_TOKEN && process.env.META_WA_PHONE_ID) {
+        if (process.env.META_WA_TOKEN && process.env.META_WA_PHONE_ID && !isPlaceholder(process.env.META_WA_TOKEN)) {
             return {
                 token: process.env.META_WA_TOKEN,
                 phoneId: process.env.META_WA_PHONE_ID,
@@ -99,10 +101,26 @@ class WhatsAppService {
                 payload.text = { body: message, preview_url: false };
             } else if (type === 'image') {
                 payload.type = 'image';
-                payload.image = { link: mediaUrl, caption: caption || message };
+                if (options.mediaId) payload.image = { id: options.mediaId, caption: caption || message };
+                else payload.image = { link: mediaUrl, caption: caption || message };
             } else if (type === 'document') {
                 payload.type = 'document';
-                payload.document = { link: mediaUrl, filename: filename || 'document.pdf', caption: caption || message };
+                if (options.mediaId) payload.document = { id: options.mediaId, filename: filename || 'document.pdf', caption: caption || message };
+                else payload.document = { link: mediaUrl, filename: filename || 'document.pdf', caption: caption || message };
+            } else if (type === 'video') {
+                payload.type = 'video';
+                if (options.mediaId) payload.video = { id: options.mediaId, caption: caption || message };
+                else payload.video = { link: mediaUrl, caption: caption || message };
+            } else if (type === 'audio') {
+                payload.type = 'audio';
+                if (options.mediaId) payload.audio = { id: options.mediaId };
+                else payload.audio = { link: mediaUrl };
+            } else if (type === 'location') {
+                payload.type = 'location';
+                payload.location = options.location; // { latitude, longitude, name, address }
+            } else if (type === 'contacts') {
+                payload.type = 'contacts';
+                payload.contacts = options.contacts; // Array of contact objects
             }
 
             const response = await axios.post(url, payload, {
@@ -118,7 +136,9 @@ class WhatsAppService {
             return { success: true, messageId: msgId, provider: 'meta', type };
         } catch (err) {
             const detail = err.response?.data?.error?.message || err.message;
+            const metaError = err.response?.data?.error;
             console.error(`[WhatsApp/Meta] ❌ ERROR: Failed to send ${type} to ${toNumber}:`, detail);
+            if (metaError) console.error(`[WhatsApp/Meta] Meta API Detail:`, JSON.stringify(metaError, null, 2));
             return { success: false, error: detail, provider: 'meta' };
         }
     }
@@ -196,14 +216,93 @@ class WhatsAppService {
         }
     }
 
-    async sendMedia(mobile, type, mediaUrl, caption = '', filename = '') {
+    async sendMedia(mobile, type, mediaUrl, caption = '', filename = '', extraOptions = {}) {
         const metaConfig = await this._getMetaConfig();
         if (metaConfig) {
-            return this._sendViaMeta(mobile, caption, metaConfig, { type, mediaUrl, caption, filename });
+            let mediaId = null;
+
+            // 🚀 SENIOR LOGIC: If mediaUrl is local or from our server, upload to Meta first for reliability
+            if (mediaUrl && (mediaUrl.startsWith('/') || mediaUrl.includes('localhost') || mediaUrl.includes('127.0.0.1'))) {
+                try {
+                    const path = await import('path');
+                    const fs = await import('fs');
+                    
+                    // Resolve absolute path
+                    let localPath = '';
+                    if (mediaUrl.startsWith('/uploads/')) {
+                        localPath = path.resolve(mediaUrl.substring(1)); // remove leading slash
+                    } else if (mediaUrl.includes('/uploads/')) {
+                        const parts = mediaUrl.split('/uploads/');
+                        localPath = path.resolve('uploads', parts[1]);
+                    }
+
+                    if (localPath && fs.existsSync(localPath)) {
+                        console.log(`[WhatsApp/Meta] Local file detected. Uploading to Meta storage...`);
+                        const uploadRes = await this.uploadToMeta(localPath, type);
+                        if (uploadRes.success) {
+                            mediaId = uploadRes.mediaId;
+                        } else {
+                            // If upload failed and it's a local file, we CANNOT send it via link
+                            console.error(`[WhatsApp/Meta] Failed to upload local media to Meta:`, uploadRes.error);
+                            return { 
+                                success: false, 
+                                error: `Meta Media Upload Failed: ${uploadRes.error}. (Make sure your WhatsApp API Token and Phone ID are correct in settings or .env)`, 
+                                provider: 'meta' 
+                            };
+                        }
+                    }
+                } catch (e) {
+                    console.error(`[WhatsApp/Meta] Local upload bypass failed:`, e.message);
+                }
+            }
+
+            return this._sendViaMeta(mobile, caption, metaConfig, { 
+                type, 
+                mediaUrl, 
+                mediaId,
+                caption, 
+                filename,
+                ...extraOptions 
+            });
         }
         
         console.log(`[WhatsApp] MOCK ${type} to ${mobile}: ${mediaUrl}`);
         return { success: true, mock: true, provider: 'mock' };
+    }
+
+    /**
+     * 🚀 Upload binary media to Meta's servers
+     * Required for reliable delivery when the source is not a public URL
+     */
+    async uploadToMeta(filePath, type) {
+        const config = await this._getMetaConfig();
+        if (!config || !config.token) return { success: false, error: 'Meta config missing' };
+
+        try {
+            const fs = await import('fs');
+            const FormData = (await import('form-data')).default;
+            
+            const form = new FormData();
+            form.append('file', fs.createReadStream(filePath));
+            form.append('messaging_product', 'whatsapp');
+            form.append('type', type);
+
+            const url = `${META_GRAPH_BASE}/${config.phoneId}/media`;
+            const response = await axios.post(url, form, {
+                headers: {
+                    ...form.getHeaders(),
+                    'Authorization': `Bearer ${config.token}`,
+                },
+            });
+
+            return { success: true, mediaId: response.data.id };
+        } catch (err) {
+            const detail = err.response?.data?.error?.message || err.message;
+            const metaError = err.response?.data?.error;
+            console.error(`[WhatsApp/Meta] Media upload FAILED:`, detail);
+            if (metaError) console.error(`[WhatsApp/Meta] Meta Upload Detail:`, JSON.stringify(metaError, null, 2));
+            return { success: false, error: detail };
+        }
     }
 
     async getTemplates() {
@@ -232,6 +331,54 @@ class WhatsAppService {
         } catch (err) {
             console.error('[WhatsAppService] Error fetching templates:', err.message);
             return [];
+        }
+    }
+
+    async downloadMedia(mediaId) {
+        const config = await this._getMetaConfig();
+        if (!config || !config.token) throw new Error('Meta configuration missing');
+
+        try {
+            // 1. Get Media URL from Meta
+            const mediaRes = await axios.get(`${META_GRAPH_BASE}/${mediaId}`, {
+                headers: { 'Authorization': `Bearer ${config.token}` }
+            });
+
+            const mediaUrl = mediaRes.data?.url;
+            if (!mediaUrl) throw new Error('Failed to retrieve media URL from Meta');
+
+            // 2. Download Binary Content
+            const downloadRes = await axios.get(mediaUrl, {
+                headers: { 'Authorization': `Bearer ${config.token}` },
+                responseType: 'arraybuffer'
+            });
+
+            // 3. Save locally to uploads/
+            const fs = await import('fs');
+            const path = await import('path');
+            const crypto = await import('crypto');
+            
+            const mimeType = downloadRes.headers['content-type'] || 'application/octet-stream';
+            const extension = mimeType.split('/')[1]?.split(';')[0] || 'bin';
+            const fileName = `wa_${crypto.randomBytes(8).toString('hex')}.${extension}`;
+            const uploadDir = path.resolve('uploads');
+            
+            if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+            
+            const filePath = path.join(uploadDir, fileName);
+            fs.writeFileSync(filePath, Buffer.from(downloadRes.data));
+
+            console.log(`[WhatsApp/Media] Downloaded ${mediaId} to ${fileName}`);
+            return {
+                success: true,
+                localPath: filePath,
+                fileName: fileName,
+                url: `/uploads/${fileName}`,
+                mimeType: mimeType
+            };
+        } catch (err) {
+            console.error(`[WhatsApp/Media] Download failed for ${mediaId}:`, err.message);
+            throw err;
         }
     }
 

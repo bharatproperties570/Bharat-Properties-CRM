@@ -127,7 +127,13 @@ const resolveAllReferenceFields = async (doc) => {
     }
 
     // Handle Team resolution (from ID or Name)
-    const teamsToResolve = Array.isArray(doc.teams) ? doc.teams : (doc.team ? [doc.team] : []);
+    let teamsToResolve = Array.isArray(doc.teams) ? doc.teams : (doc.team ? [doc.team] : []);
+    
+    // Also check nested assignment.team if scalar teams are missing
+    if (teamsToResolve.length === 0 && doc.assignment?.team) {
+        teamsToResolve = Array.isArray(doc.assignment.team) ? doc.assignment.team : [doc.assignment.team];
+    }
+
     if (teamsToResolve.length > 0) {
         const Team = mongoose.model('Team');
         const resolvedTeams = await Promise.all(teamsToResolve.map(async (t) => {
@@ -245,7 +251,9 @@ const leadListPopulateFields = [
     { path: 'subType', select: 'lookup_value' },
     { path: 'project', select: 'name' },
     { path: 'owner', select: 'fullName email name' },
-    { path: 'assignment.assignedTo', select: 'fullName' }
+    { path: 'assignment.assignedTo', select: 'fullName name email' },
+    { path: 'assignment.team', select: 'name' },
+    { path: 'teams', select: 'name' }
 ];
 
 /**
@@ -592,27 +600,15 @@ export const addLead = async (req, res, next) => {
             }
         }
 
-        // ─── Auto-Assign via DistributionService ───────────────────────────────────
+        // ─── Auto-Assign via Enterprise Distribution Engine ────────────────────────
         let assignedAgent = null;
         try {
-            const assignment = await autoAssign(lead.toObject(), 'lead');
-            if (assignment) {
-                const updatePayload = {};
-                if (assignment.assignedTo) {
-                    updatePayload.owner = assignment.assignedTo;
-                    updatePayload.assignedTo = assignment.assignedTo;
-                    updatePayload['assignment.assignedTo'] = assignment.assignedTo;
-                }
-                if (assignment.teams && assignment.teams.length > 0) {
-                    updatePayload.teams = assignment.teams;
-                    updatePayload['assignment.team'] = assignment.teams;
-                }
-
-                await Lead.findByIdAndUpdate(lead._id, { $set: updatePayload });
-                
+            const { distributeEntity } = await import("../src/utils/distributionEngine.js");
+            const assignment = await distributeEntity(lead, 'onCreate');
+            
+            if (assignment && assignment.assignedTo) {
                 assignedAgent = {
                     userId: assignment.assignedTo,
-                    teams: assignment.teams,
                     ruleName: assignment.ruleName
                 };
                 console.log(`[DISTRIBUTION] Lead ${lead._id} auto-assigned via rule "${assignment.ruleName}"`);
@@ -628,7 +624,7 @@ export const addLead = async (req, res, next) => {
                 );
             }
         } catch (distErr) {
-            console.warn('[DISTRIBUTION] autoAssign failed (non-critical):', distErr.message);
+            console.warn('[DISTRIBUTION] distributeEntity failed (non-critical):', distErr.message);
         }
 
         await lead.populate(leadPopulateFields);
@@ -753,11 +749,18 @@ export const updateLead = async (req, res, next) => {
 
             if (requiresHistoryUpdate) {
                 const atomicUpdate = { ...historyUpdate };
-                delete atomicUpdate.$push; // Move $push to top level if needed
-                await Lead.findByIdAndUpdate(req.params.id, { 
-                    $set: atomicUpdate, 
-                    $push: historyUpdate.$push 
-                });
+                const pushOps = atomicUpdate.$push;
+                delete atomicUpdate.$push;
+                
+                // 🏎️ SENIOR OPTIMIZATION: Sequential updates to avoid Mongoose path conflicts
+                // (You cannot $set and $push to the same array/path in a single operation)
+                if (Object.keys(atomicUpdate).length > 0) {
+                    await Lead.findByIdAndUpdate(req.params.id, { $set: atomicUpdate });
+                }
+                
+                if (pushOps && Object.keys(pushOps).length > 0) {
+                    await Lead.findByIdAndUpdate(req.params.id, { $push: pushOps });
+                }
             }
         }
 

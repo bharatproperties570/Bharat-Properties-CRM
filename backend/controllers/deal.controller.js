@@ -197,70 +197,98 @@ export const matchDeals = async (req, res) => {
                 return catMatched;
             })
             .map(deal => {
+                // --- [ENTERPRISE MATCHING ENGINE V2] ---
                 let score = 0;
                 const matchDetails = [];
 
-                // Scoring: Sub-Category (20%)
-                const dealSub = (deal.subCategory?.lookup_value || "").toLowerCase();
-                const leadSubs = (lead.subType || []).filter(Boolean).map(s => String(s.lookup_value || s || "").toLowerCase());
-                if (dealSub && leadSubs.some(s => s && s.includes(dealSub))) {
-                    score += (weights.type || 20);
-                    matchDetails.push("Unit Type Correlation");
+                // 1. INTENT SYMMETRY (Pre-filtered, but verified here)
+                const dealIntent = String(deal.intent?.lookup_value || deal.intent || "").toLowerCase();
+                if (dealIntent) matchDetails.push(`Intent: ${dealIntent.toUpperCase()}`);
+
+                // 2. LOCATION PRECISION (Weight: 30%)
+                const locWeight = weights.location || 30;
+                const dealProjName = (deal.projectName || deal.projectId?.name || "").toLowerCase();
+                const dealSector = (deal.inventoryId?.sector || "").toLowerCase();
+                
+                const leadProjects = (Array.isArray(lead.projectName) ? lead.projectName : [])
+                    .map(p => String(p || "").toLowerCase());
+                const leadSector = String(lead.sector || "").toLowerCase();
+                const leadLocValue = String(lead.location?.lookup_value || "").toLowerCase();
+
+                if (leadProjects.some(p => p && dealProjName.includes(p))) {
+                    score += locWeight;
+                    matchDetails.push("Target Project Match (+30%)");
+                } else if (leadSector && dealSector.includes(leadSector)) {
+                    score += locWeight * 0.9;
+                    matchDetails.push("Exact Sector Match (+27%)");
+                } else if (leadLocValue && dealProjName.includes(leadLocValue)) {
+                    score += locWeight * 0.7;
+                    matchDetails.push("City/Area Correlation (+21%)");
                 }
 
-                // Scoring: Budget (25%)
+                // 3. PROPERTY TYPE SYMMETRY (Weight: 20%)
+                const typeWeight = weights.type || 20;
+                const dealCat = (deal.category?.lookup_value || "").toLowerCase();
+                const dealSub = (deal.subCategory?.lookup_value || "").toLowerCase();
+                
+                const leadTypes = (Array.isArray(lead.propertyType) ? lead.propertyType : [])
+                    .map(t => String(t.lookup_value || t || "").toLowerCase());
+                const leadSubs = (Array.isArray(lead.subType) ? lead.subType : [])
+                    .map(s => String(s.lookup_value || s || "").toLowerCase());
+
+                if (leadSubs.some(s => s && dealSub.includes(s))) {
+                    score += typeWeight;
+                    matchDetails.push("Exact Unit Specification Match (+20%)");
+                } else if (leadTypes.some(t => t && dealCat.includes(t))) {
+                    score += typeWeight * 0.6;
+                    matchDetails.push("Broad Category Match (+12%)");
+                }
+
+                // 4. BUDGET NORMALIZATION (Weight: 25%)
+                const budgetWeight = weights.budget || 25;
                 const dealPrice = deal.price || deal.quotePrice || 0;
+                const lMin = parseFloat(lead.budgetMin) || 0;
+                const lMax = parseFloat(lead.budgetMax) || Infinity;
+
                 if (dealPrice > 0) {
-                    const min = lead.budgetMin || 0;
-                    const max = lead.budgetMax || Infinity;
-                    if (dealPrice >= min && dealPrice <= max) {
-                        score += (weights.budget || 25);
-                        matchDetails.push("Budget Alignment");
-                    } else if (dealPrice >= min * (1 - bFlex) && dealPrice <= max * (1 + bFlex)) {
-                        score += (weights.budget || 25) * 0.6;
-                        matchDetails.push("Approximate Budget Match");
+                    if (dealPrice >= lMin && dealPrice <= lMax) {
+                        score += budgetWeight;
+                        matchDetails.push("Perfect Budget Alignment (+25%)");
+                    } else {
+                        const lowBound = lMin * (1 - bFlex);
+                        const highBound = lMax * (1 + bFlex);
+                        if (dealPrice >= lowBound && dealPrice <= highBound) {
+                            score += budgetWeight * 0.7;
+                            matchDetails.push("Approximate Budget Match (+17%)");
+                        }
+                    }
+                } else {
+                    matchDetails.push("Price TBA (Review Required)");
+                }
+
+                // 5. SIZE/SPEC ALIGNMENT (Weight: 25%)
+                const sizeWeight = weights.size || 25;
+                const dealSize = parseFloat(deal.size) || (deal.inventoryId ? parseFloat(deal.inventoryId.size) : 0);
+                const leadSize = parseFloat(lead.size) || (lead.requirement ? parseFloat(lead.requirement.size) : 0);
+
+                if (dealSize > 0 && leadSize > 0) {
+                    const diff = Math.abs(dealSize - leadSize) / leadSize;
+                    if (diff <= sFlex) {
+                        score += sizeWeight;
+                        matchDetails.push("Area/Size Match (+25%)");
+                    } else if (diff <= sFlex * 2) {
+                        score += sizeWeight * 0.5;
+                        matchDetails.push("Partial Size Variance (+12%)");
                     }
                 }
 
-                // Scoring: Location (30%)
-                const dealLoc = String(deal.location?.lookup_value || deal.location?._id || deal.location || deal.projectName || "").toLowerCase();
-                const leadLocArea = String(lead.locArea || "").toLowerCase();
-                const leadSelectedLoc = String(lead.location?.lookup_value || lead.location?._id || lead.location || "").toLowerCase();
-                const leadProjects = Array.isArray(lead.projectName) ? lead.projectName : [];
-
-                let locScore = 0;
-                const locWeight = weights.location || 30;
-                if (deal.projectName && typeof deal.projectName === 'string' && leadProjects.some(p => p && typeof p === 'string' && deal.projectName.toLowerCase().includes(p.toLowerCase()))) {
-                    locScore = locWeight;
-                    matchDetails.push("Target Project Match");
-                } else if ((leadLocArea && dealLoc.includes(leadLocArea)) || (leadSelectedLoc && dealLoc.includes(leadSelectedLoc))) {
-                    locScore = locWeight;
-                    matchDetails.push("Location Correlation");
-                } else {
-                    let addressPoints = 0;
-                    const dealSector = (deal.inventoryId?.sector || "").toLowerCase();
-                    if (lead.sector && dealSector.includes(String(lead.sector).toLowerCase())) addressPoints += locWeight * 0.7;
-                    const dealCity = (deal.inventoryId?.city || "").toLowerCase();
-                    if (lead.locCity && dealCity.includes(String(lead.locCity).toLowerCase())) addressPoints += locWeight * 0.3;
-                    locScore = Math.min(addressPoints, locWeight);
-                }
-                score += locScore;
-
-                // Scoring: Specs (25%)
-                if (deal.inventoryId) {
-                    const inv = deal.inventoryId;
-                    const lFacing = (lead.facing || []).filter(Boolean).map(f => String(f._id || f));
-                    const lDir = (lead.direction || []).filter(Boolean).map(d => String(d._id || d));
-                    if (lFacing.includes(String(inv.facing))) score += 5;
-                    if (lDir.includes(String(inv.direction))) score += 5;
-                }
-
+                // Final Polish
                 const invId = String(deal.inventoryId?._id || deal.inventoryId || "");
                 const lastDispatch = dispatchMap.get(invId) || null;
 
                 return {
                     ...deal,
-                    score: Math.min(score, 100),
+                    score: Math.min(Math.round(score), 100),
                     matchDetails,
                     lastDispatch
                 };
@@ -504,7 +532,11 @@ export const getDeals = async (req, res) => {
             { path: 'category', select: 'lookup_value' },
             { path: 'intent', select: 'lookup_value' },
             { path: 'status', select: 'lookup_value' },
-            { path: 'assignedTo', select: 'fullName' }
+            { path: 'assignedTo', select: 'fullName name email' },
+            { path: 'assignment.assignedTo', select: 'fullName name email' },
+            { path: 'assignment.team', select: 'name' },
+            { path: 'team', select: 'name' },
+            { path: 'teams', select: 'name' }
         ];
 
         const results = await paginate(Deal, query, Number(page), Number(limit), { updatedAt: -1 }, dealListPopulateFields);

@@ -191,7 +191,10 @@ class SmsService {
             if (context.dltHeaderId) params.senderid = context.dltHeaderId;
 
             // DLT Template ID (MANDATORY - without this, gateway returns "Invalid template text")
-            if (context.dltTemplateId) {
+            // SENIOR PROFESSIONAL CHECK: Ensure it's not a 24-char hex string (MongoDB ID)
+            const isMongoId = (id) => typeof id === 'string' && id.match(/^[0-9a-fA-F]{24}$/);
+            
+            if (context.dltTemplateId && !isMongoId(context.dltTemplateId)) {
                 params.dlttemplateid = context.dltTemplateId;
             } else {
                 // Auto-fallback: look up the first active template's dltTemplateId
@@ -326,6 +329,88 @@ class SmsService {
     /**
      * Helper to decrypt sensitive fields in config
      */
+    /**
+     * Sync Templates and Senders from SMSGatewayHub
+     */
+    async syncTemplatesAndSenders() {
+        const activeProvider = await SmsProvider.findOne({ isActive: true });
+        if (!activeProvider || activeProvider.provider !== 'SMSGatewayHub') {
+            throw new Error('Active provider must be SMSGatewayHub to sync templates.');
+        }
+
+        const config = this._decryptConfig(activeProvider.config);
+        const apiKey = config.apiKey;
+        if (!apiKey) throw new Error('SMS API Key is missing in configuration.');
+
+        try {
+            const results = { templates: 0, senderIds: [] };
+
+            // 1. Sync Templates
+            const tplUrl = 'https://www.smsgatewayhub.com/api/mt/GetTemplate';
+            const tplRes = await axios.get(tplUrl, { params: { APIKey: apiKey }, timeout: 10000 });
+            
+            if (tplRes.data?.ErrorCode === '000') {
+                const templates = tplRes.data.Templates || tplRes.data.templates || [];
+                for (const t of templates) {
+                    const getCaseInsensitive = (obj, keys) => {
+                        for (const key of keys) {
+                            if (obj[key] !== undefined) return obj[key];
+                            const lowerKey = Object.keys(obj).find(k => k.toLowerCase() === key.toLowerCase());
+                            if (lowerKey) return obj[lowerKey];
+                        }
+                        return null;
+                    };
+                    const tid = getCaseInsensitive(t, ['TemplateId', 'TemplateID', 'id', 'tid']);
+                    const sid = getCaseInsensitive(t, ['SenderId', 'SenderID', 'senderid']);
+                    const tName = getCaseInsensitive(t, ['TemplateName', 'name', 'title']);
+                    const tBody = getCaseInsensitive(t, ['TemplateText', 'text', 'body', 'content']);
+
+                    if (tid) {
+                        await SmsTemplate.findOneAndUpdate(
+                            { dltTemplateId: tid },
+                            { 
+                                name: tName || `DLT_${tid}`,
+                                body: tBody,
+                                dltTemplateId: tid,
+                                dltHeaderId: sid,
+                                isActive: true
+                            },
+                            { upsert: true, new: true }
+                        );
+                        results.templates++;
+                    }
+                }
+            } else {
+                console.warn('[SMS Sync] Template Sync Error:', tplRes.data);
+            }
+
+            // 2. Sync Sender IDs
+            const senderUrl = 'https://www.smsgatewayhub.com/api/mt/GetSenderId';
+            const senderRes = await axios.get(senderUrl, { params: { APIKey: apiKey }, timeout: 10000 });
+            
+            if (senderRes.data?.ErrorCode === '000') {
+                const sids = senderRes.data.SenderIds || senderRes.data.SenderIDs || senderRes.data.senderIds || [];
+                results.senderIds = sids.map(s => s.SenderId || s.SenderID || s.senderid || s).filter(Boolean);
+                
+                activeProvider.config.senderIds = results.senderIds;
+                activeProvider.markModified('config');
+                await activeProvider.save();
+            } else {
+                console.warn('[SMS Sync] Sender ID Sync Error:', senderRes.data);
+            }
+
+            return { 
+                success: true, 
+                templateCount: results.templates, 
+                senderIds: results.senderIds,
+                message: `Successfully synced ${results.templates} templates and ${results.senderIds.length} Sender IDs.`
+            };
+        } catch (error) {
+            console.error('[SMS Sync Error]', error.message);
+            throw new Error(`Sync Failed: ${error.message}`);
+        }
+    }
+
     _decryptConfig(config) {
         const decrypted = { ...config };
         for (const key in decrypted) {

@@ -1311,7 +1311,7 @@ const IntegrationsSettingsPage = () => {
     const handleConnectGoogle = async () => {
         setIsConnecting(true);
         try {
-            const res = await googleSettingsAPI.getAuthUrl();
+            const res = await googleSettingsAPI.getAuthUrl(window.location.origin);
             if (res.success && res.url) {
                 window.location.href = res.url;
             } else {

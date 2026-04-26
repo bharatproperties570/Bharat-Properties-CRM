@@ -1,6 +1,12 @@
 import mongoose from "mongoose";
 
+const escapeRegExp = (string) => {
+    if (!string) return '';
+    return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+};
+
 const InventorySchema = new mongoose.Schema({
+
     // Basic Info
     category: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup', index: true },
     subCategory: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup', index: true },
@@ -182,10 +188,7 @@ InventorySchema.index({ teams: 1, status: 1 });
 InventorySchema.index({ assignedTo: 1, status: 1 });
  
 // Permanent Fix: Deep Data Integrity Hooks
-const escapeRegExp = (string) => {
-    if (!string) return '';
-    return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-};
+
 
 InventorySchema.pre('save', async function (next) {
     try {
@@ -256,13 +259,26 @@ InventorySchema.pre('save', async function (next) {
         }
 
         // Standardize Multi-Team visibility
-        if (this.team && (!this.teams || this.teams.length === 0)) {
-            this.teams = [this.team];
+        const rawTeams = this.teams || this.team;
+        if (rawTeams) {
+            let teamArray = Array.isArray(rawTeams) ? rawTeams : [rawTeams];
+            const Team = mongoose.models.Team || mongoose.model('Team');
+
+            
+            const resolvedTeams = await Promise.all(teamArray.map(async (t) => {
+                if (!t) return null;
+                if (mongoose.Types.ObjectId.isValid(t)) return new mongoose.Types.ObjectId(t.toString());
+                const teamDoc = await Team.findOne({ name: { $regex: new RegExp(`^${escapeRegExp(t)}$`, 'i') } }).select('_id').lean();
+                return teamDoc?._id || null;
+            }));
+
+            const filteredTeams = resolvedTeams.filter(Boolean);
+            if (filteredTeams.length > 0) {
+                this.teams = filteredTeams;
+                this.team = filteredTeams[0];
+            }
         }
-        if (this.teams?.length > 0) {
-            this.teams = this.teams.map(t => (typeof t === 'string' && mongoose.Types.ObjectId.isValid(t)) ? new mongoose.Types.ObjectId(t) : t);
-            if (!this.team) this.team = this.teams[0];
-        }
+
 
         next();
     } catch (error) {
@@ -299,21 +315,26 @@ InventorySchema.pre('findOneAndUpdate', async function (next) {
             }
 
             // Sync team fields
-            const primaryTeams = obj.teams || obj.team;
-            if (primaryTeams) {
-                let castedTeams = [];
-                if (Array.isArray(primaryTeams)) {
-                    castedTeams = primaryTeams.map(t => (typeof t === 'string' && mongoose.Types.ObjectId.isValid(t)) ? new mongoose.Types.ObjectId(t) : t);
-                } else {
-                    const t = (typeof primaryTeams === 'string' && mongoose.Types.ObjectId.isValid(primaryTeams)) ? new mongoose.Types.ObjectId(primaryTeams) : primaryTeams;
-                    castedTeams = [t];
-                }
+            const rawTeams = obj.teams || obj.team;
+            if (rawTeams) {
+                let teamArray = Array.isArray(rawTeams) ? rawTeams : [rawTeams];
+                const Team = mongoose.models.Team || mongoose.model('Team');
 
-                if (castedTeams.length > 0) {
-                    obj.teams = castedTeams;
-                    obj.team = castedTeams[0];
+                
+                const resolvedTeams = await Promise.all(teamArray.map(async (t) => {
+                    if (!t) return null;
+                    if (mongoose.Types.ObjectId.isValid(t)) return new mongoose.Types.ObjectId(t.toString());
+                    const teamDoc = await Team.findOne({ name: { $regex: new RegExp(`^${escapeRegExp(t)}$`, 'i') } }).select('_id').lean();
+                    return teamDoc?._id || null;
+                }));
+
+                const filteredTeams = resolvedTeams.filter(Boolean);
+                if (filteredTeams.length > 0) {
+                    obj.teams = filteredTeams;
+                    obj.team = filteredTeams[0];
                 }
             }
+
 
             // Handle intent
             if (obj.intent) {

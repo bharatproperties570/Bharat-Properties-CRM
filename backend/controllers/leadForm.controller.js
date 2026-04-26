@@ -141,17 +141,25 @@ export const submitForm = async (req, res) => {
 
         leadData.pre_intent_score = preScore;
 
-        // Auto Assignment
-        if (form.settings.autoAssignTo) {
-            leadData.owner = form.settings.autoAssignTo;
-            leadData.assignment = {
-                assignedTo: form.settings.autoAssignTo,
-                method: 'Manual/Form'
-            };
-        }
-
-        // 2. Create Lead
+        // 2. Create Lead (Pre-distribution)
         const lead = await Lead.create(leadData);
+
+        // 🧠 SENIOR PROFESSIONAL: Enterprise Distribution Engine
+        try {
+            const { distributeEntity } = await import("../src/utils/distributionEngine.js");
+            const assignment = await distributeEntity(lead, 'onWebCapture');
+
+            if (!assignment && form.settings.autoAssignTo) {
+                // Priority 2: Fallback to static form-level assignment if no rule matched
+                await Lead.findByIdAndUpdate(lead._id, {
+                    owner: form.settings.autoAssignTo,
+                    'assignment.assignedTo': form.settings.autoAssignTo,
+                    'assignment.method': 'Manual/Form-Static'
+                });
+            }
+        } catch (distErr) {
+            console.error("[DISTRIBUTION ERROR] Form Submit:", distErr);
+        }
 
         // 3. Update Analytics
         form.analytics.submissions += 1;

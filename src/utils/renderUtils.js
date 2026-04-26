@@ -42,5 +42,16 @@ export const renderValue = (val, emptyValue = '-', prefix = '') => {
     }
     
     if (result === null || result === undefined || result === '') return emptyValue;
+    
+    // FINAL SAFETY: Never return a plain object to React
+    if (typeof result === 'object') {
+        try {
+            const str = String(result);
+            return (str !== '[object Object]') ? str : emptyValue;
+        } catch (e) {
+            return emptyValue;
+        }
+    }
+
     return prefix ? `${prefix}${result}` : result;
 };

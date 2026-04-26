@@ -48,7 +48,7 @@ const processMarketingJob = async (job) => {
 
     // ─── BLAST: Campaign broadcast ─────────────────────────────────────────────
     if (name === 'blast') {
-        const { channel, leadIds = [], mobiles = [], emails = [], message, subject, html, leads = [] } = data;
+        const { channel, leadIds = [], mobiles = [], emails = [], message, subject, html, smsData, leads = [] } = data;
         await job.log(`Starting ${channel.toUpperCase()} blast for ${leads.length || mobiles.length || emails.length} recipients`);
 
         const { default: Activity } = await import('../../models/Activity.js');
@@ -145,10 +145,32 @@ const processMarketingJob = async (job) => {
                     }
                 } else if (channel === 'sms') {
                     if (targetMobile) {
-                        const res = await smsService.sendDirect(targetMobile, resolvedMessage);
-                        success = res.success;
-                        messageId = res.messageId;
-                        if (!success) recipient.error = res.error;
+                        const { templateName } = data;
+                        if (templateName) {
+                            // Professional Template Dispatch with DLT support
+                            const res = await smsService.sendSMSWithTemplate(targetMobile, templateName, recipientParams, {
+                                entityType: recipient.context?.originalType || 'Lead',
+                                entityId: recipient.id,
+                                dltHeaderId: smsData?.dltHeaderId,
+                                dltTemplateId: smsData?.dltTemplateId,
+                                category: smsData?.category || 'Transactional'
+                            });
+                            success = res.success;
+                            messageId = res.providerId || res.data?.MessageId || (res.data?.JobId ? String(res.data.JobId) : null);
+                            if (!success) recipient.error = res.error;
+                        } else {
+                            // Direct text (DLT fallback may be needed at provider level)
+                            const res = await smsService.sendSMS(targetMobile, resolvedMessage, {
+                                entityType: recipient.context?.originalType || 'Lead',
+                                entityId: recipient.id,
+                                dltHeaderId: smsData?.dltHeaderId,
+                                dltTemplateId: smsData?.dltTemplateId,
+                                category: smsData?.category || 'Transactional'
+                            });
+                            success = res.success;
+                            messageId = res.providerId || res.data?.MessageId || (res.data?.JobId ? String(res.data.JobId) : null);
+                            if (!success) recipient.error = res.error;
+                        }
                     } else {
                         success = false;
                         recipient.error = 'No mobile number found';
@@ -164,29 +186,30 @@ const processMarketingJob = async (job) => {
 
                 if (success) sent++; else failed++;
 
-                // 2. LOG ACTIVITY (The Pulse) - Skip for raw imports to keep CRM lean
-                if (!isImport) {
-                    try {
-                        await Activity.create({
-                            type: 'Marketing',
-                            subject: `${channel.toUpperCase()} Campaign: ${data.name || 'Broadcast'}`,
-                            entityType: recipient.context?.originalType || 'Lead',
-                            entityId: mongoose.Types.ObjectId.isValid(recipient.id) ? recipient.id : null,
-                            description: description,
-                            status: status,
-                            performedBy: 'Marketing Engine',
-                            details: { 
-                                channel, 
-                                campaignName: data.name, 
-                                jobId: job.id, 
-                                msgId: messageId,
-                                error: !success ? (recipient.error || 'Unknown Provider Error') : null
-                            },
-                            dueDate: new Date()
-                        });
-                    } catch (actErr) {
-                        await job.log(`Activity Log Warning for ${recipient.name}: ${actErr.message}`);
-                    }
+                // 2. LOG ACTIVITY (The Pulse) 
+                // 🧠 SENIOR PROFESSIONAL FIX: Log activities for ALL recipients (including imports)
+                // so they appear in the Performance Reports.
+                try {
+                    await Activity.create({
+                        type: 'Marketing',
+                        subject: `${channel.toUpperCase()} Campaign: ${data.name || 'Broadcast'}`,
+                        entityType: recipient.context?.originalType || 'Lead',
+                        // Handle imports (non-mongo IDs) gracefully
+                        entityId: mongoose.Types.ObjectId.isValid(recipient.id) ? recipient.id : null,
+                        description: description,
+                        status: status,
+                        performedBy: 'Marketing Engine',
+                        details: { 
+                            channel, 
+                            campaignName: data.name, 
+                            jobId: job.id, 
+                            msgId: messageId,
+                            error: !success ? (recipient.error || 'Unknown Provider Error') : null
+                        },
+                        dueDate: new Date()
+                    });
+                } catch (actErr) {
+                    await job.log(`Activity Log Warning for ${recipient.name}: ${actErr.message}`);
                 }
 
                 if (!success) {
@@ -198,23 +221,21 @@ const processMarketingJob = async (job) => {
                 failed++;
                 await job.log(`Worker EXCEPTION for ${recipient.name} (${targetMobile || targetEmail}): ${err.message}`);
                 
-                const isImport = recipient.context?.originalType === 'Import' || String(recipient.id).startsWith('imp-');
-                if (!isImport) {
-                    try {
-                        await Activity.create({
-                            type: 'Marketing',
-                            subject: `${channel.toUpperCase()} Campaign: ${data.name || 'Broadcast'}`,
-                            entityType: recipient.context?.originalType || 'Lead',
-                            entityId: mongoose.Types.ObjectId.isValid(recipient.id) ? recipient.id : null,
-                            description: `System Error: ${err.message}`,
-                            status: 'Failed',
-                            performedBy: 'Marketing Engine',
-                            details: { channel, jobId: job.id, error: err.message },
-                            dueDate: new Date()
-                        });
-                    } catch (actErr) {
-                        await job.log(`Critical: Failed to log failure activity: ${actErr.message}`);
-                    }
+                // 🧠 SENIOR PROFESSIONAL FIX: Log failures even for imports
+                try {
+                    await Activity.create({
+                        type: 'Marketing',
+                        subject: `${channel.toUpperCase()} Campaign: ${data.name || 'Broadcast'}`,
+                        entityType: recipient.context?.originalType || 'Lead',
+                        entityId: mongoose.Types.ObjectId.isValid(recipient.id) ? recipient.id : null,
+                        description: `System Error: ${err.message}`,
+                        status: 'Failed',
+                        performedBy: 'Marketing Engine',
+                        details: { channel, jobId: job.id, error: err.message },
+                        dueDate: new Date()
+                    });
+                } catch (actErr) {
+                    await job.log(`Critical: Failed to log failure activity: ${actErr.message}`);
                 }
             }
 

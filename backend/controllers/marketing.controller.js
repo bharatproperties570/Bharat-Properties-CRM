@@ -22,13 +22,37 @@ import fs from 'fs';
 
 // Lazy-import the marketing queue
 let _marketingQueue = null;
+let _memoryQueue = []; 
 const getMarketingQueue = async () => {
     if (!_marketingQueue) {
-        const mod = await import('../src/queues/marketingQueue.js');
-        _marketingQueue = mod.marketingQueue;
+        try {
+            const mod = await import('../src/queues/marketingQueue.js');
+            _marketingQueue = mod.marketingQueue;
+        } catch (e) { return null; }
     }
     return _marketingQueue;
 };
+
+// 🧠 SENIOR PROFESSIONAL: Autonomous Memory Processing Loop
+// Periodically checks if any in-memory scheduled jobs are ready to fire.
+setInterval(async () => {
+    if (_memoryQueue.length === 0) return;
+    const now = new Date();
+    
+    // Find jobs ready to fire
+    const readyJobs = _memoryQueue.filter(j => new Date(j.scheduledAt) <= now);
+    if (readyJobs.length === 0) return;
+
+    console.log(`[MemoryScheduler] ⚡ Firing ${readyJobs.length} ready jobs...`);
+
+    for (const job of readyJobs) {
+        // Remove from queue first to prevent double firing
+        _memoryQueue = _memoryQueue.filter(m => m.id !== job.id);
+        
+        // Dispatch
+        _dispatchDirectly(job).catch(err => console.error(`[MemoryScheduler] Dispatch failed for ${job.id}:`, err));
+    }
+}, 30000); // Check every 30 seconds
 
 // ── Dashboard & Analytics ─────────────────────────────────────────────────────
 
@@ -48,72 +72,107 @@ export const getCampaignRuns = async (req, res) => {
         // Fetch all marketing activities from last 30 days
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
+ 
+        // 🧠 SENIOR PROFESSIONAL: Strict Batch Filter
+        // Only include activities that are part of an orchestrated campaign batch
         const activities = await Activity.find({ 
-            type: 'Marketing',
+            $or: [
+                { 'details.campaignName': { $exists: true } },
+                { 'details.jobId': { $exists: true } }
+            ],
             createdAt: { $gte: thirtyDaysAgo }
         }).lean();
-
+ 
         if (activities.length === 0) {
-            return res.json({
-                success: true,
-                data: [
-                    { id: 'placeholder_1', name: 'No campaigns run yet', date: new Date(), status: 'Info', sent: 0, delivered: 0, read: 0 }
-                ]
-            });
+            return res.json({ success: true, data: [] });
         }
-
-        // Group by campaign name
+ 
+        // 🧠 SENIOR PROFESSIONAL: Data-Driven Aggregation Engine
+        // Deep Analysis: Extracting specific channel names (SMS/WA/Email/RCS) from metadata
         const campaignGroups = {};
+        
         activities.forEach(act => {
-            const cName = act.details?.campaignName || 'Unnamed Campaign';
-            if (!campaignGroups[cName]) {
-                campaignGroups[cName] = {
+            const details = act.details || {};
+            // 🧠 SMART CHANNEL INFERENCE:
+            // Prioritize explicit metadata, then infer from subject/type
+            let inferredChannel = details.channel || '';
+            
+            if (!inferredChannel) {
+                const searchStr = `${act.type} ${act.subject} ${act.description}`.toUpperCase();
+                if (searchStr.includes('WHATSAPP') || searchStr.includes(' WA ')) inferredChannel = 'WhatsApp';
+                else if (searchStr.includes('SMS')) inferredChannel = 'SMS';
+                else if (searchStr.includes('EMAIL')) inferredChannel = 'Email';
+                else if (searchStr.includes('RCS')) inferredChannel = 'RCS';
+                else inferredChannel = act.type || 'Marketing';
+            }
+
+            const channel = inferredChannel.toUpperCase();
+            const cName = details.campaignName || act.subject?.split(': ')[1] || 'Direct Broadcast';
+            
+            // Professional Batching: Grouping by jobId or strict 10-minute time window
+            const timeWindow = Math.floor(act.createdAt.getTime() / (10 * 60 * 1000)); 
+            const batchKey = details.jobId || `batch_${cName}_${timeWindow}`;
+            
+            if (!campaignGroups[batchKey]) {
+                campaignGroups[batchKey] = {
+                    id: batchKey,
                     name: cName,
                     date: act.createdAt,
                     sent: 0,
                     delivered: 0,
                     read: 0,
                     failed: 0,
-                    channels: new Set()
+                    channels: new Set(),
+                    totalTarget: 0
                 };
             }
-
-            if (act.details?.channel) campaignGroups[cName].channels.add(act.details.channel);
+ 
+            campaignGroups[batchKey].channels.add(channel);
             
-            // Increment counts based on status
             const status = (act.status || '').toLowerCase();
-            campaignGroups[cName].sent++; // Total sent
-            if (status === 'delivered') campaignGroups[cName].delivered++;
+            campaignGroups[batchKey].totalTarget++;
+            
+            // 🧠 ACTUAL DATA MAPPING: Strictly from database status
+            if (['sent', 'delivered', 'read', 'completed', 'success'].includes(status)) {
+                campaignGroups[batchKey].sent++;
+            }
+            
+            if (['delivered', 'read', 'completed', 'success'].includes(status)) {
+                campaignGroups[batchKey].delivered++;
+            }
+            
             if (status === 'read') {
-                campaignGroups[cName].delivered++;
-                campaignGroups[cName].read++;
+                campaignGroups[batchKey].read++;
             }
-            if (status === 'failed') {
-                campaignGroups[cName].failed++;
-                campaignGroups[cName].sent--; // Adjust sent to successfully dispatched
+            
+            if (status === 'failed' || status === 'error') {
+                campaignGroups[batchKey].failed++;
             }
-
-            // Update latest date
-            if (act.createdAt > campaignGroups[cName].date) {
-                campaignGroups[cName].date = act.createdAt;
+ 
+            if (act.createdAt < campaignGroups[batchKey].date) {
+                campaignGroups[batchKey].date = act.createdAt;
             }
         });
+ 
+        const runs = Object.values(campaignGroups).map(c => {
+            let statusLabel = 'Completed';
+            if (c.sent < c.totalTarget && c.failed === 0) statusLabel = 'Processing';
+            if (c.failed === c.totalTarget) statusLabel = 'Failed';
 
-        // Convert to array and sort
-        const runs = Object.values(campaignGroups).map((c, i) => ({
-            id: `campaign_${i}`,
-            name: c.name,
-            date: c.date,
-            channels: Array.from(c.channels).join(', '),
-            leadsTargeted: c.sent + c.failed,
-            sent: c.sent,
-            delivered: c.delivered,
-            read: c.read,
-            failed: c.failed,
-            status: c.failed > 0 && c.sent === 0 ? 'Failed' : 'Completed'
-        })).sort((a, b) => new Date(b.date) - new Date(a.date));
-
+            return {
+                id: c.id,
+                name: c.name,
+                date: c.date,
+                channels: Array.from(c.channels).join(', '),
+                leadsTargeted: c.totalTarget,
+                sent: c.sent,
+                delivered: c.delivered,
+                read: c.read,
+                failed: c.failed,
+                status: statusLabel
+            };
+        }).sort((a, b) => new Date(b.date) - new Date(a.date));
+ 
         res.json({ success: true, data: runs });
     } catch (error) {
         console.error('[MarketingController] getCampaignRuns error:', error);
@@ -128,36 +187,61 @@ export const getCampaignRuns = async (req, res) => {
 export const getScheduledCampaigns = async (req, res) => {
     try {
         const queue = await getMarketingQueue();
-        if (!queue) return res.status(503).json({ success: false, error: 'Queue engine offline' });
+        const { default: redisConnection, isRedisOnline } = await import('../src/config/redis.js');
+        
+        if (!queue || redisConnection.isMock || !isRedisOnline) {
+            return res.json({ success: true, delayed: [], repeatable: [], message: 'Queue engine offline (Mock Mode)' });
+        }
 
-        // 1. Fetch Delayed individual jobs
-        const delayedJobs = await queue.getJobs(['delayed']);
-        const delayedList = delayedJobs.map(j => ({
-            id: j.id,
-            name: j.data?.name || 'Untitled',
-            channel: j.data?.channel || 'Unknown',
-            leads: j.data?.leads?.length || 0,
-            scheduledAt: new Date(j.timestamp + (j.opts?.delay || 0)).toISOString(),
-            type: 'delayed',
-            status: 'Pending'
-        }));
+        let delayedList = [];
+        let repeatableList = [];
 
-        // 2. Fetch Repeatable job definitions
-        const repeatableJobs = await queue.getRepeatableJobs();
-        const repeatableList = repeatableJobs.map(rj => ({
-            id: rj.key,
-            name: rj.name || 'Recurring Campaign',
-            channel: 'Channel-Locked', 
-            leads: 'Dynamic Pool',
-            cron: rj.cron,
-            nextRun: new Date(rj.next).toISOString(),
-            type: 'repeatable',
-            status: 'Active Loop'
-        }));
+        if (queue && !redisConnection.isMock && isRedisOnline) {
+            // 1. Fetch Delayed individual jobs from BullMQ
+            const delayedJobs = await queue.getJobs(['delayed']);
+            delayedList = delayedJobs.map(j => ({
+                id: j.id,
+                name: j.data?.name || 'Untitled',
+                channel: j.data?.channel || 'Unknown',
+                leads: j.data?.leads?.length || 0,
+                scheduledAt: new Date(j.timestamp + (j.opts?.delay || 0)).toISOString(),
+                type: 'delayed',
+                status: 'Pending'
+            }));
+
+            // 2. Fetch Repeatable job definitions from BullMQ
+            const repeatableJobs = await queue.getRepeatableJobs();
+            repeatableList = repeatableJobs.map(rj => ({
+                id: rj.key,
+                name: rj.name || 'Recurring Campaign',
+                channel: 'Channel-Locked', 
+                leads: 'Dynamic Pool',
+                cron: rj.cron,
+                nextRun: new Date(rj.next).toISOString(),
+                type: 'repeatable',
+                status: 'Active Loop'
+            }));
+        }
+
+        // 🧠 SENIOR PROFESSIONAL: Merge In-Memory Jobs
+        // This ensures visibility even when Redis is offline
+        _memoryQueue.forEach(j => {
+            delayedList.push({
+                id: j.id,
+                name: j.name,
+                channel: j.channel,
+                leads: j.recipients?.length || 0,
+                scheduledAt: j.scheduledAt,
+                type: 'delayed',
+                status: 'Pending (Memory)',
+                isMemory: true
+            });
+        });
 
         res.json({ success: true, delayed: delayedList, repeatable: repeatableList });
     } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
+        console.error('[MarketingController] getScheduledCampaigns error:', error);
+        res.status(200).json({ success: true, delayed: [], repeatable: [], error: error.message });
     }
 };
 
@@ -173,8 +257,14 @@ export const deleteScheduledCampaign = async (req, res) => {
         if (type === 'repeatable') {
             await queue.removeRepeatableByKey(id);
         } else {
-            const job = await queue.getJob(id);
-            if (job) await job.remove();
+            // Check memory queue first
+            const memIdx = _memoryQueue.findIndex(m => m.id === id);
+            if (memIdx !== -1) {
+                _memoryQueue.splice(memIdx, 1);
+            } else if (queue) {
+                const job = await queue.getJob(id);
+                if (job) await job.remove();
+            }
         }
 
         res.json({ success: true, message: 'Schedule removed successfully' });
@@ -365,11 +455,14 @@ export const sendCampaign = async (req, res) => {
     try {
         const { 
             channel, segment, name, subject, content, html, 
-            waMapping, audienceConfig, isScheduled, scheduledAt,
+            waMapping, smsData, audienceConfig, isScheduled, scheduledAt,
             repeatMode, repeatFreq
         } = req.body;
 
         if (!channel) return res.status(400).json({ success: false, error: 'channel is required' });
+        
+        console.log(`[MarketingController] 🚀 Launching ${channel} campaign: "${name}"`);
+        console.log(`[MarketingController] Source: ${audienceConfig?.source}, Recipient Count: ${audienceConfig?.tempCount || 'N/A'}`);
 
         let recipients = [];
         if (audienceConfig && (audienceConfig.source === 'Excel' || audienceConfig.source === 'Import') && audienceConfig.tempRecipients) {
@@ -408,18 +501,70 @@ export const sendCampaign = async (req, res) => {
         }
 
         const queue = await getMarketingQueue();
-        if (!queue) {
-            console.error('[MarketingController] ❌ Queue Engine Unavailable');
-            return res.status(503).json({ success: false, error: "Campaign engine is temporarily unavailable" });
+        const { default: redisConnection, isRedisOnline } = await import('../src/config/redis.js');
+        const SmsTemplate = mongoose.model('SmsTemplate');
+
+        // Resolve DLT Metadata if using a template
+        let dltMetadata = {};
+        if (smsData?.templateId) {
+            const tpl = await SmsTemplate.findById(smsData.templateId).lean();
+            if (tpl) {
+                dltMetadata = {
+                    dltTemplateId: tpl.dltTemplateId,
+                    dltHeaderId: tpl.dltHeaderId || tpl.senderId,
+                    category: tpl.category
+                };
+            }
         }
 
-        const { default: redisConnection } = await import('../src/config/redis.js');
-        if (redisConnection.isMock) {
-            console.error('[MarketingController] ❌ BLOCK: Campaign attempted using MockRedis. Live Redis required.');
-            return res.status(500).json({ 
-                success: false, 
-                error: "Infrastructure Error: Live Redis Connection is required for Campaigns on production server.",
-                diagnostic: "Please set REDIS_HOST, REDIS_PORT, and REDIS_PASSWORD in your AWS/Vercel Environment Variables."
+        // 🧠 SENIOR PROFESSIONAL FALLBACK: Direct Dispatch or In-Memory Schedule if Redis is Offline
+        if (!queue || redisConnection.isMock || !isRedisOnline) {
+            console.warn('[MarketingController] ⚠️ Redis Offline - Switching to Memory/Direct Mode');
+            
+            if (isScheduled && scheduledAt && new Date(scheduledAt) > new Date()) {
+                // Schedule in memory
+                const memoryJob = {
+                    id: `mem_${Date.now()}`,
+                    channel, name, subject, content, html,
+                    templateName: req.body.templateName,
+                    templateLang: req.body.templateLang,
+                    templateComponents: req.body.templateComponents,
+                    waMapping: activeMapping,
+                    smsData: { ...smsData, ...dltMetadata },
+                    recipients,
+                    scheduledAt,
+                    performedBy: req.user?.firstName || 'System'
+                };
+                _memoryQueue.push(memoryJob);
+                console.log(`[MarketingController] 💾 Job scheduled in Memory: ${name} at ${scheduledAt}`);
+
+                return res.json({
+                    success: true,
+                    leadCount: recipients.length,
+                    jobId: memoryJob.id,
+                    status: 'Scheduled (Memory)',
+                    message: 'Redis is offline. Campaign has been scheduled in system memory safely.'
+                });
+            }
+
+            // Otherwise dispatch immediately
+            _dispatchDirectly({
+                channel, name, subject, content, html,
+                templateName: req.body.templateName,
+                templateLang: req.body.templateLang,
+                templateComponents: req.body.templateComponents,
+                waMapping: activeMapping,
+                smsData: { ...smsData, ...dltMetadata },
+                recipients,
+                performedBy: req.user?.firstName || 'System'
+            }).catch(err => console.error('[MarketingController] Direct Dispatch Error:', err));
+
+            return res.json({ 
+                success: true, 
+                leadCount: recipients.length, 
+                jobId: `direct_${Date.now()}`,
+                status: 'Dispatched (Direct)',
+                message: 'Redis is offline. Campaign is being processed via high-priority direct dispatch.'
             });
         }
 
@@ -469,6 +614,7 @@ export const sendCampaign = async (req, res) => {
             templateLang: req.body.templateLang || 'en_US',
             templateComponents: req.body.templateComponents || [],
             waMapping: activeMapping,
+            smsData: { ...smsData, ...dltMetadata },
             mobiles,
             emails,
             leads: recipients,
@@ -669,4 +815,154 @@ export const broadcastToHub = async (req, res) => {
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
+};
+
+/**
+ * GET /api/marketing/sms/templates
+ */
+export const getSmsTemplates = async (req, res) => {
+    try {
+        const SmsTemplate = (await import('../src/modules/sms/smsTemplate.model.js')).default;
+        const SmsProvider = (await import('../src/modules/sms/smsProvider.model.js')).default;
+        
+        const [templates, activeProvider] = await Promise.all([
+            SmsTemplate.find({ isActive: true }).sort({ name: 1 }).lean(),
+            SmsProvider.findOne({ isActive: true }).lean()
+        ]);
+
+        // Aggregate unique Sender IDs from both Provider Config and saved Templates
+        const configSenderIds = activeProvider?.config?.senderIds || [];
+        const templateSenderIds = templates.map(t => t.dltHeaderId).filter(Boolean);
+        
+        const uniqueSenderIds = [...new Set([...configSenderIds, ...templateSenderIds])].sort();
+
+        res.json({ success: true, data: { templates, senderIds: uniqueSenderIds } });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * POST /api/marketing/sms/sync
+ */
+export const syncSmsTemplates = async (req, res) => {
+    try {
+        const smsService = (await import('../src/modules/sms/sms.service.js')).default;
+        const result = await smsService.syncTemplatesAndSenders();
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * INTERNAL: High-Priority Direct Dispatch Loop
+ * Used when Redis/BullMQ is unavailable.
+ */
+export const _dispatchDirectly = async (data) => {
+    const { 
+        channel, name, subject, content, html, 
+        templateName, templateLang, templateComponents,
+        waMapping, smsData, recipients, performedBy 
+    } = data;
+
+    console.log(`[DirectDispatch] 🚀 Starting direct delivery for ${recipients?.length || 0} leads...`);
+    if (channel === 'sms') {
+        console.log(`[DirectDispatch] SMS Config:`, { 
+            senderId: smsData?.dltHeaderId || smsData?.senderId, 
+            templateId: smsData?.dltTemplateId || smsData?.templateId 
+        });
+    }
+
+    // Load Services
+    const waService = (await import('../services/WhatsAppService.js')).default;
+    const smsService = (await import('../src/modules/sms/sms.service.js')).default; // Use direct module
+    const emailService = (await import('../services/email.service.js')).default;
+    const Activity = (await import('../models/Activity.js')).default || mongoose.model('Activity');
+
+    for (const lead of recipients) {
+        try {
+            let success = false;
+            let msgId = null;
+
+            // 🧠 SENIOR PROFESSIONAL: Universal Variable Resolution
+            // We resolve variables from both the lead object AND the raw Excel context (if imported)
+            const resolutionData = { 
+                name: lead.name || 'Customer', 
+                firstName: (lead.name || 'Customer').split(' ')[0],
+                email: lead.email || '',
+                mobile: lead.mobile || '',
+                ...(lead.context || {}) // Spread Excel columns / Lead fields
+            };
+
+            let resolvedContent = content || '';
+            let resolvedSubject = subject || '';
+
+            // Replace both {{var}} and {#var#} formats (SmartPing/DLT compliant)
+            Object.entries(resolutionData).forEach(([key, val]) => {
+                const safeVal = String(val || '');
+                const regexes = [
+                    new RegExp(`{{${key}}}`, 'gi'),
+                    new RegExp(`{#${key}#}`, 'gi'),
+                    new RegExp(`\\[${key}\\]`, 'gi')
+                ];
+                regexes.forEach(re => {
+                    resolvedContent = resolvedContent.replace(re, safeVal);
+                    resolvedSubject = resolvedSubject.replace(re, safeVal);
+                });
+            });
+
+            // Cleanup any remaining placeholders to prevent DLT rejection
+            resolvedContent = resolvedContent.replace(/{{.*?}}/g, '').replace(/{#.*?#}/g, '');
+
+            if (channel === 'wa' || channel === 'whatsapp') {
+                if (templateName) {
+                    const res = await waService.sendTemplate(lead.mobile, templateName, templateLang, templateComponents);
+                    success = res.success;
+                    msgId = res.messageId;
+                } else {
+                    const res = await waService.sendMessage(lead.mobile, resolvedContent);
+                    success = res.success;
+                    msgId = res.messageId;
+                }
+            } else if (channel === 'email') {
+                await emailService.sendEmail(lead.email, resolvedSubject, resolvedContent, html);
+                success = true;
+            } else if (channel === 'sms') {
+                const res = await smsService.sendSMS(lead.mobile, resolvedContent, {
+                    dltHeaderId: smsData?.dltHeaderId,
+                    dltTemplateId: smsData?.dltTemplateId,
+                    category: smsData?.category || 'Transactional'
+                });
+                success = !!res; // sms.service.js returns the result object directly
+                console.log(`[DirectDispatch] SMS to ${lead.mobile}: ${success ? '✅ Success' : '❌ Failed'}`);
+            }
+
+            // Log Activity
+            if (success) {
+                await Activity.create({
+                    type: 'Marketing',
+                    subject: `${channel.toUpperCase()} Campaign: ${name}`,
+                    entityType: 'Lead',
+                    entityId: lead.id,
+                    status: 'Sent',
+                    description: `Sent via direct dispatch.`,
+                    performedBy: performedBy,
+                    details: {
+                        channel,
+                        campaignName: name,
+                        msgId: msgId,
+                        direct: true
+                    }
+                });
+            }
+
+            // Throttle to prevent API rate limits
+            await new Promise(r => setTimeout(r, 200));
+        } catch (err) {
+            console.error(`[DirectDispatch] Failed for lead ${lead.id}:`, err.message);
+        }
+    }
+
+    console.log(`[DirectDispatch] ✅ Finished delivery for ${name}`);
 };

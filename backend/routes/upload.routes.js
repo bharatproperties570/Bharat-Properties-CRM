@@ -20,22 +20,42 @@ router.post('/', uploadGeneric.single('file'), async (req, res) => {
         }
 
         const { entityType, entityName, folderId, docCategory, docType } = req.body;
-        const result = await uploadFileToDrive(req.file, { 
-            entityType, 
-            entityName, 
-            folderId,
-            docCategory,
-            docType
-        });
+        
+        try {
+            // Attempt Google Drive Upload
+            const result = await uploadFileToDrive(req.file, { 
+                entityType, 
+                entityName, 
+                folderId,
+                docCategory,
+                docType
+            });
 
-        res.status(200).json({
-            success: true,
-            url: result.url,
-            fileId: result.id,
-            downloadUrl: result.downloadUrl,
-            fileName: req.file.originalname,
-            mimeType: req.file.mimetype
-        });
+            return res.status(200).json({
+                success: true,
+                url: result.url,
+                fileId: result.id,
+                downloadUrl: result.downloadUrl,
+                fileName: req.file.originalname,
+                mimeType: req.file.mimetype,
+                storage: 'google_drive'
+            });
+        } catch (driveError) {
+            console.warn('[UploadRoute] Google Drive upload failed, falling back to LOCAL storage:', driveError.message);
+            
+            // Fallback: Return local URL (the file is already saved in uploads/ by multer)
+            // We don't delete it here so it remains available
+            const localUrl = `/uploads/${req.file.filename}`;
+            
+            return res.status(200).json({
+                success: true,
+                url: localUrl,
+                downloadUrl: localUrl,
+                fileName: req.file.originalname,
+                mimeType: req.file.mimetype,
+                storage: 'local'
+            });
+        }
     } catch (error) {
         console.error('Upload Route Error:', error.message);
         res.status(500).json({ success: false, error: error.message });

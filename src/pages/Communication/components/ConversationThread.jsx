@@ -5,6 +5,8 @@ const ConversationThread = ({ messages, participantName, onClose, onSendMessage 
     const [selectedChannel, setSelectedChannel] = useState('WhatsApp');
     const [replyText, setReplyText] = useState('');
     const [isSending, setIsSending] = useState(false);
+    const [showAttachMenu, setShowAttachMenu] = useState(false);
+    const [pendingFile, setPendingFile] = useState(null);
 
     if (!messages || messages.length === 0) {
         return (
@@ -17,13 +19,54 @@ const ConversationThread = ({ messages, participantName, onClose, onSendMessage 
     }
 
     const handleSend = async () => {
-        if (!replyText.trim() || isSending) return;
+        if (!replyText.trim() && !pendingFile && isSending) return;
         setIsSending(true);
         try {
-            await onSendMessage(replyText, selectedChannel);
+            if (pendingFile) {
+                await onSendMessage(replyText, selectedChannel, { type: pendingFile.type, file: pendingFile.file });
+                setPendingFile(null);
+            } else {
+                await onSendMessage(replyText, selectedChannel);
+            }
             setReplyText('');
         } finally {
             setIsSending(false);
+        }
+    };
+
+    const triggerFileSelect = (type) => {
+        const input = document.getElementById('chat-file-input');
+        input.accept = type === 'image' ? 'image/*' : '*/*';
+        input.click();
+        setShowAttachMenu(false);
+    };
+
+    const handleFileChange = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            const type = file.type.startsWith('image/') ? 'image' : 'document';
+            setPendingFile({ file, type, name: file.name });
+            setReplyText(`Sending ${file.name}...`);
+        }
+    };
+
+    const handleSpecialAttach = (type) => {
+        setShowAttachMenu(false);
+        if (type === 'location') {
+            // Mock Location for now, or trigger a modal
+            onSendMessage('Sending location...', selectedChannel, { 
+                type: 'location', 
+                location: { latitude: 29.9695, longitude: 76.8783, name: 'Bharat Properties', address: 'Sector 4, Kurukshetra' } 
+            });
+        } else if (type === 'contact') {
+            // Mock Contact
+            onSendMessage('Sending contact card...', selectedChannel, {
+                type: 'contacts',
+                contacts: [{
+                    name: { first_name: 'Bharat', last_name: 'Properties', formatted_name: 'Bharat Properties' },
+                    phones: [{ phone: '919999999999', type: 'WORK' }]
+                }]
+            });
         }
     };
 
@@ -71,7 +114,52 @@ const ConversationThread = ({ messages, participantName, onClose, onSendMessage 
                                     <i className="fas fa-user-tie"></i> MANUAL REPLY
                                 </div>
                             ) : null}
-                            <div className="message-content">{msg.text}</div>
+                            <div className="message-content">
+                                {/* 🚀 Rich Media Renderer */}
+                                {msg.metadata?.attachment && (
+                                    <div style={{ marginBottom: msg.text ? '8px' : 0 }}>
+                                        {msg.metadata.attachment.type === 'image' && (
+                                            <img src={msg.metadata.attachment.url} alt="Shared" style={{ maxWidth: '100%', borderRadius: '8px', cursor: 'pointer', display: 'block' }} onClick={() => window.open(msg.metadata.attachment.url)} />
+                                        )}
+                                        {msg.metadata.attachment.type === 'video' && (
+                                            <div style={{ background: 'rgba(0,0,0,0.2)', padding: '10px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                <i className="fas fa-play-circle" style={{ fontSize: '1.5rem' }}></i>
+                                                <span>Video File</span>
+                                            </div>
+                                        )}
+                                        {msg.metadata.attachment.type === 'document' && (
+                                            <a href={msg.metadata.attachment.url} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '10px', color: msg.sender==='customer' ? '#cbd5e1' : '#fff', textDecoration: 'none', background: 'rgba(255,255,255,0.1)', padding: '8px', borderRadius: '6px' }}>
+                                                <i className="fas fa-file-alt"></i>
+                                                <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>{msg.metadata.attachment.filename || 'Document'}</span>
+                                            </a>
+                                        )}
+                                        {msg.metadata.attachment.type === 'location' && (
+                                            <div style={{ background: 'rgba(0,0,0,0.1)', borderRadius: '8px', overflow: 'hidden' }}>
+                                                <div style={{ padding: '8px' }}>
+                                                    <div style={{ fontWeight: 700, fontSize: '0.75rem' }}>📍 {msg.metadata.attachment.location?.name || 'Location Shared'}</div>
+                                                    <div style={{ fontSize: '0.68rem', opacity: 0.8, marginTop: '2px' }}>{msg.metadata.attachment.location?.address}</div>
+                                                </div>
+                                                <a href={`https://www.google.com/maps/search/?api=1&query=${msg.metadata.attachment.location?.latitude},${msg.metadata.attachment.location?.longitude}`} target="_blank" rel="noreferrer" 
+                                                    style={{ display: 'block', textAlign: 'center', padding: '6px', background: 'rgba(255,255,255,0.2)', color: '#fff', fontSize: '0.7rem', fontWeight: 800, textDecoration: 'none' }}>
+                                                    VIEW ON MAP
+                                                </a>
+                                            </div>
+                                        )}
+                                        {msg.metadata.attachment.type === 'contacts' && (
+                                            <div style={{ background: 'rgba(255,255,255,0.1)', padding: '10px', borderRadius: '8px' }}>
+                                                <div style={{ fontWeight: 700, fontSize: '0.8rem', marginBottom: '4px' }}>👤 Contact Card</div>
+                                                {msg.metadata.attachment.contacts?.map((c, idx) => (
+                                                    <div key={idx} style={{ fontSize: '0.72rem' }}>
+                                                        <div style={{ fontWeight: 600 }}>{c.name?.formatted_name}</div>
+                                                        <div style={{ opacity: 0.8 }}>{c.phones?.[0]?.phone}</div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                                {msg.text}
+                            </div>
                             <div className="message-time">
                                 {new Date(msg.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                 {msg.sender !== 'customer' && <i className="fas fa-check-double" style={{ color: '#0ea5e9', marginLeft: '4px' }}></i>}
@@ -96,6 +184,37 @@ const ConversationThread = ({ messages, participantName, onClose, onSendMessage 
                 </div>
                 
                 <div className="console-input-group">
+                    <div className="attachment-dropdown" style={{ position: 'relative' }}>
+                        <button 
+                            className="btn-attach" 
+                            onClick={() => setShowAttachMenu(!showAttachMenu)}
+                            title="Attach Media"
+                        >
+                            <i className="fas fa-plus"></i>
+                        </button>
+                        
+                        {showAttachMenu && (
+                            <div className="attach-menu">
+                                <div className="attach-item" onClick={() => triggerFileSelect('image')}>
+                                    <div className="attach-icon" style={{ background: '#ec4899' }}><i className="fas fa-image"></i></div>
+                                    <span>Photo</span>
+                                </div>
+                                <div className="attach-item" onClick={() => triggerFileSelect('document')}>
+                                    <div className="attach-icon" style={{ background: '#a855f7' }}><i className="fas fa-file-pdf"></i></div>
+                                    <span>Document</span>
+                                </div>
+                                <div className="attach-item" onClick={() => handleSpecialAttach('contact')}>
+                                    <div className="attach-icon" style={{ background: '#0ea5e9' }}><i className="fas fa-user"></i></div>
+                                    <span>Contact</span>
+                                </div>
+                                <div className="attach-item" onClick={() => handleSpecialAttach('location')}>
+                                    <div className="attach-icon" style={{ background: '#059669' }}><i className="fas fa-map-marker-alt"></i></div>
+                                    <span>Location</span>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
                     <input 
                         type="text" 
                         placeholder={`Reply via ${selectedChannel}...`} 
@@ -103,6 +222,14 @@ const ConversationThread = ({ messages, participantName, onClose, onSendMessage 
                         onChange={(e) => setReplyText(e.target.value)}
                         onKeyPress={handleKeyPress}
                         disabled={isSending}
+                    />
+
+                    {/* Hidden File Input */}
+                    <input 
+                        type="file" 
+                        id="chat-file-input" 
+                        style={{ display: 'none' }} 
+                        onChange={handleFileChange}
                     />
                     <button 
                         className="btn-send-console" 

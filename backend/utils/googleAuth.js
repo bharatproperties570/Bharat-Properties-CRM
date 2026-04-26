@@ -20,7 +20,7 @@ export const getOAuth2Client = async () => {
             const oauth2Client = new google.auth.OAuth2(
                 clientId,
                 clientSecret,
-                process.env.GOOGLE_REDIRECT_URI || 'http://localhost:4000/api/email/oauth/callback'
+                process.env.GOOGLE_REDIRECT_URI || `${process.env.FRONTEND_URL || 'http://localhost:5174'}/google-callback`
             );
 
             oauth2Client.setCredentials({
@@ -51,6 +51,22 @@ export const getCalendarService = async () => {
 };
 
 export const getDriveService = async () => {
+    // 🚀 Senior Optimization: Prioritize Service Account for Drive (Reliable System Storage)
+    if (process.env.GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON) {
+        try {
+            const credentials = JSON.parse(process.env.GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON);
+            const auth = new google.auth.JWT(
+                credentials.client_email,
+                null,
+                credentials.private_key,
+                ['https://www.googleapis.com/auth/drive']
+            );
+            return google.drive({ version: 'v3', auth });
+        } catch (err) {
+            console.warn('[googleAuth] Service Account parsing failed, falling back to OAuth:', err.message);
+        }
+    }
+
     const auth = await getOAuth2Client();
     if (!auth) return null;
     return google.drive({ version: 'v3', auth });

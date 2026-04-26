@@ -131,6 +131,7 @@ app.use((req, res, next) => {
 
 // Route Definitions
 app.use("/api/auth", authRoutes);
+app.use("/api/marketing", marketingRoutes); // Move up for priority
 app.use("/api/users", userRoutes);
 app.use("/api/teams", teamRoutes);
 app.use("/api/roles", roleRoutes);
@@ -171,12 +172,13 @@ app.use("/api/notification-settings", notificationSettingRoutes);
 app.use("/api/public", publicRoutes);
 app.use("/api/settings/google", googleSettingsRoutes);
 app.use("/api/webhooks", webhookRoutes);   // Marketing automation webhooks
-app.use("/api/marketing", marketingRoutes); // Marketing Suite AI Agent Stats
+// app.use("/api/marketing", marketingRoutes); // Moved up
 app.use("/api/settings/ai", integrationSettingsRoutes);
 app.use("/api/settings/ai-agents", aiAgentRoutes);
 app.use("/api/conversations", conversationRoutes);
 app.use("/api/social",        socialRoutes);
 app.use("/api/whatsapp-config", whatsappActionRoutes);
+app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
 app.all("*", (req, res, next) => {
     console.error(`[404_FALLBACK] Missing Route: ${req.method} ${req.originalUrl}`);

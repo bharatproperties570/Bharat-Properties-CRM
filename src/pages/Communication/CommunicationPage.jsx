@@ -3,7 +3,7 @@
  * 100% backend-live · No mock data · Light + Dark theme · Real message dispatch
  */
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { activitiesAPI, emailAPI, conversationAPI } from '../../utils/api';
+import { activitiesAPI, emailAPI, conversationAPI, api, googleSettingsAPI, BASE_BACKEND_URL } from '../../utils/api';
 import ComposeEmailModal from './components/ComposeEmailModal';
 import ViewEmailModal from './components/ViewEmailModal';
 import CommunicationFilterPanel from './components/CommunicationFilterPanel';
@@ -63,8 +63,8 @@ export default function CommunicationPage() {
     const [activities,  setActivities]  = useState([]);
     const [liveEmails,  setLiveEmails]  = useState([]);
     const [aiConvos,    setAiConvos]    = useState([]);
-    const [selected,    setSelected]    = useState(null);   // thread/email item
-    const [selectedAI,  setSelectedAI]  = useState(null);   // AI conv
+    const [selectedId,  setSelectedId]  = useState(null);   // Stable ID for selection
+    const [selectedAIId, setSelectedAIId] = useState(null); // Stable AI Selection ID
     const [searchQ,     setSearchQ]     = useState('');
     const [filters,     setFilters]     = useState({});
     const [isFilterOpen,setFilterOpen]  = useState(false);
@@ -76,6 +76,7 @@ export default function CommunicationPage() {
     const [actionLoading, setActionLoading] = useState(null);
     const [nextPageToken, setNextPageToken] = useState(null);
     const [emailError,    setEmailError]    = useState(null); // 'oauth' | 'network' | null
+    const [previewMedia,  setPreviewMedia]  = useState(null); // 🚀 Media Preview State
 
     /* ── Fetch messaging activities ─── */
     const fetchActivities = useCallback(async (silent = false) => {
@@ -106,7 +107,6 @@ export default function CommunicationPage() {
                     if (!name) name = phone || 'Unknown';
 
                     // 2. Channel Identification (Via)
-                    // If backend sends 'via', we trust it. Otherwise fallback to type logic.
                     let via = act.via || 'SMS';
                     const t  = (act.type||'').toLowerCase();
                     const pl = (act.platform||act.details?.platform||'').toLowerCase();
@@ -165,7 +165,6 @@ export default function CommunicationPage() {
                 if (append) setLiveEmails(p=>[...p,...mapped]); else setLiveEmails(mapped);
                 setNextPageToken(res.data?.nextPageToken||null);
             } else {
-                // Structured error code from backend takes priority
                 if (res?.errorCode === 'OAUTH_EXPIRED') { setEmailError('oauth'); return; }
                 const msg = (res?.message||'').toLowerCase();
                 if (msg.includes('invalid_grant')||msg.includes('oauth')||msg.includes('token')||msg.includes('401')) {
@@ -176,7 +175,6 @@ export default function CommunicationPage() {
             }
         } catch(e){
             console.error(e);
-            // If we have a structured response in the error (from axios)
             const errorData = e.response?.data;
             if (errorData?.errorCode === 'OAUTH_EXPIRED') {
                 setEmailError('oauth');
@@ -218,8 +216,9 @@ export default function CommunicationPage() {
                         isHandedOff: conv.status==='handed_off',
                         lead,
                         messages: (conv.messages||[]).map(m => ({
-                            sender: m.role==='user'?'customer':(m.role==='assistant'?'ai':'system'),
+                            sender: m.role==='user'?'customer':(m.role==='assistant'?'ai':'agent'),
                             text: m.content, time: m.timestamp,
+                            metadata: m.metadata
                         })),
                         updatedAt: conv.updatedAt,
                     };
@@ -232,12 +231,14 @@ export default function CommunicationPage() {
     useEffect(() => { fetchActivities(); fetchAIConvos(); }, [fetchActivities, fetchAIConvos]);
     useEffect(() => { if (channel==='Email' && !liveEmails.length && !emailError) fetchEmails(); }, [channel, liveEmails.length, fetchEmails, emailError]);
 
-    // Auto-refresh AI convos every 15s
     useEffect(() => {
-        if (channel !== 'AI') return;
-        const t = setInterval(fetchAIConvos, 15000);
+        if (channel === 'Email') return; 
+        const t = setInterval(() => {
+            if (channel === 'AI') fetchAIConvos();
+            else fetchActivities(true); // Silent refresh
+        }, 5000);
         return () => clearInterval(t);
-    }, [channel, fetchAIConvos]);
+    }, [channel, fetchAIConvos, fetchActivities]);
 
     const handleRefresh = () => {
         if (channel==='Email') fetchEmails();
@@ -253,11 +254,52 @@ export default function CommunicationPage() {
         return applyCommunicationFilters(base, filters, searchQ);
     }, [channel, activities, liveEmails, filters, searchQ]);
 
+    /* ── Filtered list with Thread Grouping ─── */
     const displayItems = useMemo(() => {
-        if (subTab==='matched')   return allItems.filter(i=>i.isMatched);
-        if (subTab==='unmatched') return allItems.filter(i=>!i.isMatched);
-        return allItems;
-    }, [allItems, subTab]);
+        let base = allItems;
+        if (subTab==='matched')   base = allItems.filter(i=>i.isMatched);
+        else if (subTab==='unmatched') base = allItems.filter(i=>!i.isMatched);
+
+        if (channel === 'Email' || channel === 'AI') return base;
+
+        const groups = {};
+        base.forEach(item => {
+            const key = item.phone || item.phoneNumber || item.participant || 'Unknown';
+            if (!groups[key]) {
+                groups[key] = { ...item, thread: [...(item.thread || [])] };
+            } else {
+                const combinedThread = [...(groups[key].thread || []), ...(item.thread || [])];
+                const seen = new Set();
+                const uniqueSortedThread = combinedThread
+                    .filter(m => {
+                        const mKey = `${m.time}-${m.text}-${m.sender}`;
+                        if (seen.has(mKey)) return false;
+                        seen.add(mKey);
+                        return true;
+                    })
+                    .sort((a, b) => new Date(a.time) - new Date(b.time));
+
+                if (new Date(item.date) > new Date(groups[key].date)) {
+                    const currentId = groups[key].id;
+                    Object.assign(groups[key], item);
+                    groups[key].id = currentId;
+                }
+                groups[key].thread = uniqueSortedThread;
+            }
+        });
+
+        return Object.values(groups).sort((a, b) => new Date(b.date) - new Date(a.date));
+    }, [allItems, subTab, channel]);
+
+    const selectedItem = useMemo(() => {
+        if (!selectedId) return null;
+        return displayItems.find(i => i.id === selectedId || i.phone === selectedId);
+    }, [displayItems, selectedId]);
+
+    const currentAI = useMemo(() => {
+        if (!selectedAIId) return null;
+        return aiConvos.find(c => c.id === selectedAIId);
+    }, [aiConvos, selectedAIId]);
 
     /* ── KPIs ─── */
     const kpis = useMemo(() => {
@@ -271,16 +313,42 @@ export default function CommunicationPage() {
     }, [activities, liveEmails, aiConvos]);
 
     /* ── Actions ─── */
-    const handleSendMessage = async (text, ch) => {
-        if (!selected?.phoneNumber && !selected?.phone) return toast.error('No phone number for this thread');
-        const phone = selected.phoneNumber || selected.phone;
+    const handleSendMessage = async (text, ch, attachment = null) => {
+        if (!selectedItem?.phoneNumber && !selectedItem?.phone) return toast.error('No phone number for this thread');
+        const phone = selectedItem.phoneNumber || selectedItem.phone;
+        
         try {
-            const res = await activitiesAPI.sendReply({
+            let payload = {
                 phoneNumber: phone, message: text, channel: ch.toLowerCase(),
-                entityId: selected.entityId, entityType: selected.entityType,
-            });
+                entityId: selectedItem.entityId, entityType: selectedItem.entityType,
+            };
+
+            if (attachment) {
+                if (attachment.file) {
+                    const formData = new FormData();
+                    formData.append('file', attachment.file);
+                    formData.append('entityType', selectedItem.entityType || 'Communication');
+                    formData.append('entityName', selectedItem.name || phone);
+                    
+                    const uploadRes = await api.post('/upload', formData, {
+                        headers: { 'Content-Type': 'multipart/form-data' }
+                    });
+                    
+                    if (uploadRes.data?.success) {
+                        payload.attachment = {
+                            type: attachment.type,
+                            url: uploadRes.data.downloadUrl || uploadRes.data.url,
+                            filename: uploadRes.data.fileName
+                        };
+                    } else throw new Error('File upload failed');
+                } else if (attachment.type === 'location' || attachment.type === 'contacts') {
+                    payload.attachment = attachment;
+                }
+            }
+
+            const res = await activitiesAPI.sendReply(payload);
             if (res?.success) {
-                setSelected(p => ({ ...p, thread: [...(p.thread||[]), { sender:'agent', text, time: new Date().toISOString() }] }));
+                fetchActivities(true);
                 toast.success('Message sent!');
             } else throw new Error(res?.error || 'Failed');
         } catch(e) { 
@@ -348,7 +416,7 @@ export default function CommunicationPage() {
 
                     {/* Channel pills */}
                     {CHANNELS.map(ch => (
-                        <button key={ch.id} onClick={() => { setChannel(ch.id); setSelected(null); setSelectedAI(null); }} style={{
+                        <button key={ch.id} onClick={() => { setChannel(ch.id); setSelectedId(null); setSelectedAIId(null); }} style={{
                             padding:'6px 14px', borderRadius:'20px', border:'none', cursor:'pointer',
                             background: channel===ch.id ? ch.color : (isDark ? 'rgba(255,255,255,0.06)' : '#f1f5f9'),
                             color: channel===ch.id ? '#fff' : T.text2,
@@ -438,7 +506,7 @@ export default function CommunicationPage() {
 
                     {/* ── AI Bot View ── */}
                     {channel === 'AI' ? (
-                        <AIBotView T={T} isDark={isDark} convos={aiConvos} selected={selectedAI} onSelect={setSelectedAI} onTakeover={handleAITakeover} onRefresh={fetchAIConvos} />
+                        <AIBotView T={T} isDark={isDark} convos={aiConvos} selected={currentAI} onSelect={setSelectedAIId} onTakeover={handleAITakeover} onRefresh={fetchAIConvos} setPreviewMedia={setPreviewMedia} />
                     ) : (
                         /* ── Inbox List ── */
                         <div style={{ flex:1, overflowY:'auto', padding:'12px 16px', background: T.bg, display:'flex', flexDirection:'column', gap:'8px' }}>
@@ -460,8 +528,8 @@ export default function CommunicationPage() {
                                             <button
                                                 onClick={async () => {
                                                     try {
-                                                        const res = await emailAPI.getOAuthUrl();
-                                                        if (res?.success && res.data) window.open(res.data, '_blank');
+                                                        const res = await googleSettingsAPI.getAuthUrl(window.location.origin);
+                                                        if (res?.success && res.url) window.location.href = res.url;
                                                     } catch(e) { toast.error('Could not get OAuth URL'); }
                                                 }}
                                                 style={{ padding:'9px 20px', borderRadius:'9px', background:'linear-gradient(135deg,#f59e0b,#d97706)', color:'#fff', border:'none', fontWeight:700, fontSize:'0.82rem', cursor:'pointer', boxShadow:'0 4px 12px rgba(245,158,11,0.35)' }}
@@ -492,10 +560,10 @@ export default function CommunicationPage() {
                             ) : !emailError && displayItems.length === 0 ? (
                                 <EmptyState T={T} channel={channel} />
                             ) : !emailError && displayItems.map(item => (
-                                <InboxRow key={item.id} item={item} T={T} isDark={isDark} isSelected={selected?.id===item.id}
+                                <InboxRow key={item.id} item={item} T={T} isDark={isDark} isSelected={selectedId===item.id || (item.phone && selectedId===item.phone)}
                                     onClick={() => {
                                         if (item.via==='Email') { setEmailTarget(item); setViewEmail(true); }
-                                        else setSelected(item);
+                                        else setSelectedId(item.phone || item.id);
                                     }}
                                 />
                             ))}
@@ -510,8 +578,32 @@ export default function CommunicationPage() {
                 </div>
 
                 {/* ── RIGHT: Thread Panel ── */}
-                {selected && channel !== 'AI' && (
-                    <ThreadPanel item={selected} T={T} isDark={isDark} onClose={() => setSelected(null)} onSend={handleSendMessage} />
+                {selectedItem && channel !== 'AI' && (
+                    <ThreadPanel 
+                        item={selectedItem} 
+                        T={T} 
+                        isDark={isDark} 
+                        onClose={() => setSelectedId(null)} 
+                        onSend={handleSendMessage} 
+                        setPreviewMedia={setPreviewMedia} 
+                        onConvertToLead={async () => {
+                            if (!selectedItem.phone) return;
+                            setActionLoading(selectedItem.phone);
+                            try {
+                                const res = await activitiesAPI.convertToLead({ 
+                                    phoneNumber: selectedItem.phone, 
+                                    name: selectedItem.participant,
+                                    source: `Direct ${selectedItem.via}`
+                                });
+                                if (res?.success) { 
+                                    toast.success('Lead created!'); 
+                                    fetchActivities(); 
+                                }
+                                else toast.error(res?.error || 'Failed');
+                            } catch(e) { toast.error('Error creating lead'); } finally { setActionLoading(null); }
+                        }}
+                        isActionLoading={actionLoading === (selectedItem.phone || selectedItem.id)}
+                    />
                 )}
             </div>
 
@@ -522,6 +614,9 @@ export default function CommunicationPage() {
             <CommunicationFilterPanel isOpen={isFilterOpen} onClose={()=>setFilterOpen(false)} filters={filters} onFilterChange={(k,v)=>setFilters(p=>({...p,[k]:v}))} onReset={()=>setFilters({})} />
             <ComposeEmailModal isOpen={composing} onClose={()=>setComposing(false)} onSent={fetchEmails} />
             <ViewEmailModal isOpen={viewEmail} onClose={()=>setViewEmail(false)} email={emailTarget} onReply={e=>{setEmailTarget(e);setComposing(true);}} onConvertToLead={handleConvertToLead} isActionLoading={actionLoading} />
+            
+            {/* 🚀 Media Preview Modal */}
+            <MediaPreviewModal media={previewMedia} onClose={() => setPreviewMedia(null)} T={T} />
         </div>
     );
 }
@@ -605,12 +700,31 @@ function InboxRow({ item, T, isDark, isSelected, onClick }) {
                     )}
                 </div>
 
-                {/* Row 2: subject/snippet */}
                 <div style={{
                     fontSize: '0.78rem', color: T.text2, lineHeight: 1.4,
                     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    display: 'flex', alignItems: 'center', gap: '5px'
                 }}>
-                    {item.subject || item.snippet || '(no message preview)'}
+                    {item.details?.attachment && (
+                        <span style={{ fontSize: '0.65rem', padding: '1px 5px', borderRadius: '4px', background: T.badge, color: T.accent, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                            {item.details.attachment.type === 'image' ? '🖼️ Photo' : 
+                             item.details.attachment.type === 'document' ? '📄 Document' : 
+                             item.details.attachment.type === 'location' ? '📍 Location' : 
+                             item.details.attachment.type === 'contacts' ? '👤 Contact' : '📎 Media'}
+                        </span>
+                    )}
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', color: (item.snippet || '').toLowerCase().includes('media attachment') && item.details?.attachment ? T.accent : T.text2, fontWeight: (item.snippet || '').toLowerCase().includes('media attachment') && item.details?.attachment ? 600 : 400 }}>
+                        {(() => {
+                            const lowSnippet = (item.snippet || item.subject || '').toLowerCase();
+                            const hasMediaPlaceholder = lowSnippet.includes('media attachment') || lowSnippet.includes('[sent ') || lowSnippet.includes('[media');
+                            
+                            if (hasMediaPlaceholder && item.details?.attachment) {
+                                return item.details.attachment.filename || `Shared ${item.details.attachment.type || 'file'}`;
+                            }
+                            
+                            return item.subject || item.snippet || '(no message preview)';
+                        })()}
+                    </span>
                 </div>
 
                 {/* Row 3: platform */}
@@ -640,19 +754,65 @@ function InboxRow({ item, T, isDark, isSelected, onClick }) {
 /* ══════════════════════════════════════════════════════════════════════════ */
 /* ThreadPanel — right-slide conversation view                                 */
 /* ══════════════════════════════════════════════════════════════════════════ */
-function ThreadPanel({ item, T, isDark, onClose, onSend }) {
+function ThreadPanel({ item, T, isDark, onClose, onSend, setPreviewMedia, onConvertToLead, isActionLoading }) {
     const [text, setText] = useState('');
     const [ch, setCh]     = useState(item.via==='WhatsApp'?'WhatsApp':(item.via==='SMS'?'SMS':'WhatsApp'));
     const [sending, setSending] = useState(false);
+    const [showAttach, setShowAttach] = useState(false);
+    const [pendingFile, setPendingFile] = useState(null);
     const bodyRef = useRef(null);
     const chObj = CHANNELS.find(c=>c.id===item.via)||CHANNELS[0];
 
     useEffect(() => { if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight; }, [item.thread]);
 
     const handleSend = async () => {
-        if (!text.trim()||sending) return;
+        if ((!text.trim() && !pendingFile) || sending) return;
         setSending(true);
-        try { await onSend(text, ch); setText(''); } finally { setSending(false); }
+        try {
+            if (pendingFile) {
+                await onSend(text, ch, { type: pendingFile.type, file: pendingFile.file });
+                setPendingFile(null);
+            } else {
+                await onSend(text, ch);
+            }
+            setText('');
+        } finally {
+            setSending(false);
+        }
+    };
+
+    const triggerFile = (type) => {
+        const input = document.getElementById('panel-file-input');
+        input.accept = type === 'image' ? 'image/*' : '*/*';
+        input.click();
+        setShowAttach(false);
+    };
+
+    const handleFileChange = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            const type = file.type.startsWith('image/') ? 'image' : 'document';
+            setPendingFile({ file, type, name: file.name });
+            setText(`Sending ${file.name}...`);
+        }
+    };
+
+    const sendSpecial = (type) => {
+        setShowAttach(false);
+        if (type === 'location') {
+            onSend('Sending location...', ch, { 
+                type: 'location', 
+                location: { latitude: 29.9695, longitude: 76.8783, name: 'Bharat Properties', address: 'Sector 4, Kurukshetra' } 
+            });
+        } else if (type === 'contact') {
+            onSend('Sending contact card...', ch, {
+                type: 'contacts',
+                contacts: [{
+                    name: { first_name: 'Bharat', last_name: 'Properties', formatted_name: 'Bharat Properties' },
+                    phones: [{ phone: '919999999999', type: 'WORK' }]
+                }]
+            });
+        }
     };
 
     return (
@@ -670,6 +830,22 @@ function ThreadPanel({ item, T, isDark, onClose, onSend }) {
                         {item.phone && <span style={{fontSize:'0.62rem',color:T.text3,fontFamily:'monospace'}}>{item.phone}</span>}
                     </div>
                 </div>
+
+                {!item.isMatched && (
+                    <button 
+                        onClick={onConvertToLead} 
+                        disabled={isActionLoading}
+                        style={{
+                            padding: '6px 12px', borderRadius: '8px', border: 'none', 
+                            background: isDark ? 'rgba(34,197,94,0.15)' : '#dcfce7',
+                            color: '#166534', fontSize: '0.7rem', fontWeight: 800, cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', gap: '5px', transition: 'all 0.2s'
+                        }}
+                    >
+                        {isActionLoading ? '⏳' : <><i className="fas fa-user-plus"></i> CREATE LEAD</>}
+                    </button>
+                )}
+
                 <button onClick={onClose} style={{ width:28, height:28, borderRadius:'7px', border:`1px solid ${T.border}`, background: T.badge, color: T.text2, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'0.9rem' }}>✕</button>
             </div>
 
@@ -701,7 +877,67 @@ function ThreadPanel({ item, T, isDark, onClose, onSend }) {
                                     border: !isOut ? `1px solid ${T.border}` : 'none',
                                     boxShadow: isOut ? '0 3px 10px rgba(0,0,0,0.15)' : 'none',
                                 }}>
-                                    {msg.text}
+                                    {/* 🚀 Advanced Rich Media Renderer */}
+                                    {msg.metadata?.attachment && (
+                                        <div style={{ marginTop: '4px', borderRadius: '8px', overflow: 'hidden', background: isOut ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.03)', padding: '4px', marginBottom: msg.text ? '8px' : 0 }}>
+                                            {msg.metadata.attachment.type === 'image' && (
+                                                <div style={{ cursor: 'pointer' }} onClick={() => setPreviewMedia(msg.metadata.attachment.url.startsWith('http') ? msg.metadata.attachment.url : `${BASE_BACKEND_URL}${msg.metadata.attachment.url}`)}>
+                                                    <img src={msg.metadata.attachment.url.startsWith('http') ? msg.metadata.attachment.url : `${BASE_BACKEND_URL}${msg.metadata.attachment.url}`} alt="Shared" style={{ maxWidth: '100%', borderRadius: '6px', display: 'block' }} />
+                                                    <div style={{ fontSize: '0.65rem', marginTop: '4px', opacity: 0.8, textAlign: 'center' }}><i className="fas fa-expand-alt"></i> Click to expand</div>
+                                                </div>
+                                            )}
+                                            
+                                            {(msg.metadata.attachment.type === 'document' || msg.metadata.attachment.type === 'video' || msg.metadata.attachment.type === 'audio') && (
+                                                <div 
+                                                    onClick={() => window.open(msg.metadata.attachment.url.startsWith('http') ? msg.metadata.attachment.url : `${BASE_BACKEND_URL}${msg.metadata.attachment.url}`, '_blank')}
+                                                    style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px', cursor: 'pointer' }}
+                                                >
+                                                    <div style={{ width: 36, height: 36, borderRadius: '8px', background: isOut ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                        <i className={`fas ${msg.metadata.attachment.type === 'document' ? 'fa-file-alt' : (msg.metadata.attachment.type === 'video' ? 'fa-play' : 'fa-volume-up')}`} style={{ color: isOut ? '#fff' : T.accent }}></i>
+                                                    </div>
+                                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                                        <div style={{ fontSize: '0.75rem', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: isOut ? '#fff' : T.text }}>{msg.metadata.attachment.filename || 'Attached File'}</div>
+                                                        <div style={{ fontSize: '0.6rem', opacity: 0.7, color: isOut ? '#fff' : T.text2 }}>{msg.metadata.attachment.mimeType || 'Download'}</div>
+                                                    </div>
+                                                    <i className="fas fa-download" style={{ fontSize: '0.8rem', opacity: 0.7, color: isOut ? '#fff' : T.text }}></i>
+                                                </div>
+                                            )}
+                                            
+                                            {msg.metadata.attachment.type === 'location' && (
+                                                <div 
+                                                    onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${msg.metadata.attachment.location.latitude},${msg.metadata.attachment.location.longitude}`, '_blank')}
+                                                    style={{ padding: '8px', cursor: 'pointer' }}
+                                                >
+                                                    <div style={{ fontSize: '0.75rem', fontWeight: 800, marginBottom: '4px', color: isOut ? '#fff' : T.text }}><i className="fas fa-map-marker-alt" style={{ color: '#ef4444' }}></i> {msg.metadata.attachment.location.name || 'Shared Location'}</div>
+                                                    <div style={{ fontSize: '0.65rem', opacity: 0.8, marginBottom: '8px', color: isOut ? '#fff' : T.text2 }}>{msg.metadata.attachment.location.address || 'Click to view on Google Maps'}</div>
+                                                    <div style={{ background: isOut ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.05)', height: '40px', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 700, color: isOut ? '#fff' : T.accent }}>
+                                                        📍 OPEN IN GOOGLE MAPS
+                                                    </div>
+                                                </div>
+                                            )}
+                                            
+                                            {msg.metadata.attachment.type === 'contacts' && (
+                                                <div style={{ padding: '8px' }}>
+                                                    {msg.metadata.attachment.contacts?.map((contact, ci) => (
+                                                        <div key={ci} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '6px', background: isOut ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.02)', borderRadius: '6px', marginBottom: ci < msg.metadata.attachment.contacts.length - 1 ? '4px' : 0 }}>
+                                                            <div style={{ width: 30, height: 30, borderRadius: '50%', background: T.accent, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 800 }}>
+                                                                {contact.name?.first_name?.[0] || contact.name?.formatted_name?.[0] || '?'}
+                                                            </div>
+                                                            <div style={{ flex: 1 }}>
+                                                                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: isOut ? '#fff' : T.text }}>{contact.name?.formatted_name || 'Contact'}</div>
+                                                                <div style={{ fontSize: '0.65rem', opacity: 0.7, color: isOut ? '#fff' : T.text2 }}>{contact.phones?.[0]?.phone || 'No Number'}</div>
+                                                            </div>
+                                                            <i className="fas fa-user-plus" style={{ cursor: 'pointer', opacity: 0.7, color: isOut ? '#fff' : T.text }} title="Add to Leads"></i>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                    {/* Text Content — Hide technical placeholders if rich media is present */}
+                                    {msg.text && !((msg.text.toLowerCase().includes('media attachment') || msg.text.toLowerCase().startsWith('[sent ')) && msg.metadata?.attachment) && (
+                                        <div>{msg.text}</div>
+                                    )}
                                 </div>
                                 <div style={{fontSize:'0.58rem',color:T.text3,marginTop:'3px',textAlign:isOut?'right':'left'}}>
                                     {msg.time && !isNaN(new Date(msg.time)) ? new Date(msg.time).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : (msg.time||'')}
@@ -726,17 +962,55 @@ function ThreadPanel({ item, T, isDark, onClose, onSend }) {
                     ))}
                 </div>
 
-                <div style={{display:'flex',gap:'7px'}}>
+                <div style={{display:'flex',gap:'7px', alignItems: 'center'}}>
+                    <div style={{ position: 'relative' }}>
+                        <button onClick={() => setShowAttach(!showAttach)} style={{
+                            width:38, height:38, borderRadius:'50%', border:`1px solid ${T.border}`, background: T.badge, color: T.text2, cursor:'pointer',
+                            display:'flex', alignItems:'center', justifyContent:'center', fontSize:'0.9rem', transition:'all 0.2s'
+                        }}>
+                            <i className={`fas ${showAttach ? 'fa-times' : 'fa-plus'}`}></i>
+                        </button>
+                        
+                        {showAttach && (
+                            <div style={{
+                                position: 'absolute', bottom: '45px', left: 0, background: T.surface, border: `1px solid ${T.border}`,
+                                borderRadius: '12px', padding: '8px', display: 'flex', flexDirection: 'column', gap: '4px', width: '130px',
+                                boxShadow: '0 10px 25px rgba(0,0,0,0.3)', zIndex: 100
+                            }}>
+                                {[
+                                    { id: 'image', icon: 'fa-image', label: 'Photo', bg: '#ec4899' },
+                                    { id: 'document', icon: 'fa-file-pdf', label: 'Document', bg: '#a855f7' },
+                                    { id: 'contact', icon: 'fa-user', label: 'Contact', bg: '#0ea5e9' },
+                                    { id: 'location', icon: 'fa-map-marker-alt', label: 'Location', bg: '#059669' }
+                                ].map(item => (
+                                    <div key={item.id} onClick={() => item.id === 'image' || item.id === 'document' ? triggerFile(item.id) : sendSpecial(item.id)} 
+                                        style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 9px', borderRadius: '8px', cursor: 'pointer', transition: 'background 0.2s' }}
+                                        onMouseOver={e => e.currentTarget.style.background = T.badge}
+                                        onMouseOut={e => e.currentTarget.style.background = 'transparent'}
+                                    >
+                                        <div style={{ width: 24, height: 24, borderRadius: '50%', background: item.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '0.65rem' }}>
+                                            <i className={`fas ${item.icon}`}></i>
+                                        </div>
+                                        <span style={{ fontSize: '0.72rem', fontWeight: 600, color: T.text2 }}>{item.label}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
                     <input type="text" value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>e.key==='Enter'&&!e.shiftKey&&handleSend()}
                         placeholder={`Reply via ${ch}…`} disabled={sending}
                         style={{ flex:1, padding:'9px 13px', borderRadius:'9px', border:`1px solid ${T.inputBorder}`, background: T.input, color: T.text, fontSize:'0.83rem', outline:'none' }}
                     />
-                    <button onClick={handleSend} disabled={sending||!text.trim()} style={{
+
+                    <input type="file" id="panel-file-input" style={{ display: 'none' }} onChange={handleFileChange} />
+
+                    <button onClick={handleSend} disabled={sending||(!text.trim() && !pendingFile)} style={{
                         width:40, height:38, borderRadius:'9px', border:'none', cursor:'pointer',
                         background: 'linear-gradient(135deg,#6366f1,#4f46e5)', color:'#fff',
                         display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1rem',
                         boxShadow:'0 3px 10px rgba(99,102,241,0.35)',
-                        opacity: (!text.trim()||sending)?0.5:1, transition:'all 0.18s',
+                        opacity: ((!text.trim() && !pendingFile)||sending)?0.5:1, transition:'all 0.18s',
                     }}>{sending ? '⏳' : '➤'}</button>
                 </div>
                 <div style={{fontSize:'0.6rem',color:T.text3,marginTop:'7px',textAlign:'center'}}>🤖 AI pauses 15 min after manual reply</div>
@@ -748,25 +1022,113 @@ function ThreadPanel({ item, T, isDark, onClose, onSend }) {
 /* ══════════════════════════════════════════════════════════════════════════ */
 /* AIBotView — Professional AI conversation manager                           */
 /* ══════════════════════════════════════════════════════════════════════════ */
-function AIBotView({ T, isDark, convos, selected, onSelect, onTakeover, onRefresh }) {
+function AIBotView({ T, isDark, convos, selected, onSelect, onTakeover, onRefresh, setPreviewMedia }) {
     const [replyText, setReplyText] = useState('');
     const [sendingAI, setSendingAI] = useState(false);
+    const [showAttach, setShowAttach] = useState(false);
+    const [pendingFile, setPendingFile] = useState(null);
     const bodyRef = useRef(null);
 
     useEffect(() => { if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight; }, [selected?.messages]);
 
-    const handleAISend = async () => {
-        if (!replyText.trim()||sendingAI||!selected) return;
+    const handleAISend = async (textOverride = null, attachment = null) => {
+        const msgText = textOverride || replyText;
+        if ((!msgText.trim() && !attachment && !pendingFile) || sendingAI || !selected) return;
+        
         setSendingAI(true);
         try {
             const phone = selected.phone;
-            const res = await activitiesAPI.sendReply({ phoneNumber: phone, message: replyText, channel: 'whatsapp' });
-            if (res?.success) {
-                onSelect(p => ({ ...p, messages: [...(p.messages||[]), { sender:'agent', text:replyText, time: new Date().toISOString() }] }));
-                setReplyText('');
-                toast.success('Message sent!');
+            let payload = { 
+                phoneNumber: phone, 
+                message: msgText, 
+                channel: 'whatsapp',
+                entityId: selected.lead?._id,
+                entityType: 'Lead'
+            };
+
+            // Handle Attachments (Upload if needed)
+            if (attachment || pendingFile) {
+                const attachData = attachment || pendingFile;
+                if (attachData.file) {
+                    const formData = new FormData();
+                    formData.append('file', attachData.file);
+                    formData.append('entityType', 'Communication');
+                    formData.append('entityName', selected.name);
+                    
+                    const uploadRes = await api.post('/upload', formData, {
+                        headers: { 'Content-Type': 'multipart/form-data' }
+                    });
+                    
+                    if (uploadRes.data?.success) {
+                        payload.attachment = {
+                            type: attachData.type,
+                            url: uploadRes.data.downloadUrl || uploadRes.data.url,
+                            filename: uploadRes.data.fileName
+                        };
+                    } else throw new Error('Upload failed');
+                } else {
+                    payload.attachment = attachData;
+                }
             }
-        } catch(e) { toast.error('Send failed'); } finally { setSendingAI(false); }
+
+            const res = await activitiesAPI.sendReply(payload);
+            if (res?.success) {
+                const newMsg = { 
+                    sender: 'agent', 
+                    text: msgText || `Sent ${payload.attachment?.type || 'file'}`, 
+                    time: new Date().toISOString(),
+                    metadata: payload.attachment ? { attachment: payload.attachment } : null
+                };
+                onSelect(prevId => {
+                    // Update the local state of selected convo
+                    // Since onSelect is passed as setSelectedAIId, we need to handle this carefully
+                    // However, fetchAIConvos is called below anyway
+                    return prevId;
+                });
+                setReplyText('');
+                setPendingFile(null);
+                toast.success('Message sent!');
+                onRefresh(); // Refresh to get the updated thread
+            }
+        } catch(e) { 
+            toast.error(e.message || 'Send failed'); 
+        } finally { 
+            setSendingAI(false); 
+        }
+    };
+
+    const triggerFile = (type) => {
+        const input = document.getElementById('ai-file-input');
+        input.accept = type === 'image' ? 'image/*' : '*/*';
+        input.click();
+        setShowAttach(false);
+    };
+
+    const handleFileChange = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            const type = file.type.startsWith('image/') ? 'image' : 'document';
+            setPendingFile({ file, type, name: file.name });
+            setReplyText(`Sending ${file.name}...`);
+        }
+    };
+
+    const sendSpecial = (type) => {
+        setShowAttach(false);
+        if (type === 'location') {
+            handleAISend('Sending location...', { 
+                type: 'location', 
+                location: { latitude: 29.9695, longitude: 76.8783, name: 'Bharat Properties', address: 'Sector 4, Kurukshetra' } 
+            });
+        } else if (type === 'contact') {
+            handleAISend('Sending contact card...', {
+                type: 'contacts',
+                contacts: [{
+                    name: { first_name: 'Bharat', last_name: 'Properties', formatted_name: 'Bharat Properties' },
+                    phones: [{ phone: '919999999999', type: 'WORK' }]
+                }]
+            });
+        }
     };
 
     return (
@@ -788,7 +1150,7 @@ function AIBotView({ T, isDark, convos, selected, onSelect, onTakeover, onRefres
                         <div style={{fontSize:'0.78rem',color:T.text3,marginTop:'4px'}}>Conversations appear here when leads message via WhatsApp.</div>
                     </div>
                 ) : convos.map(conv => (
-                    <div key={conv.id} onClick={() => onSelect(conv)} style={{
+                    <div key={conv.id} onClick={() => onSelect(conv.id)} style={{
                         padding:'13px 14px', borderBottom:`1px solid ${T.border}`, cursor:'pointer',
                         background: selected?.id===conv.id ? '#8b5cf615' : 'transparent',
                         borderLeft: selected?.id===conv.id ? '3px solid #8b5cf6' : '3px solid transparent',
@@ -806,8 +1168,13 @@ function AIBotView({ T, isDark, convos, selected, onSelect, onTakeover, onRefres
                                 </div>
                                 <div style={{fontSize:'0.68rem',color: T.text2,fontFamily:'monospace',marginTop:'1px'}}>{conv.phone}</div>
                                 {conv.messages.length > 0 && (
-                                    <div style={{fontSize:'0.7rem',color:T.text3,marginTop:'3px',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
-                                        {conv.messages[conv.messages.length-1]?.text?.slice(0,50)||''}
+                                    <div style={{fontSize:'0.7rem',color:T.text3,marginTop:'3px',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis', display: 'flex', alignItems: 'center', gap: '4px'}}>
+                                        {conv.messages[conv.messages.length-1]?.metadata?.attachment && (
+                                            <span style={{color: T.accent, fontWeight: 700}}>
+                                                {conv.messages[conv.messages.length-1].metadata.attachment.type === 'image' ? '🖼️ Photo' : '📎 Media'}
+                                            </span>
+                                        )}
+                                        {conv.messages[conv.messages.length-1]?.text?.slice(0,50) || (conv.messages[conv.messages.length-1]?.metadata?.attachment ? '' : 'Conversation started')}
                                     </div>
                                 )}
                             </div>
@@ -850,14 +1217,43 @@ function AIBotView({ T, isDark, convos, selected, onSelect, onTakeover, onRefres
                             )}
 
                             {/* Takeover button */}
-                            <button onClick={() => onTakeover(selected.id, selected.isHandedOff)} style={{
-                                padding:'7px 16px', borderRadius:'9px', fontWeight:700, fontSize:'0.78rem', cursor:'pointer', border:'none',
-                                background: selected.isHandedOff ? '#22c55e20' : '#ef444420',
-                                color: selected.isHandedOff ? '#22c55e' : '#ef4444',
-                                display:'flex', alignItems:'center', gap:'6px',
-                            }}>
-                                {selected.isHandedOff ? '🤖 Resume AI' : '👨‍💼 Take Over'}
-                            </button>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                                {!selected.isMatched && (
+                                    <button 
+                                        onClick={async () => {
+                                            if (!selected.phone) return;
+                                            toast.loading('Creating lead...', { id: 'conv-lead' });
+                                            try {
+                                                const res = await activitiesAPI.convertToLead({ 
+                                                    phoneNumber: selected.phone, 
+                                                    name: selected.name,
+                                                    source: `AI WhatsApp`
+                                                });
+                                                if (res?.success) { 
+                                                    toast.success('Lead created!', { id: 'conv-lead' }); 
+                                                    onRefresh(); 
+                                                }
+                                                else toast.error(res?.error || 'Failed', { id: 'conv-lead' });
+                                            } catch(e) { toast.error('Error creating lead', { id: 'conv-lead' }); }
+                                        }}
+                                        style={{
+                                            padding: '7px 16px', borderRadius: '9px', fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer', border: 'none',
+                                            background: '#059669', color: '#fff',
+                                            display: 'flex', alignItems: 'center', gap: '6px'
+                                        }}
+                                    >
+                                        <i className="fas fa-user-plus"></i> CREATE LEAD
+                                    </button>
+                                )}
+                                <button onClick={() => onTakeover(selected.id, selected.isHandedOff)} style={{
+                                    padding:'7px 16px', borderRadius:'9px', fontWeight:700, fontSize:'0.78rem', cursor:'pointer', border:'none',
+                                    background: selected.isHandedOff ? '#22c55e20' : '#ef444420',
+                                    color: selected.isHandedOff ? '#22c55e' : '#ef4444',
+                                    display:'flex', alignItems:'center', gap:'6px',
+                                }}>
+                                    {selected.isHandedOff ? '🤖 Resume AI' : '👨‍💼 Take Over'}
+                                </button>
+                            </div>
                         </div>
 
                         {/* Messages */}
@@ -890,7 +1286,69 @@ function AIBotView({ T, isDark, convos, selected, onSelect, onTakeover, onRefres
                                                 border: !isOut ? `1px solid ${T.border}` : 'none',
                                                 boxShadow: isOut ? '0 3px 10px rgba(0,0,0,0.15)' : 'none',
                                             }}>
-                                                {msg.text}
+                                                {/* Text Content */}
+                                                {/* Text Content — Hide technical placeholders if rich media is present */}
+                                                {msg.text && !((msg.text.toLowerCase().includes('media attachment') || msg.text.toLowerCase().startsWith('[sent ')) && msg.metadata?.attachment) && (
+                                                    <div style={{ marginBottom: msg.metadata?.attachment ? '8px' : 0 }}>{msg.text}</div>
+                                                )}
+                                                
+                                                {/* 🚀 Advanced Rich Media Renderer */}
+                                                {msg.metadata?.attachment && (
+                                                    <div style={{ marginTop: '4px', borderRadius: '8px', overflow: 'hidden', background: isOut ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.03)', padding: '4px' }}>
+                                                {msg.metadata.attachment.type === 'image' && (
+                                                    <div style={{ cursor: 'pointer' }} onClick={() => setPreviewMedia(msg.metadata.attachment.url.startsWith('http') ? msg.metadata.attachment.url : `${BASE_BACKEND_URL}${msg.metadata.attachment.url}`)}>
+                                                        <img src={msg.metadata.attachment.url.startsWith('http') ? msg.metadata.attachment.url : `${BASE_BACKEND_URL}${msg.metadata.attachment.url}`} alt="Shared" style={{ maxWidth: '100%', borderRadius: '6px', display: 'block' }} />
+                                                        <div style={{ fontSize: '0.65rem', marginTop: '4px', opacity: 0.8, textAlign: 'center' }}><i className="fas fa-expand-alt"></i> Click to expand</div>
+                                                    </div>
+                                                )}
+                                                        
+                                                        {(msg.metadata.attachment.type === 'document' || msg.metadata.attachment.type === 'video' || msg.metadata.attachment.type === 'audio') && (
+                                                            <div 
+                                                                onClick={() => window.open(msg.metadata.attachment.url.startsWith('http') ? msg.metadata.attachment.url : `${BASE_BACKEND_URL}${msg.metadata.attachment.url}`, '_blank')}
+                                                                style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px', cursor: 'pointer' }}
+                                                            >
+                                                                <div style={{ width: 36, height: 36, borderRadius: '8px', background: isOut ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                                    <i className={`fas ${msg.metadata.attachment.type === 'document' ? 'fa-file-alt' : (msg.metadata.attachment.type === 'video' ? 'fa-play' : 'fa-volume-up')}`} style={{ color: isOut ? '#fff' : T.accent }}></i>
+                                                                </div>
+                                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                                    <div style={{ fontSize: '0.75rem', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: isOut ? '#fff' : T.text }}>{msg.metadata.attachment.filename || 'Attached File'}</div>
+                                                                    <div style={{ fontSize: '0.6rem', opacity: 0.7, color: isOut ? '#fff' : T.text2 }}>{msg.metadata.attachment.mimeType || 'Download'}</div>
+                                                                </div>
+                                                                <i className="fas fa-download" style={{ fontSize: '0.8rem', opacity: 0.7, color: isOut ? '#fff' : T.text }}></i>
+                                                            </div>
+                                                        )}
+                                                        
+                                                        {msg.metadata.attachment.type === 'location' && (
+                                                            <div 
+                                                                onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${msg.metadata.attachment.location.latitude},${msg.metadata.attachment.location.longitude}`, '_blank')}
+                                                                style={{ padding: '8px', cursor: 'pointer' }}
+                                                            >
+                                                                <div style={{ fontSize: '0.75rem', fontWeight: 800, marginBottom: '4px', color: isOut ? '#fff' : T.text }}><i className="fas fa-map-marker-alt" style={{ color: '#ef4444' }}></i> {msg.metadata.attachment.location.name || 'Shared Location'}</div>
+                                                                <div style={{ fontSize: '0.65rem', opacity: 0.8, marginBottom: '8px', color: isOut ? '#fff' : T.text2 }}>{msg.metadata.attachment.location.address || 'Click to view on Google Maps'}</div>
+                                                                <div style={{ background: isOut ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.05)', height: '40px', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 700, color: isOut ? '#fff' : T.accent }}>
+                                                                    📍 OPEN IN GOOGLE MAPS
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                        
+                                                        {msg.metadata.attachment.type === 'contacts' && (
+                                                            <div style={{ padding: '8px' }}>
+                                                                {msg.metadata.attachment.contacts?.map((contact, ci) => (
+                                                                    <div key={ci} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '6px', background: isOut ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.02)', borderRadius: '6px', marginBottom: ci < msg.metadata.attachment.contacts.length - 1 ? '4px' : 0 }}>
+                                                                        <div style={{ width: 30, height: 30, borderRadius: '50%', background: T.accent, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 800 }}>
+                                                                            {contact.name?.first_name?.[0] || contact.name?.formatted_name?.[0] || '?'}
+                                                                        </div>
+                                                                        <div style={{ flex: 1 }}>
+                                                                            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: isOut ? '#fff' : T.text }}>{contact.name?.formatted_name || 'Contact'}</div>
+                                                                            <div style={{ fontSize: '0.65rem', opacity: 0.7, color: isOut ? '#fff' : T.text2 }}>{contact.phones?.[0]?.phone || 'No Number'}</div>
+                                                                        </div>
+                                                                        <i className="fas fa-user-plus" style={{ cursor: 'pointer', opacity: 0.7, color: isOut ? '#fff' : T.text }} title="Add to Leads"></i>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
                                             </div>
                                             <div style={{ fontSize:'0.58rem', color: T.text3, marginTop:'3px', textAlign:isOut?'right':'left' }}>
                                                 {msg.time && !isNaN(new Date(msg.time)) ? new Date(msg.time).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : (msg.time||'')}
@@ -906,16 +1364,55 @@ function AIBotView({ T, isDark, convos, selected, onSelect, onTakeover, onRefres
                         <div style={{ padding:'12px 16px', borderTop:`1px solid ${T.border}`, background: T.surface, flexShrink:0 }}>
                             <div style={{ display:'flex', gap:'8px', alignItems:'center' }}>
                                 <div style={{ width:6, height:6, borderRadius:'50%', background: selected.isHandedOff ? '#f59e0b' : '#22c55e', flexShrink:0 }} title={selected.isHandedOff ? 'Agent mode' : 'AI mode'}/>
+                                
+                                <div style={{ position: 'relative' }}>
+                                    <button onClick={() => setShowAttach(!showAttach)} style={{
+                                        width:38, height:38, borderRadius:'50%', border:`1px solid ${T.border}`, background: T.badge, color: T.text2, cursor:'pointer',
+                                        display:'flex', alignItems:'center', justifyContent:'center', fontSize:'0.9rem', transition:'all 0.2s'
+                                    }}>
+                                        <i className={`fas ${showAttach ? 'fa-times' : 'fa-plus'}`}></i>
+                                    </button>
+                                    
+                                    {showAttach && (
+                                        <div style={{
+                                            position: 'absolute', bottom: '45px', left: 0, background: T.surface, border: `1px solid ${T.border}`,
+                                            borderRadius: '12px', padding: '8px', display: 'flex', flexDirection: 'column', gap: '4px', width: '130px',
+                                            boxShadow: '0 10px 25px rgba(0,0,0,0.3)', zIndex: 100
+                                        }}>
+                                            {[
+                                                { id: 'image', icon: 'fa-image', label: 'Photo', bg: '#ec4899' },
+                                                { id: 'document', icon: 'fa-file-pdf', label: 'Document', bg: '#a855f7' },
+                                                { id: 'contact', icon: 'fa-user', label: 'Contact', bg: '#0ea5e9' },
+                                                { id: 'location', icon: 'fa-map-marker-alt', label: 'Location', bg: '#059669' }
+                                            ].map(item => (
+                                                <div key={item.id} onClick={() => item.id === 'image' || item.id === 'document' ? triggerFile(item.id) : sendSpecial(item.id)} 
+                                                    style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 9px', borderRadius: '8px', cursor: 'pointer', transition: 'background 0.2s' }}
+                                                    onMouseOver={e => e.currentTarget.style.background = T.badge}
+                                                    onMouseOut={e => e.currentTarget.style.background = 'transparent'}
+                                                >
+                                                    <div style={{ width: 24, height: 24, borderRadius: '50%', background: item.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '0.65rem' }}>
+                                                        <i className={`fas ${item.icon}`}></i>
+                                                    </div>
+                                                    <span style={{ fontSize: '0.72rem', fontWeight: 600, color: T.text2 }}>{item.label}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+
                                 <input type="text" value={replyText} onChange={e=>setReplyText(e.target.value)} onKeyDown={e=>e.key==='Enter'&&!e.shiftKey&&handleAISend()}
                                     placeholder={selected.isHandedOff ? 'Type manual reply (WhatsApp)…' : 'AI is handling — type to override…'}
                                     disabled={sendingAI}
                                     style={{ flex:1, padding:'9px 13px', borderRadius:'9px', border:`1px solid ${T.inputBorder}`, background: T.input, color: T.text, fontSize:'0.83rem', outline:'none' }}
                                 />
-                                <button onClick={handleAISend} disabled={sendingAI||!replyText.trim()} style={{
+
+                                <input type="file" id="ai-file-input" style={{ display: 'none' }} onChange={handleFileChange} />
+
+                                <button onClick={() => handleAISend()} disabled={sendingAI||(!replyText.trim() && !pendingFile)} style={{
                                     width:40, height:38, borderRadius:'9px', border:'none', cursor:'pointer',
                                     background:'linear-gradient(135deg,#6366f1,#4f46e5)', color:'#fff',
                                     display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1rem',
-                                    opacity:(!replyText.trim()||sendingAI)?0.5:1
+                                    opacity:((!replyText.trim() && !pendingFile)||sendingAI)?0.5:1
                                 }}>{sendingAI?'⏳':'➤'}</button>
                             </div>
 
@@ -959,6 +1456,21 @@ function EmptyState({ T, channel }) {
             <div style={{fontSize:'3rem',marginBottom:'14px'}}>{ch.icon}</div>
             <div style={{fontWeight:800, fontSize:'1.1rem', color: T.text}}>No {ch.label} activity</div>
             <div style={{fontSize:'0.82rem', color: T.text2, marginTop:'6px'}}>Switch channel or clear filters to see more.</div>
+        </div>
+    );
+}
+
+/* 🚀 Media Preview Modal */
+function MediaPreviewModal({ media, onClose, T }) {
+    if (!media) return null;
+    return (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', zIndex: 10000, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '20px' }} onClick={onClose}>
+            <button onClick={onClose} style={{ position: 'absolute', top: '20px', right: '20px', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', width: '40px', height: '40px', borderRadius: '50%', cursor: 'pointer', fontSize: '1.2rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+            <img src={media} alt="Preview" style={{ maxWidth: '100%', maxHeight: '85vh', borderRadius: '8px', boxShadow: '0 20px 50px rgba(0,0,0,0.5)', objectFit: 'contain' }} onClick={e => e.stopPropagation()} />
+            <div style={{ marginTop: '20px', color: '#fff', fontSize: '0.9rem', fontWeight: 600, display: 'flex', gap: '20px' }}>
+                <a href={media} download target="_blank" rel="noreferrer" style={{ color: '#fff', textDecoration: 'none' }} onClick={e => e.stopPropagation()}><i className="fas fa-download"></i> Download</a>
+                <span style={{ cursor: 'pointer' }} onClick={onClose}>Close</span>
+            </div>
         </div>
     );
 }

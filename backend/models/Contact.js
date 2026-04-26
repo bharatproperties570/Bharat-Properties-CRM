@@ -131,21 +131,27 @@ const ContactSchema = new mongoose.Schema({
 // Middleware to recursively convert empty strings to null
 const sanitizeData = (obj) => {
     if (!obj || typeof obj !== "object") return;
+    
+    // Safety check to prevent infinite recursion
+    const seen = new WeakSet();
 
-    for (const key in obj) {
-        // Skip internal mongoose properties and methods
-        if (key.startsWith('$') || key.startsWith('_')) continue;
+    const walk = (o) => {
+        if (!o || typeof o !== "object") return;
+        if (seen.has(o)) return;
+        seen.add(o);
 
-        if (obj[key] === "") {
-            obj[key] = null;
-        } else if (obj[key] && typeof obj[key] === "object") {
-            // Avoid circular references and deep recursion by limiting to own properties
-            if (Object.prototype.hasOwnProperty.call(obj, key)) {
-                sanitizeData(obj[key]);
+        for (const key in o) {
+            if (key.startsWith('$') || key.startsWith('_')) continue;
+            if (o[key] === "") {
+                o[key] = null;
+            } else if (o[key] && typeof o[key] === "object") {
+                walk(o[key]);
             }
         }
-    }
+    };
+    walk(obj);
 };
+
 
 const escapeRegExp = (string) => {
     if (!string) return '';
@@ -163,7 +169,8 @@ ContactSchema.pre("save", async function (next) {
             });
         }
 
-        const Lookup = mongoose.model('Lookup');
+        const Lookup = mongoose.models.Lookup || mongoose.model('Lookup');
+
         const resolveLookupLocal = async (type, value) => {
             if (!value) return null;
             if (mongoose.Types.ObjectId.isValid(value)) return value;

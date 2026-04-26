@@ -29,11 +29,12 @@ const connectDB = async (retryCount = 5) => {
         } catch (error) {
             console.error(`❌ MongoDB Connection Attempt ${i + 1} Failed: ${error.message}`);
             if (i === retryCount - 1) {
-                console.error("❌ All MongoDB connection attempts failed.");
-                process.exit(1);
+                console.error("❌ All MongoDB connection attempts failed. Server will remain alive but functionality is restricted.");
+                // We don't exit here. We let the server stay alive so it can return 500s correctly.
+            } else {
+                // Wait for 2 seconds before retrying
+                await new Promise(resolve => setTimeout(resolve, 2000));
             }
-            // Wait for 2 seconds before retrying
-            await new Promise(resolve => setTimeout(resolve, 2000));
         }
     }
 };

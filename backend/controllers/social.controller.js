@@ -332,25 +332,63 @@ export const receiveWebhook = async (req, res) => {
                         });
                     }
 
-                    // 5. Append User Message to Thread
-                    conversation.messages.push({ role: 'user', content: event.text });
+                    // 5. [NEW] Resolve Media Attachment if present
+                    let attachment = null;
+                    let messageText = event.text;
+
+                    if (['image', 'video', 'document', 'audio', 'sticker'].includes(event.type)) {
+                        try {
+                            const waService = (await import('../services/WhatsAppService.js')).default;
+                            const downloaded = await waService.downloadMedia(event.mediaData.id);
+                            attachment = {
+                                type: event.type,
+                                url: downloaded.url,
+                                mimeType: downloaded.mimeType,
+                                filename: event.mediaData.filename || downloaded.fileName,
+                                caption: event.mediaData.caption || ''
+                            };
+                            messageText = event.mediaData.caption || `[Sent ${event.type}]`;
+                        } catch (err) {
+                            console.error('[SocialController] Media download failed:', err.message);
+                        }
+                    } else if (event.type === 'location') {
+                        attachment = {
+                            type: 'location',
+                            location: event.raw.location
+                        };
+                        messageText = `📍 Location: ${event.raw.location.name || 'Shared Location'}`;
+                    } else if (event.type === 'contacts') {
+                        attachment = {
+                            type: 'contacts',
+                            contacts: event.raw.contacts
+                        };
+                        messageText = `👤 Contact Card: ${event.raw.contacts[0]?.name?.formatted_name || 'Shared Contact'}`;
+                    }
+
+                    // 6. Append User Message to Thread with Metadata
+                    conversation.messages.push({ 
+                        role: 'user', 
+                        content: messageText,
+                        metadata: attachment ? { attachment } : null
+                    });
                     await conversation.save();
 
-                    // 6. Save as Activity for Timeline
+                    // 7. Save as Activity for Timeline
                     const activity = await Activity.create({
                         type: 'WhatsApp',
-                        subject: `Inbound WhatsApp: ${event.text.substring(0, 40)}${event.text.length > 40 ? '...' : ''}`,
+                        subject: `Inbound WhatsApp: ${messageText.substring(0, 40)}${messageText.length > 40 ? '...' : ''}`,
                         entityType: entityType,
                         entityId: entityId,
-                        description: event.text,
+                        description: messageText,
                         status: 'Completed',
                         performedBy: 'WhatsApp User',
                         details: {
                             platform: 'whatsapp',
                             direction: 'incoming',
                             sender: rawPhone,
-                            message: event.text,
-                            conversationId: conversation._id
+                            message: messageText,
+                            conversationId: conversation._id,
+                            attachment: attachment // Store attachment in details too
                         },
                         timestamp: new Date(),
                         dueDate: new Date()
@@ -402,10 +440,13 @@ export const receiveWebhook = async (req, res) => {
                 if (event.platform === 'whatsapp' && event.type === 'status_update') {
                     console.log(`[SocialWebhook] Processing Status Update: ${event.messageId} -> ${event.status}`);
                     
-                    const Activity = (await import('../models/Activity.js')).default;
-                    
-                    // Match by the message ID stored in details
-                    const activity = await Activity.findOne({ "details.messageId": event.messageId });
+                    // Match by the message ID stored in details (Intelligent fallback for Campaign vs Direct Message)
+                    const activity = await Activity.findOne({ 
+                        $or: [
+                            { "details.messageId": event.messageId },
+                            { "details.msgId":     event.messageId }
+                        ]
+                    });
                     
                     if (activity) {
                         const statusMap = {

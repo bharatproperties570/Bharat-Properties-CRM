@@ -13,23 +13,28 @@
 export const normalizePhone = (phone) => {
     if (!phone) return '';
     
-    // 1. Convert to string and remove all non-numeric characters
+    // Clean all non-numeric
     let cleaned = String(phone).replace(/\D/g, '');
     
-    // 2. Handle Indian country code (91) if it's 12 digits starting with 91
+    // For Indian gateways, 10 digits is often safer for Transactional routes
+    // If it's 12 digits starting with 91, strip the 91
     if (cleaned.length === 12 && cleaned.startsWith('91')) {
-        cleaned = cleaned.substring(2);
+        return cleaned.substring(2);
     }
     
-    // 3. Handle leading zero if it's 11 digits starting with 0
+    // If it starts with 0 and is 11 digits, strip the 0
     if (cleaned.length === 11 && cleaned.startsWith('0')) {
-        cleaned = cleaned.substring(1);
+        return cleaned.substring(1);
     }
     
-    // 4. Final safety: If it's longer than 10, take the last 10 digits
-    // This handles cases like +91 999 100 0570 where spaces might cause length issues
+    // If it's already 10 digits, return it
+    if (cleaned.length === 10) {
+        return cleaned;
+    }
+    
+    // Final fallback: take last 10 digits
     if (cleaned.length > 10) {
-        cleaned = cleaned.slice(-10);
+        return cleaned.slice(-10);
     }
     
     return cleaned;

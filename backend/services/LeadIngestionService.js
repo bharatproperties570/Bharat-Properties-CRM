@@ -74,24 +74,14 @@ export const ingestLead = async (parsedData) => {
 
         // 5. Automatic Lead Distribution
         try {
-            const assignment = await autoAssign(lead);
+            const { distributeEntity } = await import('../src/utils/distributionEngine.js');
+            const assignment = await distributeEntity(lead, 'onEmailCapture');
+            
             if (assignment && assignment.assignedTo) {
                 const assignedTo = assignment.assignedTo;
-                await Lead.findByIdAndUpdate(lead._id, { owner: assignedTo });
+                // No need to update lead here as distributeEntity already does it, 
+                // but we should verify if we want to log the specific rule
                 console.log(`[Lead Ingestion] Lead ${lead._id} auto-assigned to ${assignedTo} via rule "${assignment.ruleName}"`);
-                
-                // Log assignment
-                const User = mongoose.model('User');
-                const agent = await User.findById(assignedTo).lean();
-                await AuditLog.logEntityUpdate(
-                    'lead_updated', // Using standardized event type
-                    'lead',
-                    lead._id,
-                    `${firstName} ${lastName}`.trim(),
-                    null,
-                    { owner: assignedTo },
-                    `Auto-assigned to ${agent?.fullName || 'Agent'} via distribution rule: ${assignment.ruleName}`
-                );
             }
         } catch (distErr) {
             console.error(`[Lead Ingestion] Auto-assignment failed for ${lead._id}:`, distErr.message);

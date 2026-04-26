@@ -209,6 +209,7 @@ export const getContact = async (req, res, next) => {
 
         const interactionCounts = { call: 0, siteVisit: 0, meeting: 0, email: 0, sms: smsStatsCount, whatsapp: 0 };
         activityStats.forEach(stat => {
+            if (!stat._id) return;
             const t = stat._id.toLowerCase();
             if (t.includes('call')) interactionCounts.call += stat.count;
             else if (t.includes('meeting')) interactionCounts.meeting += stat.count;

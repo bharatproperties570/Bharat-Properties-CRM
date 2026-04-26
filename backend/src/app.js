@@ -34,6 +34,7 @@ import intakeRoutes from "./modules/intake/intake.routes.js";
 import enrichmentRoutes from "./modules/prospectingEnrichment/enrichment.routes.js";
 import activityCompletionRoutes from "./modules/activity/activityCompletion.routes.js";
 import stageTransitionRoutes from "./modules/rules/stageTransition.routes.js";
+import googleSettingsRoutes from "../routes/googleSettings.routes.js";
 
 // Middleware
 import { errorHandler } from "./middlewares/error.middleware.js";
@@ -81,6 +82,7 @@ app.use(cors({
     credentials: true
 }));
 app.use(express.json({ limit: "10mb" }));
+app.use('/uploads', express.static('uploads'));
 
 // Request Logger
 app.use((req, res, next) => {
@@ -88,36 +90,42 @@ app.use((req, res, next) => {
     next();
 });
 
+// Standardized API Routing
+const apiRouter = express.Router();
+
 // Existing CRM routes
-app.use("/auth", authRoutes);
-app.use("/leads", leadRoutes);
-app.use("/contacts", contactRoutes);
-app.use("/inventory", inventoryRoutes);
-app.use("/projects", projectRoutes);
-app.use("/lookup", lookupRoutes);
-app.use("/lookups", lookupRoutes); // Alias for RESTful style
-app.use("/activities", activityRoutes);
-app.use("/marketing", marketingRoutes);
-app.use("/field-rules", myFieldRuleRoutes);
-app.use("/distribution-rules", myDistributionRuleRoutes);
-app.use("/companies", companyRoutes);
-app.use("/deals", dealRoutes);
-app.use("/bookings", bookingRoutes);
+apiRouter.use("/auth", authRoutes);
+apiRouter.use("/leads", leadRoutes);
+apiRouter.use("/contacts", contactRoutes);
+apiRouter.use("/inventory", inventoryRoutes);
+apiRouter.use("/projects", projectRoutes);
+apiRouter.use("/lookup", lookupRoutes);
+apiRouter.use("/lookups", lookupRoutes); 
+apiRouter.use("/activities", activityRoutes);
+apiRouter.use("/marketing", marketingRoutes);
+apiRouter.use("/field-rules", myFieldRuleRoutes);
+apiRouter.use("/distribution-rules", myDistributionRuleRoutes);
+apiRouter.use("/companies", companyRoutes);
+apiRouter.use("/deals", dealRoutes);
+apiRouter.use("/bookings", bookingRoutes);
 
 // New settings API routes
-app.use("/users", userRoutes);
-app.use("/roles", roleRoutes);
-app.use("/config/lookups", configLookupRoutes);
-app.use("/config/fields", customFieldRoutes);
-app.use("/rules/field", fieldRuleRoutes);
-app.use("/rules/distribution", distributionRoutes);
-// app.use("/scoring-rules", scoringRoutes); // Removed: ScoringRule was orphaned (Bug 4)
-app.use("/system-settings", systemRoutes);
-app.use("/parsing-rules", parsingRoutes);
-app.use("/intake", intakeRoutes);
-app.use("/enrichment", enrichmentRoutes);
-app.use("/activities", activityCompletionRoutes);   // Activity completion pipeline (stage + scoring)
-app.use("/rules/stage-transitions", stageTransitionRoutes); // Stage transition rules CRUD
+apiRouter.use("/users", userRoutes);
+apiRouter.use("/roles", roleRoutes);
+apiRouter.use("/config/lookups", configLookupRoutes);
+apiRouter.use("/config/fields", customFieldRoutes);
+apiRouter.use("/rules/field", fieldRuleRoutes);
+apiRouter.use("/rules/distribution", distributionRoutes);
+apiRouter.use("/system-settings", systemRoutes);
+apiRouter.use("/settings/google", googleSettingsRoutes);
+apiRouter.use("/parsing-rules", parsingRoutes);
+apiRouter.use("/intake", intakeRoutes);
+apiRouter.use("/enrichment", enrichmentRoutes);
+apiRouter.use("/activities", activityCompletionRoutes);   
+apiRouter.use("/rules/stage-transitions", stageTransitionRoutes); 
+
+// Mount the API Router
+app.use("/api", apiRouter);
 
 
 // Error Handling Middleware (must be last)

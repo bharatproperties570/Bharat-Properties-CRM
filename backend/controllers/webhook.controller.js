@@ -207,12 +207,14 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                 if (status === 'read') activityStatus = 'Read';
                 if (status === 'failed') activityStatus = 'Failed';
 
-                console.log(`[WhatsApp Webhook] Status Update: ${status} for MSG: ${wamid}`);
-
-                // Update the Activity that matches this msgId
-                // We use findOneAndUpdate to find by the details.msgId nested field
+                // Update the Activity that matches this msgId (Intelligent fallback for Campaign vs Direct Message)
                 const updatedActivity = await Activity.findOneAndUpdate(
-                    { 'details.msgId': wamid },
+                    { 
+                        $or: [
+                            { 'details.msgId':     wamid },
+                            { 'details.messageId': wamid }
+                        ]
+                    },
                     { 
                         $set: { 
                             status: activityStatus,
@@ -233,22 +235,78 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
             if (entryValue.messages && entryValue.messages[0]) {
                 const messageObj = entryValue.messages[0];
                 const fromNumber = messageObj.from;
-                const messageText = messageObj.text?.body || '';
+                const msgType = messageObj.type; // 'text', 'image', 'document', 'location', 'contacts', etc.
+                
+                let messageText = messageObj.text?.body || '';
+                let attachment = null;
 
-                if (!messageText) return res.sendStatus(200);
+                // 🚀 Professional Debug: Log raw payload if it contains the technical placeholder
+                if (messageText.includes('[Media Attachment]')) {
+                    console.log('[WhatsApp Webhook] Technical Placeholder Detected. Raw Message Object:', JSON.stringify(messageObj, null, 2));
+                }
+
+                // 🚀 Resolve Media Content
+                const waService = (await import('../services/WhatsAppService.js')).default;
+                
+                if (msgType === 'image' || msgType === 'document' || msgType === 'video' || msgType === 'audio' || msgType === 'sticker') {
+                    const mediaData = messageObj[msgType];
+                    try {
+                        const downloaded = await waService.downloadMedia(mediaData.id);
+                        attachment = {
+                            type: msgType,
+                            url: downloaded.url,
+                            mimeType: downloaded.mimeType,
+                            filename: mediaData.filename || downloaded.fileName,
+                            caption: mediaData.caption || ''
+                        };
+                        messageText = mediaData.caption || `[Sent ${msgType}]`;
+                    } catch (err) {
+                        console.error(`[WhatsApp Webhook] Media download failed:`, err.message);
+                        messageText = `[Sent ${msgType} - Download Failed]`;
+                    }
+                } else if (msgType === 'location') {
+                    const loc = messageObj.location;
+                    attachment = {
+                        type: 'location',
+                        location: {
+                            latitude: loc.latitude,
+                            longitude: loc.longitude,
+                            name: loc.name,
+                            address: loc.address
+                        }
+                    };
+                    messageText = `📍 Location: ${loc.name || loc.address || 'Shared Location'}`;
+                } else if (msgType === 'contacts') {
+                    attachment = {
+                        type: 'contacts',
+                        contacts: messageObj.contacts
+                    };
+                    messageText = `👤 Contact Card: ${messageObj.contacts[0]?.name?.formatted_name || 'Shared Contact'}`;
+                }
+
+                if (!messageText && !attachment) return res.sendStatus(200);
 
                 const normalizedMobile = normalizePhone(fromNumber);
 
-                // 1. Find Identity (Lead or Contact)
-                const lead = await Lead.findOne({ mobile: normalizedMobile });
-                let contact = null;
+                // 🚀 Enterprise Intake Engine Integration
+                // This replaces the naive auto-capture with intent-aware logic (Buyer vs Seller)
+                const intakeEngine = (await import('../src/utils/intakeEngine.js')).default;
+                const intakeResult = await intakeEngine.processIntake({
+                    mobile: fromNumber,
+                    name: entryValue.contacts?.[0]?.profile?.name || 'WhatsApp User',
+                    message: messageText,
+                    source: 'WhatsApp'
+                });
 
-                if (!lead) {
-                    contact = await Contact.findOne({ 'phones.number': normalizedMobile });
+                if (intakeResult.type === 'LEAD') {
+                    lead = intakeResult.data;
+                } else if (!lead) {
+                    // Re-fetch in case it was updated or already existed
+                    lead = await Lead.findOne({ mobile: normalizedMobile });
                 }
 
-                const entityId = lead?._id || contact?._id || null;
-                const entityType = lead ? 'Lead' : (contact ? 'Contact' : 'Unknown');
+                const entityId = lead?._id || contact?._id || intakeResult.data?._id || null;
+                const entityType = lead ? 'Lead' : (contact ? 'Contact' : (intakeResult.type === 'DEAL' ? 'Deal' : (intakeResult.type === 'INVENTORY' ? 'Inventory' : 'Unknown')));
 
                 // 2. Find or Create Conversation
                 let conversation = await Conversation.findOne({ 
@@ -258,23 +316,25 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
 
                 if (!conversation) {
                     conversation = await Conversation.create({
-                        lead: lead?._id || null, // No longer required
+                        lead: lead?._id || null,
                         contact: contact?._id || null,
                         channel: 'whatsapp',
                         phoneNumber: normalizedMobile,
                         status: 'active',
                         messages: [],
-                        metadata: {
-                            isMatched: !!(lead || contact)
-                        }
+                        metadata: { isMatched: !!(lead || contact) }
                     });
                 }
 
                 // 3. User Message
-                conversation.messages.push({ role: 'user', content: messageText });
+                conversation.messages.push({ 
+                    role: 'user', 
+                    content: messageText,
+                    metadata: attachment ? { attachment } : null 
+                });
                 await conversation.save();
 
-                // [NOTIFICATION] Notify Lead/Contact Owner of incoming WhatsApp message via Professional Engine
+                // [NOTIFICATION] Notify Lead/Contact Owner
                 const targetUserId = lead?.assignment?.assignedTo || lead?.owner || contact?.owner || null;
                 const NotificationEngine = (await import('../services/NotificationEngine.js')).default;
                 
@@ -286,7 +346,7 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                     entityId
                 );
 
-                // 3.1 Create formal Activity Log (For Timeline consistency and Feed notifications)
+                // 3.1 Create formal Activity Log
                 await Activity.create({
                     type: 'WhatsApp',
                     subject: `Inbound WhatsApp: ${messageText.substring(0, 40)}${messageText.length > 40 ? '...' : ''}`,
@@ -300,20 +360,19 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                         direction: 'incoming',
                         platform: 'whatsapp',
                         from: fromNumber,
-                        conversationId: conversation._id
+                        conversationId: conversation._id,
+                        attachment: attachment
                     }
                 }).catch(err => console.error('[WhatsApp Live Bot] Failed to create Activity:', err.message));
 
-                // 4. Generate AI Response
-                // Convert past messages to simple context string for prompt
+                // 4. Generate AI Response (Only if it's text or has a caption)
+                // If it's pure media without caption, AI might just say "Got your file!"
                 const chatHistoryContext = conversation.messages.map(m => `${m.role}: ${m.content}`).join('\n');
                 const aiResult = await generateBotResponse(messageText, chatHistoryContext);
 
                 if (aiResult.success && aiResult.reply) {
-                    // 5. Send strictly to WhatsApp Meta API (Standardized via SystemSetting)
                     const setting = await SystemSetting.findOne({ key: 'meta_wa_config' }).lean();
                     const config = setting?.value;
-                    
                     const token = config?.token || config?.apiKey;
                     const phoneId = config?.phoneId;
 
@@ -336,19 +395,16 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                                 }
                             );
 
-                            // 6. Save AI reply to conversation
                             conversation.messages.push({ role: 'assistant', content: aiResult.reply });
                             await conversation.save();
 
-                            // Optional: Update Intent Index dynamically if chat grows
-                            lead.intent_index = Math.min(100, lead.intent_index + 2);
-                            await lead.save();
-
+                            if (lead) {
+                                lead.intent_index = Math.min(100, (lead.intent_index || 40) + 2);
+                                await lead.save();
+                            }
                         } catch (waError) {
-                            console.error('[WhatsApp Live Bot] Failed to send reply via Meta API:', waError.response?.data || waError.message);
+                            console.error('[WhatsApp Live Bot] Failed to send reply:', waError.response?.data || waError.message);
                         }
-                    } else {
-                        console.error('[WhatsApp Live Bot] Missing WhatsApp credentials in SystemSettings (meta_wa_config).');
                     }
                 }
             }
@@ -428,6 +484,7 @@ export const exotelCallback = async (req, res) => {
                 lastCallFailure: Status,
                 callSid: CallSid
             };
+        }
         await lead.save();
 
         // 🔔 TRIGGER SENIOR NOTIFICATION

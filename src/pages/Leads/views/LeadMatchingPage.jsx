@@ -59,8 +59,8 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                         const mappedMatches = (matchRes.data.data || []).map(item => ({
                             ...item,
                             matchPercentage: item.score || 0,
-                            gaps: item.score < 100 ? ["Partial match on fine details"] : [],
-                            thumbnail: item.inventoryId?.images?.[0] || `https://picsum.photos/seed/${item._id}/200/150`
+                            gaps: item.matchDetails || [], // 🚀 Senior Professional: Use real backend reasons
+                            thumbnail: item.inventoryId?.propertyImages?.[0] || item.inventoryId?.images?.[0] || `https://picsum.photos/seed/${item._id}/400/300`
                         }));
                         setInventoryItems(mappedMatches);
                     }

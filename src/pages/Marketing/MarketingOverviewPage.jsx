@@ -55,8 +55,6 @@ const PAGE_META = {
   analytics: { title: 'Analytics', subtitle: 'Metrics engine · ROI Tracking' },
   agents: { title: 'AI Agents', subtitle: 'Autonomous cross-platform orchestration' },
   campaign: { title: 'Campaign Engine', subtitle: '360° Omnichannel Dispatch' },
-  pipeline: { title: 'Marketing Pipeline', subtitle: 'Scheduled & Recurring Queue Monitor' },
-  reports: { title: 'Broadcast Reports', subtitle: 'Historical Campaign Performance Analytics' },
   leads: { title: 'CRM Leads', subtitle: 'High-intent lead pool management' },
   strategies: { title: 'Optimization', subtitle: 'Data-driven market strategies' },
   designer: { title: 'Designer Studio', subtitle: 'Visual Prompt Lab' },
@@ -187,13 +185,6 @@ const NEW_ANGLES_DATA = [
   { id: 'c', n: 'Ghar ki Kahani Series', icon: '💬', d: 'Real buyer stories. Mirrors emotional journey. Extremely shareable — sounds like a friend\'s advice.', q: 'Series: 1 story/week. First-time buyer, investor, NRI family.', color: 'var(--red)' }
 ];
 
-const CAMP_KPIS = [
-  { label: 'ACTIVE CAMPAIGNS', val: '7', sub: 'All segments live', type: 'blue' },
-  { label: 'MESSAGES SENT', val: '284', sub: 'This week', type: 'blue' },
-  { label: 'REPLY RATE', val: '34%', sub: 'WhatsApp best', type: 'green' },
-  { label: 'CONVERSIONS', val: '12', sub: 'This month', type: 'blue' }
-];
-
 const PORTAL_DATA = [
   { n: '99acres', i: '🏢', pkg: 'Gold Pro', cost: 15500, listings: 45, leads: 128, cpl: 121, resp: '12m', perf: 92, color: 'var(--blue)' },
   { n: 'MagicBricks', i: '🏠', pkg: 'Platinum', cost: 22000, listings: 60, leads: 184, cpl: 119, resp: '8m', perf: 96, color: 'var(--green)' },
@@ -206,6 +197,7 @@ export default function MarketingOverviewPage() {
   // ── CORE STATE WITH MIRROR PROTOCOL ──
   const { projects: dynamicProjects = [], propertyConfig = {}, sizes = [] } = usePropertyConfig();
   const [activePage, setActivePage] = useState('overview');
+  const [campaignTab, setCampaignTab] = useState('launch'); // launch | pipeline | reports
   const [leads, setLeads] = useState([]);
   const [posts, setPosts] = useState([]);
   const [notifs, setNotifs] = useState([]);
@@ -268,7 +260,7 @@ export default function MarketingOverviewPage() {
   const [campFormTab, setCampFormTab] = useState('email'); // email|wa|sms|rcs
   const [emailData, setEmailData] = useState({ name: 'Exclusive Launch Invite', sender: 'Bharat Properties', replyTo: 'sales@bharatproperties.in', subject: '🏠 Special Invitation: Luxury Property Launch', content: 'Hello {lead_name},\n\nWe are excited to invite you to the exclusive unveiling of our latest project in Kurukshetra...\n\nBook your site visit today!' });
   const [waData, setWaData] = useState({ name: 'Festive Offer', content: '🏠 *Bharat Properties*\n\nSpecial Festive Offer! Get 10% off on all pre-bookings this week.\n\n👉 *Reply YES to know more!*' });
-  const [smsText, setSmsText] = useState('BP: 3BHK Kurukshetra Rs.35L. Ready possession. Park view. Book: bharat.co/3bhk STOP-SMS');
+  const [smsData, setSmsData] = useState({ content: 'BP: 3BHK Kurukshetra Rs.35L. Ready possession. Park view. Book: bharat.co/3bhk STOP-SMS' });
   const [rcsData, setRcsData] = useState({ title: '🏠 3BHK Luxury — ₹35L', desc: 'Kurukshetra · Park View · Ready Possession' });
   const [campLaunching, setCampLaunching] = useState(false);
   const [campaignName, setCampaignName] = useState('Enterprise Growth Blast — ' + new Date().toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }));
@@ -281,6 +273,7 @@ export default function MarketingOverviewPage() {
   const [scheduledAt, setScheduledAt] = useState(''); // ISO String
   const [repeatMode, setRepeatMode] = useState('none'); // none | weekly | monthly | yearly
   const [repeatFreq, setRepeatFreq] = useState(1); // e.g. every 2 weeks
+  const [frequency, setFrequency] = useState('once'); // daily | weekly | monthly
   
   const failoverLogRef = useRef(null);
 
@@ -590,6 +583,26 @@ export default function MarketingOverviewPage() {
       return ch;
     });
   }, [activeSmsStatus]);
+
+  // ══ LIVE CAMPAIGN КPIs — Aggregated from history ══
+  const liveCampKPIs = useMemo(() => {
+    const totalRuns = campaignRuns.length;
+    const totalSent = campaignRuns.reduce((acc, r) => acc + (r.sent || 0), 0);
+    const totalDelivered = campaignRuns.reduce((acc, r) => acc + (r.delivered || 0), 0);
+    const totalRead = campaignRuns.reduce((acc, r) => acc + (r.read || 0), 0);
+    const totalFailed = campaignRuns.reduce((acc, r) => acc + (r.failed || 0), 0);
+
+    // Actual Conversion count from leads who are "Hot" or "Converted" and have a campaign source
+    const actualConversions = leads.filter(l => (l.status === 'hot' || l.status === 'converted')).length;
+    const readRate = totalSent > 0 ? Math.round((totalRead / totalSent) * 100) : 0;
+
+    return [
+      { label: 'CAMPAIGNS RUN', val: String(totalRuns), sub: 'Total batch execution', type: 'blue' },
+      { label: 'MESSAGES SENT', val: String(totalSent), sub: `Success: ${totalSent - totalFailed}`, type: 'blue' },
+      { label: 'ENGAGEMENT (READ)', val: `${readRate}%`, sub: `${totalRead} actual opens`, type: 'green' },
+      { label: 'CONVERSIONS', val: String(actualConversions), sub: 'Leads progressed', type: 'gold' }
+    ];
+  }, [campaignRuns, leads]);
 
   // ══ Phase B — LIVE AGENT LIST from backend, fallback to constants ══
   const liveAgentList = useMemo(() => {
@@ -908,8 +921,8 @@ export default function MarketingOverviewPage() {
     let payload = {
       audienceConfig: audienceConfig, // THE NEW 360-DEGREE SOURCE
       isScheduled,
-      scheduledAt: isScheduled ? scheduledAt : null,
-      repeatMode: isScheduled ? repeatMode : 'none',
+      scheduledAt: isScheduled && scheduledAt ? new Date(scheduledAt).toISOString() : null,
+      repeatMode: isScheduled ? frequency : 'none',
       repeatFreq: isScheduled ? repeatFreq : 1
     };
 
@@ -939,7 +952,14 @@ export default function MarketingOverviewPage() {
         payload = { ...payload, name: campaignName, content: waData.content };
       }
     } else if (channel === 'sms') {
-      payload = { ...payload, content: smsText };
+      payload = { 
+        ...payload, 
+        content: smsData.content,
+        smsData: {
+            ...smsData,
+            templateId: selectedSmsTemplate?._id || selectedSmsTemplate?.id
+        }
+      };
     } else {
       payload = { ...payload, title: rcsData.title, desc: rcsData.desc };
     }
@@ -961,6 +981,10 @@ export default function MarketingOverviewPage() {
         resultMsg = apiRes.message || `✅ Queued ${apiRes.leadCount || audienceCount} messages for dispatch`;
         launchSuccess = true;
         toast.success(`${meta.icon} ${meta.n} campaign dispatched to ${apiRes.leadCount || audienceCount} contacts! Job ID: ${apiRes.jobId || '—'}`, { id: 'camp-launch', duration: 6000 });
+        
+        // 🧠 SENIOR PROFESSIONAL: Instant UI Sync
+        // Refresh pipeline and history immediately after dispatch
+        fetchLiveData(); 
       } else {
         throw new Error(apiRes?.error || apiRes?.message || 'Backend returned failure');
       }
@@ -1258,6 +1282,10 @@ export default function MarketingOverviewPage() {
   const [importPreview, setImportPreview] = useState([]);
   const [audienceCount, setAudienceCount] = useState(0);
   const [isCounting, setIsCounting] = useState(false);
+  const [smsTemplates, setSmsTemplates] = useState([]);
+  const [senderIds, setSenderIds] = useState([]);
+  const [isSyncingSmsTemplates, setIsSyncingSmsTemplates] = useState(false);
+  const [selectedSmsTemplate, setSelectedSmsTemplate] = useState(null);
 
   // ── Smart Audience Count Sync ──
   useEffect(() => {
@@ -1280,6 +1308,20 @@ export default function MarketingOverviewPage() {
     const timer = setTimeout(fetchCount, 500);
     return () => clearTimeout(timer);
   }, [audienceConfig]);
+
+  // ── FETCH SMS TEMPLATES ON MOUNT ──
+  useEffect(() => {
+    const fetchSmsTemplates = async () => {
+        try {
+            const res = await api.get('/marketing/sms/templates');
+            if (res.data?.success) {
+                setSmsTemplates(res.data.data.templates || []);
+                setSenderIds(res.data.data.senderIds || []);
+            }
+        } catch (e) { console.error('Failed to load SMS templates'); }
+    };
+    fetchSmsTemplates();
+  }, []);
 
   // ── PERSISTENCE ──
   useEffect(() => DB.set('leads', leads), [leads]);
@@ -1528,8 +1570,6 @@ export default function MarketingOverviewPage() {
         <div className="sidebar-section">
           <div className="sidebar-section-label">Campaigns</div>
           <SidebarItem id="campaign" label="Campaign Engine" icon={Megaphone} />
-          <SidebarItem id="pipeline" label="Marketing Pipeline" icon={Clock} badge={(scheduledQueue.delayed.length + scheduledQueue.repeatable.length) || null} />
-          <SidebarItem id="reports" label="Broadcast Reports" icon={FileText} />
           <SidebarItem id="leads" label="CRM Leads" icon={Home} badge={apiDataLoaded ? (realLeads.length || leads.length) : (stats.hot > 0 ? `${stats.hot}🔥` : '🏠')} />
           <SidebarItem id="portals" label="Property Portals" icon={Globe} badge="5" />
         </div>
@@ -2630,210 +2670,14 @@ export default function MarketingOverviewPage() {
             </div>
           )}
 
-          {/* ════ MARKETING PIPELINE (SCHEDULED & RECURRING) ════ */}
-          {activePage === 'pipeline' && (
-            <div className="pipeline-monitor-v4">
-              <div className="perf-kpi-grid">
-                <div className="kpi-card">
-                  <div className="kpi-label">UPCOMING BLASTS</div>
-                  <div className="kpi-val">{scheduledQueue.delayed.length}</div>
-                  <div className="kpi-sub blue">Next {scheduledQueue.delayed[0] ? new Date(scheduledQueue.delayed[0].scheduledAt).toLocaleTimeString() : '—'}</div>
-                </div>
-                <div className="kpi-card">
-                  <div className="kpi-label">RECURRING LOOPS</div>
-                  <div className="kpi-val">{scheduledQueue.repeatable.length}</div>
-                  <div className="kpi-sub gold">Active Orchestration</div>
-                </div>
-                <div className="kpi-card">
-                  <div className="kpi-label">QUEUE HEALTH</div>
-                  <div className="kpi-val">100%</div>
-                  <div className="kpi-sub green">Redis Sentinel Active</div>
-                </div>
-              </div>
-
-              <div className="card" style={{ marginTop: '1.25rem' }}>
-                <div className="card-header">
-                  <div className="card-title text-serif"><Clock size={16} /> Upcoming One-Time Blasts (Delayed Queue)</div>
-                </div>
-                <div className="card-body" style={{ padding: '0' }}>
-                  <table className="crm-table">
-                    <thead>
-                      <tr>
-                        <th>Campaign Name</th>
-                        <th>Channel</th>
-                        <th>Audience</th>
-                        <th>Scheduled For</th>
-                        <th>Status</th>
-                        <th style={{ textAlign: 'right' }}>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {scheduledQueue.delayed.length === 0 ? (
-                        <tr><td colSpan="6" style={{ textAlign: 'center', padding: '40px', color: 'var(--text3)' }}>No pending one-time blasts in the queue.</td></tr>
-                      ) : (
-                        scheduledQueue.delayed.map(job => (
-                          <tr key={job.id}>
-                            <td style={{ fontWeight: 700 }}>{job.name}</td>
-                            <td><span className="badge-wa" style={{ background: '#25D366', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontSize: '10px' }}>{job.channel}</span></td>
-                            <td>{job.leads} contacts</td>
-                            <td style={{ color: 'var(--gold)', fontWeight: 600 }}>{new Date(job.scheduledAt).toLocaleString()}</td>
-                            <td><span className="pill-status pending" style={{ background: 'rgba(201,146,26,0.1)', color: 'var(--gold)', padding: '4px 8px', borderRadius: '4px', fontSize: '10px' }}>Pending</span></td>
-                            <td style={{ textAlign: 'right' }}>
-                              <button 
-                                className="util-icon-btn red" 
-                                style={{ background: 'rgba(239,68,68,0.1)', border: 'none', color: '#ef4444', padding: '6px', borderRadius: '6px' }}
-                                onClick={async () => {
-                                  if (window.confirm('Cancel this scheduled blast?')) {
-                                    try {
-                                      await marketingAPI.deleteScheduled(job.id, 'delayed');
-                                      fetchLiveData();
-                                      toast.success('Campaign canceled');
-                                    } catch(e) { toast.error('Failed to cancel'); }
-                                  }
-                                }}
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <div className="card" style={{ marginTop: '1.5rem', marginBottom: '2rem' }}>
-                <div className="card-header">
-                  <div className="card-title text-serif"><Workflow size={16} /> Recurring Orchestration (Repeatable Jobs)</div>
-                </div>
-                <div className="card-body" style={{ padding: '0' }}>
-                  <table className="crm-table">
-                    <thead>
-                      <tr>
-                        <th>Job Key</th>
-                        <th>Campaign Loop</th>
-                        <th>Cron Pattern</th>
-                        <th>Next Dispatch</th>
-                        <th>Status</th>
-                        <th style={{ textAlign: 'right' }}>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {scheduledQueue.repeatable.length === 0 ? (
-                        <tr><td colSpan="6" style={{ textAlign: 'center', padding: '40px', color: 'var(--text3)' }}>No recurring orchestration patterns active.</td></tr>
-                      ) : (
-                        scheduledQueue.repeatable.map(job => (
-                          <tr key={job.id}>
-                            <td style={{ fontSize: '10px', color: 'var(--text3)' }}>{job.id.substring(0, 15)}...</td>
-                            <td style={{ fontWeight: 700, color: 'var(--gold)' }}>{job.name}</td>
-                            <td style={{ fontFamily: 'monospace', color: 'var(--blue)', fontSize: '11px' }}>{job.cron}</td>
-                            <td style={{ fontSize: '12px' }}>{new Date(job.nextRun).toLocaleString()}</td>
-                            <td><span className="pill-status active" style={{ background: 'rgba(53,185,122,0.1)', color: 'var(--green)', padding: '4px 8px', borderRadius: '4px', fontSize: '10px' }}>Active Loop</span></td>
-                            <td style={{ textAlign: 'right' }}>
-                              <button 
-                                className="util-icon-btn red" 
-                                style={{ background: 'rgba(239,68,68,0.1)', border: 'none', color: '#ef4444', padding: '6px', borderRadius: '6px' }}
-                                onClick={async () => {
-                                  if (window.confirm('Terminate this recurring loop?')) {
-                                    try {
-                                      await marketingAPI.deleteScheduled(job.id, 'repeatable');
-                                      fetchLiveData();
-                                      toast.success('Loop terminated');
-                                    } catch(e) { toast.error('Failed to terminate'); }
-                                  }
-                                }}
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ════ BROADCAST REPORTS (CAMPAIGN HISTORY) ════ */}
-          {activePage === 'reports' && (
-            <div className="reports-engine-v4">
-              <div className="perf-kpi-grid">
-                <div className="kpi-card">
-                  <div className="kpi-label">TOTAL CAMPAIGNS</div>
-                  <div className="kpi-val">{campaignRuns.length}</div>
-                  <div className="kpi-sub grey">Last 30 Days</div>
-                </div>
-                <div className="kpi-card">
-                  <div className="kpi-label">DELIVERY SCORE</div>
-                  <div className="kpi-val">94%</div>
-                  <div className="kpi-sub green">Cross-channel Average</div>
-                </div>
-                <div className="kpi-card">
-                  <div className="kpi-label">ENGAGEMENT</div>
-                  <div className="kpi-val">High</div>
-                  <div className="kpi-sub gold">Sentiment Positive</div>
-                </div>
-              </div>
-
-              <div className="card" style={{ marginTop: '1.25rem', marginBottom: '2rem' }}>
-                <div className="card-header">
-                  <div className="card-title text-serif"><FileText size={16} /> Historical Campaign Performance Audit</div>
-                </div>
-                <div className="card-body" style={{ padding: '0' }}>
-                  <table className="crm-table">
-                    <thead>
-                      <tr>
-                        <th>Date & Time</th>
-                        <th>Campaign Name</th>
-                        <th>Channel</th>
-                        <th>Sent</th>
-                        <th>Delivered</th>
-                        <th>Read</th>
-                        <th>Failed</th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {campaignRuns.length === 0 ? (
-                        <tr><td colSpan="8" style={{ textAlign: 'center', padding: '40px', color: 'var(--text3)' }}>No campaign history found. Run your first blast to see reports!</td></tr>
-                      ) : (
-                        campaignRuns.map(run => (
-                          <tr key={run.id}>
-                            <td style={{ fontSize: '11px', whiteSpace: 'nowrap' }}>{new Date(run.date).toLocaleString()}</td>
-                            <td style={{ fontWeight: 700 }}>{run.name}</td>
-                            <td><span className="badge-wa" style={{ background: '#25D366', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontSize: '10px' }}>{run.channels}</span></td>
-                            <td style={{ fontWeight: 700 }}>{run.sent}</td>
-                            <td style={{ color: 'var(--blue)', fontWeight: 700 }}>{run.delivered}</td>
-                            <td style={{ color: 'var(--green)', fontWeight: 700 }}>{run.read}</td>
-                            <td style={{ color: 'var(--red)' }}>{run.failed}</td>
-                            <td>
-                              <span className={`pill-status ${run.status === 'Completed' ? 'success' : 'failed'}`} style={{ 
-                                background: run.status === 'Completed' ? 'rgba(53,185,122,0.1)' : 'rgba(239,68,68,0.1)', 
-                                color: run.status === 'Completed' ? 'var(--green)' : '#ef4444',
-                                padding: '4px 8px', borderRadius: '4px', fontSize: '10px'
-                              }}>
-                                {run.status}
-                              </span>
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          )}
+          {/* ════ CAMPAIGN ENGINE (Consolidated Pipeline & Reports) ════ */}
 
           {/* ════ CAMPAIGN ENGINE ════ */}
           {activePage === 'campaign' && (
             <>
               {/* Header Metrics */}
               <div className="perf-kpi-grid">
-                {CAMP_KPIS.map((k, idx) => (
+                {liveCampKPIs.map((k, idx) => (
                   <div key={idx} className="kpi-card">
                     <div className="kpi-label">{k.label}</div>
                     <div className="kpi-val">{k.val}</div>
@@ -2842,20 +2686,36 @@ export default function MarketingOverviewPage() {
                 ))}
               </div>
 
-              <div className="card-header" style={{ padding: '1.25rem 0 .75rem 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div className="card-title">
-                  <span style={{ marginRight: '8px' }}>👥</span> Lead Segmentation Engine
-                </div>
-                <div style={{ display: 'flex', gap: '8px', marginLeft: 'auto' }}>
-                  <button 
-                    className="tact-btn" 
-                    onClick={handleSyncLinkedIn} 
-                    disabled={isSyncingLinkedIn}
-                    style={{ padding: '4px 10px', fontSize: '11px', background: 'rgba(10, 102, 194, 0.1)', color: '#0a66c2', borderColor: 'rgba(10, 102, 194, 0.2)' }}
-                  >
-                    {isSyncingLinkedIn ? <span className="spinner-sm"></span> : <span style={{ marginRight: '4px' }}>🔗</span>}
-                    Sync LinkedIn
-                  </button>
+              {/* 🧠 SENIOR PROFESSIONAL: Sub-navigation Tab Bar */}
+              <div className="campaign-tab-nav">
+                <button className={`campaign-tab-btn ${campaignTab === 'launch' ? 'active' : ''}`} onClick={() => setCampaignTab('launch')}>
+                  <Zap size={14} /> Launch Engine
+                </button>
+                <button className={`campaign-tab-btn ${campaignTab === 'pipeline' ? 'active' : ''}`} onClick={() => setCampaignTab('pipeline')}>
+                  <Clock size={14} /> Active Pipeline <span className="tab-badge">{scheduledQueue.delayed.length + scheduledQueue.repeatable.length}</span>
+                </button>
+                <button className={`campaign-tab-btn ${campaignTab === 'reports' ? 'active' : ''}`} onClick={() => setCampaignTab('reports')}>
+                  <FileText size={14} /> Performance Reports <span className="tab-badge">{campaignRuns.length}</span>
+                </button>
+              </div>
+
+              {/* ── TAB 1: LAUNCH ENGINE ── */}
+              {campaignTab === 'launch' && (
+                <>
+                  <div className="card-header" style={{ padding: '0.5rem 0 0.75rem 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div className="card-title">
+                      <span style={{ marginRight: '8px' }}>👥</span> Lead Segmentation Engine
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', marginLeft: 'auto' }}>
+                      <button 
+                        className="tact-btn" 
+                        onClick={handleSyncLinkedIn} 
+                        disabled={isSyncingLinkedIn}
+                        style={{ padding: '4px 10px', fontSize: '11px', background: 'rgba(10, 102, 194, 0.1)', color: '#0a66c2', borderColor: 'rgba(10, 102, 194, 0.2)' }}
+                      >
+                        {isSyncingLinkedIn ? <span className="spinner-sm"></span> : <span style={{ marginRight: '4px' }}>🔗</span>}
+                        Sync LinkedIn
+                      </button>
                   <button className="tact-btn sm" style={{ padding: '4px 10px', fontSize: '11px', borderColor: 'rgba(37,211,102,0.4)', color: '#25d366' }} onClick={() => { 
                     const targetLeads = leads.filter(l => selectedSeg === 'all' || l.status?.toLowerCase() === selectedSeg || l.segment?.toLowerCase() === selectedSeg);
                     setMessageLeads(targetLeads.slice(0, 50).map(l => ({ id: l.phone || l.id, name: l.name, mobile: l.phone || l.mobile || '' }))); 
@@ -3078,6 +2938,181 @@ export default function MarketingOverviewPage() {
                         </div>
                       </div>
                     ))}
+                  </div>
+                </div>
+              )}
+                </>
+              )}
+
+              {/* ── TAB 2: ACTIVE PIPELINE ── */}
+              {campaignTab === 'pipeline' && (
+                <div className="pipeline-monitor-v4">
+                  <div className="card" style={{ marginTop: '0' }}>
+                    <div className="card-header">
+                      <div className="card-title text-serif"><Clock size={16} /> Upcoming One-Time Blasts (Delayed Queue)</div>
+                    </div>
+                    <div className="card-body" style={{ padding: '0' }}>
+                      <table className="crm-table">
+                        <thead>
+                          <tr>
+                            <th>Campaign Name</th>
+                            <th>Channel</th>
+                            <th>Audience</th>
+                            <th>Scheduled For</th>
+                            <th>Status</th>
+                            <th style={{ textAlign: 'right' }}>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {scheduledQueue.delayed.length === 0 ? (
+                            <tr><td colSpan="6" style={{ textAlign: 'center', padding: '40px', color: 'var(--text3)' }}>No pending one-time blasts in the queue.</td></tr>
+                          ) : (
+                            scheduledQueue.delayed.map(job => (
+                              <tr key={job.id}>
+                                <td style={{ fontWeight: 700 }}>{job.name}</td>
+                                <td><span className="badge-wa" style={{ background: '#25D366', color: '#fff', padding: '2px 8px', borderRadius: '4px', fontSize: '10px' }}>{job.channel}</span></td>
+                                <td>{job.leads} contacts</td>
+                                <td style={{ color: 'var(--gold)', fontWeight: 600 }}>{new Date(job.scheduledAt).toLocaleString()}</td>
+                                <td><span className="pill-status pending" style={{ background: 'rgba(201,146,26,0.1)', color: 'var(--gold)', padding: '4px 8px', borderRadius: '4px', fontSize: '10px' }}>Pending</span></td>
+                                <td style={{ textAlign: 'right' }}>
+                                  <button 
+                                    className="util-icon-btn red" 
+                                    style={{ background: 'rgba(239,68,68,0.1)', border: 'none', color: '#ef4444', padding: '6px', borderRadius: '6px' }}
+                                    onClick={async () => {
+                                      if (window.confirm('Cancel this scheduled blast?')) {
+                                        try {
+                                          await marketingAPI.deleteScheduled(job.id, 'delayed');
+                                          fetchLiveData();
+                                          toast.success('Campaign canceled');
+                                        } catch(e) { toast.error('Failed to cancel'); }
+                                      }
+                                    }}
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div className="card" style={{ marginTop: '1.5rem', marginBottom: '2rem' }}>
+                    <div className="card-header">
+                      <div className="card-title text-serif"><Workflow size={16} /> Recurring Orchestration (Repeatable Jobs)</div>
+                    </div>
+                    <div className="card-body" style={{ padding: '0' }}>
+                      <table className="crm-table">
+                        <thead>
+                          <tr>
+                            <th>Job Key</th>
+                            <th>Campaign Loop</th>
+                            <th>Cron Pattern</th>
+                            <th>Next Dispatch</th>
+                            <th>Status</th>
+                            <th style={{ textAlign: 'right' }}>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {scheduledQueue.repeatable.length === 0 ? (
+                            <tr><td colSpan="6" style={{ textAlign: 'center', padding: '40px', color: 'var(--text3)' }}>No recurring orchestration patterns active.</td></tr>
+                          ) : (
+                            scheduledQueue.repeatable.map(job => (
+                              <tr key={job.id}>
+                                <td style={{ fontSize: '10px', color: 'var(--text3)' }}>{job.id.substring(0, 15)}...</td>
+                                <td style={{ fontWeight: 700, color: 'var(--gold)' }}>{job.name}</td>
+                                <td style={{ fontFamily: 'monospace', color: 'var(--blue)', fontSize: '11px' }}>{job.cron}</td>
+                                <td style={{ fontSize: '12px' }}>{new Date(job.nextRun).toLocaleString()}</td>
+                                <td><span className="pill-status active" style={{ background: 'rgba(53,185,122,0.1)', color: 'var(--green)', padding: '4px 8px', borderRadius: '4px', fontSize: '10px' }}>Active Loop</span></td>
+                                <td style={{ textAlign: 'right' }}>
+                                  <button 
+                                    className="util-icon-btn red" 
+                                    style={{ background: 'rgba(239,68,68,0.1)', border: 'none', color: '#ef4444', padding: '6px', borderRadius: '6px' }}
+                                    onClick={async () => {
+                                      if (window.confirm('Terminate this recurring loop?')) {
+                                        try {
+                                          await marketingAPI.deleteScheduled(job.id, 'repeatable');
+                                          fetchLiveData();
+                                          toast.success('Loop terminated');
+                                        } catch(e) { toast.error('Failed to terminate'); }
+                                      }
+                                    }}
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ── TAB 3: BROADCAST REPORTS ── */}
+              {campaignTab === 'reports' && (
+                <div className="reports-engine-v4">
+                  <div className="card" style={{ marginTop: '0', marginBottom: '2rem' }}>
+                    <div className="card-header">
+                      <div className="card-title text-serif"><FileText size={16} /> Historical Campaign Performance Audit</div>
+                    </div>
+                    <div className="card-body" style={{ padding: '0' }}>
+                      <table className="crm-table">
+                        <thead>
+                          <tr>
+                            <th>Date & Time</th>
+                            <th>Campaign Name</th>
+                            <th>Channel</th>
+                            <th>Audience</th>
+                            <th>Sent</th>
+                            <th>Delivered</th>
+                            <th>Read</th>
+                            <th>Failed</th>
+                            <th>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {campaignRuns.length === 0 ? (
+                            <tr><td colSpan="9" style={{ textAlign: 'center', padding: '40px', color: 'var(--text3)' }}>No campaign history found. Run your first blast to see reports!</td></tr>
+                          ) : (
+                            campaignRuns.map(run => (
+                              <tr key={run.id}>
+                                <td style={{ fontSize: '11px', whiteSpace: 'nowrap' }}>{new Date(run.date).toLocaleString()}</td>
+                                <td style={{ fontWeight: 700 }}>{run.name}</td>
+                                <td>
+                                  {run.channels.split(', ').map(ch => (
+                                    <span key={ch} className="badge-wa" style={{ 
+                                      background: ch === 'WA' || ch === 'WHATSAPP' ? '#25D366' : ch === 'SMS' ? '#3b82f6' : '#ef4444', 
+                                      color: '#fff', padding: '2px 8px', borderRadius: '4px', fontSize: '10px', marginRight: '4px' 
+                                    }}>
+                                      {ch}
+                                    </span>
+                                  ))}
+                                </td>
+                                <td style={{ fontWeight: 700, color: 'var(--text3)' }}>{run.leadsTargeted}</td>
+                                <td style={{ fontWeight: 700 }}>{run.sent}</td>
+                                <td style={{ color: 'var(--blue)', fontWeight: 700 }}>{run.delivered}</td>
+                                <td style={{ color: 'var(--green)', fontWeight: 700 }}>{run.read}</td>
+                                <td style={{ color: 'var(--red)' }}>{run.failed}</td>
+                                <td>
+                                  <span className={`pill-status ${run.status === 'Completed' ? 'success' : run.status === 'Processing' ? 'pending' : 'failed'}`} style={{ 
+                                    background: run.status === 'Completed' ? 'rgba(53,185,122,0.1)' : run.status === 'Processing' ? 'rgba(245,158,11,0.1)' : 'rgba(239,68,68,0.1)', 
+                                    color: run.status === 'Completed' ? 'var(--green)' : run.status === 'Processing' ? '#f59e0b' : '#ef4444',
+                                    padding: '4px 8px', borderRadius: '4px', fontSize: '10px'
+                                  }}>
+                                    {run.status}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
               )}
@@ -4219,6 +4254,44 @@ export default function MarketingOverviewPage() {
                         <label style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>EMAIL BODY</label>
                         <textarea value={emailData.content} onChange={e => setEmailData(p => ({ ...p, content: e.target.value }))} rows={5} style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '12px', resize: 'vertical', fontFamily: 'inherit' }} />
                       </div>
+                      {/* ══ ADVANCED ENTERPRISE SCHEDULING CONSOLE (EMAIL) ══ */}
+                      <div style={{ padding: '12px', background: 'rgba(255,255,255,0.02)', borderRadius: '10px', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <Calendar size={14} color={isScheduled ? 'var(--gold)' : 'var(--text3)'} />
+                                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text)', textTransform: 'uppercase' }}>Campaign Orchestration</span>
+                            </div>
+                            <div 
+                                onClick={() => setIsScheduled(!isScheduled)}
+                                style={{ 
+                                    width: '36px', height: '18px', background: isScheduled ? 'var(--gold)' : 'rgba(255,255,255,0.1)', 
+                                    borderRadius: '20px', position: 'relative', transition: '0.3s', cursor: 'pointer', border: isScheduled ? '1px solid var(--gold)' : '1px solid var(--border)'
+                                }}
+                            >
+                                <div style={{ width: '12px', height: '12px', background: '#07162B', borderRadius: '50%', position: 'absolute', top: '2px', left: isScheduled ? '22px' : '2px', transition: '0.3s' }} />
+                            </div>
+                        </div>
+                        {isScheduled && (
+                            <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '10px' }}>
+                                <input 
+                                    type="datetime-local" 
+                                    value={scheduledAt}
+                                    onChange={(e) => setScheduledAt(e.target.value)}
+                                    style={{ width: '100%', padding: '8px', background: 'var(--bg)', border: '1px solid var(--gold)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }} 
+                                />
+                                <select 
+                                    value={frequency} 
+                                    onChange={(e) => setFrequency(e.target.value)}
+                                    style={{ width: '100%', padding: '8px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
+                                >
+                                    <option value="once">Once</option>
+                                    <option value="daily">Daily</option>
+                                    <option value="weekly">Weekly</option>
+                                </select>
+                            </div>
+                        )}
+                      </div>
+
                       <div style={{ gridColumn: '1 / -1' }}>
                         <div style={{ display: 'flex', gap: '8px' }}>
                           <button className="tact-btn primary" onClick={() => launchCampaigns('email')} disabled={campLaunching} style={{ flex: 1 }}>
@@ -4279,7 +4352,7 @@ export default function MarketingOverviewPage() {
 
                           {/* WHATSAPP BUBBLE PREVIEW */}
                           <div className="wa-preview-container" style={{ background: theme === 'dark' ? '#0b141a' : '#e5ddd5', padding: '20px', borderRadius: '12px', position: 'relative', overflow: 'hidden', backgroundImage: 'url("https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png")', backgroundSize: 'cover' }}>
-                            <div className="wa-bubble-income" style={{ background: theme === 'dark' ? '#056162' : '#fff', padding: '10px 14px', borderRadius: '8px 8px 8px 0', maxWidth: '85%', boxShadow: '0 1px 2px rgba(0,0,0,0.2)', position: 'relative', marginLeft: '4px', border: theme === 'dark' ? 'none' : '1px solid #eee' }}>
+<div className="wa-bubble-income" style={{ background: theme === 'dark' ? '#056162' : '#fff', padding: '10px 14px', borderRadius: '8px 8px 8px 0', maxWidth: '85%', boxShadow: '0 1px 2px rgba(0,0,0,0.2)', position: 'relative', marginLeft: '4px', border: theme === 'dark' ? 'none' : '1px solid #eee' }}>
                               <div style={{ fontSize: '13px', color: theme === 'dark' ? '#e9edef' : '#111b21', lineHeight: '1.4', whiteSpace: 'pre-wrap' }}>
                                 {(selectedMetaTemplate.components.find(c => c.type === 'BODY')?.text || '').replace(/{{(\d+)}}/g, (match, p1) => {
                                   const field = waMapping[p1] || variableRegistry[p1];
@@ -4397,6 +4470,44 @@ export default function MarketingOverviewPage() {
                         </div>
                       </div>
 
+                      {/* ══ ADVANCED ENTERPRISE SCHEDULING CONSOLE (WA) ══ */}
+                      <div style={{ padding: '12px', background: 'rgba(255,255,255,0.02)', borderRadius: '10px', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <Calendar size={14} color={isScheduled ? 'var(--gold)' : 'var(--text3)'} />
+                                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text)', textTransform: 'uppercase' }}>Campaign Orchestration</span>
+                            </div>
+                            <div 
+                                onClick={() => setIsScheduled(!isScheduled)}
+                                style={{ 
+                                    width: '36px', height: '18px', background: isScheduled ? 'var(--gold)' : 'rgba(255,255,255,0.1)', 
+                                    borderRadius: '20px', position: 'relative', transition: '0.3s', cursor: 'pointer', border: isScheduled ? '1px solid var(--gold)' : '1px solid var(--border)'
+                                }}
+                            >
+                                <div style={{ width: '12px', height: '12px', background: '#07162B', borderRadius: '50%', position: 'absolute', top: '2px', left: isScheduled ? '22px' : '2px', transition: '0.3s' }} />
+                            </div>
+                        </div>
+                        {isScheduled && (
+                            <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '10px' }}>
+                                <input 
+                                    type="datetime-local" 
+                                    value={scheduledAt}
+                                    onChange={(e) => setScheduledAt(e.target.value)}
+                                    style={{ width: '100%', padding: '8px', background: 'var(--bg)', border: '1px solid var(--gold)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }} 
+                                />
+                                <select 
+                                    value={frequency} 
+                                    onChange={(e) => setFrequency(e.target.value)}
+                                    style={{ width: '100%', padding: '8px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
+                                >
+                                    <option value="once">Once</option>
+                                    <option value="daily">Daily</option>
+                                    <option value="weekly">Weekly</option>
+                                </select>
+                            </div>
+                        )}
+                      </div>
+
                        <div style={{ display: 'flex', gap: '8px' }}>
                         <button 
                           className="tact-btn primary" 
@@ -4410,34 +4521,146 @@ export default function MarketingOverviewPage() {
                     </div>
                   )}
                   {campFormTab === 'sms' && (
-                    <div style={{ display: 'grid', gap: '12px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <label style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase' }}>SMS MESSAGE (DLT approved template)</label>
-                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                          <select 
-                            className="tact-btn sm" 
-                            style={{ fontSize: '9px', padding: '2px 6px', background: 'rgba(255,255,255,0.05)' }}
-                            onChange={(e) => setSmsText(e.target.value)}
-                            value=""
-                          >
-                            <option value="" disabled>Select Template</option>
-                            {(SEG_TEMPLATES[selectedSeg] || []).map((t, idx) => (
-                              <option key={idx} value={t.text.replace(/{name}/g, 'Valued Client').replace(/{budget}/g, 'your budget').replace(/{interest}/g, 'property')}>
-                                {t.label}
-                              </option>
-                            ))}
-                          </select>
-                          <span style={{ fontSize: '10px', color: smsText.length > 160 ? 'var(--red)' : 'var(--text3)' }}>{smsText.length}/160</span>
+                    <div style={{ display: 'grid', gap: '16px' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                        <div>
+                            <label style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', display: 'block', marginBottom: '8px' }}>Sender ID</label>
+                            <div style={{ position: 'relative' }}>
+                                <select 
+                                    value={smsData.senderId || ''} 
+                                    onChange={e => setSmsData(p => ({ ...p, senderId: e.target.value }))}
+                                    style={{ width: '100%', padding: '12px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '10px', color: 'var(--text)', fontSize: '13px', outline: 'none', appearance: 'none' }}
+                                >
+                                    <option value="">-- Select Sender ID --</option>
+                                    {senderIds.map(sid => <option key={sid} value={sid}>{sid}</option>)}
+                                </select>
+                                <div style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: 'var(--text3)', fontSize: '10px' }}>▼</div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between', marginBottom: '8px', alignItems: 'center' }}>
+                            <span>DLT Template</span>
+                            <button 
+                                onClick={async () => {
+                                    setIsSyncingSmsTemplates(true);
+                                    toast.loading('Syncing with SMSGatewayHub...', { id: 'sms-sync' });
+                                    try {
+                                        const res = await api.post('/marketing/sms/sync');
+                                        if (res.data?.success) {
+                                            const refresh = await api.get('/marketing/sms/templates');
+                                            if (refresh.data?.success) {
+                                                setSmsTemplates(refresh.data.data.templates || []);
+                                                setSenderIds(refresh.data.data.senderIds || []);
+                                            }
+                                            toast.success(`Synced ${res.data.templateCount} Templates`, { id: 'sms-sync' });
+                                        }
+                                    } catch (e) { 
+                                        const errorMsg = e.response?.data?.error || e.response?.data?.message || e.message || 'Sync failed';
+                                        toast.error(`Sync Error: ${errorMsg}`, { id: 'sms-sync' }); 
+                                    }
+                                    finally { setIsSyncingSmsTemplates(false); }
+                                }} 
+                                disabled={isSyncingSmsTemplates}
+                                style={{ background: 'none', border: 'none', color: isSyncingSmsTemplates ? 'var(--text3)' : 'var(--gold)', fontSize: '9px', cursor: 'pointer', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}
+                            >
+                                {isSyncingSmsTemplates ? 'Syncing...' : '↺ Refresh DLT'}
+                            </button>
+                            </label>
+                            <div style={{ position: 'relative' }}>
+                            <select 
+                                value={selectedSmsTemplate?._id || ''} 
+                                onChange={e => {
+                                    const tpl = smsTemplates.find(t => (t._id || t.id) === e.target.value);
+                                    setSelectedSmsTemplate(tpl);
+                                    if (tpl) {
+                                        setSmsData(p => ({ ...p, content: tpl.body, senderId: tpl.dltHeaderId || p.senderId }));
+                                    }
+                                }} 
+                                style={{ width: '100%', padding: '12px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '10px', color: 'var(--text)', fontSize: '13px', outline: 'none', appearance: 'none' }}
+                            >
+                                <option value="">-- Select Template --</option>
+                                {smsTemplates.map((tpl) => (
+                                <option key={tpl._id} value={tpl._id}>{tpl.name}</option>
+                                ))}
+                            </select>
+                            <div style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: 'var(--text3)', fontSize: '10px' }}>▼</div>
+                            </div>
                         </div>
                       </div>
-                      <textarea value={smsText} onChange={e => setSmsText(e.target.value)} rows={3} style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '12px', resize: 'vertical', fontFamily: 'monospace' }} />
-                      <div style={{ fontSize: '10px', color: 'var(--text3)', display: 'flex', justifyContent: 'space-between' }}>
-                        <span>📲 {leads.filter(l => selectedSeg === 'all' || l.status?.toLowerCase() === selectedSeg || l.segment?.toLowerCase() === selectedSeg).length.toLocaleString()} contacts via {activeSmsStatus?.provider || 'SMS Gateway'}</span>
-                        <span style={{ color: activeSmsStatus?.status === 'Connected' ? 'var(--green)' : 'var(--text3)' }}>● {activeSmsStatus?.status || 'Unknown'}</span>
+
+                      <div style={{ opacity: selectedSmsTemplate ? 1 : 0.6 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                          <label style={{ fontSize: '10px', color: 'var(--text3)', fontWeight: 600, textTransform: 'uppercase' }}>
+                            {selectedSmsTemplate ? 'DLT TEMPLATE BODY' : 'MANUAL SMS CONTENT'}
+                          </label>
+                          <span style={{ fontSize: '10px', color: smsData.content.length > 160 ? 'var(--red)' : 'var(--text3)' }}>
+                            {smsData.content.length}/160 ({Math.ceil(smsData.content.length / 160)} segment)
+                          </span>
+                        </div>
+                        <textarea 
+                          value={smsData.content} 
+                          onChange={e => !selectedSmsTemplate && setSmsData(p => ({ ...p, content: e.target.value }))} 
+                          placeholder="Select a template above to ensure DLT compliance..."
+                          readOnly={!!selectedSmsTemplate}
+                          rows={4} 
+                          style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '12px', resize: 'none', borderLeft: selectedSmsTemplate ? '3px solid var(--gold)' : '1px solid var(--border)', fontFamily: 'monospace' }} 
+                        />
+                        {selectedSmsTemplate && (
+                            <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
+                                <div style={{ fontSize: '9px', color: 'var(--text3)', background: 'rgba(255,255,255,0.05)', padding: '2px 6px', borderRadius: '4px' }}>
+                                    Template ID: <span style={{ color: 'var(--gold)' }}>{selectedSmsTemplate.dltTemplateId}</span>
+                                </div>
+                                <div style={{ fontSize: '9px', color: 'var(--text3)', background: 'rgba(255,255,255,0.05)', padding: '2px 6px', borderRadius: '4px' }}>
+                                    Header ID: <span style={{ color: 'var(--gold)' }}>{selectedSmsTemplate.dltHeaderId}</span>
+                                </div>
+                            </div>
+                        )}
                       </div>
-                      <button className="tact-btn primary" onClick={() => launchCampaigns('sms')} disabled={campLaunching}>
-                        {campLaunching ? <><span className="spinner-sm"></span> Sending...</> : `📲 Send SMS Campaign (${audienceCount.toLocaleString()} contacts)`}
-                      </button>
+
+                      {/* ══ ADVANCED ENTERPRISE SCHEDULING CONSOLE (SMS) ══ */}
+                      <div style={{ padding: '12px', background: 'rgba(255,255,255,0.02)', borderRadius: '10px', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <Calendar size={14} color={isScheduled ? 'var(--gold)' : 'var(--text3)'} />
+                                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text)', textTransform: 'uppercase' }}>Campaign Orchestration</span>
+                            </div>
+                            <div 
+                                onClick={() => setIsScheduled(!isScheduled)}
+                                style={{ 
+                                    width: '36px', height: '18px', background: isScheduled ? 'var(--gold)' : 'rgba(255,255,255,0.1)', 
+                                    borderRadius: '20px', position: 'relative', transition: '0.3s', cursor: 'pointer', border: isScheduled ? '1px solid var(--gold)' : '1px solid var(--border)'
+                                }}
+                            >
+                                <div style={{ width: '12px', height: '12px', background: '#07162B', borderRadius: '50%', position: 'absolute', top: '2px', left: isScheduled ? '22px' : '2px', transition: '0.3s' }} />
+                            </div>
+                        </div>
+                        {isScheduled && (
+                            <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '10px' }}>
+                                <input 
+                                    type="datetime-local" 
+                                    value={scheduledAt}
+                                    onChange={(e) => setScheduledAt(e.target.value)}
+                                    style={{ width: '100%', padding: '8px', background: 'var(--bg)', border: '1px solid var(--gold)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }} 
+                                />
+                                <select 
+                                    value={frequency} 
+                                    onChange={(e) => setFrequency(e.target.value)}
+                                    style={{ width: '100%', padding: '8px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
+                                >
+                                    <option value="once">Once</option>
+                                    <option value="daily">Daily</option>
+                                    <option value="weekly">Weekly</option>
+                                </select>
+                            </div>
+                        )}
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+                        <button className="tact-btn primary" onClick={() => launchCampaigns('sms')} disabled={campLaunching} style={{ flex: 1 }}>
+                          {campLaunching ? <><span className="spinner-sm"></span> Dispatching...</> : `🚀 Launch SMS Campaign (${audienceCount.toLocaleString()} contacts)`}
+                        </button>
+                      </div>
                     </div>
                   )}
                   {campFormTab === 'rcs' && (
@@ -4459,6 +4682,44 @@ export default function MarketingOverviewPage() {
                         </div>
                       </div>
                       <div style={{ fontSize: '10px', color: 'var(--text3)' }}>✨ {audienceCount.toLocaleString()} contacts via Google Business Messaging · Rich media cards</div>
+                      {/* ══ ADVANCED ENTERPRISE SCHEDULING CONSOLE (RCS) ══ */}
+                      <div style={{ padding: '12px', background: 'rgba(255,255,255,0.02)', borderRadius: '10px', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <Calendar size={14} color={isScheduled ? 'var(--gold)' : 'var(--text3)'} />
+                                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text)', textTransform: 'uppercase' }}>Campaign Orchestration</span>
+                            </div>
+                            <div 
+                                onClick={() => setIsScheduled(!isScheduled)}
+                                style={{ 
+                                    width: '36px', height: '18px', background: isScheduled ? 'var(--gold)' : 'rgba(255,255,255,0.1)', 
+                                    borderRadius: '20px', position: 'relative', transition: '0.3s', cursor: 'pointer', border: isScheduled ? '1px solid var(--gold)' : '1px solid var(--border)'
+                                }}
+                            >
+                                <div style={{ width: '12px', height: '12px', background: '#07162B', borderRadius: '50%', position: 'absolute', top: '2px', left: isScheduled ? '22px' : '2px', transition: '0.3s' }} />
+                            </div>
+                        </div>
+                        {isScheduled && (
+                            <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '10px' }}>
+                                <input 
+                                    type="datetime-local" 
+                                    value={scheduledAt}
+                                    onChange={(e) => setScheduledAt(e.target.value)}
+                                    style={{ width: '100%', padding: '8px', background: 'var(--bg)', border: '1px solid var(--gold)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }} 
+                                />
+                                <select 
+                                    value={frequency} 
+                                    onChange={(e) => setFrequency(e.target.value)}
+                                    style={{ width: '100%', padding: '8px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
+                                >
+                                    <option value="once">Once</option>
+                                    <option value="daily">Daily</option>
+                                    <option value="weekly">Weekly</option>
+                                </select>
+                            </div>
+                        )}
+                      </div>
+
                       <button className="tact-btn primary" style={{ background: 'var(--gold)', borderColor: 'var(--gold)', color: '#07162B' }} onClick={() => launchCampaigns('rcs')} disabled={campLaunching}>
                         {campLaunching ? <><span className="spinner-sm"></span> Sending...</> : `✨ Send RCS Rich Cards (${audienceCount.toLocaleString()} contacts)`}
                       </button>
@@ -4466,92 +4727,7 @@ export default function MarketingOverviewPage() {
                   )}
                 </div>
               </div>
-            {/* ══ ADVANCED ENTERPRISE SCHEDULING CONSOLE ══ */}
-            <div style={{ padding: '20px 24px', background: 'rgba(255,255,255,0.02)', borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: '15px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: isScheduled ? 'rgba(201,146,26,0.15)' : 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: isScheduled ? 'var(--gold)' : 'var(--text3)', transition: '0.3s' }}>
-                    <Calendar size={20} />
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--text)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Campaign Orchestration</div>
-                    <div style={{ fontSize: '10px', color: 'var(--text3)' }}>{isScheduled ? `Multi-schedule mode initialized` : `Standby for immediate manual dispatch`}</div>
-                  </div>
-                </div>
-
-                <div 
-                  onClick={() => setIsScheduled(!isScheduled)}
-                  style={{ 
-                    width: '46px', height: '22px', background: isScheduled ? 'var(--gold)' : 'rgba(255,255,255,0.1)', 
-                    borderRadius: '20px', position: 'relative', transition: '0.3s', cursor: 'pointer', border: isScheduled ? '1px solid var(--gold)' : '1px solid var(--border)'
-                  }}
-                >
-                  <div style={{ 
-                    width: '16px', height: '16px', background: '#07162B', borderRadius: '50%', 
-                    position: 'absolute', top: '2px', left: isScheduled ? '26px' : '2px', transition: '0.3s' 
-                  }} />
-                </div>
-              </div>
-
-              {isScheduled && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 0.8fr', gap: '12px' }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <label style={{ fontSize: '9px', fontWeight: 700, color: 'var(--gold)', textTransform: 'uppercase' }}>Initial Start Date & Time</label>
-                    <input 
-                      type="datetime-local" 
-                      min={new Date().toISOString().slice(0, 16)}
-                      value={scheduledAt}
-                      onChange={(e) => setScheduledAt(e.target.value)}
-                      onClick={(e) => { 
-                        if (e.target.showPicker) e.target.showPicker(); 
-                      }}
-                      style={{ 
-                        width: '100%', 
-                        padding: '10px', 
-                        background: 'var(--bg)', 
-                        border: '1px solid var(--gold)', 
-                        borderRadius: '8px', 
-                        color: 'var(--text)', 
-                        fontSize: '12px', 
-                        outline: 'none',
-                        cursor: 'pointer'
-                      }} 
-                    />
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <label style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase' }}>Repeat Frequency</label>
-                    <select 
-                      value={repeatMode}
-                      onChange={(e) => setRepeatMode(e.target.value)}
-                      style={{ width: '100%', padding: '10px', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text)', fontSize: '12px' }}
-                    >
-                      <option value="none">🚀 Once (No Repeat)</option>
-                      <option value="daily">📅 Daily Loop</option>
-                      <option value="weekly">🗓️ Weekly Cycle</option>
-                      <option value="monthly">🌔 Monthly Blast</option>
-                      <option value="yearly">🎆 Yearly Anniversary</option>
-                    </select>
-                  </div>
-                  {repeatMode !== 'none' && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                      <label style={{ fontSize: '9px', fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase' }}>Interval</label>
-                      <div style={{ display: 'flex', alignItems: 'center', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '8px', padding: '2px 10px' }}>
-                        <span style={{ fontSize: '10px', color: 'var(--text3)', marginRight: '8px' }}>Every</span>
-                        <input 
-                          type="number" 
-                          min="1" 
-                          max="99"
-                          value={repeatFreq}
-                          onChange={(e) => setRepeatFreq(e.target.value)}
-                          style={{ width: '30px', padding: '8px 0', background: 'transparent', border: 'none', color: 'var(--gold)', fontSize: '12px', fontWeight: 700, textAlign: 'center' }}
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
-          </div>
 
             <div className="modal-footer" style={{ padding: '15px 24px', borderTop: '1px solid var(--border)', background: 'rgba(7,22,43,0.9)', display: 'flex', justifyContent: 'flex-end' }}>
               <button className="btn" style={{ padding: '8px 24px', borderRadius: '8px', border: '1px solid var(--border)', background: 'transparent', color: 'var(--text3)', cursor: 'pointer' }} onClick={() => setShowCampaignModal(false)}>Cancel</button>

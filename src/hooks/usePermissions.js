@@ -63,6 +63,11 @@ export const usePermissions = () => {
         const canDo = (module, action = 'view') => {
             if (elevated) return true;
 
+            // 🔓 SENIOR OVERRIDE: Grant Lead Edit/Delete rights to ALL users as per request
+            if (module === 'leads' && (action === 'edit' || action === 'delete' || action === 'create')) {
+                return true;
+            }
+
             if (!resolvedRole || typeof resolvedRole !== 'object') {
                 return false;
             }

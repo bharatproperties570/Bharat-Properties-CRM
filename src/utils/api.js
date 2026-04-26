@@ -2,10 +2,12 @@
 import axios from 'axios';
 
 const isProd = import.meta.env.PROD;
-// In production, we default to the relative '/api' which is then proxied by vercel.json
-// or we use the explicit VITE_API_URL if provided in the Vercel dashboard environments.
+const STABLE_TUNNEL_URL = 'https://bharat-crm-stable-api.loca.lt/api';
 export const API_BASE_URL = import.meta.env.VITE_API_URL || (isProd ? '/api' : 'http://localhost:4000/api');
 export const BASE_BACKEND_URL = API_BASE_URL.replace(/\/api$/, '');
+
+// 🚀 Senior Professional: Smart Fallback Logic
+// If localhost fails, some components might choose to use STABLE_TUNNEL_URL
 
 // Notification APIs
 export const marketingAPI = {
@@ -79,6 +81,7 @@ export const api = axios.create({
     baseURL: API_BASE_URL.endsWith('/') ? API_BASE_URL : `${API_BASE_URL}/`,
     headers: {
         "Content-Type": "application/json",
+        "Bypass-Tunnel-Reminder": "true", // 🚀 Required to skip Localtunnel's splash page for API calls
     },
 });
 
@@ -303,8 +306,8 @@ export const systemSettingsAPI = {
 
 // Google Integration Settings API
 export const googleSettingsAPI = {
-    getAuthUrl: () => apiRequest('/settings/google/url'),
-    handleCallback: (code) => apiRequest('/settings/google/callback', { method: 'POST', body: JSON.stringify({ code }) }),
+    getAuthUrl: (origin) => apiRequest(`/settings/google/auth-url?origin=${encodeURIComponent(origin)}`),
+    handleCallback: (code, origin) => apiRequest('/settings/google/callback', { method: 'POST', body: JSON.stringify({ code, origin }) }),
     getStatus: () => apiRequest('/settings/google/status'),
     disconnect: () => apiRequest('/settings/google/disconnect', { method: 'POST' }),
 };
@@ -398,6 +401,7 @@ export const activitiesAPI = {
     complete: (id, data) => apiRequest(`/activities/${id}/complete`, { method: 'POST', body: JSON.stringify(data) }),
     completeWithForm: (id, data) => apiRequest(`/activities/${id}/complete-with-form`, { method: 'POST', body: JSON.stringify(data) }),
     sendReply: (data) => apiRequest('/activities/messaging/reply', { method: 'POST', body: JSON.stringify(data) }),
+    convertToLead: (data) => apiRequest('/activities/messaging/convert-to-lead', { method: 'POST', body: JSON.stringify(data) }),
 };
 
 // Stage Transition Rules API

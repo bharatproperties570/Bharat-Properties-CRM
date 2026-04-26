@@ -648,7 +648,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                             <option value={100}>100</option>
                                             <option value={300}>300</option>
                                             <option value={500}>500</option>
-                                            <option value={700}>700</option>
+                                            <option value={750}>750</option>
                                             <option value={1000}>1000</option>
                                         </select>
                                     </div>
@@ -765,6 +765,8 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                         getLookupValue={getLookupValue}
                                         activeRowMenu={activeRowMenu}
                                         setActiveRowMenu={setActiveRowMenu}
+                                        getUserName={getUserName}
+                                        getTeamName={getTeamName}
                                         onAction={(type, d) => {
                                             setEditingDeal(d);
                                             if (type === 'quote') setIsQuoteModalOpen(true);
@@ -1059,9 +1061,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
 
 // --- MEMOIZED COMPONENTS FOR PERFORMANCE ---
 
-const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLookupValue, activeRowMenu, setActiveRowMenu, onAction, dealScores = {} }) => {
-    const getUserName = (user) => (user?.name || user?.fullName || (typeof user === 'string' ? user : 'N/A'));
-    const getTeamName = (team) => (team?.name || (typeof team === 'string' ? team : 'General'));
+const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLookupValue, activeRowMenu, setActiveRowMenu, onAction, dealScores = {}, getUserName, getTeamName }) => {
     
     const s = dealScores[deal._id];
     const scoreVal = s ? s.score : (deal.dealProbability || 0);
