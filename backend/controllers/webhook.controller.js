@@ -192,6 +192,11 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
     try {
         const body = req.body;
 
+        // 🛠️ SENIOR DIAGNOSTIC: Write to a persistent file to confirm hits
+        const fs = await import('fs');
+        const diagnosticLog = `[${new Date().toISOString()}] WhatsApp Live Webhook Received: ${JSON.stringify(body)}\n`;
+        fs.appendFileSync('whatsapp_webhook_hits.log', diagnosticLog);
+
         if (body.object) {
             const entryValue = body.entry?.[0]?.changes?.[0]?.value;
             if (!entryValue) return res.sendStatus(200);
@@ -287,9 +292,12 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                 if (!messageText && !attachment) return res.sendStatus(200);
 
                 const normalizedMobile = normalizePhone(fromNumber);
+                
+                // 🚀 Resolve Identity (Lead/Contact)
+                let lead = await Lead.findOne({ mobile: normalizedMobile });
+                let contact = await Contact.findOne({ 'phones.number': normalizedMobile });
 
                 // 🚀 Enterprise Intake Engine Integration
-                // This replaces the naive auto-capture with intent-aware logic (Buyer vs Seller)
                 const intakeEngine = (await import('../src/utils/intakeEngine.js')).default;
                 const intakeResult = await intakeEngine.processIntake({
                     mobile: fromNumber,
@@ -300,9 +308,9 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
 
                 if (intakeResult.type === 'LEAD') {
                     lead = intakeResult.data;
-                } else if (!lead) {
-                    // Re-fetch in case it was updated or already existed
-                    lead = await Lead.findOne({ mobile: normalizedMobile });
+                } else if (intakeResult.type === 'DEAL' || intakeResult.type === 'INVENTORY') {
+                    // Logic already handled in intakeEngine, but we capture the ref
+                    contact = await Contact.findOne({ 'phones.number': normalizedMobile });
                 }
 
                 const entityId = lead?._id || contact?._id || intakeResult.data?._id || null;

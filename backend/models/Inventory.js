@@ -177,7 +177,17 @@ const InventorySchema = new mongoose.Schema({
         role: String,
         type: { type: String, enum: ['Added', 'Removed'], default: 'Added' },
         source: String
-    }]
+    }],
+
+    // Feedback & Follow-up Tracking
+    followUpDate: { type: Date, index: true },
+    lastContactedAt: { type: Date, index: true },
+
+    // Legacy Support (to prevent 400 errors during transition)
+    remarks: String,
+    lastContactDate: String,
+    lastContactUser: String
+
 }, { timestamps: true, strict: true });
  
 // ━━ PERFORMANCE INDEXES (Harden for Bulk Operations) ━━━━━━━━━━━━━━━━━━━━━━
@@ -294,7 +304,7 @@ InventorySchema.pre('findOneAndUpdate', async function (next) {
         const Lookup = mongoose.model('Lookup');
         const resolveLookupLocal = async (type, value) => {
             if (!value) return null;
-            if (mongoose.Types.ObjectId.isValid(value)) return value;
+            if (mongoose.Types.ObjectId.isValid(value)) return new mongoose.Types.ObjectId(value.toString());
             const escapedValue = escapeRegExp(value);
             let lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: new RegExp(`^${escapedValue}$`, 'i') } });
             if (!lookup) {

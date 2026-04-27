@@ -355,7 +355,27 @@ LeadSchema.pre('findOneAndUpdate', async function (next) {
     next();
 });
 
-LeadSchema.post('save', invalidateDashboardCache);
+LeadSchema.post('save', async function (doc, next) {
+    invalidateDashboardCache();
+    
+    // 🚀 AUTOMATION TRIGGER: Send Welcome WhatsApp/SMS for NEW Leads
+    // We check if it was just created (approximate check via timestamps or custom flag)
+    // In post-save, doc.isNew is false, but we can check if createdAt equals updatedAt
+    const isNewLead = doc.createdAt && doc.updatedAt && doc.createdAt.getTime() === doc.updatedAt.getTime();
+    
+    if (isNewLead) {
+        try {
+            // Lazy load NurtureBot to avoid circular dependency
+            const { default: nurtureBot } = await import('../services/NurtureBot.js');
+            console.log(`[Automation] Triggering welcome sequence for new lead: ${doc._id}`);
+            nurtureBot.initiate(doc).catch(err => console.error('[Automation] NurtureBot error:', err));
+        } catch (err) {
+            console.error('[Automation] Failed to trigger NurtureBot:', err.message);
+        }
+    }
+    next();
+});
+
 LeadSchema.post('findOneAndUpdate', invalidateDashboardCache);
 LeadSchema.post('findOneAndDelete', invalidateDashboardCache);
 

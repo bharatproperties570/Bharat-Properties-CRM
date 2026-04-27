@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useCallback } from 'react';
 import { evaluateAndExecuteTriggers } from '../utils/triggersEngine';
 import { activitiesAPI } from '../utils/api';
+import { whatsappTemplates, smsTemplates, emailTemplates } from '../constants/templates';
 import { useSequences } from './SequenceContext';
 import { AutomatedActionsContext } from './AutomatedActionsContext';
 
@@ -133,6 +134,237 @@ export const TriggersProvider = ({ children }) => {
             ],
             createdAt: new Date().toISOString(),
             createdBy: 'system'
+        },
+
+        // ─── LEAD LIFECYCLE RULES ───────────────────────────────────────────
+        {
+            id: 'trigger_lead_welcome',
+            name: 'New Lead — Send Welcome WhatsApp',
+            module: 'leads',
+            event: 'lead_created',
+            priority: 6,
+            isActive: true,
+            conditions: { operator: 'AND', rules: [] }, // Fire for ALL new leads
+            actions: [
+                {
+                    type: 'send_communication',
+                    channel: 'whatsapp',
+                    templateId: 7  // 'Welcome Message' template
+                }
+            ],
+            createdAt: new Date().toISOString(),
+            createdBy: 'system'
+        },
+
+        // ─── DEAL LIFECYCLE RULES ───────────────────────────────────────────
+        {
+            id: 'trigger_deal_won',
+            name: 'Deal Won — Send Congratulations Email',
+            module: 'deals',
+            event: 'deal_stage_changed',
+            priority: 7,
+            isActive: true,
+            conditions: {
+                operator: 'AND',
+                rules: [
+                    { field: 'stage', operator: '==', value: 'Won' }
+                ]
+            },
+            actions: [
+                {
+                    type: 'send_communication',
+                    channel: 'email',
+                    templateId: 6  // 'Booking Success' email template
+                }
+            ],
+            createdAt: new Date().toISOString(),
+            createdBy: 'system'
+        },
+
+        // ─── INVENTORY FEEDBACK RULES ───────────────────────────────────────
+        {
+            id: 'trigger_fb_hot',
+            name: 'Feedback: Interested (Hot) — Send Priority WhatsApp',
+            module: 'inventory',
+            event: 'inventory_feedback_submitted',
+            priority: 10,
+            isActive: true,
+            conditions: {
+                operator: 'AND',
+                rules: [
+                    { field: 'outcome', operator: '==', value: 'Interested / Hot' }
+                ]
+            },
+            actions: [
+                {
+                    type: 'send_communication',
+                    channel: 'whatsapp',
+                    templateId: 'fb_interested_hot_wa'
+                }
+            ],
+            createdAt: new Date().toISOString(),
+            createdBy: 'system'
+        },
+        {
+            id: 'trigger_fb_warm',
+            name: 'Feedback: Interested (Warm) — Send WhatsApp',
+            module: 'inventory',
+            event: 'inventory_feedback_submitted',
+            priority: 11,
+            isActive: true,
+            conditions: {
+                operator: 'AND',
+                rules: [
+                    { field: 'outcome', operator: '==', value: 'Interested / Warm' }
+                ]
+            },
+            actions: [
+                {
+                    type: 'send_communication',
+                    channel: 'whatsapp',
+                    templateId: 'fb_interested_warm_wa'
+                }
+            ],
+            createdAt: new Date().toISOString(),
+            createdBy: 'system'
+        },
+        {
+            id: 'trigger_fb_callback',
+            name: 'Feedback: Request Call Back — Send SMS',
+            module: 'inventory',
+            event: 'inventory_feedback_submitted',
+            priority: 12,
+            isActive: true,
+            conditions: {
+                operator: 'AND',
+                rules: [
+                    { field: 'outcome', operator: '==', value: 'Request Call Back' }
+                ]
+            },
+            actions: [
+                {
+                    type: 'send_communication',
+                    channel: 'sms',
+                    templateId: 'fb_callback_sms'
+                }
+            ],
+            createdAt: new Date().toISOString(),
+            createdBy: 'system'
+        },
+        {
+            id: 'trigger_fb_not_interested',
+            name: 'Feedback: Not Interested — Send WhatsApp',
+            module: 'inventory',
+            event: 'inventory_feedback_submitted',
+            priority: 13,
+            isActive: true,
+            conditions: {
+                operator: 'AND',
+                rules: [
+                    { field: 'outcome', operator: '==', value: 'Not Interested' }
+                ]
+            },
+            actions: [
+                {
+                    type: 'send_communication',
+                    channel: 'whatsapp',
+                    templateId: 'fb_not_interested_wa'
+                }
+            ],
+            createdAt: new Date().toISOString(),
+            createdBy: 'system'
+        },
+        {
+            id: 'trigger_fb_busy',
+            name: 'Feedback: Busy / Driving — Send SMS',
+            module: 'inventory',
+            event: 'inventory_feedback_submitted',
+            priority: 14,
+            isActive: true,
+            conditions: {
+                operator: 'AND',
+                rules: [
+                    { field: 'outcome', operator: '==', value: 'Busy / Driving' }
+                ]
+            },
+            actions: [
+                {
+                    type: 'send_communication',
+                    channel: 'sms',
+                    templateId: 'fb_busy_driving_sms'
+                }
+            ],
+            createdAt: new Date().toISOString(),
+            createdBy: 'system'
+        },
+        {
+            id: 'trigger_fb_market',
+            name: 'Feedback: Market Feedback — Send WhatsApp',
+            module: 'inventory',
+            event: 'inventory_feedback_submitted',
+            priority: 15,
+            isActive: true,
+            conditions: {
+                operator: 'AND',
+                rules: [
+                    { field: 'outcome', operator: '==', value: 'Market Feedback' }
+                ]
+            },
+            actions: [
+                {
+                    type: 'send_communication',
+                    channel: 'whatsapp',
+                    templateId: 'fb_market_feedback_wa'
+                }
+            ],
+            createdAt: new Date().toISOString(),
+            createdBy: 'system'
+        },
+        {
+            id: 'trigger_fb_switch_off',
+            name: 'Feedback: Switch Off / Unreachable — No Message (Log Only)',
+            module: 'inventory',
+            event: 'inventory_feedback_submitted',
+            priority: 16,
+            isActive: true,
+            conditions: {
+                operator: 'AND',
+                rules: [
+                    { field: 'outcome', operator: '==', value: 'Switch Off / Unreachable' }
+                ]
+            },
+            actions: [
+                {
+                    type: 'send_notification',
+                    target: 'owner',
+                    message: 'Owner {{ownerName}} of Unit {{unitNo}} is unreachable. Please retry later.'
+                }
+            ],
+            createdAt: new Date().toISOString(),
+            createdBy: 'system'
+        },
+        {
+            id: 'trigger_fb_wrong_number',
+            name: 'Feedback: Wrong Number — Internal Alert',
+            module: 'inventory',
+            event: 'inventory_feedback_submitted',
+            priority: 17,
+            isActive: true,
+            conditions: {
+                operator: 'AND',
+                rules: [
+                    { field: 'outcome', operator: '==', value: 'Wrong Number / Invalid' }
+                ]
+            },
+            actions: [
+                {
+                    type: 'send_notification',
+                    target: 'manager',
+                    message: 'Invalid number detected for Unit {{unitNo}}. Please verify owner contact details.'
+                }
+            ],
+            createdAt: new Date().toISOString(),
+            createdBy: 'system'
         }
     ]);
 
@@ -254,6 +486,75 @@ export const TriggersProvider = ({ children }) => {
                     // Real implementation (simulated with toast/log for now)
                     console.log(`[TRIGGER_NOTIFICATION] to ${target}: ${finalMessage}`);
                     return { success: true, message: finalMessage };
+                },
+
+                sendCommunication: async ({ channel, templateId, entity, context: actionContext = {} }) => {
+                    const resolvedContext = { ...context, ...actionContext };
+                    const library = channel === 'whatsapp' ? whatsappTemplates
+                        : channel === 'sms' ? smsTemplates
+                        : emailTemplates;
+                    const template = library.find(t => String(t.id) === String(templateId));
+
+                    if (!template) return { success: false, reason: `Template '${templateId}' not found in ${channel} library` };
+
+                    let body = template.content || template.body || '';
+
+                    // Universal Variable Resolver — supports both legacy {tag} and modern {{tag}}
+                    const ownerName = entity.ownerName || entity.name || 'Sir/Ma\'am';
+                    const unitInfo  = entity.unitNo ? `Unit ${entity.unitNo}` : (entity.propertyName || 'the property');
+
+                    const placeholders = {
+                        // Legacy tags (Feedback Hub)
+                        '{owner}' : ownerName,
+                        '{unit}'  : unitInfo,
+                        '{time}'  : resolvedContext.nextActionTime
+                            ? `${resolvedContext.nextActionTime} on ${resolvedContext.nextActionDate}`
+                            : 'later',
+                        '{reason}': resolvedContext.reason || resolvedContext.outcome || 'as discussed',
+
+                        // Modern standard tags
+                        '{{First name}}' : ownerName.split(' ')[0],
+                        '{{ContactName}}': ownerName,
+                        '{{fullName}}'   : ownerName,
+                        '{{lead.name}}'  : ownerName,
+                        '{{1}}'          : ownerName.split(' ')[0],
+                        '{{Address}}'    : entity.location || entity.address || 'your location',
+                        '{{PropertyName}}': unitInfo,
+                        '{{ProjectName}}': entity.projectName || 'the project'
+                    };
+
+                    Object.keys(placeholders).forEach(key => {
+                        body = body.replaceAll(key, placeholders[key] || '');
+                    });
+
+                    const recipient = entity.ownerPhone || entity.mobile || entity.email || 'N/A';
+                    
+                    // 🚀 Professional: Log as a completed Activity in the timeline
+                    try {
+                        const activityType = channel === 'whatsapp' ? 'WhatsApp' : channel === 'sms' ? 'SMS' : 'Email';
+                        await activitiesAPI.create({
+                            type: activityType,
+                            subject: `Auto ${activityType}: ${template.name}`,
+                            entityType: context.entityType || 'inventory',
+                            entityId: entity.id || entity._id,
+                            description: body,
+                            status: 'Completed',
+                            performedAt: new Date(),
+                            dueDate: new Date(), // Required field
+                            priority: 'Normal',
+                            details: {
+                                channel,
+                                templateId,
+                                recipient,
+                                autoGenerated: true
+                            }
+                        });
+                        console.log(`[TRIGGER_COMM] ${channel.toUpperCase()} sent to ${recipient}`);
+                        return { success: true, channel, templateId, preview: body.substring(0, 120) };
+                    } catch (error) {
+                        console.error('[TRIGGER_COMM] Failed to log activity:', error);
+                        return { success: false, error: error.message };
+                    }
                 },
 
                 fireAutomatedAction: async (automatedActionId, entity) => {

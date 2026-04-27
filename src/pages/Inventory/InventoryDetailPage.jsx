@@ -113,43 +113,25 @@ export default function InventoryDetailPage({ inventoryId, onBack, onAddActivity
 
     const handleSaveFeedback = async (data) => {
         try {
-            // 1. Calculate Status Update
+            // The Modal now handles the API update internally. 
+            // We just need to refresh the UI and handle secondary actions like creating a deal.
+            
             const isInactive = data.markAsSold || ['Not Interested', 'Wrong Number / Invalid'].includes(data.result);
             const targetStatus = isInactive ? 'Inactive' : 'Active';
 
-            // 2. Intent Update (If engaged via Transaction buttons)
-            let newIntents = [...(inventory.intent || [])].map(i => (i && typeof i === 'object' ? i.lookup_value : i));
-            if (feedbackContext && !isInactive && (data.result.includes('Interested') || data.result === 'Interested')) {
-                if (!newIntents.includes(feedbackContext)) {
-                    newIntents.push(feedbackContext);
-                }
+            toast.success(`Feedback recorded - Property is now ${targetStatus}`);
+            refresh();
+            setIsFeedbackModalOpen(false);
+
+            // 1. Automated Deal Trigger (If high intent)
+            if (feedbackContext && ['Ready to Sell Now', 'High Intent (Urgent)', 'For Sale', 'For Rent', 'For Lease'].includes(data.reason)) {
+                toast.success(`Initiating ${feedbackContext} Deal...`);
+                handleCreateDeal(feedbackContext);
             }
-
-            const updates = {
-                remarks: `${data.result}${data.reason ? ` (${data.reason})` : ''}: ${data.feedback}`,
-                status: targetStatus,
-                intent: newIntents,
-                lastContactDate: new Date().toLocaleDateString('en-GB'),
-                lastContactUser: 'You'
-            };
-
-            const response = await api.put(`inventory/${inventoryId}`, updates);
-            if (response.data?.success) {
-                toast.success(`Feedback recorded - Property is now ${targetStatus}`);
-                refresh();
-                setIsFeedbackModalOpen(false);
-
-                // 3. Automated Deal Trigger
-                if (feedbackContext && ['Ready to Sell Now', 'High Intent (Urgent)', 'For Sale', 'For Rent', 'For Lease'].includes(data.reason)) {
-                    toast.success(`Initiating ${feedbackContext} Deal...`);
-                    handleCreateDeal(feedbackContext);
-                }
-                
-                setFeedbackContext(null); // Reset context
-            }
+            
+            setFeedbackContext(null); // Reset context
         } catch (error) {
-            console.error("Error saving feedback:", error);
-            toast.error("Failed to save feedback");
+            console.error("Error in feedback post-processing:", error);
         }
     };
 

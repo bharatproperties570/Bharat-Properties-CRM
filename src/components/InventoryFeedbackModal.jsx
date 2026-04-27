@@ -1,13 +1,16 @@
 import { useState, useEffect } from 'react';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { useActivities } from '../context/ActivityContext';
+import { useTriggers } from '../context/TriggersContext';
+import { whatsappTemplates, smsTemplates, emailTemplates } from '../constants/templates';
 import { renderValue } from '../utils/renderUtils';
 import { api } from '../utils/api';
 import toast from 'react-hot-toast';
 
 const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialIntent }) => {
     const { masterFields } = usePropertyConfig();
-    const { addActivity } = useActivities(); // Access Activities Context
+    const { addActivity } = useActivities(); 
+    const { fireEvent } = useTriggers();
     const [formData, setFormData] = useState({
         selectedOwner: '',
         selectedOwnerRole: '',
@@ -109,8 +112,25 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
                 setActiveTriggers({ whatsapp: false, sms: false, email: false });
             }
 
-            const templateKey = rule.templateKey || formData.result;
-            const outcomeTemplates = masterFields.responseTemplates?.[templateKey] || {};
+            // Aligned Template Mapping — covers all 9 feedback outcomes
+            const mapping = {
+                'Interested / Hot'       : 'fb_interested_hot',
+                'Interested / Warm'      : 'fb_interested_warm',
+                'Request Call Back'      : 'fb_callback',
+                'Not Interested'         : 'fb_not_interested',
+                'Busy / Driving'         : 'fb_busy_driving',
+                'Switch Off / Unreachable': 'fb_switch_off',
+                'Market Feedback'        : 'fb_market_feedback',
+                'General Inquiry'        : 'fb_general_inquiry',
+                'Wrong Number / Invalid' : 'fb_wrong_number'
+            };
+
+            const resultStr = typeof formData.result === 'object' ? formData.result.lookup_value : formData.result;
+            const baseId = mapping[resultStr] || 'fb_interested_warm';
+            
+            const waTemplate = whatsappTemplates.find(t => t.id === `${baseId}_wa`) || {};
+            const smsTemplate = smsTemplates.find(t => t.id === `${baseId}_sms`) || {};
+            const emailTemplate = emailTemplates.find(t => t.id === baseId) || {};
 
             const ownerName = formData.selectedOwner || 'Sir/Ma\'am';
             const unitInfo = `Unit ${inventory.unitNo}`;
@@ -119,17 +139,17 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
 
             const processTemplate = (template) => {
                 if (!template) return '';
-                if (typeof template !== 'string') return ''; // Safety check for multi-channel transition
-                return template.replace(/{owner}/g, ownerName)
+                const body = template.content || template.body || '';
+                return body.replace(/{owner}/g, ownerName)
                     .replace(/{unit}/g, unitInfo)
                     .replace(/{time}/g, time)
                     .replace(/{reason}/g, reason);
             };
 
             setChannelMessages({
-                whatsapp: processTemplate(rule.customMessage || outcomeTemplates.whatsapp || ''),
-                sms: processTemplate(outcomeTemplates.sms || ''),
-                email: processTemplate(outcomeTemplates.email || '')
+                whatsapp: processTemplate(waTemplate),
+                sms: processTemplate(smsTemplate),
+                email: processTemplate(emailTemplate)
             });
 
             // Apply Inventory Status Automation Rule
@@ -181,43 +201,47 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
 
     const ownersList = [];
 
-    // Add modern owners array
-    if (inventory.owners && Array.isArray(inventory.owners) && inventory.owners.length > 0) {
+    // Helper to add unique entry to ownersList
+    const addUniqueEntry = (name, role, mobile) => {
+        if (!name || name === 'undefined' || name === 'null') return;
+        if (!ownersList.some(o => o.name === name)) {
+            ownersList.push({
+                name: name,
+                role: role,
+                label: `${name} (${role})`,
+                mobile: mobile
+            });
+        }
+    };
+
+    // 1. Add from modern owners array (Populated Contacts)
+    if (inventory.owners && Array.isArray(inventory.owners)) {
         inventory.owners.forEach(o => {
-            ownersList.push({
-                name: o.name,
-                role: o.role || o.link_role || 'Owner',
-                label: `${o.name} (${o.role || o.link_role || 'Owner'})`,
-                mobile: o.phones?.[0]?.number || o.mobile
-            });
+            if (o && typeof o === 'object') {
+                addUniqueEntry(o.name, o.role || o.link_role || 'Owner', o.phones?.[0]?.number || o.mobile);
+            } else if (typeof o === 'string' && inventory.ownerName) {
+                // Fallback if not populated but we have legacy fields
+                addUniqueEntry(inventory.ownerName, 'Owner', inventory.ownerPhone);
+            }
         });
     }
 
-    if (inventory.ownerName) {
-        // Only add if not already present by name
-        if (!ownersList.some(o => o.name === inventory.ownerName)) {
-            ownersList.push({ name: inventory.ownerName, role: 'Owner', label: `${inventory.ownerName} (Owner)`, mobile: inventory.ownerPhone });
-        }
-    }
+    // 2. Add from legacy owner fields
+    addUniqueEntry(inventory.ownerName, 'Owner', inventory.ownerPhone);
 
-    // Add modern associates array
-    if (inventory.associates && Array.isArray(inventory.associates) && inventory.associates.length > 0) {
+    // 3. Add from modern associates array
+    if (inventory.associates && Array.isArray(inventory.associates)) {
         inventory.associates.forEach(a => {
-            ownersList.push({
-                name: a.name,
-                role: a.role || a.relationship || 'Associate',
-                label: `${a.name} (${a.role || a.relationship || 'Associate'})`,
-                mobile: a.phones?.[0]?.number || a.mobile
-            });
+            if (!a) return;
+            const contact = a.contact || {};
+            const name = a.name || contact.name;
+            const mobile = a.mobile || (contact.phones?.[0]?.number) || (contact.mobile);
+            addUniqueEntry(name, a.relationship || a.role || 'Associate', mobile);
         });
     }
 
-    if (inventory.associatedContact) {
-        // Only add if not already present by name
-        if (!ownersList.some(o => o.name === inventory.associatedContact)) {
-            ownersList.push({ name: inventory.associatedContact, role: 'Associate', label: `${inventory.associatedContact} (Associate)`, mobile: inventory.associatedPhone });
-        }
-    }
+    // 4. Add from legacy associate fields
+    addUniqueEntry(inventory.associatedContact, 'Associate', inventory.associatedPhone);
 
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target;
@@ -264,7 +288,7 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
                 // Professional Fix: Persist feedback to backend
                 const updatePayload = {
                     interactions: [{
-                        note: `${formData.result}${formData.reason ? ` (${formData.reason})` : ''} - ${formData.feedback}`,
+                        note: `${formData.result}${formData.reason ? ` (${formData.reason})` : ''} - ${formData.feedback || 'No additional notes'}`,
                         actor: formData.selectedOwner,
                         details: {
                             result: formData.result,
@@ -273,20 +297,61 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
                             owner: formData.selectedOwner,
                             ownerRole: formData.selectedOwnerRole
                         }
-                    }]
+                    }],
+                    lastContactedAt: new Date().toISOString(),
+                    lastContactDate: new Date().toLocaleDateString('en-GB'),
+                    lastContactUser: 'You',
+                    remarks: `${formData.result}${formData.reason ? ` (${formData.reason})` : ''}: ${formData.feedback || ''}`
                 };
 
-                // Automation: Update Inventory Status if necessary
-                if (formData.markAsSold) {
-                    // Map feedback outcome to actual system status
-                    if (formData.result.includes('Sold')) updatePayload.status = 'Sold Out';
-                    else if (formData.result.includes('Rent')) updatePayload.status = 'Rented Out';
-                    else updatePayload.status = 'Inactive';
+                // Professional: Handle intent updates if modal was opened with a specific context (e.g. For Sale)
+                if (initialIntent && (formData.result.includes('Interested') || formData.result === 'Interested')) {
+                    let newIntents = [...(inventory.intent || [])].map(i => (i && typeof i === 'object' ? i.lookup_value : i));
+                    if (!newIntents.includes(initialIntent)) {
+                        newIntents.push(initialIntent);
+                        updatePayload.intent = newIntents;
+                    }
                 }
+
+                // Enrich with follow-up date if scheduled
+                if (scheduleFollowUp && formData.nextActionDate) {
+                    updatePayload.followUpDate = `${formData.nextActionDate}T${formData.nextActionTime || '10:00'}:00`;
+                }
+
+                // Status update — send as plain string; backend pre-hook resolves to Lookup ID
+                if (formData.markAsSold) {
+                    if (formData.result.toLowerCase().includes('sold')) {
+                        updatePayload.status = 'Sold Out';
+                    } else if (formData.result.toLowerCase().includes('rent')) {
+                        updatePayload.status = 'Rented Out';
+                    } else {
+                        updatePayload.status = 'Inactive';
+                    }
+                }
+
+                console.log("[DEBUG] Saving feedback for Inventory ID:", inventory._id);
+                console.log("[DEBUG] Update Payload:", JSON.stringify(updatePayload, null, 2));
 
                 const response = await api.put(`inventory/${inventory._id}`, updatePayload);
 
                 if (response.data && response.data.success) {
+                    // Global Trigger Alignment: Fire the feedback event
+                    // entityType MUST be passed so the engine matches trigger.module === entityType
+                    await fireEvent('inventory_feedback_submitted', {
+                        ...inventory,
+                        outcome: typeof formData.result === 'object' ? formData.result.lookup_value : formData.result,
+                        reason: typeof formData.reason === 'object' ? formData.reason.lookup_value : formData.reason,
+                        feedback: formData.feedback,
+                        nextActionDate: formData.nextActionDate,
+                        nextActionTime: formData.nextActionTime
+                    }, {
+                        entityType: 'inventory',
+                        outcome: typeof formData.result === 'object' ? formData.result.lookup_value : formData.result,
+                        reason: typeof formData.reason === 'object' ? formData.reason.lookup_value : formData.reason,
+                        nextActionDate: formData.nextActionDate,
+                        nextActionTime: formData.nextActionTime
+                    });
+
                     onSave && onSave(formData);
                 } else {
                     toast.error("Failed to save feedback");

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTriggers } from '../context/TriggersContext';
+import { whatsappTemplates, smsTemplates, emailTemplates } from '../constants/templates';
 
 const CreateTriggerModal = ({ isOpen, onClose, editData }) => {
     const { addTrigger, updateTrigger } = useTriggers();
@@ -67,6 +68,9 @@ const CreateTriggerModal = ({ isOpen, onClose, editData }) => {
         const newAction = { type };
         if (type === 'start_sequence') {
             newAction.sequenceId = '';
+        } else if (type === 'send_communication') {
+            newAction.channel = 'whatsapp';
+            newAction.templateId = '';
         } else if (type === 'send_notification') {
             newAction.target = 'manager';
             newAction.template = '';
@@ -113,6 +117,7 @@ const CreateTriggerModal = ({ isOpen, onClose, editData }) => {
         ],
         inventory: [
             { value: 'inventory_status_changed', label: 'Inventory Status Changed' },
+            { value: 'inventory_feedback_submitted', label: 'Feedback Submitted' },
             { value: 'inventory_linked_to_deal', label: 'Inventory Linked to Deal' }
         ],
         deals: [
@@ -131,7 +136,7 @@ const CreateTriggerModal = ({ isOpen, onClose, editData }) => {
         leads: ['score', 'stage', 'status', 'source', 'budget', 'owner'],
         activities: ['type', 'status', 'priority', 'assignedTo'],
         communication: ['outcome', 'duration', 'type'],
-        inventory: ['status', 'price', 'type'],
+        inventory: ['status', 'price', 'type', 'outcome', 'reason'],
         deals: ['stage', 'value', 'probability'],
         post_sale: ['paymentStatus', 'registryStatus']
     };
@@ -351,12 +356,54 @@ const CreateTriggerModal = ({ isOpen, onClose, editData }) => {
                                         </div>
                                     )}
 
+                                    {action.type === 'send_communication' && (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                            <div style={{ display: 'flex', gap: '12px' }}>
+                                                <div style={{ flex: 1 }}>
+                                                    <label style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', display: 'block', marginBottom: '4px' }}>Channel</label>
+                                                    <select
+                                                        value={action.channel}
+                                                        onChange={(e) => updateAction(index, 'channel', e.target.value)}
+                                                        style={{ width: '100%', padding: '8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px' }}
+                                                    >
+                                                        <option value="whatsapp">WhatsApp</option>
+                                                        <option value="sms">SMS</option>
+                                                        <option value="email">Email</option>
+                                                    </select>
+                                                </div>
+                                                <div style={{ flex: 2 }}>
+                                                    <label style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', display: 'block', marginBottom: '4px' }}>Select Template</label>
+                                                    <select
+                                                        value={action.templateId}
+                                                        onChange={(e) => updateAction(index, 'templateId', e.target.value)}
+                                                        style={{ width: '100%', padding: '8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px' }}
+                                                    >
+                                                        <option value="">Choose a Template...</option>
+                                                        {(action.channel === 'whatsapp' ? whatsappTemplates : action.channel === 'sms' ? smsTemplates : emailTemplates).map(t => (
+                                                            <option key={t.id} value={t.id}>{t.name}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                            </div>
+                                            {action.templateId && (
+                                                <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px' }}>
+                                                    <div style={{ fontSize: '11px', fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', marginBottom: '8px' }}>Template Preview</div>
+                                                    <div style={{ fontSize: '13px', color: '#475569', whiteSpace: 'pre-wrap', maxHeight: '100px', overflowY: 'auto' }}>
+                                                        {(action.channel === 'whatsapp' ? whatsappTemplates : action.channel === 'sms' ? smsTemplates : emailTemplates).find(t => String(t.id) === String(action.templateId))?.content || 
+                                                         (action.channel === 'whatsapp' ? whatsappTemplates : action.channel === 'sms' ? smsTemplates : emailTemplates).find(t => String(t.id) === String(action.templateId))?.body || 
+                                                         "Template content not found."}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+
                                     {action.type === 'send_notification' && (
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                             <select
                                                 value={action.target}
                                                 onChange={(e) => updateAction(index, 'target', e.target.value)}
-                                                style={{ padding: '8px', border: '1px solid #d1d5db', borderRadius: '6px' }}
+                                                style={{ padding: '8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px' }}
                                             >
                                                 <option value="manager">Manager</option>
                                                 <option value="owner">Owner</option>
@@ -365,8 +412,8 @@ const CreateTriggerModal = ({ isOpen, onClose, editData }) => {
                                             <textarea
                                                 value={action.message}
                                                 onChange={(e) => updateAction(index, 'message', e.target.value)}
-                                                placeholder="Message (use {{name}} for placeholders)"
-                                                style={{ padding: '8px', border: '1px solid #d1d5db', borderRadius: '6px', minHeight: '60px', width: '100%', boxSizing: 'border-box' }}
+                                                placeholder="Notification message..."
+                                                style={{ padding: '8px', border: '1px solid #d1d5db', borderRadius: '6px', minHeight: '60px', width: '100%', boxSizing: 'border-box', fontSize: '13px' }}
                                             />
                                         </div>
                                     )}
@@ -381,10 +428,16 @@ const CreateTriggerModal = ({ isOpen, onClose, editData }) => {
                                     + Start Sequence
                                 </button>
                                 <button
-                                    onClick={() => addAction('send_notification')}
+                                    onClick={() => addAction('send_communication')}
                                     style={{ padding: '10px', background: '#f0fdf4', border: '1px solid #10b981', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', color: '#10b981' }}
                                 >
-                                    + Send Notification
+                                    + Send Communication
+                                </button>
+                                <button
+                                    onClick={() => addAction('send_notification')}
+                                    style={{ padding: '10px', background: '#f5f3ff', border: '1px solid #8b5cf6', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', color: '#8b5cf6' }}
+                                >
+                                    + Internal Notification
                                 </button>
                                 <button
                                     onClick={() => addAction('update_field')}

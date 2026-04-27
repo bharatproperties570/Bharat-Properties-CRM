@@ -17,11 +17,13 @@ class GeminiService {
     async _getConfig() {
         // 1. Env vars first (fastest, no DB round-trip)
         const envKey = process.env.GOOGLE_AI_API_KEY || process.env.GEMINI_API_KEY;
-        if (envKey && !envKey.includes('YOUR_')) {
+        const isPlaceholder = (val) => !val || val.includes('YOUR_') || val.length < 20;
+
+        if (envKey && !isPlaceholder(envKey)) {
             return {
                 apiKey:     envKey,
-                model:      'gemini-1.5-pro',
-                apiVersion: 'v1beta',  // v1beta required for systemInstruction support
+                model:      'gemini-2.0-flash', // Updated for 2026 availability
+                apiVersion: 'v1beta', 
             };
         }
 

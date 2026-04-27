@@ -70,13 +70,84 @@ export const emailTemplates = [
         shared: true
     },
     {
-        id: 8,
-        name: 'Property Presentation',
-        author: 'Bharat Properties',
-        visibility: 'Owned by everyone',
-        tags: ['Presentation', 'Property'],
-        subject: '🏠 Property Details: {{PropertyName}} at {{Address}}',
-        content: `Dear {{First name}},<br><br>As discussed, I am sharing the details of a premium property that perfectly matches your requirement:<br><br><div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; background: #f8fafc;"><h3>🏠 {{PropertyName}}</h3>📍 <strong>Location:</strong> {{Address}}<br>📏 <strong>Size:</strong> {{Size}}<br>💰 <strong>Exclusive Price:</strong> {{Price}}<br><br>{{PropertyDescription}}</div><br>I have also attached the site plan and additional images for your reference. Would you like to schedule a site visit for this property?<br><br>Best regards,<br><div style="margin-top: 20px; border-top: 1px solid #e2e8f0; padding-top: 15px;"><strong>{{Sender's signature}}</strong><br><span style="color: #64748b; font-size: 0.9rem;">Bharat Properties | Premium Real Estate Solutions</span><br><span style="color: #64748b; font-size: 0.85rem;">Ph: +91-XXXXX-XXXXX | Web: www.bharatproperties.com</span></div>`,
+        id: 'fb_interested_hot',
+        name: 'Feedback: Interested (Hot)',
+        author: 'System',
+        tags: ['Feedback', 'Inventory'],
+        subject: 'Priority Update regarding {unit}',
+        content: `Hi {owner},<br><br>Great to hear from you regarding <strong>{unit}</strong>! I'm finalizing the details for our <strong>{time}</strong> meeting. Please keep the original documents ready.<br><br>Best regards,<br>Bharat Properties`,
+        shared: true
+    },
+    {
+        id: 'fb_interested_warm',
+        name: 'Feedback: Interested (Warm)',
+        author: 'System',
+        tags: ['Feedback', 'Inventory'],
+        subject: 'Interest noted for {unit}',
+        content: `Hi {owner},<br><br>Thank you for your time discussing <strong>{unit}</strong>. I've noted your interest for <strong>{reason}</strong>. I will share some market comparisons shortly.<br><br>Best regards,<br>Bharat Properties`,
+        shared: true
+    },
+    {
+        id: 'fb_callback',
+        name: 'Feedback: Request Call Back',
+        author: 'System',
+        tags: ['Feedback', 'Inventory'],
+        subject: 'Call back request for {unit}',
+        content: `Hi {owner},<br><br>Apologies for the interruption. I will call you back at <strong>{time}</strong> regarding <strong>{unit}</strong> as requested.<br><br>Best regards,<br>Bharat Properties`,
+        shared: true
+    },
+    {
+        id: 'fb_not_interested',
+        name: 'Feedback: Not Interested',
+        author: 'System',
+        tags: ['Feedback', 'Inventory'],
+        subject: 'Status update for {unit}',
+        content: `Hi {owner},<br><br>Thank you for the update on <strong>{unit}</strong>. I've updated the record as <strong>{reason}</strong>. Do reach out if your plans change.<br><br>Best regards,<br>Bharat Properties`,
+        shared: true
+    },
+    {
+        id: 'fb_busy_driving',
+        name: 'Feedback: Busy / Driving',
+        author: 'System',
+        tags: ['Feedback', 'Inventory'],
+        subject: 'Missed you regarding {unit}',
+        content: `Hi {owner},<br><br>I tried reaching you regarding <strong>{unit}</strong>. Seems like you were busy — I'll call again shortly.<br><br>Best regards,<br>Bharat Properties`,
+        shared: true
+    },
+    {
+        id: 'fb_switch_off',
+        name: 'Feedback: Switch Off / Unreachable',
+        author: 'System',
+        tags: ['Feedback', 'Inventory'],
+        subject: 'Tried reaching you for {unit}',
+        content: `Hi {owner},<br><br>We tried contacting you regarding <strong>{unit}</strong> but were unable to reach you. We will try again at a later time.<br><br>Best regards,<br>Bharat Properties`,
+        shared: true
+    },
+    {
+        id: 'fb_market_feedback',
+        name: 'Feedback: Market Feedback',
+        author: 'System',
+        tags: ['Feedback', 'Inventory'],
+        subject: 'Market update for {unit}',
+        content: `Hi {owner},<br><br>Thank you for sharing your thoughts on <strong>{unit}</strong>. If you decide to sell or rent, we have active buyers ready. Feel free to reach out anytime.<br><br>Best regards,<br>Bharat Properties`,
+        shared: true
+    },
+    {
+        id: 'fb_general_inquiry',
+        name: 'Feedback: General Inquiry',
+        author: 'System',
+        tags: ['Feedback', 'Inventory'],
+        subject: 'Your inquiry regarding {unit}',
+        content: `Hi {owner},<br><br>Thank you for your inquiry regarding <strong>{unit}</strong>. Our team will get back to you shortly with the requested information.<br><br>Best regards,<br>Bharat Properties`,
+        shared: true
+    },
+    {
+        id: 'fb_wrong_number',
+        name: 'Feedback: Wrong Number / Invalid',
+        author: 'System',
+        tags: ['Feedback', 'Inventory'],
+        subject: 'Contact verification for {unit}',
+        content: `Hi,<br><br>We attempted to contact the registered owner for <strong>{unit}</strong> but the number appears to be incorrect or unavailable. Our team will verify and update the records.<br><br>Best regards,<br>Bharat Properties`,
         shared: true
     }
 ];
@@ -321,6 +392,60 @@ Best regards,
 Bharat Properties
 📞 {{AgentPhone}}`,
         tags: ['Payment', 'Reminder']
+    },
+    {
+        id: 'fb_interested_hot_wa',
+        name: 'Feedback: Interested (Hot)',
+        content: "Hi {owner}, great to hear from you regarding {unit}! I'm finalizing the details for our {time} meeting. Please keep the original documents ready.",
+        tags: ['Feedback', 'Inventory']
+    },
+    {
+        id: 'fb_interested_warm_wa',
+        name: 'Feedback: Interested (Warm)',
+        content: "Hi {owner}, thank you for your time discussing {unit}. I've noted your interest for {reason}. I will share some market comparisons shortly.",
+        tags: ['Feedback', 'Inventory']
+    },
+    {
+        id: 'fb_callback_wa',
+        name: 'Feedback: Request Call Back',
+        content: "Hi {owner}, apologies for the interruption. I will call you back at {time} regarding {unit} as requested.",
+        tags: ['Feedback', 'Inventory']
+    },
+    {
+        id: 'fb_not_interested_wa',
+        name: 'Feedback: Not Interested',
+        content: "Hi {owner}, thank you for the update on {unit}. I've updated the record as {reason}. Do reach out if your plans change.",
+        tags: ['Feedback', 'Inventory']
+    },
+    {
+        id: 'fb_busy_driving_wa',
+        name: 'Feedback: Busy / Driving',
+        content: "Hi {owner}, I tried calling you regarding {unit}. I'll reach out again later today. Sorry for the interruption.",
+        tags: ['Feedback', 'Inventory']
+    },
+    {
+        id: 'fb_switch_off_wa',
+        name: 'Feedback: Switch Off / Unreachable',
+        content: "Hi {owner}, we tried reaching you about {unit} but couldn't connect. We'll try again soon. Please call us back at your convenience.",
+        tags: ['Feedback', 'Inventory']
+    },
+    {
+        id: 'fb_market_feedback_wa',
+        name: 'Feedback: Market Feedback',
+        content: "Hi {owner}, thank you for the insight on {unit}. If you decide to proceed with sale or rent, I have active buyers ready. Do keep us in mind!",
+        tags: ['Feedback', 'Inventory']
+    },
+    {
+        id: 'fb_general_inquiry_wa',
+        name: 'Feedback: General Inquiry',
+        content: "Hi {owner}, thank you for your inquiry about {unit}. Our team will get back to you shortly with the details you requested.",
+        tags: ['Feedback', 'Inventory']
+    },
+    {
+        id: 'fb_wrong_number_wa',
+        name: 'Feedback: Wrong Number / Invalid',
+        content: "Hi, we tried reaching the registered contact for {unit} but the number seems incorrect. Please help us update the contact details.",
+        tags: ['Feedback', 'Inventory']
     }
 ];
 
@@ -380,10 +505,58 @@ export const smsTemplates = [
         tags: ['Offer', 'Exclusive']
     },
     {
-        id: 10,
-        name: 'Birthday Wishes',
-        body: 'Happy Birthday {{1}}! Wishing you joy & success. May this year bring you closer to your dream home. Best wishes - {{2}}, Bharat Properties',
-        tags: ['Birthday', 'Relationship']
+        id: 'fb_interested_hot_sms',
+        name: 'Feedback: Interested (Hot)',
+        body: "{unit} Update: Hi {owner}, finalized meeting for {time}. Please keep documents ready.",
+        tags: ['Feedback', 'Inventory']
+    },
+    {
+        id: 'fb_interested_warm_sms',
+        name: 'Feedback: Interested (Warm)',
+        body: "Hi {owner}, thanks for discussing {unit}. Noted your interest as {reason}. Will share details soon.",
+        tags: ['Feedback', 'Inventory']
+    },
+    {
+        id: 'fb_callback_sms',
+        name: 'Feedback: Request Call Back',
+        body: "Hi {owner}, will call you back at {time} regarding {unit}. Sorry for the interruption.",
+        tags: ['Feedback', 'Inventory']
+    },
+    {
+        id: 'fb_not_interested_sms',
+        name: 'Feedback: Not Interested',
+        body: "Hi {owner}, noted on {unit} as {reason}. Reach out if plans change. Thanks.",
+        tags: ['Feedback', 'Inventory']
+    },
+    {
+        id: 'fb_busy_driving_sms',
+        name: 'Feedback: Busy / Driving',
+        body: "Hi {owner}, tried calling for {unit}. Will call again later. Thanks — Bharat Properties",
+        tags: ['Feedback', 'Inventory']
+    },
+    {
+        id: 'fb_switch_off_sms',
+        name: 'Feedback: Switch Off / Unreachable',
+        body: "Hi, we tried reaching the contact for {unit} but couldn't connect. Please call us back. - Bharat Properties",
+        tags: ['Feedback', 'Inventory']
+    },
+    {
+        id: 'fb_market_feedback_sms',
+        name: 'Feedback: Market Feedback',
+        body: "Hi {owner}, thanks for feedback on {unit}. Contact us if you decide to sell/rent. Active buyers ready — Bharat Properties",
+        tags: ['Feedback', 'Inventory']
+    },
+    {
+        id: 'fb_general_inquiry_sms',
+        name: 'Feedback: General Inquiry',
+        body: "Hi {owner}, noted your inquiry on {unit}. Our team will connect shortly. - Bharat Properties",
+        tags: ['Feedback', 'Inventory']
+    },
+    {
+        id: 'fb_wrong_number_sms',
+        name: 'Feedback: Wrong Number / Invalid',
+        body: "Contact mismatch for {unit}. Please share correct owner number. - Bharat Properties",
+        tags: ['Feedback', 'Inventory']
     }
 ];
 

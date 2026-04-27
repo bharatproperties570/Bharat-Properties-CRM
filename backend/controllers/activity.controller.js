@@ -244,6 +244,18 @@ const autoTriggerStageChange = async (activity, userId = null) => {
         // 2. Recalculate Lead Score (unified scoring engine)
         await LeadScoringService.computeAndSave(leadId, { triggeredBy: 'activity_completion', triggeredByUserId: userId });
 
+        // 🚀 OMNICHANNEL AUTOMATION TRIGGER
+        // Trigger professional workflow (WhatsApp/SMS/Email) based on the specific outcome
+        if (resolvedOutcome) {
+            const NurtureBot = (await import("../services/NurtureBot.js")).default;
+            const lead = await Lead.findById(leadId).lean();
+            if (lead) {
+                // Determine triggerId from outcome (e.g., 'Interested', 'Visit Scheduled')
+                // The Automation Engine rules are mapped to these outcome names
+                await NurtureBot.executeAutomation(resolvedOutcome, lead);
+            }
+        }
+
         if (transition.stageChanged) {
             console.log(`[StageAlignment] Lead ${leadId} moved: ${transition.prevStage} → ${transition.newStage}`);
         }

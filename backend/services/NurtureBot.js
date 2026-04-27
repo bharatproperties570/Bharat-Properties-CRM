@@ -58,8 +58,8 @@ class NurtureBot {
                 },
             });
 
-            // Immediately proceed to Step 1: Send WhatsApp
-            await this._sendWhatsApp(lead, deal);
+            // Immediately proceed to Step 1: Send WhatsApp & SMS
+            await this._sendWelcomeMessages(lead, deal);
         } catch (err) {
             console.error(`[NurtureBot] initiate error for Lead ${lead._id}:`, err.message);
         }
@@ -125,7 +125,7 @@ class NurtureBot {
         // Perform action for the new state
         switch (nextState) {
             case 'WA_SENT':
-                await this._sendWhatsApp(lead);
+                await this._sendWelcomeMessages(lead);
                 break;
             case 'CALL_QUEUED':
                 await this._queueCall(lead);
@@ -144,33 +144,85 @@ class NurtureBot {
 
     // ── Step Actions ──────────────────────────────────────────────────────────
 
-    async _sendWhatsApp(lead, deal = null) {
-        const name = lead.firstName || 'Valued Customer';
-        
-        // AI-Powered Personalized Message
-        const prompt = `
-            Generate a friendly, professional WhatsApp message for a real estate lead.
-            Lead Name: ${name}
-            Property Context: ${deal ? `${deal.unitNo} in ${deal.projectName}` : 'Premium Real Estate'}
-            Goal: Thank them for their interest and offer more details.
-            Tone: Helpful, not pushy.
-            Constraint: Keep it under 300 characters. Use emojis.
-        `;
-
+    /**
+     * Executes the omnichannel automation based on unified rules.
+     * @param {string} triggerId - The event trigger ID (e.g., 'Lead Created')
+     * @param {Object} lead - Lead document
+     * @param {Object} deal - Optional Deal context
+     */
+    async executeAutomation(triggerId, lead, deal = null) {
         try {
-            const message = await unifiedAIService.generate(prompt);
-            if (lead.mobile) {
-                await whatsAppService.sendMessage(lead.mobile, message);
-                await this._logActivity(lead._id, 'WhatsApp', 'AI-Personalized WhatsApp sent by NurtureBot');
+            const SystemSetting = (await import('../src/modules/systemSettings/system.model.js')).default;
+            const smartConfig = await SystemSetting.findOne({ key: 'unified_automation_rules' }).lean();
+            
+            if (!smartConfig || !smartConfig.value?.[triggerId]) {
+                console.log(`[AutomationEngine] No rules found for trigger: ${triggerId}`);
+                return;
             }
+
+            const rule = smartConfig.value[triggerId];
+            const name = lead.firstName || 'Valued Customer';
+
+            const resolveVars = (str) => {
+                if (!str) return str;
+                return str
+                    .replace(/{{fullName}}/g, `${lead.firstName} ${lead.lastName || ''}`.trim())
+                    .replace(/{{firstName}}/g, lead.firstName || 'Valued Customer')
+                    .replace(/{{projectName}}/g, deal?.projectName || 'our projects')
+                    .replace(/{{agentName}}/g, 'Team Bharat Properties');
+            };
+
+            console.log(`[AutomationEngine] Orchestrating: ${triggerId} for ${lead.mobile}`);
+
+            // 1. WhatsApp Action
+            if (rule.whatsapp?.enabled) {
+                try {
+                    const wa = rule.whatsapp;
+                    if (wa.templateName) {
+                        const components = [{ type: 'body', parameters: [{ type: 'text', text: name }] }];
+                        await whatsAppService.sendTemplate(lead.mobile, wa.templateName, 'en_US', components);
+                        await this._logActivity(lead._id, 'WhatsApp', `Automated [${wa.templateName}] sent via ${triggerId}`);
+                    } else if (wa.body) {
+                        await whatsAppService.sendMessage(lead.mobile, resolveVars(wa.body));
+                        await this._logActivity(lead._id, 'WhatsApp', `Manual WhatsApp sent via ${triggerId}`);
+                    }
+                } catch (waErr) {
+                    console.error('[AutomationEngine] WhatsApp Error:', waErr.message);
+                }
+            }
+
+            // 2. SMS Action
+            if (rule.sms?.enabled && rule.sms.body) {
+                try {
+                    await smsService.sendSms(lead.mobile, resolveVars(rule.sms.body), { 
+                        dltTemplateId: rule.sms.dltId || 'DEFAULT_WELCOME'
+                    });
+                    await this._logActivity(lead._id, 'SMS', `Automated SMS sent via ${triggerId}`);
+                } catch (smsErr) {
+                    console.error('[AutomationEngine] SMS Error:', smsErr.message);
+                }
+            }
+
+            // 3. Email Action
+            if (rule.email?.enabled && lead.email) {
+                try {
+                    const subject = resolveVars(rule.email.subject || `Update from Bharat Properties`);
+                    const html = resolveVars(rule.email.body || '').replace(/\n/g, '<br/>');
+                    await emailService.sendEmail(lead.email, subject, resolveVars(rule.sms?.body || 'Hello'), html);
+                    await this._logActivity(lead._id, 'Email', `Automated Email sent via ${triggerId}`);
+                } catch (emailErr) {
+                    console.error('[AutomationEngine] Email Error:', emailErr.message);
+                }
+            }
+
         } catch (err) {
-            console.error('[NurtureBot] AI WhatsApp failed, falling back to template:', err.message);
-            const fallback = `👋 Hello *${name}*! Thank you for your interest in Bharat Properties. Reply YES to know more!`;
-            if (lead.mobile) {
-                await whatsAppService.sendMessage(lead.mobile, fallback);
-                await this._logActivity(lead._id, 'WhatsApp', 'Template WhatsApp sent (AI Fallback)');
-            }
+            console.error(`[AutomationEngine] Global failure for ${triggerId}:`, err.message);
         }
+    }
+
+    async _sendWelcomeMessages(lead, deal = null) {
+        // Now fully handled by the generic automation engine
+        await this.executeAutomation('Lead Created', lead, deal);
     }
 
     async _queueCall(lead) {
@@ -190,38 +242,13 @@ class NurtureBot {
     }
 
     async _sendFollowUpEmail(lead) {
-        if (!lead.email) return;
-        const name = lead.firstName || 'Valued Customer';
-
-        const prompt = `
-            Create a professional follow-up email for a real estate lead who didn't respond to WhatsApp.
-            Lead Name: ${name}
-            Company: Bharat Properties
-            Goal: Share property portfolio link and invite for site visit.
-            Output JSON: { "subject": "...", "html": "..." }
-        `;
-
-        try {
-            const response = await unifiedAIService.generate(prompt);
-            const { subject, html } = JSON.parse(response);
-            await emailService.sendEmail(lead.email, subject, 'Follow-up from Bharat Properties', html);
-            await this._logActivity(lead._id, 'Email', 'AI-Generated Follow-up email sent');
-        } catch (err) {
-            console.error('[NurtureBot] AI Email failed:', err.message);
-            const subject = `📋 Your Property Report — Bharat Properties`;
-            const html = `<p>Hello ${name}, we tried reaching you. Check our properties here: ${process.env.FRONTEND_URL}</p>`;
-            await emailService.sendEmail(lead.email, subject, 'Follow-up from Bharat Properties', html);
-            await this._logActivity(lead._id, 'Email', 'Template Email sent (AI Fallback)');
-        }
+        // Advanced follow-up can now be part of the 'Follow-up' rule
+        await this.executeAutomation('Follow-up', lead);
     }
 
     async _requestSiteVisit(lead) {
-        const name = lead.firstName || 'Customer';
-        if (lead.mobile) {
-            const message = `🏠 Hi *${name}*, your personalized property shortlist is ready!\n\n📅 Would you like to schedule a *FREE site visit*?\n\nReply *YES* with your preferred date and time, and we'll confirm within 2 hours! 🙏\n\n_Bharat Properties_`;
-            await whatsAppService.sendMessage(lead.mobile, message);
-        }
-        await this._logActivity(lead._id, 'WhatsApp', 'Site visit request sent by NurtureBot');
+        // Handled by 'Visit Scheduled' rule
+        await this.executeAutomation('Visit Scheduled', lead);
     }
 
     async _handoffToSales(lead) {

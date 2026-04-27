@@ -154,7 +154,7 @@ const getRestrictedActions = (module) => {
  * @param {Object} actionHandlers - Object containing action handler functions
  * @returns {Promise<Array>} - Array of execution results
  */
-export const executeTriggerActions = async (trigger, entity, actionHandlers = {}) => {
+export const executeTriggerActions = async (trigger, entity, actionHandlers = {}, context = {}) => {
     const results = [];
 
     for (const action of trigger.actions || []) {
@@ -184,6 +184,17 @@ export const executeTriggerActions = async (trigger, entity, actionHandlers = {}
                             template: action.template,
                             entity,
                             data: action.data
+                        });
+                    }
+                    break;
+
+                case 'send_communication':
+                    if (actionHandlers.sendCommunication) {
+                        result = await actionHandlers.sendCommunication({
+                            channel: action.channel,
+                            templateId: action.templateId,
+                            entity,
+                            context  // Forward full context so resolver can access {reason}, {time}, etc.
                         });
                     }
                     break;
@@ -373,7 +384,7 @@ export const evaluateAndExecuteTriggers = async (event, entity, triggers, action
             };
 
             // Execute actions
-            const actionResults = await executeTriggerActions(processedTrigger, entity, actionHandlers);
+            const actionResults = await executeTriggerActions(processedTrigger, entity, actionHandlers, context);
             logs.push(createExecutionLog(processedTrigger, entity, event, true, actionResults));
         } else {
             logs.push(createExecutionLog(trigger, entity, event, false, []));

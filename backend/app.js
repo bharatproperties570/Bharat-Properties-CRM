@@ -200,22 +200,29 @@ app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
     }
     
     // 🛠️ SENIOR DIAGNOSTIC: Log actual error for debugging
+    const statusCode = err.statusCode || err.status || 500;
+    
+    if (statusCode === 400) {
+        console.error(`[400_BAD_REQUEST] ${req.method} ${req.url}`);
+        console.error(`Payload:`, JSON.stringify(req.body, null, 2));
+        console.error(`Reason: ${err.message}`);
+    }
+
     console.error(`[API_ERROR] ${req.method} ${req.url} - ${err.message}`);
     if (err.stack) console.error(err.stack);
 
     const logPath = path.join(process.cwd(), 'error.log');
     try {
-        fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${req.method} ${req.url}\n${err.stack || err.message}\n\n`);
+        fs.appendFileSync(logPath, `[${new Date().toISOString()}] ${req.method} ${req.url} (${statusCode})\nBody: ${JSON.stringify(req.body)}\n${err.stack || err.message}\n\n`);
     } catch (fsErr) {
         console.error('Failed to log error to file:', fsErr);
     }
 
-    const statusCode = err.statusCode || err.status || 500;
     res.status(statusCode).json({ 
         success: false, 
         message: err.message || "Internal Server Error",
         // Only include error details if not in production or if it's an operational error
-        ...(process.env.NODE_ENV !== 'production' && { error: err.message })
+        ...(process.env.NODE_ENV !== 'production' && { error: err.message, details: err.errors })
     });
 });
 

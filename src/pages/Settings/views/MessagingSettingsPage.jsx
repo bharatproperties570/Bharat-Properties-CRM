@@ -662,142 +662,7 @@ const VariableRegistryTab = () => {
     );
 };
 
-const SmartOutcomeTemplatesTab = () => {
-    const [smartTemplates, setSmartTemplates] = useState({});
-    const [isLoading, setIsLoading] = useState(true);
-    const [isSaving, setIsSaving] = useState(false);
-
-    const outcomes = [
-        { id: 'Interested', label: 'Call: Interested', icon: 'fa-thumbs-up', color: '#10b981' },
-        { id: 'Follow-up', label: 'Call: Follow-up', icon: 'fa-clock', color: '#3b82f6' },
-        { id: 'Not Picked', label: 'Call: Not Picked', icon: 'fa-phone-slash', color: '#f59e0b' },
-        { id: 'Visit Scheduled', label: 'Task: Site Visit', icon: 'fa-map-marker-alt', color: '#8b5cf6' },
-        { id: 'Meeting Done', label: 'Task: Meeting Done', icon: 'fa-handshake', color: '#ec4899' },
-        { id: 'Not Interested', label: 'Call: Junk/Not Interested', icon: 'fa-times-circle', color: '#ef4444' }
-    ];
-
-    const fetchSmartTemplates = async () => {
-        try {
-            const res = await systemSettingsAPI.getByKey('smart_outcome_templates');
-            if (res.success && res.data?.value) {
-                setSmartTemplates(res.data.value);
-            } else {
-                setSmartTemplates({
-                    'Interested': {
-                        whatsapp: 'Hi {{fullName}}, thank you for your interest in {{projectName}}. Our senior consultant {{agentName}} will call you soon with floor plans.',
-                        sms: 'Thanks for inquiring about {{projectName}}, {{fullName}}. We have shared details on your WhatsApp. Regards, Bharat Properties.',
-                        email: 'Dear {{fullName}},\n\nIt was a pleasure speaking with you regarding {{projectName}}. As discussed, please find the attached brochure and pricing details.\n\nRegards,\n{{agentName}}'
-                    },
-                    'Visit Scheduled': {
-                        whatsapp: 'Hi {{fullName}}, site visit for {{projectName}} is confirmed for {{nextFollowUpDate}}. Location: https://maps.google.com/?q={{projectArea}}. See you there!',
-                        sms: 'Site Visit Confirmed! {{projectName}} on {{nextFollowUpDate}}. Our team is ready to assist you. Location link shared on WhatsApp.',
-                        email: 'Site Visit Confirmation: {{projectName}}\n\nDear {{fullName}},\n\nYour visit is scheduled for {{nextFollowUpDate}}. Please contact {{customerSupportNo}} if you need direction help.'
-                    }
-                });
-            }
-        } catch (err) {
-            console.warn('Failed to fetch smart templates');
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    useEffect(() => {
-        fetchSmartTemplates();
-    }, []);
-
-    const handleSave = async () => {
-        setIsSaving(true);
-        try {
-            await systemSettingsAPI.upsert('smart_outcome_templates', {
-                category: 'messaging',
-                value: smartTemplates,
-                description: 'Automated templates triggered by call/task outcomes.',
-                isPublic: true
-            });
-            toast.success('Smart outcome templates updated');
-        } catch (err) {
-            toast.error('Failed to save: ' + err.message);
-        } finally {
-            setIsSaving(false);
-        }
-    };
-
-    const updateTemplate = (outcomeId, channel, value) => {
-        setSmartTemplates(prev => ({
-            ...prev,
-            [outcomeId]: {
-                ...(prev[outcomeId] || {}),
-                [channel]: value
-            }
-        }));
-    };
-
-    if (isLoading) return <div style={{ padding: '40px', textAlign: 'center' }}><span className="spinner-sm"></span> Loading Smart Ecosystem...</div>;
-
-    return (
-        <div style={{ animation: 'fadeIn 0.3s ease-out' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', background: 'rgba(255,255,255,0.03)', padding: '20px', borderRadius: '12px', border: '1px solid #f1f5f9' }}>
-                <div>
-                    <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#1e293b' }}>Smart Outcome Templates</div>
-                    <div style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '4px' }}>Automated professional responses suggested/sent instantly after logging an outcome.</div>
-                </div>
-                <button className="btn-primary" onClick={handleSave} disabled={isSaving}>
-                    {isSaving ? 'Syncing...' : 'Save Smart Flow'}
-                </button>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(400px, 1fr))', gap: '20px' }}>
-                {outcomes.map(outcome => (
-                    <div key={outcome.id} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', overflow: 'hidden', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}>
-                        <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: '12px', background: `${outcome.color}08` }}>
-                            <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: outcome.color, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                <i className={`fas ${outcome.icon}`}></i>
-                            </div>
-                            <div style={{ fontWeight: 800, color: '#1e293b', fontSize: '0.95rem' }}>{outcome.label}</div>
-                        </div>
-
-                        <div style={{ padding: '20px' }}>
-                            <div style={{ marginBottom: '16px' }}>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', fontWeight: 800, color: '#059669', marginBottom: '8px', textTransform: 'uppercase' }}>
-                                    <i className="fab fa-whatsapp"></i> WhatsApp Automation
-                                </label>
-                                <textarea 
-                                    style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.85rem', minHeight: '60px' }}
-                                    value={smartTemplates[outcome.id]?.whatsapp || ''}
-                                    onChange={e => updateTemplate(outcome.id, 'whatsapp', e.target.value)}
-                                    placeholder="Enter WhatsApp message..."
-                                />
-                            </div>
-                            <div style={{ marginBottom: '16px' }}>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', fontWeight: 800, color: '#3b82f6', marginBottom: '8px', textTransform: 'uppercase' }}>
-                                    <i className="fas fa-sms"></i> SMS Transactional
-                                </label>
-                                <textarea 
-                                    style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.85rem', minHeight: '60px' }}
-                                    value={smartTemplates[outcome.id]?.sms || ''}
-                                    onChange={e => updateTemplate(outcome.id, 'sms', e.target.value)}
-                                    placeholder="Enter SMS text..."
-                                />
-                            </div>
-                            <div>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', fontWeight: 800, color: '#4b5563', marginBottom: '8px', textTransform: 'uppercase' }}>
-                                    <i className="fas fa-envelope"></i> Professional Email
-                                </label>
-                                <textarea 
-                                    style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.85rem', minHeight: '60px' }}
-                                    value={smartTemplates[outcome.id]?.email || ''}
-                                    onChange={e => updateTemplate(outcome.id, 'email', e.target.value)}
-                                    placeholder="Draft a professional email..."
-                                />
-                            </div>
-                        </div>
-                    </div>
-                ))}
-            </div>
-        </div>
-    );
-};
+// AutomationEngineTab logic removed as it has been moved to Global Business Rules
 
 const MessagingSettingsPage = () => {
     const [subTab, setSubTab] = useState('templates');
@@ -896,13 +761,10 @@ const MessagingSettingsPage = () => {
 
     const tabs = [
         { id: 'templates', label: 'Templates' },
-        { id: 'smart-templates', label: <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Sparkles size={14} color="var(--gold)" /> Smart Templates</span> },
         { id: 'variables', label: 'Variables' },
         { id: 'block-list', label: 'Block list' },
         { id: 'logs', label: 'Logs' }
     ];
-
-    const renderSmartTemplates = () => <SmartOutcomeTemplatesTab />;
 
     const renderTabs = () => (
         <div style={{ display: 'flex', gap: '24px', borderBottom: '1px solid #f1f5f9', marginBottom: '32px' }}>
@@ -1042,7 +904,6 @@ const MessagingSettingsPage = () => {
                 {renderTabs()}
 
                 {subTab === 'templates' && renderTemplates()}
-                {subTab === 'smart-templates' && renderSmartTemplates()}
                 {subTab === 'variables' && <VariableRegistryTab />}
                 {subTab === 'block-list' && renderBlocklist()}
 

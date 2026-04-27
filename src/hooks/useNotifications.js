@@ -7,7 +7,7 @@ export const useNotifications = (onNavigate) => {
     const [unreadCount, setUnreadCount] = useState(0);
     const [notifications, setNotifications] = useState([]);
     const [loading, setLoading] = useState(false);
-    const [knownIds, setKnownIds] = useState(new Set());
+    const knownIds = useRef(new Set());
     const [isFirstLoad, setIsFirstLoad] = useState(true);
     
     // Professional Ping Sound
@@ -16,7 +16,6 @@ export const useNotifications = (onNavigate) => {
     const fetchNotifications = useCallback(async () => {
         try {
             const res = await getNotifications();
-            // Unwrap res.data since api.js now handles the return structure
             const responseData = res?.data || res;
             
             if (responseData && responseData.notifications) {
@@ -24,8 +23,7 @@ export const useNotifications = (onNavigate) => {
                 const newUnreadCount = responseData.unreadCount || 0;
 
                 // 🔔 Intelligent Detection: Look for IDs we haven't seen before
-                const currentIds = new Set(newNotifications.map(n => n._id));
-                const hasNewArrival = newNotifications.some(n => !knownIds.has(n._id));
+                const hasNewArrival = newNotifications.some(n => !knownIds.current.has(n._id));
 
                 if (!isFirstLoad && hasNewArrival && newUnreadCount > 0) {
                     console.log('[NotificationEngine] 🔔 New Notification Detected! Triggering Alert...');
@@ -36,9 +34,17 @@ export const useNotifications = (onNavigate) => {
                     window.dispatchEvent(new CustomEvent('new-notification-alert'));
                 }
 
-                setNotifications(newNotifications);
+                // Explicitly sort newest first for absolute reliability
+                const sortedNotifs = [...newNotifications].sort((a, b) => 
+                    new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+                );
+
+                setNotifications(sortedNotifs);
                 setUnreadCount(newUnreadCount);
-                setKnownIds(currentIds);
+                
+                // Update known IDs
+                const currentIds = new Set(newNotifications.map(n => n._id));
+                knownIds.current = currentIds;
                 setIsFirstLoad(false);
             }
         } catch (error) {
@@ -46,11 +52,11 @@ export const useNotifications = (onNavigate) => {
         } finally {
             setLoading(false);
         }
-    }, [knownIds, isFirstLoad]);
+    }, [isFirstLoad]);
 
     useEffect(() => {
         fetchNotifications();
-        const interval = setInterval(fetchNotifications, 8000);
+        const interval = setInterval(fetchNotifications, 5000); // 5s for live feel
         return () => clearInterval(interval);
     }, [fetchNotifications]);
 

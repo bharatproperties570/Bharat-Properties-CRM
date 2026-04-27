@@ -87,83 +87,38 @@ const SEG_TEMPLATES = {
   ],
 };
 
-const AGENT_LIST = [
-  { n: 'Metrics Manager', m: 'Google Metrics Pro (v1.5)', t: 'Analysis sync: 2h ago', s: 'active', i: '📊' },
-  { n: 'Social Media Mgr', m: 'ChatGPT (GPT-5/4o)', t: 'Drafting content', s: 'active', i: '📅' },
-  { n: 'Designer Studio', m: 'Google Nano (Banana)', t: 'Awaiting visual prompts', s: 'standby', i: '🎨' },
-  { n: 'Scheduling Mgr', m: 'Google Gemini AI', t: 'BullMQ Queue active', s: 'active', i: '🕓' }
-];
+const AGENT_LIST = [];
 
 const CAMP_KPIS_FALLBACK = [
-  { label: 'ACTIVE CAMPAIGNS', val: '0', sub: 'Initializing...', type: 'blue' },
-  { label: 'MESSAGES SENT', val: '0', sub: 'This week', type: 'blue' },
-  { label: 'REPLY RATE', val: '0%', sub: 'Real-time sync', type: 'green' },
-  { label: 'CONVERSIONS', val: '0', sub: 'This month', type: 'blue' }
+  { label: 'EFFICIENCY', val: '—', sub: 'Initializing...', type: 'blue' },
+  { label: 'MATCH RATE', val: '—', sub: 'Syncing...', type: 'blue' },
+  { label: 'CONVERSIONS', val: '—', sub: 'Real-time sync', type: 'green' },
+  { label: 'ACTIVITY', val: '—', sub: 'This month', type: 'blue' }
 ];
 
-const STRATEGIES_DATA = [
-  { id: 'schedule_plan', i: '1', n: 'Double Reels frequency — 5 per week minimum', im: 'imp-high', it: 'High Impact', d: 'Project Reels at 8.4% — 3x better than quote posts. Push to 5+/week. Each Reel: different angle (aerial, interior, neighbourhood, price reveal, before/after). Never same shot twice.', tags: ['5x/week', 'Different angles', '15-30 sec'] },
-  { id: '7_9_lock', i: '2', n: 'Lock every post to 7–9 PM — no exceptions', im: 'imp-high', it: 'High Impact', d: 'Historical data shows peak engagement for Project Reels on Tue/Thu at 7:15 PM.', tags: ['Timing', 'Peak Hour'] },
-  { id: 'story_funnel', i: '3', n: 'Story → DM funnel after every Reel', im: 'imp-high', it: 'High Impact', d: 'Replace "DM for info" with "Tap for Price List" to increase link-clicks by 24%.', tags: ['Conversion', 'Automation'] },
-  { id: 'seventy_rule', i: '4', n: 'Enforce 70% rule — data drives next month', im: 'imp-high', it: 'High Impact', d: 'System will auto-prioritize CRM listings over quote/educational posts this week.', tags: ['Priority', 'Inventory'] },
-  { id: 'carousel_script', i: '5', n: 'Before/after and price journey carousels', im: 'imp-med', it: 'Medium Impact', d: '10-slide educational carousel explaining 2-year plot appreciation in Sector 7.', tags: ['Educational', 'Trust'] },
-  { id: 'collab_dm', i: '6', n: 'Colab with 3 local Kurukshetra pages', im: 'imp-med', it: 'Medium Impact', d: 'List of top 5 Kurukshetra lifestyle influencers for automated outreach.', tags: ['Growth', 'Local'] },
-  { id: 'hashtags', i: '7', n: '3 rotating hashtag sets — never repeat', im: 'imp-low', it: 'Baseline fix', d: 'Reduce shadow-ban risk by cycling through 3 curated tag groups.', tags: ['SEO', 'Algorithm'] }
-];
+const STRATEGIES_DATA = []; // Empty mock data
+
 
 const AGENT_RESULTS = {
-  metrics: `📊 GOOGLE METRICS AI — PERFORMANCE ANALYSIS REPORT\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n✦ TOP PERFORMING CONTENT (Last 30 Days):\n• Property Reels: 8.2% avg engagement — 3.1x above industry\n• Festival Posts: 6.4% saves rate — strong emotional hook\n• Client Testimonials: 4.8% share rate — trust building\n\n✦ LEAD GENERATION SIGNALS:\n• Hot Leads Active: High (↑18% vs last week)\n• Instagram Reel → WhatsApp DM conversion: 34%\n• Best Lead Source: Instagram Story Poll\n\n✦ 7-DAY RECOMMENDATIONS:\n1. Double Sector 7 Reels — 7:15 PM slot (peak window)\n2. Drop generic quote posts — only 1.1% engagement\n3. Launch "Price Reveal" reel series for hot property\n\n✦ PREDICTION: +28% lead increase if executed this week.`,
-  social: `📅 CHATGPT (GPT-4o) — APRIL 2026 CONTENT STRATEGY\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nPLATFORM RULE: 80% Projects | 10% Educational | 7% Trust | 3% Festival\n\nDAY 1 (Mon):\n• Instagram 7:30 PM — "Sector 7 ka plot dekhne se pehle yeh zaroor padho!"\n• WhatsApp 9:00 AM — Price update broadcast to warm leads\n\nDAY 2 (Tue):\n• Facebook 10:00 AM — 3BHK walkthrough video\n• Instagram 7:00 PM — "₹35L mein Kurukshetra ka best flat? Aao dikhayein!"\n\n✦ CAPTION FORMULA: Hinglish hook + emoji + location + price + CTA`,
-  designer: `🎨 GOOGLE NANO (BANANA) — VISUAL DESIGN OUTPUT\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nDALL-E 3 IMAGE PROMPTS:\n"Cinematic aerial view of luxury residential complex in Kurukshetra at golden sunset, photorealistic, premium real estate aesthetic"\n\nRUNWAY v3 VIDEO PROMPTS:\n"Smooth drone approach shot, slow push-in to sunlit balcony, cinematic 4K golden hour"\n\nCANVA LAYOUT:\n• Background: Navy Blue (#1a2744) gradient\n• CTA: Gold pill — Book Site Visit`,
-  scheduler: `⏱ GOOGLE GEMINI (SCHEDULING) — BULLMQ SCHEDULING PLAN\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nQUEUE STATUS: Active | Workers: 3 active\n\nOPTIMIZED PUBLISH SCHEDULE:\nPost: Sector 7 Walkthrough Reel\nPlatform: Instagram\nTime: Today 7:30 PM IST\nReason: Peak Instagram engagement window\n\nBULLMQ CONFIG:\nQueue: bharat:socialPosts\nConcurrency: 3 workers\nRetry: 3 attempts · Backoff: 2s exponential`
+  metrics: '',
+  social: '',
+  designer: '',
+  scheduler: ''
 };
 
-const STRAT_PROMPTS = {
-  schedule_plan: "✦ Increasing Reels frequency to 5x/week based on the 8.4% engagement spike in Sector 7 walk-throughs.",
-  seventy_rule: "✦ Enforcing the 70% inventory-first rule. AI will auto-generate project features from CRM deals.",
-  story_funnel: "✦ Activating the 'Tap for Price' sticker on Instagram Stories to increase CRM lead capture by 24%.",
-  "7_9_lock": "✦ Strategic Lock: All posts scheduled for 7:15 PM peak engagement window.",
-  carousel_script: "✦ Educational Series: 'Why Sector 7 is the new Investment Hub' — 10-slide ROI breakdown.",
-  collab_dm: "✦ Outreach: Automating collaboration requests with 5 top Kurukshetra lifestyle pages.",
-  hashtags: "✦ SEO: Rotating through 3 hyper-local hashtag sets to maximize organic reach."
-};
+const STRAT_PROMPTS = {};
 
-const SAMPLE_CAPTION = "🏠 Ab Kurukshetra mein apna ghar lena hua aur bhi asaan!\n\nLocation: Sector 7\nPrice: Starting ₹35L\nStatus: Ready to Move\n\n✅ Prime Location\n✅ Modern Amenities\n✅ Direct Deal\n\nAbhi call karein: 9991333570 for site visit! #BharatProperties #KurukshetraRealEstate #DreamHome";
+const SAMPLE_CAPTION = "";
 
-const CONTENT_DISTRIBUTION = [
-  { l: 'Projects', p: 80, c: 'var(--blue)' },
-  { l: 'Edu', p: 10, c: 'var(--green)' },
-  { l: 'Trust', p: 7, c: 'var(--gold)' },
-  { l: 'Event', p: 3, c: 'var(--red)' }
-];
+const CONTENT_DISTRIBUTION = [];
 
-const TOP_PERFORMING = [
-  { n: 'Property Reels', p: 8.2, c: 'var(--blue)' },
-  { n: 'Client Stories', p: 6.4, c: 'var(--green)' },
-  { n: 'Market Reports', p: 4.8, c: 'var(--gold)' },
-  { n: 'Festival Posts', p: 3.2, c: 'var(--red)' }
-];
+const TOP_PERFORMING = [];
 
-const SEND_TIMES = [
-  { time: '09:00 AM', ch: 'Morning Blast', color: 'var(--blue)' },
-  { time: '01:00 PM', ch: 'Lunch Breakout', color: 'var(--green)' },
-  { time: '07:15 PM', ch: 'Golden Hour (Top)', color: 'var(--gold)' },
-  { time: '09:00 PM', ch: 'Late Catch-up', color: 'var(--red)' }
-];
+const SEND_TIMES = [];
 
-const COMPLIANCE_CHECKS = [
-  { n: 'TRAI / DLT Headers', d: 'Enterprise SMS templates pre-validated.', status: 'pass' },
-  { n: 'Opt-Out Footers', d: 'Automated unsubscribe capability per TRAI.', status: 'pass' },
-  { n: 'Meta Template Sync', d: 'WhatsApp templates approved by Meta.', status: 'pass' },
-  { n: 'Data Encryption', d: 'End-to-end 256-bit AES encryption.', status: 'pass' }
-];
+const COMPLIANCE_CHECKS = [];
 
-const DRIP_STEPS = [
-  { day: 'Day 1', title: 'WhatsApp Intro', desc: 'Welcome brochure + automated property video.', dotColor: 'var(--green)' },
-  { day: 'Day 3', title: 'Market Insight', desc: 'Sector 7 appreciation data + investment report.', dotColor: 'var(--blue)' },
-  { day: 'Day 7', title: 'Limited Slot Alert', desc: 'FOMO push: "Only 3 units left at this price."', dotColor: 'var(--gold)' },
-  { day: 'Day 14', title: 'Direct Value Call', desc: 'Sales manager follow-up for site visit booking.', dotColor: 'var(--red)' }
-];
+const DRIP_STEPS = [];
 
 const KPI_CARDS = [
   { label: 'EFFICIENCY', val: '94%', sub: '↑ 2.1% AI Yield', type: 'green' },
@@ -179,19 +134,9 @@ const FLOW_STEPS = [
   { id: 4, n: 'Launch' }
 ];
 
-const NEW_ANGLES_DATA = [
-  { id: 'a', n: 'Agent on the Ground POV', icon: '🤖', d: 'You walking a plot on camera, talking directly to viewer. Raw, first-person. 3-5x more trust than polished visuals.', q: '"Main yahaan Sector 7 mein khada hoon — aaj evening tak available hai.."', color: 'var(--green)' },
-  { id: 'b', n: 'Neighbourhood ROI Data', icon: '📊', d: 'Hyper-local price appreciation data. Investors share obsessively. Positions BP as market authority.', q: '"Pipli: 2019 ₹8L/marla → 2024 ₹19L/marla. 137% growth.."', color: 'var(--blue)' },
-  { id: 'c', n: 'Ghar ki Kahani Series', icon: '💬', d: 'Real buyer stories. Mirrors emotional journey. Extremely shareable — sounds like a friend\'s advice.', q: 'Series: 1 story/week. First-time buyer, investor, NRI family.', color: 'var(--red)' }
-];
+const NEW_ANGLES_DATA = [];
 
-const PORTAL_DATA = [
-  { n: '99acres', i: '🏢', pkg: 'Gold Pro', cost: 15500, listings: 45, leads: 128, cpl: 121, resp: '12m', perf: 92, color: 'var(--blue)' },
-  { n: 'MagicBricks', i: '🏠', pkg: 'Platinum', cost: 22000, listings: 60, leads: 184, cpl: 119, resp: '8m', perf: 96, color: 'var(--green)' },
-  { n: 'Housing.com', i: '🏙️', pkg: 'Elite', cost: 12500, listings: 30, leads: 82, cpl: 152, resp: '15m', perf: 84, color: 'var(--gold)' },
-  { n: 'CommonFloor', i: '🏘️', pkg: 'Standard', cost: 8500, listings: 15, leads: 34, cpl: 250, resp: '24m', perf: 68, color: 'var(--purple)' },
-  { n: 'SquareYards', i: '📍', pkg: 'Enterprise', cost: 35000, listings: 120, leads: 412, cpl: 85, resp: '5m', perf: 98, color: 'var(--red)' }
-];
+const PORTAL_DATA = [];
 
 export default function MarketingOverviewPage() {
   // ── CORE STATE WITH MIRROR PROTOCOL ──
@@ -547,12 +492,17 @@ export default function MarketingOverviewPage() {
   }, [fetchLiveData]);
 
   // ══ LIVE COMMAND КPIs DERIVED FROM REAL DATA ══
-  const liveKPIs = useMemo(() => [
-    { label: 'TOTAL LEADS', val: apiDataLoaded ? String(realStats.totalCaptured || leads.length) : '0', sub: `↑ ${realStats.hotLeads || leads.filter(l => l.status === 'hot').length} hot leads`, type: 'green' },
-    { label: 'POSTS SCHEDULED', val: String(posts.length), sub: 'Live calendar synced', type: 'blue' },
-    { label: 'AVG ENGAGEMENT', val: '6.4%', sub: '↑ 1.2% vs last month', type: 'green' },
-    { label: 'PIPELINE VALUE', val: apiDataLoaded ? (realStats.totalPipelineValue || '₹0') : '₹0', sub: `${realDeals.length || 'Active'} deals`, type: 'blue' },
-  ], [apiDataLoaded, realStats, leads, posts, realDeals]);
+  const liveKPIs = useMemo(() => {
+    if (realStats?.kpiCards && realStats.kpiCards.length > 0) {
+        return realStats.kpiCards;
+    }
+    return [
+        { label: 'TOTAL LEADS', val: apiDataLoaded ? String(realStats.totalCaptured || leads.length) : '0', sub: `↑ ${realStats.hotLeads || leads.filter(l => l.status === 'hot').length} hot leads`, type: 'green' },
+        { label: 'POSTS SCHEDULED', val: String(posts.length), sub: 'Live calendar synced', type: 'blue' },
+        { label: 'AVG ENGAGEMENT', val: '6.4%', sub: '↑ 1.2% vs last month', type: 'green' },
+        { label: 'PIPELINE VALUE', val: apiDataLoaded ? (realStats.totalPipelineValue || '₹0') : '₹0', sub: `${realDeals.length || 'Active'} deals`, type: 'blue' },
+    ];
+  }, [apiDataLoaded, realStats, leads, posts, realDeals]);
 
   // ══ Phase B — LIVE SEGMENT COUNTS from real leads ══
   const liveCampSegments = useMemo(() => [
@@ -567,6 +517,10 @@ export default function MarketingOverviewPage() {
   // ══ Phase E — LIVE OMNI CHANNELS ══
   const liveOmniChannels = useMemo(() => {
     return OMNI_CHANNELS_BASE.map(ch => {
+      if (ch.n === 'WhatsApp') {
+          const readRate = realStats?.waMetrics?.sent > 0 ? ((realStats.waMetrics.read / realStats.waMetrics.sent) * 100).toFixed(0) : '0';
+          return { ...ch, sub: `Meta API — ${readRate}% Read Rate`, p: parseInt(readRate) || 85 };
+      }
       if (ch.n.includes('SMS')) {
         const providerName = activeSmsStatus?.provider || 'SMS Gateway';
         const status = activeSmsStatus?.status || 'Connected';
@@ -582,7 +536,7 @@ export default function MarketingOverviewPage() {
       }
       return ch;
     });
-  }, [activeSmsStatus]);
+  }, [activeSmsStatus, realStats]);
 
   // ══ LIVE CAMPAIGN КPIs — Aggregated from history ══
   const liveCampKPIs = useMemo(() => {
@@ -3071,20 +3025,21 @@ export default function MarketingOverviewPage() {
                             <th>Sent</th>
                             <th>Delivered</th>
                             <th>Read</th>
+                            <th>Unread</th>
                             <th>Failed</th>
                             <th>Status</th>
                           </tr>
                         </thead>
                         <tbody>
                           {campaignRuns.length === 0 ? (
-                            <tr><td colSpan="9" style={{ textAlign: 'center', padding: '40px', color: 'var(--text3)' }}>No campaign history found. Run your first blast to see reports!</td></tr>
+                            <tr><td colSpan="11" style={{ textAlign: 'center', padding: '40px', color: 'var(--text3)' }}>No campaign history found. Run your first blast to see reports!</td></tr>
                           ) : (
                             campaignRuns.map(run => (
                               <tr key={run.id}>
                                 <td style={{ fontSize: '11px', whiteSpace: 'nowrap' }}>{new Date(run.date).toLocaleString()}</td>
                                 <td style={{ fontWeight: 700 }}>{run.name}</td>
                                 <td>
-                                  {run.channels.split(', ').map(ch => (
+                                  {(run.channels || '').split(', ').map(ch => (
                                     <span key={ch} className="badge-wa" style={{ 
                                       background: ch === 'WA' || ch === 'WHATSAPP' ? '#25D366' : ch === 'SMS' ? '#3b82f6' : '#ef4444', 
                                       color: '#fff', padding: '2px 8px', borderRadius: '4px', fontSize: '10px', marginRight: '4px' 
@@ -3097,6 +3052,7 @@ export default function MarketingOverviewPage() {
                                 <td style={{ fontWeight: 700 }}>{run.sent}</td>
                                 <td style={{ color: 'var(--blue)', fontWeight: 700 }}>{run.delivered}</td>
                                 <td style={{ color: 'var(--green)', fontWeight: 700 }}>{run.read}</td>
+                                <td style={{ color: '#EF4444', fontWeight: 700 }}>{Math.max(0, (run.delivered || 0) - (run.read || 0))}</td>
                                 <td style={{ color: 'var(--red)' }}>{run.failed}</td>
                                 <td>
                                   <span className={`pill-status ${run.status === 'Completed' ? 'success' : run.status === 'Processing' ? 'pending' : 'failed'}`} style={{ 

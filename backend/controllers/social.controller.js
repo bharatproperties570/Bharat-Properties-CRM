@@ -208,6 +208,9 @@ export const verifyWebhook = async (req, res) => {
         const token     = hub.verify_token || req.query['hub.verify_token'];
         const challenge = hub.challenge  || req.query['hub.challenge'];
 
+        const fs = await import('fs');
+        fs.appendFileSync('webhook_verify.log', `[${new Date().toISOString()}] VERIFY | mode="${mode}" token="${token}" challenge="${challenge}"\n`);
+
         console.log(`[Webhook] VERIFY | mode="${mode}" token="${token}" challenge="${challenge}"`);
 
         if (mode === 'subscribe') {
@@ -247,6 +250,11 @@ export const receiveWebhook = async (req, res) => {
     try {
         // Respond immediately with 200 to acknowledge receipt (required by Meta)
         res.status(200).json({ received: true });
+
+        // 🛠️ SENIOR DIAGNOSTIC: Write to a persistent file to confirm hits
+        const fs = await import('fs');
+        const diagnosticLog = `[${new Date().toISOString()}] Webhook Received: ${JSON.stringify(req.body)}\n`;
+        fs.appendFileSync('webhook_hits.log', diagnosticLog);
 
         console.log(`[SocialController] Webhook Body Received:`, JSON.stringify(req.body, null, 2));
         const events = socialCommentService.processWebhookPayload(req.body);

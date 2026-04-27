@@ -693,8 +693,8 @@ export const getInventoryById = async (req, res) => {
 const sanitizeIds = (ids) => {
     if (!ids || !Array.isArray(ids)) return ids;
     return ids.map(id => {
-        if (typeof id === 'object' && id !== null && id.id) {
-            return id.id;
+        if (typeof id === 'object' && id !== null) {
+            return id._id || id.id || id;
         }
         return id;
     });
@@ -837,6 +837,7 @@ export const addInventory = async (req, res) => {
 
 export const updateInventory = async (req, res) => {
     try {
+        console.log(`[DEBUG] updateInventory req.body:`, JSON.stringify(req.body, null, 2));
         console.log(`[DEBUG] updateInventory for ID: ${req.params.id}`);
         const data = sanitizePayload({ ...req.body });
         console.log(`[DEBUG] Payload keys: ${Object.keys(data).join(', ')}`);
@@ -894,7 +895,7 @@ export const updateInventory = async (req, res) => {
 
         const inventory = await Inventory.findByIdAndUpdate(req.params.id, data, {
             new: true,
-            runValidators: true,
+            runValidators: false, // Mixed-type fields (status, category) cast via pre-hook, not validators
         }).populate([
             { path: "owners", select: "name phones" },
             { path: "associates.contact", select: "name phones" },
@@ -935,8 +936,12 @@ export const updateInventory = async (req, res) => {
         console.log(`[DEBUG] updateInventory SUCCESS for ID: ${req.params.id}`);
         res.status(200).json({ success: true, data: inventory });
     } catch (error) {
-        console.error(`[DEBUG] updateInventory ERROR: ${error.message}`);
-        res.status(400).json({ success: false, error: error.message });
+        console.error(`[DEBUG] updateInventory ERROR for ID ${req.params.id}:`, error);
+        res.status(400).json({ 
+            success: false, 
+            error: error.message,
+            validationErrors: error.errors ? Object.keys(error.errors) : undefined
+        });
     }
 };
 
