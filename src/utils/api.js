@@ -3,7 +3,7 @@ import axios from 'axios';
 
 const isProd = import.meta.env.PROD;
 const STABLE_TUNNEL_URL = 'https://bharat-crm-stable-api.loca.lt/api';
-export const API_BASE_URL = import.meta.env.VITE_API_URL || (isProd ? '/api' : 'http://localhost:4000/api');
+export const API_BASE_URL = import.meta.env.VITE_API_URL || (isProd ? '/api' : STABLE_TUNNEL_URL);
 export const BASE_BACKEND_URL = API_BASE_URL.replace(/\/api$/, '');
 
 // 🚀 Senior Professional: Smart Fallback Logic
@@ -398,8 +398,8 @@ export const activitiesAPI = {
     update: (id, data) => apiRequest(`/activities/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id) => apiRequest(`/activities/${id}`, { method: 'DELETE' }),
     // ── Unified Backend Pipeline: Stage + Scoring ──
-    complete: (id, data) => apiRequest(`/activities/${id}/complete`, { method: 'POST', body: JSON.stringify(data) }),
-    completeWithForm: (id, data) => apiRequest(`/activities/${id}/complete-with-form`, { method: 'POST', body: JSON.stringify(data) }),
+    complete: (id, data) => apiRequest(`/activities/completion/${id}/complete`, { method: 'POST', body: JSON.stringify(data) }),
+    completeWithForm: (id, data) => apiRequest(`/activities/completion/${id}/complete-with-form`, { method: 'POST', body: JSON.stringify(data) }),
     sendReply: (data) => apiRequest('/activities/messaging/reply', { method: 'POST', body: JSON.stringify(data) }),
     convertToLead: (data) => apiRequest('/activities/messaging/convert-to-lead', { method: 'POST', body: JSON.stringify(data) }),
 };

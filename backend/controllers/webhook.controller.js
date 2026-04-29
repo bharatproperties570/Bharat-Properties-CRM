@@ -250,6 +250,18 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                     console.log('[WhatsApp Webhook] Technical Placeholder Detected. Raw Message Object:', JSON.stringify(messageObj, null, 2));
                 }
 
+                // 🚀 Handle Interactive Messages (Buttons / Lists)
+                if (msgType === 'button') {
+                    messageText = messageObj.button?.text || messageObj.button?.payload || '';
+                } else if (msgType === 'interactive') {
+                    const interactive = messageObj.interactive;
+                    if (interactive.type === 'button_reply') {
+                        messageText = interactive.button_reply?.title || '';
+                    } else if (interactive.type === 'list_reply') {
+                        messageText = interactive.list_reply?.title || interactive.list_reply?.description || '';
+                    }
+                }
+
                 // 🚀 Resolve Media Content
                 const waService = (await import('../services/WhatsAppService.js')).default;
                 
@@ -374,9 +386,25 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                 }).catch(err => console.error('[WhatsApp Live Bot] Failed to create Activity:', err.message));
 
                 // 4. Generate AI Response (Only if it's text or has a caption)
-                // If it's pure media without caption, AI might just say "Got your file!"
                 const chatHistoryContext = conversation.messages.map(m => `${m.role}: ${m.content}`).join('\n');
-                const aiResult = await generateBotResponse(messageText, chatHistoryContext);
+                
+                // 🧠 Neural Context Injection (Phase 1: Identity Awareness)
+                const aiContext = {
+                    chatHistory: chatHistoryContext,
+                    lead: lead ? {
+                        id: lead._id,
+                        firstName: lead.firstName,
+                        lastName: lead.lastName,
+                        mobile: lead.mobile,
+                        status: lead.status,
+                        intentIndex: lead.intent_index,
+                        description: lead.description,
+                        customFields: lead.customFields
+                    } : null,
+                    entityType: entityType
+                };
+
+                const aiResult = await generateBotResponse(messageText, aiContext);
 
                 if (aiResult.success && aiResult.reply) {
                     const setting = await SystemSetting.findOne({ key: 'meta_wa_config' }).lean();

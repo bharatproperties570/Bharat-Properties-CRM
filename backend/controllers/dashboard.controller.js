@@ -105,15 +105,19 @@ export const getDashboardStats = async (req, res) => {
         }
 
         // ━━ 1. ACTIVITY STATS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        const COMMUNICATION_TYPES = [
+            /^WhatsApp$/i, /^SMS$/i, /^Email$/i, /^RCS$/i, 
+            /^Messaging$/i, /^Conversation$/i, /^Chat$/i, /^whatsapp$/i
+        ];
         const [overdueCount, todayActivityCount, upcomingCount, thisMonthActivities] = await Promise.all([
-            Activity.countDocuments({ ...baseActQuery, dueDate: { $lt: today }, status: { $regex: /pending|in progress/i } }),
-            Activity.countDocuments({ ...baseActQuery, dueDate: { $gte: today, $lt: tomorrow } }),
-            Activity.countDocuments({ ...baseActQuery, dueDate: { $gte: tomorrow } }),
-            Activity.countDocuments({ ...baseActQuery, createdAt: { $gte: thisMonthStart } })
+            Activity.countDocuments({ ...baseActQuery, type: { $nin: COMMUNICATION_TYPES }, dueDate: { $lt: today }, status: { $regex: /pending|in progress/i } }),
+            Activity.countDocuments({ ...baseActQuery, type: { $nin: COMMUNICATION_TYPES }, dueDate: { $gte: today, $lt: tomorrow } }),
+            Activity.countDocuments({ ...baseActQuery, type: { $nin: COMMUNICATION_TYPES }, dueDate: { $gte: tomorrow } }),
+            Activity.countDocuments({ ...baseActQuery, type: { $nin: COMMUNICATION_TYPES }, createdAt: { $gte: thisMonthStart } })
         ]);
 
         const activityTypeBreakdown = await Activity.aggregate([
-            { $match: { ...baseActQuery, createdAt: { $gte: new Date(Date.now() - 30 * 86400000) } } },
+            { $match: { ...baseActQuery, type: { $nin: COMMUNICATION_TYPES }, createdAt: { $gte: new Date(Date.now() - 30 * 86400000) } } },
             { $group: { _id: '$type', count: { $sum: 1 } } },
             { $sort: { count: -1 } },
             { $limit: 6 }
@@ -357,7 +361,7 @@ export const getDashboardStats = async (req, res) => {
             Activity.find({ ...baseActQuery, status: 'Pending', type: 'Site Visit', dueDate: { $gte: today } }).limit(5).lean()
         ]);
 
-        const recentActivityFeed = await Activity.find(baseActQuery).sort({ createdAt: -1 }).limit(10).lean();
+        const recentActivityFeed = await Activity.find({ ...baseActQuery, type: { $nin: COMMUNICATION_TYPES } }).sort({ createdAt: -1 }).limit(10).lean();
 
         // AI Alert Hub Mockery (based on actual counts)
         const aiAlertHub = {

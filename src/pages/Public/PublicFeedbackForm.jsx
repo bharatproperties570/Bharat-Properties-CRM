@@ -26,8 +26,14 @@ const PublicFeedbackForm = ({ slug }) => {
     const handleSubmit = async (e) => {
         e.preventDefault();
         try {
+            const queryParams = new URLSearchParams(window.location.search);
+            const leadId = queryParams.get('leadId');
+            const inventoryId = queryParams.get('inventoryId');
+
             await api.post(`/feedback-forms/public/${slug}/submit`, {
                 responses,
+                leadId,
+                inventoryId,
                 sourceMeta: {
                     userAgent: navigator.userAgent,
                     referrer: document.referrer

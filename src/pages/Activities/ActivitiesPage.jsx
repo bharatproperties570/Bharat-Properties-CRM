@@ -574,7 +574,7 @@ function ActivitiesPage() {
 
                 <div style={{ padding: '10px 0.5rem', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                     <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-                        {['All', 'Follow Up', 'Site Visit', 'Meeting', 'Call', 'Email', 'Task'].map(type => (
+                        {['All', 'Follow Up', 'Site Visit', 'Meeting', 'Call', 'Task'].map(type => (
                             <button key={type} style={{ padding: '6px 16px', borderRadius: '6px', border: activeType === type ? 'none' : '1px solid #e2e8f0', background: activeType === type ? '#10b981' : '#fff', color: activeType === type ? '#fff' : '#64748b', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s' }} onClick={() => setQuickTypeFilter(type)}>{type}</button>
                         ))}
                     </div>

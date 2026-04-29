@@ -82,8 +82,6 @@ export const applyActivityFilters = (activities, filters, searchTerm = '') => {
         if (filters.origin && filters.origin.length > 0) {
             const platform = (activity.details?.platform || 'WebCRM').toLowerCase();
             const source = (activity.details?.source || '').toLowerCase();
-            const formSource = (activity.details?.formSource || '').toLowerCase();
-
             const isManualCandidate = platform === 'webcrm' || !activity.details?.platform;
             const isMobileCandidate = platform === 'mobile' || platform === 'mobilesms' || platform === 'callsync';
             const isSystemCandidate = !isManualCandidate && !isMobileCandidate;
@@ -96,6 +94,18 @@ export const applyActivityFilters = (activities, filters, searchTerm = '') => {
             });
 
             if (!matches) return false;
+        }
+
+        // 🌟 Senior Safeguard: Hide omnichannel noise by default
+        // If the user hasn't explicitly selected WhatsApp/SMS/Email in the type filter, 
+        // we hide them to keep the activity feed clean for business productivity.
+        const omnichannelTypes = ['whatsapp', 'sms', 'email', 'rcs', 'messaging', 'marketing'];
+        const currentType = (activity.type || '').toLowerCase();
+        
+        // Only hide if the user hasn't explicitly asked for these types
+        const hasExplicitTypeFilter = filters.activityType && filters.activityType.length > 0;
+        if (!hasExplicitTypeFilter && omnichannelTypes.includes(currentType)) {
+            return false;
         }
 
         return true;

@@ -4,7 +4,7 @@
 # Target Environment: AWS EC2 (Mumbai)
 # API Domain: api.bharatproperties.co
 
-SERVER_IP="13.239.4.253"
+SERVER_IP="54.252.168.43"
 SERVER_USER="ubuntu"
 REMOTE_PATH="/home/ubuntu/Bharat-Properties-CRM"
 

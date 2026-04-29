@@ -367,7 +367,7 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
 
     const fetchDealActivities = useCallback(async () => {
         try {
-            const res = await activitiesAPI.getUnifiedTimeline('Deal', dealId);
+            const res = await activitiesAPI.getUnified('Deal', dealId);
             if (res.data && res.data.success) {
                 setActivities(res.data.data || []);
             }

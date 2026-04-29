@@ -24,6 +24,8 @@ class MockRedis extends EventEmitter {
     async ping() { return 'PONG'; }
 }
 
+import { execSync } from "child_process";
+
 // Standardize the Redis connection for BullMQ
 const redisOptions = {
     host: process.env.REDIS_HOST || '127.0.0.1', // Standardizing on 127.0.0.1 for Mac/Linux stability
@@ -33,7 +35,6 @@ const redisOptions = {
     retryStrategy(times) {
         // Stop retrying after 3 attempts in development to prevent log spam and trigger fallback
         if (times > 3 && process.env.NODE_ENV !== 'production') {
-            console.warn('❌ Redis connection failed. Entering Mock Fallback mode.');
             return null; 
         }
         return Math.min(times * 200, 2000);
@@ -43,29 +44,46 @@ const redisOptions = {
 let internalConnection;
 let isRedisOnline = false;
 
-// Initialize connection
+// Senior Professional Implementation: Pre-check Redis Availability
+// This prevents BullMQ from binding to a dead connection during initial import.
+let redisExists = false;
 try {
-    internalConnection = new Redis(redisOptions);
-    internalConnection.isMock = false; // Explicitly mark as not mock
-    
-    internalConnection.on('ready', () => {
-        isRedisOnline = true;
-        console.log('✅ Redis connected successfully');
-    });
+    // Quick port check using nc (netcat) or lsof
+    execSync(`nc -z -w 1 ${redisOptions.host} ${redisOptions.port}`);
+    redisExists = true;
+} catch (e) {
+    redisExists = false;
+}
 
-    internalConnection.on('error', (err) => {
-        isRedisOnline = false;
-        // If connection fails in development, fallback to mock to prevent crashes
-        if (process.env.NODE_ENV !== 'production' && !internalConnection.isMock) {
-            console.warn('❌ Redis Error: Forcing Mock mode fallback...');
-            internalConnection = new MockRedis();
-            isRedisOnline = true;
-        }
-    });
-} catch (err) {
-    console.error('CRITICAL: Redis instantiation error. Forcing mock.', err);
+if (!redisExists) {
+    console.warn('⚠️  Redis server not detected on port 6379. Pre-emptively starting in MOCK MODE.');
     internalConnection = new MockRedis();
     isRedisOnline = true;
+} else {
+    // Initialize connection normally
+    try {
+        internalConnection = new Redis(redisOptions);
+        internalConnection.isMock = false;
+        
+        internalConnection.on('ready', () => {
+            isRedisOnline = true;
+            console.log('✅ Redis connected successfully');
+        });
+
+        internalConnection.on('error', (err) => {
+            isRedisOnline = false;
+            if (!internalConnection.isMock) {
+                console.warn('❌ Redis Error: Forcing Mock mode fallback...');
+                const oldConn = internalConnection;
+                internalConnection = new MockRedis();
+                isRedisOnline = true;
+                try { oldConn.disconnect(); } catch (e) {}
+            }
+        });
+    } catch (err) {
+        internalConnection = new MockRedis();
+        isRedisOnline = true;
+    }
 }
 
 /**

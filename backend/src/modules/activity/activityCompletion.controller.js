@@ -100,8 +100,11 @@ export const completeActivity = async (req, res, next) => {
             });
         }
 
-        // 4. Update lastActivityAt on lead
-        await Lead.findByIdAndUpdate(leadId, { lastActivityAt: new Date() });
+        // 4. Update lastActivityAt on lead (only if not a missed call)
+        const isMissed = ['no-answer', 'no answer', 'busy', 'failed', 'not connected', 'missed'].some(s => outcome.toLowerCase().includes(s));
+        if (!isMissed) {
+            await Lead.findByIdAndUpdate(leadId, { lastActivityAt: new Date() }).catch(() => { });
+        }
 
         // 5. Recalculate and save unified lead score
         let scoreResult = null;
@@ -175,8 +178,12 @@ export const completeActivityWithForm = async (req, res, next) => {
             });
         }
 
-        // Update lastActivityAt
-        await Lead.findByIdAndUpdate(leadId, { lastActivityAt: new Date() });
+        // Update lastActivityAt (only if not a missed call)
+        const finalOutcome = (outcome || activity.completionResult || '').toLowerCase();
+        const isMissed = ['no-answer', 'no answer', 'busy', 'failed', 'not connected', 'missed'].some(s => finalOutcome.includes(s));
+        if (!isMissed) {
+            await Lead.findByIdAndUpdate(leadId, { lastActivityAt: new Date() }).catch(() => { });
+        }
 
         // Recalculate score
         let scoreResult = null;

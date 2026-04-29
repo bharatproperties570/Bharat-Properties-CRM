@@ -12,7 +12,7 @@ const LeadSchema = new mongoose.Schema({
     salutation: { type: String, default: "Mr." },
     firstName: { type: String, required: true },
     lastName: { type: String },
-    mobile: { type: String, required: true, index: true, unique: true },
+    mobile: { type: String, required: true, unique: true },
     email: { type: String, unique: true, sparse: true },
     requirement: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
     subRequirement: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },

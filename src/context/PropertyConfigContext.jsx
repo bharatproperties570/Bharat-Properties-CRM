@@ -136,10 +136,25 @@ export const PropertyConfigProvider = ({ children }) => {
                 sms: "Hi {owner}, tried calling for {unit}. Will call again later. Thanks.",
                 email: "Subject: Missed you regarding {unit}\n\nHi {owner},\n\nI tried calling you regarding {unit}. I'll reach out again later today.\n\nBest regards,\nBharat Properties"
             },
+            'Switch Off / Unreachable': {
+                whatsapp: "Hi {owner}, we tried reaching you about {unit} but couldn't connect. We'll try again soon.",
+                sms: "Hi {owner}, tried reaching for {unit} but no connection. Will try again. - Bharat Properties",
+                email: "Subject: Tried reaching you regarding {unit}\n\nHi {owner},\n\nWe tried reaching you about {unit} but couldn't connect. We'll try again soon. Please call us back at your convenience.\n\nBest regards,\nBharat Properties"
+            },
             'Market Feedback': {
                 whatsapp: "Hi {owner}, thank you for the insight on {unit}. If you decide to proceed with sale or rent, I have active buyers ready.",
                 sms: "Hi {owner}, thanks for feedback on {unit}. Contact us if you decide to sell/rent. Active buyers ready.",
                 email: "Subject: Market feedback for {unit}\n\nHi {owner},\n\nThank you for the insight on {unit}. If you decide to proceed with sale or rent, I have active buyers ready.\n\nBest regards,\nBharat Properties"
+            },
+            'General Inquiry': {
+                whatsapp: "Hi {owner}, thank you for your inquiry about {unit}. Our team will get back to you shortly.",
+                sms: "Hi {owner}, noted your inquiry on {unit}. Team will connect shortly. - BP",
+                email: "Subject: Inquiry regarding {unit}\n\nHi {owner},\n\nThank you for your inquiry about {unit}. Our team will get back to you shortly with the requested information.\n\nBest regards,\nBharat Properties"
+            },
+            'Wrong Number / Invalid': {
+                whatsapp: "Hi, we tried reaching the owner of {unit} but the number seems incorrect. Please help us update.",
+                sms: "Contact mismatch for {unit}. Please share correct owner number. - BP",
+                email: "Subject: Contact verification for {unit}\n\nHi,\n\nWe attempted to contact the registered owner for {unit} but the number appears to be incorrect. Our team will verify and update the records.\n\nBest regards,\nBharat Properties"
             }
         },
         triggers: {
@@ -154,10 +169,43 @@ export const PropertyConfigProvider = ({ children }) => {
                 'Sold Out': { templateKey: 'Not Interested', actionType: 'None', sendWhatsapp: true, sendSms: false, sendEmail: false, inventoryStatus: 'InActive' },
                 'Rented Out': { templateKey: 'Not Interested', actionType: 'None', sendWhatsapp: true, sendSms: false, sendEmail: false, inventoryStatus: 'InActive' },
                 'Price Too High (Expectations)': { templateKey: 'Not Interested', actionType: 'None', sendWhatsapp: true, inventoryStatus: 'Active' },
-                'Plan Dropped / Personal Reason': { templateKey: 'Not Interested', actionType: 'None', sendWhatsapp: true, inventoryStatus: 'InActive' }
+                'Plan Dropped / Personal Reason': { templateKey: 'Not Interested', actionType: 'None', sendWhatsapp: true, inventoryStatus: 'InActive' },
+                'Unreasonable Demands': { templateKey: 'Not Interested', actionType: 'None', sendWhatsapp: true, inventoryStatus: 'Active' },
+                'Family Dispute': { templateKey: 'Not Interested', actionType: 'None', sendWhatsapp: true, inventoryStatus: 'InActive' }
             },
             'Interested / Hot': {
-                'Ready to Sell Now': { templateKey: 'Interested / Hot', actionType: 'Meeting Scheduled', sendWhatsapp: true, sendSms: false, sendEmail: false, inventoryStatus: 'Active' }
+                'Ready to Sell Now': { templateKey: 'Interested / Hot', actionType: 'Meeting Scheduled', sendWhatsapp: true, sendSms: true, sendEmail: true, inventoryStatus: 'Active' },
+                'High Intent (Urgent)': { templateKey: 'Interested / Hot', actionType: 'Meeting Scheduled', sendWhatsapp: true, sendSms: false, sendEmail: false, inventoryStatus: 'Active' },
+                'Multiple Parties Interested': { templateKey: 'Interested / Hot', actionType: 'Meeting Scheduled', sendWhatsapp: true, inventoryStatus: 'Active' },
+                'Agreement Pending': { templateKey: 'Interested / Hot', actionType: 'Document Collection', sendWhatsapp: true, inventoryStatus: 'Active' }
+            },
+            'Interested / Warm': {
+                'Wants to Buy (Invest)': { templateKey: 'Interested / Warm', actionType: 'Call Back', sendWhatsapp: true, inventoryStatus: 'Active' },
+                'Sell & Buy (Re-invest)': { templateKey: 'Interested / Warm', actionType: 'Meeting Scheduled', sendWhatsapp: true, inventoryStatus: 'Active' },
+                'For Sale': { templateKey: 'Interested / Warm', actionType: 'Call Back', sendWhatsapp: true, inventoryStatus: 'Active' },
+                'For Rent': { templateKey: 'Interested / Warm', actionType: 'Call Back', sendWhatsapp: true, inventoryStatus: 'Active' }
+            },
+            'Request Call Back': {
+                'Busy / Driving': { templateKey: 'Request Call Back', actionType: 'Call Back', sendWhatsapp: true, inventoryStatus: 'Active' },
+                'In Meeting': { templateKey: 'Request Call Back', actionType: 'Call Back', sendWhatsapp: true, inventoryStatus: 'Active' },
+                'Discuss with Family': { templateKey: 'Request Call Back', actionType: 'Call Back', sendWhatsapp: true, inventoryStatus: 'Active' },
+                'Evening / Morning Request': { templateKey: 'Request Call Back', actionType: 'Call Back', sendWhatsapp: true, inventoryStatus: 'Active' }
+            },
+            'Busy / Driving': {
+                'DND Request': { templateKey: 'Busy / Driving', actionType: 'Call Back', sendWhatsapp: true, inventoryStatus: 'Active' },
+                'Driving': { templateKey: 'Busy / Driving', actionType: 'Call Back', sendWhatsapp: true, inventoryStatus: 'Active' }
+            },
+            'Market Feedback': {
+                'Inquiring Rates Only': { templateKey: 'Market Feedback', actionType: 'None', sendWhatsapp: true, inventoryStatus: 'Active' },
+                'Comparative Research': { templateKey: 'Market Feedback', actionType: 'None', sendWhatsapp: true, inventoryStatus: 'Active' }
+            },
+            'General Inquiry': {
+                'Document Status': { templateKey: 'Interested / Warm', actionType: 'Call Back', sendWhatsapp: true, inventoryStatus: 'Active' },
+                'Maintenance Issue': { templateKey: 'Interested / Warm', actionType: 'Call Back', sendWhatsapp: true, inventoryStatus: 'Active' }
+            },
+            'Wrong Number / Invalid': {
+                'Wrong Number': { templateKey: 'Not Interested', actionType: 'None', sendWhatsapp: false, inventoryStatus: 'InActive' },
+                'Invalid Number': { templateKey: 'Not Interested', actionType: 'None', sendWhatsapp: false, inventoryStatus: 'InActive' }
             }
         }
     });

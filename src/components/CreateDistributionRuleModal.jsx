@@ -26,12 +26,28 @@ const CreateDistributionRuleModal = ({ isOpen, onClose, editingRule = null }) =>
 
     useEffect(() => {
         if (editingRule) {
-            setFormData(editingRule);
+            setFormData({
+                ...formData,
+                ...editingRule,
+                assignmentTarget: {
+                    type: 'user',
+                    ids: [],
+                    weights: {},
+                    ...editingRule.assignmentTarget
+                },
+                reassignmentPolicy: {
+                    enabled: false,
+                    inactivityHours: 48,
+                    escalateTo: '',
+                    ...editingRule.reassignmentPolicy
+                }
+            });
         }
     }, [editingRule]);
 
     const handleSave = () => {
-        if (!formData.name || formData.assignmentTarget.ids.length === 0) {
+        const targetIds = formData.assignmentTarget?.ids || [];
+        if (!formData.name || targetIds.length === 0) {
             alert('Please fill in all required fields');
             return;
         }
@@ -72,15 +88,19 @@ const CreateDistributionRuleModal = ({ isOpen, onClose, editingRule = null }) =>
     };
 
     const toggleAssignmentTarget = (id) => {
-        setFormData(prev => ({
-            ...prev,
-            assignmentTarget: {
-                ...prev.assignmentTarget,
-                ids: prev.assignmentTarget.ids.includes(id)
-                    ? prev.assignmentTarget.ids.filter(i => i !== id)
-                    : [...prev.assignmentTarget.ids, id]
-            }
-        }));
+        setFormData(prev => {
+            const currentTarget = prev.assignmentTarget || { type: 'user', ids: [] };
+            const currentIds = currentTarget.ids || [];
+            return {
+                ...prev,
+                assignmentTarget: {
+                    ...currentTarget,
+                    ids: currentIds.includes(id)
+                        ? currentIds.filter(i => i !== id)
+                        : [...currentIds, id]
+                }
+            };
+        });
     };
 
     if (!isOpen) return null;
@@ -459,14 +479,14 @@ const CreateDistributionRuleModal = ({ isOpen, onClose, editingRule = null }) =>
                                                     padding: '10px',
                                                     borderRadius: '6px',
                                                     marginBottom: '8px',
-                                                    background: formData.assignmentTarget.ids.includes(userId) ? '#eff6ff' : 'transparent',
-                                                    border: formData.assignmentTarget.ids.includes(userId) ? '1px solid #bfdbfe' : '1px solid transparent'
+                                                    background: formData.assignmentTarget?.ids?.includes(userId) ? '#eff6ff' : 'transparent',
+                                                    border: formData.assignmentTarget?.ids?.includes(userId) ? '1px solid #bfdbfe' : '1px solid transparent'
                                                 }}
                                             >
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
                                                     <input
                                                         type="checkbox"
-                                                        checked={formData.assignmentTarget.ids.includes(userId)}
+                                                        checked={formData.assignmentTarget?.ids?.includes(userId) || false}
                                                         onChange={() => toggleAssignmentTarget(userId)}
                                                     />
                                                     <div>
@@ -477,7 +497,7 @@ const CreateDistributionRuleModal = ({ isOpen, onClose, editingRule = null }) =>
                                                     </div>
                                                 </div>
 
-                                                {formData.assignmentTarget.ids.includes(userId) && (
+                                                {formData.assignmentTarget?.ids?.includes(userId) && (
                                                     <div style={{ display: 'flex', gap: '12px' }}>
                                                         <div>
                                                             <label style={{ display: 'block', fontSize: '10px', color: '#6b7280' }}>Weight</label>
@@ -486,14 +506,15 @@ const CreateDistributionRuleModal = ({ isOpen, onClose, editingRule = null }) =>
                                                                 value={formData.assignmentTarget.weights?.[userId]?.weight || 1}
                                                                 onChange={(e) => {
                                                                     const val = parseInt(e.target.value) || 1;
+                                                                    const currentTarget = formData.assignmentTarget || { type: 'user', ids: [] };
                                                                     setFormData({
                                                                         ...formData,
                                                                         assignmentTarget: {
-                                                                            ...formData.assignmentTarget,
+                                                                            ...currentTarget,
                                                                             weights: {
-                                                                                ...formData.assignmentTarget.weights,
+                                                                                ...currentTarget.weights,
                                                                                 [userId]: {
-                                                                                    ...formData.assignmentTarget.weights?.[userId],
+                                                                                    ...currentTarget.weights?.[userId],
                                                                                     weight: val
                                                                                 }
                                                                             }
@@ -512,14 +533,15 @@ const CreateDistributionRuleModal = ({ isOpen, onClose, editingRule = null }) =>
                                                                 value={formData.assignmentTarget.weights?.[userId]?.cap || 50}
                                                                 onChange={(e) => {
                                                                     const val = parseInt(e.target.value) || 0;
+                                                                    const currentTarget = formData.assignmentTarget || { type: 'user', ids: [] };
                                                                     setFormData({
                                                                         ...formData,
                                                                         assignmentTarget: {
-                                                                            ...formData.assignmentTarget,
+                                                                            ...currentTarget,
                                                                             weights: {
-                                                                                ...formData.assignmentTarget.weights,
+                                                                                ...currentTarget.weights,
                                                                                 [userId]: {
-                                                                                    ...formData.assignmentTarget.weights?.[userId],
+                                                                                    ...currentTarget.weights?.[userId],
                                                                                     cap: val
                                                                                 }
                                                                             }
@@ -605,9 +627,10 @@ const CreateDistributionRuleModal = ({ isOpen, onClose, editingRule = null }) =>
                                         if (!matches) {
                                             alert('Simulation: This lead DOES NOT MATCH the current conditions.');
                                         } else {
-                                            const availAgents = users.filter(u => {
+                                            const availAgents = (users || []).filter(u => {
                                                 const uid = u._id || u.id;
-                                                return formData.assignmentTarget.ids.includes(uid) && (u.availability || 'Available') === 'Available';
+                                                const targetIds = formData.assignmentTarget?.ids || [];
+                                                return targetIds.includes(uid) && (u.availability || 'Available') === 'Available';
                                             });
                                             if (availAgents.length === 0) {
                                                 alert(`Simulation: Lead matches, but NO AGENTS are Available.`);

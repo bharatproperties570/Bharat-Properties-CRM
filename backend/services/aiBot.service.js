@@ -30,20 +30,33 @@ export const generateBotResponse = async (message, context = {}) => {
             return { success: false, error: 'AI Agent Off' };
         }
 
-        const combinedPrompt = `
-SYSTEM INSTRUCTIONS:
-${agent.systemPrompt}
+        // Use the agent's system prompt for persona, and the user message + context for the request
+        let contextString = `CHAT HISTORY:\n${context.chatHistory || 'No previous messages.'}\n\n`;
+        
+        if (context.lead) {
+            contextString += `LEAD IDENTITY:
+- Name: ${context.lead.firstName} ${context.lead.lastName}
+- Current Status: ${context.lead.status}
+- Intent Level: ${context.lead.intentIndex}/100
+- CRM Description: ${context.lead.description || 'None'}
+- Tags: ${JSON.stringify(context.lead.customFields || {})}
+- Entity Type: ${context.entityType}
+\n`;
+        }
 
-CURRENT CONTEXT:
-${JSON.stringify(context, null, 2)}
+        const userPrompt = `
+CURRENT CRM CONTEXT:
+${contextString}
 
 USER MESSAGE:
 ${message}
 `;
 
         // Dispatch through Unified AI Service, forcing the agent's preferred provider
-        const reply = await unifiedAIService.generate(combinedPrompt, { 
-            provider: agent.provider 
+        // Passing systemPrompt separately allows better model adherence (system role in OpenAI / systemInstruction in Gemini)
+        const reply = await unifiedAIService.generate(userPrompt, { 
+            provider: agent.provider,
+            systemPrompt: agent.systemPrompt
         });
 
         return {

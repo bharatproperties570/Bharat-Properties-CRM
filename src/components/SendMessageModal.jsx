@@ -241,7 +241,10 @@ const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [], ini
         }
         
         setMessageBody(resolvedBody);
+        setIsTemplateModified(false);
     };
+
+    const [isTemplateModified, setIsTemplateModified] = useState(false);
 
     const handleReferenceSelect = (type, id) => {
         setReferenceType(type);
@@ -514,9 +517,20 @@ const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [], ini
                                         style={{ ...inputStyle, border: 'none', minHeight: '180px', resize: 'vertical', lineHeight: '1.6' }}
                                         placeholder="Type your SMS message here..."
                                         value={messageBody}
-                                        onChange={e => setMessageBody(e.target.value)}
+                                        onChange={e => {
+                                            setMessageBody(e.target.value);
+                                            if (templateId) setIsTemplateModified(true);
+                                        }}
                                     />
                                 </div>
+                                {templateId && isTemplateModified && (
+                                    <div style={{ marginTop: '8px', padding: '8px 12px', background: '#fffbeb', borderRadius: '8px', border: '1px solid #fef3c7', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                        <i className="fas fa-exclamation-triangle" style={{ color: '#d97706', fontSize: '0.9rem' }}></i>
+                                        <span style={{ fontSize: '0.8rem', color: '#92400e' }}>
+                                            <strong>DLT Warning:</strong> Manual edits to a pre-approved template may cause rejection by the gateway.
+                                        </span>
+                                    </div>
+                                )}
                                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: '#64748b', marginTop: '8px', paddingLeft: '4px' }}>
                                     <span>Used characters: <strong>{charCount}</strong></span>
                                     <span>Segments: <strong>{segments}</strong></span>

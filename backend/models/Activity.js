@@ -2,10 +2,10 @@ import mongoose from "mongoose";
 import { invalidateDashboardCache } from "../src/config/redis.js";
 
 const ActivitySchema = new mongoose.Schema({
-    type: { type: String, required: true, index: true }, // Call, Meeting, Site Visit, Task, Email
+    type: { type: String, required: true }, // Call, Meeting, Site Visit, Task, Email
     subject: { type: String, required: true },
-    entityType: { type: String, required: true, index: true }, // Lead, Contact, Deal, Project, Company, User
-    entityId: { type: mongoose.Schema.Types.Mixed, required: false, index: true }, // Support both ObjectId and custom Strings for imported leads
+    entityType: { type: String, required: true }, // Lead, Contact, Deal, Project, Company, User
+    entityId: { type: mongoose.Schema.Types.Mixed, required: false }, // Support both ObjectId and custom Strings for imported leads
     relatedTo: [{
         id: { type: mongoose.Schema.Types.Mixed },
         name: String,
@@ -42,7 +42,7 @@ const ActivitySchema = new mongoose.Schema({
 
     tags: [{ type: String }],
     isStarred: { type: Boolean, default: false },
-    teams: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team', index: true }],
+    teams: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team' }],
     googleEventId: { type: String, index: true },
 
 }, { timestamps: true });

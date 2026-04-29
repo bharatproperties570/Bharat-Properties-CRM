@@ -12,6 +12,10 @@ import {
     sendReply,
     convertToLead
 } from "../controllers/activity.controller.js";
+import { 
+    completeActivity, 
+    completeActivityWithForm 
+} from "../src/modules/activity/activityCompletion.controller.js";
 import { authenticate } from "../src/middlewares/auth.middleware.js";
 
 const router = express.Router();
@@ -29,6 +33,8 @@ router.get("/unified/:entityType/:entityId", getUnifiedTimeline);
 router.post("/", addActivity);
 router.post("/mobile-sync", syncMobileCalls);
 router.put("/:id", updateActivity);
+router.post("/:id/complete", completeActivity);
+router.post("/:id/complete-with-form", completeActivityWithForm);
 router.delete("/:id", deleteActivity);
 
 export default router;

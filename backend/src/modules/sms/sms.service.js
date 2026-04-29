@@ -173,6 +173,9 @@ class SmsService {
             else if (context.category === 'Transactional') resolvedChannel = 2;
             else if (context.category === 'OTP') resolvedChannel = 4;
 
+            // SENIOR PROFESSIONAL HARDENING: Strip excessive whitespace which often breaks DLT matching
+            const cleanMessage = message.trim().replace(/\s+/g, ' ');
+
             params = {
                 APIKey: apiKey,
                 senderid: senderId,
@@ -180,7 +183,7 @@ class SmsService {
                 DCS: Number(dcs) || 0,
                 flashsms: flash ? 1 : 0,   // Must be integer 0 or 1, NOT boolean
                 number: normalizedNumber,
-                text: message,
+                text: cleanMessage,
                 route: config.route || '47'  // 47 = SmartPing Transactional (DLT compliant)
             };
 
@@ -215,7 +218,7 @@ class SmsService {
                 }
             }
 
-            console.log('[SMSGatewayHub] Sending to:', url, '| Params:', JSON.stringify({ ...params, APIKey: '[REDACTED]' }));
+            console.log('[SMSGatewayHub] Sending to:', url, '| Params:', JSON.stringify({ ...params, APIKey: '[REDACTED]', text: cleanMessage }));
             const response = await axios.get(url, { params, timeout: 15000 });
             console.log('[SMSGatewayHub] Response:', response.data);
 

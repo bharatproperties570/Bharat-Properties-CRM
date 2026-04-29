@@ -794,6 +794,12 @@ export const getLeadScores = async (req, res) => {
 
                         if (outcomeConfig) {
                             behavioralScore += (outcomeConfig.score || 0);
+                        } else {
+                            // Safeguard: Penalty for unsuccessful attempts if not explicitly in config
+                            const isMissed = ['no-answer', 'no answer', 'busy', 'failed', 'not connected', 'missed', 'not interested'].some(s => outcomeLabel.includes(s));
+                            if (isMissed) {
+                                behavioralScore -= 3;
+                            }
                         }
                     }
                 }

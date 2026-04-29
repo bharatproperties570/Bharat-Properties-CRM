@@ -43,7 +43,10 @@ const DEFAULT_CONFIG = {
                             { label: 'Positive Response', score: 8 },
                             { label: 'Will Think', score: 5 },
                             { label: 'Call Back Later', score: 3 },
-                            { label: 'Not Connected', score: 0 },
+                            { label: 'Not Connected', score: -2 },
+                            { label: 'No Answer', score: -3 },
+                            { label: 'Busy', score: -1 },
+                            { label: 'Missed Call', score: -2 },
                             { label: 'Not Interested', score: -5 }
                         ]
                     },
@@ -54,7 +57,10 @@ const DEFAULT_CONFIG = {
                             { label: 'Very Interested', score: 15 },
                             { label: 'Meeting Confirmed', score: 20 },
                             { label: 'Will Think', score: 5 },
-                            { label: 'Not Connected', score: 0 },
+                            { label: 'Not Connected', score: -2 },
+                            { label: 'No Answer', score: -3 },
+                            { label: 'Busy', score: -1 },
+                            { label: 'Missed Call', score: -2 },
                             { label: 'Not Interested', score: -10 }
                         ]
                     }
@@ -274,8 +280,15 @@ export const computeLeadScore = (lead, activities = [], config = DEFAULT_CONFIG)
                 const ol = (o.label || '').toLowerCase();
                 return ol === outcomeLabel || outcomeLabel.includes(ol) || ol.includes(outcomeLabel);
             });
+
             if (outcomeDef) {
                 activityScore += (Number(outcomeDef.score) || 0);
+            } else {
+                // Safeguard: Hardcoded penalty for negative/missed outcomes if not in config
+                const isMissed = ['no-answer', 'no answer', 'busy', 'failed', 'not connected', 'missed', 'not interested'].some(s => outcomeLabel.includes(s));
+                if (isMissed) {
+                    activityScore -= 3; // Standard penalty for unsuccessful attempt
+                }
             }
         });
     }
@@ -321,7 +334,9 @@ export const computeLeadScore = (lead, activities = [], config = DEFAULT_CONFIG)
         decayPenalty = -(lead.decay_score || 0);
 
         // Also apply time-based decay from scoring config thresholds
-        const lastActDate = new Date(lead.lastActivityAt || lead.updatedAt || new Date());
+        // [SENIOR FIX]: Fallback to createdAt, NOT updatedAt. 
+        // Using updatedAt resets the penalty every time the score itself is updated!
+        const lastActDate = new Date(lead.lastActivityAt || lead.createdAt || new Date());
         const diffDays = Math.ceil(Math.abs(new Date() - lastActDate) / (1000 * 60 * 60 * 24));
         if (diffDays >= 30)      decayPenalty += getAttrPoints(decayRules, 'inactive30');
         else if (diffDays >= 14) decayPenalty += getAttrPoints(decayRules, 'inactive14');

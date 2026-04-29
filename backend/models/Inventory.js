@@ -15,10 +15,10 @@ const InventorySchema = new mongoose.Schema({
     project: String,
     projectId: { type: mongoose.Schema.Types.ObjectId, ref: 'Project', index: true },
 
-    projectName: { type: String, index: true },
-    block: { type: String, index: true },
-    unitNumber: { type: String, index: true },
-    unitNo: { type: String, index: true },
+    projectName: { type: String },
+    block: { type: String },
+    unitNumber: { type: String },
+    unitNo: { type: String },
 
     // Status & Intent
     intent: [{ type: mongoose.Schema.Types.Mixed, ref: 'Lookup', index: true }], // For Sale, For Rent, etc.
@@ -131,9 +131,9 @@ const InventorySchema = new mongoose.Schema({
     }],
 
     // System
-    teams: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team', index: true }],
+    teams: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team' }],
     team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', index: true },
-    assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
+    assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     visibleTo: String,
     tags: { type: String, default: '-' },
     latitude: { type: String },

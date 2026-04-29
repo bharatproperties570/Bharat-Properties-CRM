@@ -5,6 +5,7 @@ import { useTriggers } from '../context/TriggersContext';
 import { whatsappTemplates, smsTemplates, emailTemplates } from '../constants/templates';
 import { renderValue } from '../utils/renderUtils';
 import { api } from '../utils/api';
+import { dispatchAll } from '../utils/communicationDispatcher';
 import toast from 'react-hot-toast';
 
 const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialIntent }) => {
@@ -27,15 +28,17 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
     const [history, setHistory] = useState([]);
     const [scheduleFollowUp, setScheduleFollowUp] = useState(false);
     const [activeTriggers, setActiveTriggers] = useState({
-        whatsapp: false,
-        sms: false,
-        email: false
+        whatsapp: true,
+        sms: true,
+        email: true
     });
     const [channelMessages, setChannelMessages] = useState({
         whatsapp: '',
         sms: '',
         email: ''
     });
+    const [channelSubjects, setChannelSubjects] = useState({ email: '' });
+    const [templateIds, setTemplateIds] = useState({ sms: '' });
     const [previewChannel, setPreviewChannel] = useState('whatsapp'); // Track which preview is shown
 
     useEffect(() => {
@@ -128,28 +131,53 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
             const resultStr = typeof formData.result === 'object' ? formData.result.lookup_value : formData.result;
             const baseId = mapping[resultStr] || 'fb_interested_warm';
             
-            const waTemplate = whatsappTemplates.find(t => t.id === `${baseId}_wa`) || {};
-            const smsTemplate = smsTemplates.find(t => t.id === `${baseId}_sms`) || {};
-            const emailTemplate = emailTemplates.find(t => t.id === baseId) || {};
-
             const ownerName = formData.selectedOwner || 'Sir/Ma\'am';
             const unitInfo = `Unit ${inventory.unitNo}`;
             const time = formData.nextActionTime ? `${formData.nextActionTime} on ${formData.nextActionDate}` : 'later';
             const reason = formData.reason || 'Discussed';
 
-            const processTemplate = (template) => {
-                if (!template) return '';
-                const body = template.content || template.body || '';
-                return body.replace(/{owner}/g, ownerName)
+            const processTemplate = (text) => {
+                if (!text) return '';
+                return text.replace(/{owner}/g, ownerName)
                     .replace(/{unit}/g, unitInfo)
                     .replace(/{time}/g, time)
                     .replace(/{reason}/g, reason);
             };
 
+            // 🚀 SENIOR RESOLUTION: Prioritize DB-driven templates from masterFields, fallback to constants
+            const dbTemplate = masterFields.responseTemplates?.[resultStr] || {};
+            
+            const waTemplate = dbTemplate.whatsapp 
+                ? { content: dbTemplate.whatsapp } 
+                : (whatsappTemplates.find(t => t.id === `${baseId}_wa`) || {});
+                
+            const smsTemplate = dbTemplate.sms 
+                ? { body: dbTemplate.sms } 
+                : (smsTemplates.find(t => t.id === `${baseId}_sms`) || {});
+                
+            const emailTemplate = dbTemplate.email 
+                ? { 
+                    subject: typeof dbTemplate.email === 'string' ? (dbTemplate.email.match(/Subject: (.*)\n/)?.[1] || `Update regarding ${unitInfo}`) : `Update regarding ${unitInfo}`, 
+                    content: typeof dbTemplate.email === 'string' ? dbTemplate.email.replace(/Subject:.*\n/, '').trim() : ''
+                  }
+                : (emailTemplates.find(t => t.id === baseId) || {});
+
+            const activeSmsTemplate = dbTemplate.sms 
+                ? { _id: null, body: dbTemplate.sms } // Custom override from DB
+                : (smsTemplates.find(t => t.id === `${baseId}_sms`) || {});
+
             setChannelMessages({
-                whatsapp: processTemplate(waTemplate),
-                sms: processTemplate(smsTemplate),
-                email: processTemplate(emailTemplate)
+                whatsapp: processTemplate(waTemplate.content || waTemplate.body),
+                sms: processTemplate(activeSmsTemplate.body || activeSmsTemplate.content),
+                email: processTemplate(emailTemplate.content || emailTemplate.body)
+            });
+            
+            setChannelSubjects({
+                email: processTemplate(emailTemplate.subject)
+            });
+
+            setTemplateIds({
+                sms: activeSmsTemplate?._id || activeSmsTemplate?.id || ''
             });
 
             // Apply Inventory Status Automation Rule
@@ -283,95 +311,142 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
     };
 
     const handleSubmit = async () => {
-        if (validate()) {
-            try {
-                // Professional Fix: Persist feedback to backend
-                const updatePayload = {
-                    interactions: [{
-                        note: `${formData.result}${formData.reason ? ` (${formData.reason})` : ''} - ${formData.feedback || 'No additional notes'}`,
-                        actor: formData.selectedOwner,
-                        details: {
-                            result: formData.result,
-                            reason: formData.reason,
-                            feedback: formData.feedback,
-                            owner: formData.selectedOwner,
-                            ownerRole: formData.selectedOwnerRole
-                        }
-                    }],
-                    lastContactedAt: new Date().toISOString(),
-                    lastContactDate: new Date().toLocaleDateString('en-GB'),
-                    lastContactUser: 'You',
-                    remarks: `${formData.result}${formData.reason ? ` (${formData.reason})` : ''}: ${formData.feedback || ''}`
-                };
+        if (!validate()) return;
 
-                // Professional: Handle intent updates if modal was opened with a specific context (e.g. For Sale)
-                if (initialIntent && (formData.result.includes('Interested') || formData.result === 'Interested')) {
-                    let newIntents = [...(inventory.intent || [])].map(i => (i && typeof i === 'object' ? i.lookup_value : i));
-                    if (!newIntents.includes(initialIntent)) {
-                        newIntents.push(initialIntent);
-                        updatePayload.intent = newIntents;
-                    }
-                }
+        try {
+            // Professional Fix: Extract display values from potentially populated objects
+            const resultVal = typeof formData.result === 'object' ? (formData.result.lookup_value || formData.result.label || formData.result) : formData.result;
+            const reasonVal = typeof formData.reason === 'object' ? (formData.reason.lookup_value || formData.reason.label || formData.reason) : formData.reason;
 
-                // Enrich with follow-up date if scheduled
-                if (scheduleFollowUp && formData.nextActionDate) {
-                    updatePayload.followUpDate = `${formData.nextActionDate}T${formData.nextActionTime || '10:00'}:00`;
-                }
-
-                // Status update — send as plain string; backend pre-hook resolves to Lookup ID
-                if (formData.markAsSold) {
-                    if (formData.result.toLowerCase().includes('sold')) {
-                        updatePayload.status = 'Sold Out';
-                    } else if (formData.result.toLowerCase().includes('rent')) {
-                        updatePayload.status = 'Rented Out';
-                    } else {
-                        updatePayload.status = 'Inactive';
-                    }
-                }
-
-                console.log("[DEBUG] Saving feedback for Inventory ID:", inventory._id);
-                console.log("[DEBUG] Update Payload:", JSON.stringify(updatePayload, null, 2));
-
-                const response = await api.put(`inventory/${inventory._id}`, updatePayload);
-
-                if (response.data && response.data.success) {
-                    // Global Trigger Alignment: Fire the feedback event
-                    // entityType MUST be passed so the engine matches trigger.module === entityType
-                    await fireEvent('inventory_feedback_submitted', {
-                        ...inventory,
-                        outcome: typeof formData.result === 'object' ? formData.result.lookup_value : formData.result,
-                        reason: typeof formData.reason === 'object' ? formData.reason.lookup_value : formData.reason,
+            const updatePayload = {
+                interactions: [{
+                    note: `${resultVal}${reasonVal ? ` (${reasonVal})` : ''} - ${formData.feedback || 'No additional notes'}`,
+                    actor: formData.selectedOwner,
+                    details: {
+                        result: resultVal,
+                        reason: reasonVal,
                         feedback: formData.feedback,
-                        nextActionDate: formData.nextActionDate,
-                        nextActionTime: formData.nextActionTime
-                    }, {
-                        entityType: 'inventory',
-                        outcome: typeof formData.result === 'object' ? formData.result.lookup_value : formData.result,
-                        reason: typeof formData.reason === 'object' ? formData.reason.lookup_value : formData.reason,
-                        nextActionDate: formData.nextActionDate,
-                        nextActionTime: formData.nextActionTime
-                    });
+                        owner: formData.selectedOwner,
+                        ownerRole: formData.selectedOwnerRole
+                    }
+                }],
+                lastContactedAt: new Date().toISOString(),
+                lastContactDate: new Date().toLocaleDateString('en-GB'),
+                lastContactUser: 'You',
+                remarks: `${resultVal}${reasonVal ? ` (${reasonVal})` : ''}: ${formData.feedback || ''}`
+            };
 
-                    onSave && onSave(formData);
-                } else {
-                    toast.error("Failed to save feedback");
+            // Professional: Handle intent updates if modal was opened with a specific context (e.g. For Sale)
+            if (initialIntent && (resultVal.includes('Interested') || resultVal === 'Interested')) {
+                let newIntents = [...(inventory.intent || [])].map(i => (i && typeof i === 'object' ? i.lookup_value : i));
+                if (!newIntents.includes(initialIntent)) {
+                    newIntents.push(initialIntent);
+                    updatePayload.intent = newIntents;
                 }
-            } catch (err) {
-                console.error("Feedback Save Error:", err);
-                toast.error("Error saving feedback");
             }
 
-            // 1. Log Automated Messages (Triggers)
-            const activeTriggersList = Object.entries(activeTriggers).filter(([, isActive]) => isActive).map(([ch]) => ch.toUpperCase());
+            // Enrich with follow-up date if scheduled
+            if (scheduleFollowUp && formData.nextActionDate) {
+                updatePayload.followUpDate = `${formData.nextActionDate}T${formData.nextActionTime || '10:00'}:00`;
+            }
 
-            Object.entries(activeTriggers).forEach(([channel, isActive]) => {
-                if (isActive && channelMessages[channel]) {
+            // 🚀 Advanced Status Resolution
+            if (formData.markAsSold) {
+                const lowerResult = resultVal.toLowerCase();
+                const lowerReason = (formData.reason || '').toLowerCase();
+                
+                if (lowerResult.includes('sold') || lowerReason.includes('sold')) {
+                    updatePayload.status = 'Sold Out';
+                } else if (lowerResult.includes('rent') || lowerReason.includes('rent')) {
+                    updatePayload.status = 'Rented Out';
+                } else {
+                    // Default to Inactive for negative outcomes (Not Interested, Wrong Number, etc.)
+                    updatePayload.status = 'Inactive';
+                }
+            } else {
+                // If explicitly NOT markAsSold (e.g. Interested / Hot), ensure it stays Active
+                updatePayload.status = 'Active';
+            }
+
+            console.log("[DEBUG] Saving feedback for Inventory ID:", inventory._id);
+            const response = await api.put(`inventory/${inventory._id}`, updatePayload);
+
+            if (response.data && response.data.success) {
+                // 1. Fire the feedback event for trigger engine
+                await fireEvent('inventory_feedback_submitted', {
+                    ...inventory,
+                    outcome: resultVal,
+                    reason: reasonVal,
+                    feedback: formData.feedback,
+                    nextActionDate: formData.nextActionDate,
+                    nextActionTime: formData.nextActionTime
+                }, {
+                    entityType: 'inventory',
+                    outcome: resultVal,
+                    reason: reasonVal,
+                    nextActionDate: formData.nextActionDate,
+                    nextActionTime: formData.nextActionTime
+                });
+
+                // 2. Dispatch Confirmed Outreach via CommunicationDispatcher
+                const owner = inventory.owners?.[0];
+                const recipientPhone = (typeof owner === 'object' ? owner.phones?.[0]?.number : null)
+                    || inventory.ownerPhone || inventory.associatedPhone || '';
+                const recipientEmail = (typeof owner === 'object' ? owner.emails?.[0]?.address : null)
+                    || inventory.ownerEmail || '';
+
+                const dispatchResults = await dispatchAll({
+                    activeTriggers,
+                    channelMessages,
+                    channelSubjects,
+                    phone: recipientPhone,
+                    email: recipientEmail,
+                    smsTemplateId: templateIds.sms
+                });
+
+                // Log each successfully dispatched channel as a CRM Activity
+                for (const result of dispatchResults) {
+                    const activityType = result.channel === 'whatsapp' ? 'WhatsApp'
+                        : result.channel === 'sms' ? 'SMS' : 'Email';
                     const msgActivity = {
-                        type: channel === 'whatsapp' ? 'WhatsApp' : channel === 'sms' ? 'SMS' : 'Email',
-                        subject: `Feedback Response sent: ${channel.toUpperCase()}`,
-                        status: 'Completed',
+                        type: activityType,
+                        subject: result.success
+                            ? `✅ ${activityType} Sent: ${resultVal}`
+                            : `❌ ${activityType} Failed: ${resultVal}`,
+                        status: result.success ? 'Completed' : 'Cancelled',
+                        performedAt: new Date(),
+                        dueDate: new Date(),
+                        relatedTo: [{ id: inventory._id, name: inventory.unitNo, model: 'Inventory' }],
+                        participants: [{
+                            name: formData.selectedOwner,
+                            mobile: recipientPhone
+                        }],
+                        description: result.success
+                            ? `Auto ${activityType} dispatched to ${formData.selectedOwner}: ${(channelMessages[result.channel] || '').substring(0, 120)}...`
+                            : `${activityType} dispatch failed: ${result.error}`,
+                        details: {
+                            feedback: resultVal,
+                            message: channelMessages[result.channel],
+                            inventoryId: inventory._id,
+                            unitNo: inventory.unitNo,
+                            dispatchResult: result,
+                            formSource: 'InventoryFeedbackForm'
+                        }
+                    };
+                    await addActivity(msgActivity).catch(e => console.error('Auto message log failed:', e));
+                }
+
+                // 3. Integrate with Activities Module (Follow-up)
+                if (scheduleFollowUp) {
+                    const newActivity = {
+                        type: formData.nextActionType || 'Follow Up',
+                        subject: `Follow-up: ${formData.nextActionType || 'Call'} for Unit ${inventory.unitNo}`,
+                        status: 'Pending',
+                        priority: 'High',
+                        scheduledDate: `${formData.nextActionDate}T${formData.nextActionTime}`,
+                        dueDate: formData.nextActionDate, // Required by Schema
                         relatedTo: [{
-                            id: inventory._id, // Use correct Mongo ID instead of mobile
+                            id: inventory._id,
                             name: inventory.unitNo,
                             model: 'Inventory'
                         }],
@@ -379,53 +454,27 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
                             name: formData.selectedOwner,
                             mobile: inventory.ownerPhone || inventory.associatedPhone
                         }],
-                        description: `Automated ${channel.toUpperCase()} message dispatched to ${formData.selectedOwner}: ${channelMessages[channel].substring(0, 100)}...`,
+                        description: `Follow up with ${formData.selectedOwner} regarding Unit ${inventory.unitNo} - ${inventory.type}`,
                         details: {
-                            feedback: formData.result,
-                            message: channelMessages[channel],
+                            agenda: `${formData.nextActionType} to discuss ${resultVal} for Unit ${inventory.unitNo}`,
                             inventoryId: inventory._id,
-                            unitNo: inventory.unitNo,
-                            automationInfo: `Channels: ${activeTriggersList.join(', ')}`,
-                            formSource: 'InventoryFeedbackForm',
-                            platform: 'WebCRM'
+                            scheduledFor: 'Follow Up',
+                            formSource: 'InventoryFeedbackForm'
                         }
                     };
-                    addActivity(msgActivity);
-                    console.log(`Automated ${channel.toUpperCase()} Dispatched:`, msgActivity);
+                    await addActivity(newActivity).catch(e => console.error("Follow-up activity creation failed:", e));
                 }
-            });
 
-            // 2. Integrate with Activities Module (Follow-up)
-            if (scheduleFollowUp) {
-                const newActivity = {
-                    type: formData.nextActionType || 'Follow Up',
-                    subject: `Follow-up: ${formData.nextActionType || 'Call'} for Unit ${inventory.unitNo}`,
-                    status: 'Pending',
-                    priority: 'High',
-                    scheduledDate: `${formData.nextActionDate}T${formData.nextActionTime}`,
-                    relatedTo: [{
-                        id: inventory._id, // Use correct Mongo ID
-                        name: inventory.unitNo,
-                        model: 'Inventory'
-                    }],
-                    participants: [{
-                        name: formData.selectedOwner,
-                        mobile: inventory.ownerPhone || inventory.associatedPhone
-                    }],
-                    description: `Follow up with ${formData.selectedOwner} regarding Unit ${inventory.unitNo} - ${inventory.type}`,
-                    details: {
-                        agenda: `${formData.nextActionType} to discuss ${formData.result} for Unit ${inventory.unitNo}`,
-                        inventoryId: inventory._id,
-                        scheduledFor: 'Follow Up',
-                        formSource: 'InventoryFeedbackForm',
-                        platform: 'WebCRM'
-                    }
-                };
-                addActivity(newActivity);
-                console.log("Follow-up Activity Dispatched:", newActivity);
+                onSave && onSave(formData);
+                toast.success("Feedback saved successfully");
+                onClose();
+            } else {
+                toast.error(response.data?.error || "Failed to save feedback");
             }
-
-            onClose();
+        } catch (err) {
+            console.error("Feedback Save Error:", err);
+            const errorMsg = err.response?.data?.error || err.message || "Error saving feedback";
+            toast.error(errorMsg);
         }
     };
 

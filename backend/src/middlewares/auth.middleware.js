@@ -41,8 +41,12 @@ export const authorize = (...roles) => {
             return next(new AppError("Not authenticated", 401));
         }
 
-        if (!roles.includes(req.user.role)) {
-            return next(new AppError("Not authorized to access this resource", 403));
+        const userRole = req.user.role?.name || req.user.role;
+        const allowedRoles = roles.map(r => String(r).toLowerCase());
+        const currentUserRole = String(userRole || '').toLowerCase();
+
+        if (!allowedRoles.includes(currentUserRole)) {
+            return next(new AppError(`Access denied. Required: ${roles.join(' or ')}`, 403));
         }
 
         next();

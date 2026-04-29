@@ -974,7 +974,7 @@ const ContactDetail = ({ contactId, onBack }) => {
                             // Refetch contact data
                             api.get(`contacts/${contactId}`).then(res => {
                                 if (res.data.success) setContact(res.data.data);
-                            });
+                            }).catch(err => console.error("Error refetching contact:", err));
                         }}
                     />
                 )}
@@ -992,7 +992,7 @@ const ContactDetail = ({ contactId, onBack }) => {
                                 if (res.data.success) {
                                     setContactDocuments(res.data.data.documents || []);
                                 }
-                            });
+                            }).catch(err => console.error("Error refetching docs:", err));
                         }}
                     />
                 )}
@@ -1012,7 +1012,7 @@ const ContactDetail = ({ contactId, onBack }) => {
                                     // Let's trigger a full fetch
                                     window.location.reload(); // Quickest way to ensure all linked data is refreshed
                                 }
-                            });
+                            }).catch(err => console.error("Error refetching properties:", err));
                         }}
                     />
                 )}
@@ -1054,7 +1054,7 @@ const ContactDetail = ({ contactId, onBack }) => {
                                 if (res.data.success) {
                                     setActiveDeals(res.data.data);
                                 }
-                            });
+                            }).catch(err => console.error("Error refetching deals:", err));
                         }}
                     />
                 )}

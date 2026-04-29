@@ -70,7 +70,13 @@ export const ActivityProvider = ({ children }) => {
                 normalizedData.entityType = normalizedData.relatedTo[0].model || normalizedData.relatedTo[0].type;
             }
 
-            // 4. Source Tracking (Enterprise Level)
+            // 4. Ensure dueDate is present (Required by Schema)
+            if (!normalizedData.dueDate) {
+                // Heuristic: If scheduledDate exists, use it. Otherwise use now.
+                normalizedData.dueDate = normalizedData.scheduledDate || new Date();
+            }
+
+            // 5. Source Tracking (Enterprise Level)
             // Tag activities created in the web UI so they can be distinguished from mobile/system logs
             if (!normalizedData.details) normalizedData.details = {};
             if (!normalizedData.details.platform) normalizedData.details.platform = 'WebCRM';

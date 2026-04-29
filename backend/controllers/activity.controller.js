@@ -278,16 +278,33 @@ export const getActivities = async (req, res) => {
             endDate,
             search,
             page = 1,
-            limit = 100
+            limit = 100,
+            includeCommunications = 'false'
         } = req.query;
 
         const visibilityFilter = await getVisibilityFilter(req.user);
         const query = { ...visibilityFilter };
 
+        // 🌟 Senior Logic: Filter out omnichannel communications from the global activity list
+        // These should only be visible in Communication Hub or Entity Timelines.
+        // Using regex for case-insensitive robust filtering.
+        if (includeCommunications !== 'true') {
+            query.type = { 
+                $nin: [
+                    /^WhatsApp$/i, /^SMS$/i, /^Email$/i, /^RCS$/i, 
+                    /^Messaging$/i, /^Conversation$/i, /^Chat$/i, /^whatsapp$/i
+                ] 
+            };
+        }
+
         if (entityId && mongoose.Types.ObjectId.isValid(entityId)) query.entityId = entityId;
         else if (entityId) return res.status(400).json({ success: false, error: "Invalid entityId format" });
         if (entityType) query.entityType = entityType;
-        if (type) query.type = type;
+        
+        // If specific type is requested, it overrides the communication filter
+        if (type) {
+            query.type = type;
+        }
         if (status) {
             if (status === 'Pending') {
                 query.status = { $in: ['Pending', 'In Progress', 'Overdue'] };
@@ -662,8 +679,12 @@ export const addActivity = async (req, res) => {
         // Auto-run Enrichment if entity is a Lead
         if (activity.entityType?.toLowerCase() === 'lead' && activity.entityId) {
             await enrichmentQueue.add('enrichLead', { leadId: activity.entityId });
-            // Update lastActivityAt
-            await Lead.findByIdAndUpdate(activity.entityId, { lastActivityAt: new Date() }).catch(() => { });
+            // Update lastActivityAt if not missed
+            const outcome = (activity.details?.outcome || activity.completionResult || '').toLowerCase();
+            const isMissed = ['no-answer', 'no answer', 'busy', 'failed', 'not connected', 'missed'].some(s => outcome.includes(s));
+            if (!isMissed) {
+                await Lead.findByIdAndUpdate(activity.entityId, { lastActivityAt: new Date() }).catch(() => { });
+            }
         } else if (activity.entityType?.toLowerCase() === 'deal' && activity.entityId) {
             // Update lastActivityAt for Deal
             await Deal.findByIdAndUpdate(activity.entityId, { lastActivityAt: new Date() }).catch(() => { });
@@ -760,8 +781,12 @@ export const updateActivity = async (req, res) => {
         // Auto-run Enrichment if entity is a Lead
         if (activity.entityType?.toLowerCase() === 'lead' && activity.entityId) {
             await enrichmentQueue.add('enrichLead', { leadId: activity.entityId });
-            // Update lastActivityAt
-            await Lead.findByIdAndUpdate(activity.entityId, { lastActivityAt: new Date() }).catch(() => { });
+            // Update lastActivityAt if not missed
+            const outcome = (activity.details?.outcome || activity.completionResult || '').toLowerCase();
+            const isMissed = ['no-answer', 'no answer', 'busy', 'failed', 'not connected', 'missed'].some(s => outcome.includes(s));
+            if (!isMissed) {
+                await Lead.findByIdAndUpdate(activity.entityId, { lastActivityAt: new Date() }).catch(() => { });
+            }
         } else if (activity.entityType?.toLowerCase() === 'deal' && activity.entityId) {
             // Update lastActivityAt for Deal
             await Deal.findByIdAndUpdate(activity.entityId, { lastActivityAt: new Date() }).catch(() => { });
@@ -1071,7 +1096,7 @@ export const getMessagingActivities = async (req, res) => {
 
         // 1. Fetch Messaging & Voice Activities (SMS, WhatsApp, Mobile Calls)
         const activities = await Activity.find({
-            type: { $in: ['Messaging', 'WhatsApp', 'Call', 'Email'] },
+            type: { $in: ['Messaging', 'messaging', 'WhatsApp', 'whatsapp', 'Call', 'call', 'Email', 'email', 'SMS', 'sms', 'RCS', 'rcs'] },
             isDeleted: { $ne: true }
         })
         .sort({ createdAt: -1 })

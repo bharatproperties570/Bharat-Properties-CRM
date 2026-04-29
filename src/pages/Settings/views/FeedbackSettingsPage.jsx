@@ -22,6 +22,12 @@ const FeedbackSettingsPage = () => {
         }
     };
 
+    const copyLink = (form) => {
+        const url = window.location.origin + '/public/feedback/' + form.slug + '?inventoryId={inventoryId}&leadId={leadId}';
+        navigator.clipboard.writeText(url);
+        toast.success('Survey link copied with placeholders!');
+    };
+
     const handleDelete = async (id) => {
         if (!window.confirm('Delete this feedback form?')) return;
         try {
@@ -65,11 +71,7 @@ const FeedbackSettingsPage = () => {
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
                                     <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#2563eb', background: '#eff6ff', padding: '4px 8px', borderRadius: '6px' }}>SURVEY</span>
                                     <div style={{ display: 'flex', gap: '10px' }}>
-                                        <button onClick={() => {
-                                            const url = window.location.origin + '/public/feedback/' + form.slug;
-                                            navigator.clipboard.writeText(url);
-                                            toast.success('Survey link copied!');
-                                        }} style={{ background: 'none', border: 'none', color: '#2563eb', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer' }}>
+                                        <button onClick={() => copyLink(form)} style={{ background: 'none', border: 'none', color: '#2563eb', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer' }}>
                                             Copy Link
                                         </button>
                                     </div>

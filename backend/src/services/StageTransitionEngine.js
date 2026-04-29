@@ -29,8 +29,13 @@ import Lead from '../../models/Lead.js';
 import Lookup from '../../models/Lookup.js';
 
 import SystemSetting from '../modules/systemSettings/system.model.js';
-import AuditLog from '../../models/AuditLog.js';
 import RevivalSyncService from './RevivalSyncService.js';
+import AuditLog from '../../models/AuditLog.js';
+
+const escapeRegExp = (string) => {
+    if (!string) return '';
+    return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+};
 
 // ─── DEFAULT RULES (seed data — admin can override via settings page) ─────────
 export const DEFAULT_STAGE_RULES = [
@@ -90,9 +95,9 @@ export const DEFAULT_STAGE_RULES = [
         id: 'call_intro_not_connected',
         activityType: 'Call',
         purpose: 'Introduction / First Contact',
-        outcome: 'Not Connected',
+        outcome: 'Not Connected', // Matches 'no answer', 'busy', 'missed' via resolveTransition contains logic
         reason: '*',
-        newStage: 'New',
+        newStage: 'New', // Stay in New if not connected
         requiredForms: [],
         priority: 10,
         active: true
@@ -171,7 +176,7 @@ export const DEFAULT_STAGE_RULES = [
         purpose: 'Follow Up',
         outcome: 'Not Connected',
         reason: '*',
-        newStage: 'Prospect',
+        newStage: 'Prospect', // Stay in Prospect (follow-up implies already a prospect)
         requiredForms: [],
         priority: 15,
         active: true
@@ -589,7 +594,8 @@ export const resolveTransition = async (activityType, outcome, reason = '', purp
         const purpMatch = !rule.purpose || rulePurpNorm === '*' || rulePurpNorm === '' ||
                           rulePurpNorm === purpNorm || purpNorm.includes(rulePurpNorm);
         const outMatch = ruleOutNorm === '*' || ruleOutNorm === outNorm ||
-                         outNorm.includes(ruleOutNorm) || ruleOutNorm.includes(outNorm);
+                         outNorm.includes(ruleOutNorm) || ruleOutNorm.includes(outNorm) ||
+                         (ruleOutNorm === 'not connected' && (outNorm.includes('no answer') || outNorm.includes('busy') || outNorm.includes('missed') || outNorm.includes('no-answer')));
         // Reason: specific rules (non-*) take priority because we sort by priority desc
         const resMatch = ruleResNorm === '*' || !rule.reason || ruleResNorm === '' ||
                          ruleResNorm === resNorm || resNorm.includes(ruleResNorm);
@@ -677,7 +683,7 @@ export const executeTransition = async (leadId, newStageName, options = {}) => {
     let newStageId = null;
     const stageLookup = await Lookup.findOne({
         lookup_type: { $regex: /^stage$/i },
-        lookup_value: { $regex: new RegExp(`^${escapeRegex(newStageName)}$`, 'i') }
+        lookup_value: { $regex: new RegExp(`^${escapeRegExp(newStageName)}$`, 'i') }
     });
     if (stageLookup) newStageId = stageLookup._id;
 
@@ -801,6 +807,7 @@ export const evaluateAndTransition = async (leadId, activityType, outcome, reaso
                 newStage: rule.newStage,
                 requiredForms,
                 missingForms,
+                missingFields: [],
                 ruleId: rule.id
             };
         }
@@ -824,10 +831,11 @@ export const evaluateAndTransition = async (leadId, activityType, outcome, reaso
         newStage: result.newStage,
         requiredForms,
         missingForms: [],
+        missingFields: [],
         ruleId: rule.id
     };
 };
 
-const escapeRegex = str => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// End of file cleanup
 
 export default { resolveTransition, evaluateAndTransition, executeTransition, loadTransitionRules, validateRequiredFields };

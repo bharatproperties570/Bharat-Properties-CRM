@@ -206,9 +206,12 @@ class NurtureBot {
             // 3. Email Action
             if (rule.email?.enabled && lead.email) {
                 try {
+                    const emailBody = rule.email.body || '';
+                    const resolvedBody = resolveVars(emailBody);
                     const subject = resolveVars(rule.email.subject || `Update from Bharat Properties`);
-                    const html = resolveVars(rule.email.body || '').replace(/\n/g, '<br/>');
-                    await emailService.sendEmail(lead.email, subject, resolveVars(rule.sms?.body || 'Hello'), html);
+                    const html = resolvedBody.replace(/\n/g, '<br/>');
+                    
+                    await emailService.sendEmail(lead.email, subject, resolvedBody, html);
                     await this._logActivity(lead._id, 'Email', `Automated Email sent via ${triggerId}`);
                 } catch (emailErr) {
                     console.error('[AutomationEngine] Email Error:', emailErr.message);

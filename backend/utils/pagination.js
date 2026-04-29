@@ -1,10 +1,12 @@
 import '../models/Lookup.js'; // Ensure Lookup model is registered for population
 
 export const paginate = async (model, query, page, limit, sort = {}, populate = "", collation = null) => {
-    const skip = (page - 1) * limit;
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const limitNum = Math.max(1, parseInt(limit) || 25);
+    const skip = (pageNum - 1) * limitNum;
 
     try {
-        let mongoQuery = model.find(query).sort(sort).skip(skip).limit(limit);
+        let mongoQuery = model.find(query).sort(sort).skip(skip).limit(limitNum);
 
         if (collation) {
             mongoQuery = mongoQuery.collation(collation);
@@ -22,8 +24,8 @@ export const paginate = async (model, query, page, limit, sort = {}, populate = 
         return {
             records,
             totalCount: total,
-            totalPages: Math.ceil(total / limit),
-            currentPage: Number(page)
+            totalPages: Math.ceil(total / limitNum),
+            currentPage: pageNum
         };
     } catch (error) {
         // Diagnostic check for Mock Mode

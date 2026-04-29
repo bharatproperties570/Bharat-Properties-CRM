@@ -53,8 +53,7 @@ const UserSchema = new mongoose.Schema({
     },
     teams: [{
         type: mongoose.Schema.Types.ObjectId,
-        ref: 'Team',
-        index: true
+        ref: 'Team'
     }],
     team: { // Keep for backward compatibility/migration
         type: mongoose.Schema.Types.ObjectId,
