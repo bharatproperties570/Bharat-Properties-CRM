@@ -79,17 +79,22 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
     const [socialMediaData, setSocialMediaData] = useState(null);
 
     // -- Derived Handlers --
-    const getTeamName = useCallback((tv) => {
-        if (!tv) return "";
-        // Case A: tv is a populated object
-        if (typeof tv === 'object') {
-            const name = tv.name || tv.lookup_value || tv.displayName || "";
-            if (name) return String(renderValue(name));
+    const getTeamName = useCallback((teamValue) => {
+        if (!teamValue) return "-";
+        const teamArray = Array.isArray(teams) ? teams : (teams?.data || []);
+        const resolve = (val) => {
+            if (!val) return null;
+            if (typeof val === 'object') {
+                return val.name || val.lookup_value || (val.id || val._id ? `Team ${val.id || val._id}` : null);
+            }
+            const found = teamArray.find(t => t._id === val || t.id === val);
+            return found ? (found.name || found.lookup_value) : val;
+        };
+        if (Array.isArray(teamValue)) {
+            if (teamValue.length === 0) return "-";
+            return teamValue.map(resolve).filter(Boolean).join(', ') || "-";
         }
-        // Case B: tv is an ID string
-        const found = teams.find(t => (t._id === tv) || (t.id === tv));
-        const name = found ? (found.name || found.lookup_value) : (typeof tv === 'string' ? tv : "");
-        return String(renderValue(name));
+        return resolve(teamValue) || "-";
     }, [teams]);
 
     const getUserName = useCallback((uv) => {

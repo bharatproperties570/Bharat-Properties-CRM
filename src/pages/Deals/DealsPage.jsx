@@ -193,11 +193,20 @@ function DealsPage({ onNavigate, onAddActivity }) {
 
     const getTeamName = useCallback((teamValue) => {
         if (!teamValue) return "General Team";
-        if (typeof teamValue === 'object') {
-            return teamValue.name || teamValue.lookup_value || "General Team";
+        const teamArray = Array.isArray(teams) ? teams : (teams?.data || []);
+        const resolve = (val) => {
+            if (!val) return null;
+            if (typeof val === 'object') {
+                return val.name || val.lookup_value || (val.id || val._id ? `Team ${val.id || val._id}` : null);
+            }
+            const found = teamArray.find(t => t._id === val || t.id === val);
+            return found ? (found.name || found.lookup_value) : val;
+        };
+        if (Array.isArray(teamValue)) {
+            if (teamValue.length === 0) return "General Team";
+            return teamValue.map(resolve).filter(Boolean).join(', ') || "General Team";
         }
-        const found = teams.find(t => (t._id === teamValue) || (t.id === teamValue));
-        return found ? (found.name || found.lookup_value) : teamValue;
+        return resolve(teamValue) || "General Team";
     }, [teams]);
 
     const getUserName = useCallback((ownerValue) => {

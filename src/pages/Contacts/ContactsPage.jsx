@@ -397,21 +397,20 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
 
   const getTeamName = useCallback((teamValue) => {
     if (!teamValue) return "-";
+    const teamArray = Array.isArray(teams) ? teams : (teams?.data || []);
+    const resolve = (val) => {
+      if (!val) return null;
+      if (typeof val === 'object') {
+        return val.name || val.lookup_value || (val.id || val._id ? `Team ${val.id || val._id}` : null);
+      }
+      const found = teamArray.find(t => t._id === val || t.id === val);
+      return found ? (found.name || found.lookup_value) : val;
+    };
     if (Array.isArray(teamValue)) {
       if (teamValue.length === 0) return "-";
-      return teamValue.map(t => {
-        if (typeof t === 'object') return t.name || t.lookup_value || "-";
-        const teamArray = Array.isArray(teams) ? teams : (teams?.data || []);
-        const found = teamArray.find(team => (team._id === t) || (team.id === t));
-        return found ? (found.name || found.lookup_value) : t;
-      }).join(', ');
+      return teamValue.map(resolve).filter(Boolean).join(', ') || "-";
     }
-    if (typeof teamValue === 'object') return teamValue.name || teamValue.lookup_value || "-";
-    const teamArray = Array.isArray(teams) ? teams : (teams?.data || []);
-    const found = teamArray.find(t => (t._id === teamValue) || (t.id === teamValue));
-    if (found) return (found.name || found.lookup_value);
-    if (typeof teamValue === 'string' && /^[0-9a-fA-F]{24}$/.test(teamValue)) return "Not Assigned";
-    return teamValue;
+    return resolve(teamValue) || "-";
   }, [teams]);
 
   const getUserName = useCallback((userValue) => {

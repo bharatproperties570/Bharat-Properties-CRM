@@ -173,6 +173,8 @@ function CompanyPage({ onEdit, onNavigate }) {
 
     const getTeamName = useCallback((teamValue) => {
         if (!teamValue) return "General Team";
+        // CompanyPage doesn't have teams context easily accessible here like others, 
+        // but we can use renderValue which handles objects/arrays
         return renderValue(teamValue, "General Team");
     }, []);
 

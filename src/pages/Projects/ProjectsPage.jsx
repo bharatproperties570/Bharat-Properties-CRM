@@ -41,13 +41,21 @@ function ProjectsPage({ onNavigate }) {
     const [recordsPerPage, setRecordsPerPage] = useState(25);
 
     const getTeamName = useCallback((teamValue) => {
-        const value = Array.isArray(teamValue) ? teamValue[0] : teamValue;
-        if (!value) return "-";
-        if (typeof value === 'object') {
-            return value.name || value.lookup_value || "-";
+        if (!teamValue) return "-";
+        const teamArray = Array.isArray(teams) ? teams : (teams?.data || []);
+        const resolve = (val) => {
+            if (!val) return null;
+            if (typeof val === 'object') {
+                return val.name || val.lookup_value || (val.id || val._id ? `Team ${val.id || val._id}` : null);
+            }
+            const found = teamArray.find(t => t._id === val || t.id === val);
+            return found ? (found.name || found.lookup_value) : val;
+        };
+        if (Array.isArray(teamValue)) {
+            if (teamValue.length === 0) return "-";
+            return teamValue.map(resolve).filter(Boolean).join(', ') || "-";
         }
-        const found = teams.find(t => (t._id === value) || (t.id === value));
-        return found ? (found.name || found.lookup_value) : "-";
+        return resolve(teamValue) || "-";
     }, [teams]);
 
     /*

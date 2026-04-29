@@ -112,18 +112,23 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     const getTeamName = useCallback((teamValue) => {
         if (!teamValue) return "-";
 
-        // Handle array of team names (as stored in assignment.team)
+        const teamArray = Array.isArray(teams) ? teams : (teams?.data || []);
+
+        const resolve = (val) => {
+            if (!val) return null;
+            if (typeof val === 'object') {
+                return val.name || val.lookup_value || (val.id || val._id ? `Team ${val.id || val._id}` : null);
+            }
+            const found = teamArray.find(t => t._id === val || t.id === val);
+            return found ? (found.name || found.lookup_value) : val;
+        };
+
         if (Array.isArray(teamValue)) {
-            return teamValue.length > 0 ? teamValue.join(', ') : "-";
+            if (teamValue.length === 0) return "-";
+            return teamValue.map(resolve).filter(Boolean).join(', ') || "-";
         }
 
-        if (typeof teamValue === 'object') {
-            return teamValue.name || teamValue.lookup_value || "-";
-        }
-        // Check if teams is an array (it might be {success: true, data: []})
-        const teamArray = Array.isArray(teams) ? teams : (teams?.data || []);
-        const found = teamArray.find(t => (t._id === teamValue) || (t.id === teamValue));
-        return found ? (found.name || found.lookup_value) : teamValue;
+        return resolve(teamValue) || "-";
     }, [teams]);
 
 
