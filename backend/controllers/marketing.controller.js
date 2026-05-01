@@ -389,6 +389,13 @@ export const getAudienceCount = async (req, res) => {
  */
 export const importAudience = async (req, res) => {
     try {
+        console.log('[MarketingImport] Request Headers:', req.headers['content-type']);
+        console.log('[MarketingImport] File Object:', req.file ? {
+            originalname: req.file.originalname,
+            mimetype: req.file.mimetype,
+            size: req.file.size
+        } : 'MISSING');
+        
         if (!req.file) return res.status(400).json({ success: false, error: 'No file uploaded.' });
         
         const extension = req.file.originalname.split('.').pop().toLowerCase();
