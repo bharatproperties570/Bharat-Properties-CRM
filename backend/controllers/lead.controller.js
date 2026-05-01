@@ -216,10 +216,13 @@ const leadPopulateFields = [
             { path: 'title', select: 'lookup_value' },
             { path: 'source', select: 'lookup_value' },
             { path: 'personalAddress.location', select: 'lookup_value' },
+            { path: 'personalAddress.pincode', select: 'lookup_value' },
             { path: 'correspondenceAddress.city', select: 'lookup_value' },
             { path: 'correspondenceAddress.state', select: 'lookup_value' },
             { path: 'correspondenceAddress.country', select: 'lookup_value' },
             { path: 'correspondenceAddress.location', select: 'lookup_value' },
+            { path: 'correspondenceAddress.pincode', select: 'lookup_value' },
+            { path: 'correspondenceAddress.tehsil', select: 'lookup_value' },
             { path: 'professionCategory', select: 'lookup_value' },
             { path: 'professionSubCategory', select: 'lookup_value' },
             { path: 'designation', select: 'lookup_value' },
@@ -263,20 +266,44 @@ const leadListPopulateFields = [
  */
 export const getLeads = async (req, res, next) => {
     try {
-        const { page = 1, limit = 25, search = "", stage, status, teamId, userId, mobile, showDormant } = req.query;
+        const { 
+            page = 1, limit = 100, search = "", stage, status, teamId, userId, mobile, showDormant,
+            source, project, location, budgetMin, budgetMax, areaMin, areaMax,
+            propertyType, subType, unitType, facing, direction, roadWidth, requirement
+        } = req.query;
         const visibilityFilter = await getVisibilityFilter(req.user);
         
-        // 🛠️ SENIOR DIAGNOSTIC LOG (Harden for potential undefined user)
+        // 🛠️ SENIOR DIAGNOSTIC: Log exact request params for Mobile Debugging
         if (req.user) {
-            console.log(`[VISIBLE_AUDIT] User: ${req.user.email}, Scope: ${req.user.dataScope}, Teams: ${JSON.stringify(req.user.teams?.map(t => t._id || t))}`);
-        } else {
-            console.log(`[VISIBLE_AUDIT] Anonymous request - Visibility restricted to public data.`);
+            const auditData = {
+                user: req.user.email,
+                role: req.user.role?.name || req.user.role,
+                scope: req.user.dataScope,
+                params: req.query,
+                timestamp: new Date().toISOString()
+            };
+            console.log(`[LEAD_AUDIT] Request: ${JSON.stringify(auditData)}`);
         }
-        console.log(`[VISIBLE_AUDIT] Generated Filter: ${JSON.stringify(visibilityFilter, null, 2)}`);
 
         let query = { ...visibilityFilter };
 
-        if (mobile) {
+        // 🛡️ [SENIOR HARDENING] Sanitize filters to prevent empty string matches
+        if (stage && stage !== "" && stage !== "undefined") {
+            if (Array.isArray(stage)) query.stage = { $in: stage };
+            else if (mongoose.Types.ObjectId.isValid(stage)) query.stage = stage;
+        }
+
+        if (status && status !== "" && status !== "undefined") {
+            query.status = status;
+        }
+
+        if (source && source !== "") {
+            query.source = source;
+        }
+
+        // 🛡️ [SENIOR FIX] Validate 'mobile' param — only apply regex if it's a numeric string
+        // This prevents 'mobile=true' (common in some UI flags) from returning 0 results
+        if (mobile && typeof mobile === 'string' && /^\d+$/.test(mobile)) {
             query.mobile = { $regex: new RegExp(`${mobile}$`) }; 
         }
 
@@ -286,35 +313,75 @@ export const getLeads = async (req, res, next) => {
                     { firstName: { $regex: search, $options: "i" } },
                     { lastName: { $regex: search, $options: "i" } },
                     { mobile: { $regex: search, $options: "i" } },
-                    { email: { $regex: search, $options: "i" } }
+                    { email: { $regex: search, $options: "i" } },
+                    { projectName: { $regex: search, $options: "i" } },
+                    { locArea: { $regex: search, $options: "i" } }
                 ]
             };
             
-            // Merge security filter with search filter using $and
-            if (query.$or) {
-                const securityOr = query.$or;
-                delete query.$or;
-                query.$and = [{ $or: securityOr }, searchFilter];
+            // 🛡️ [SENIOR FIX] Safe Merge: Use $and to wrap visibility and search
+            // This prevents the search $or from accidentally overriding top-level visibility logic
+            if (Object.keys(query).length > 0) {
+                const baseQuery = { ...query };
+                query = { $and: [baseQuery, searchFilter] };
             } else {
-                query.$or = searchFilter.$or;
+                query = searchFilter;
             }
         }
 
-        if (stage && mongoose.Types.ObjectId.isValid(stage)) query.stage = stage;
-        if (stage && mongoose.Types.ObjectId.isValid(stage)) query.stage = stage;
+        // --- 🏗️ ADVANCED ENTERPRISE FILTERS (Web CRM Parity) ---
+        if (stage) {
+            if (Array.isArray(stage)) query.stage = { $in: stage };
+            else if (mongoose.Types.ObjectId.isValid(stage)) query.stage = stage;
+        }
+
         if (teamId && mongoose.Types.ObjectId.isValid(teamId)) query['assignment.team'] = teamId;
+        
         if (userId && mongoose.Types.ObjectId.isValid(userId)) {
             query.$or = query.$or || [];
             query.$or.push({ owner: userId }, { 'assignment.assignedTo': userId });
         }
 
+        if (source) {
+            if (Array.isArray(source)) query.source = { $in: source };
+            else if (mongoose.Types.ObjectId.isValid(source)) query.source = source;
+        }
+
+        if (requirement) query.requirement = requirement;
+        if (project) {
+            if (mongoose.Types.ObjectId.isValid(project)) query.project = project;
+            else query.projectName = { $regex: project, $options: "i" };
+        }
+        if (location) query.locArea = { $regex: location, $options: "i" };
+
+        // Budget & Area Ranges
+        if (budgetMin || budgetMax) {
+            query.budgetMax = {};
+            if (budgetMin) query.budgetMax.$gte = Number(budgetMin);
+            if (budgetMax) query.budgetMax.$lte = Number(budgetMax);
+        }
+        if (areaMin || areaMax) {
+            query.areaMax = {};
+            if (areaMin) query.areaMax.$gte = Number(areaMin);
+            if (areaMax) query.areaMax.$lte = Number(areaMax);
+        }
+
+        // Multi-select Arrays
+        const arrayFields = { propertyType, subType, unitType, facing, direction, roadWidth };
+        Object.entries(arrayFields).forEach(([field, val]) => {
+            if (val) {
+                if (Array.isArray(val)) query[field] = { $in: val };
+                else query[field] = val;
+            }
+        });
+
         // Support for 'status' keywords (fresh, hot, incoming, prospect, etc.)
         if (status) {
             let targetStages = [];
             let isHotOrFresh = false;
-            if (status === 'fresh') { targetStages = ['New', 'Lead Created', 'Open', 'Prospect']; isHotOrFresh = true; }
+            if (status === 'fresh') { targetStages = ['Incoming', 'Open', 'Prospect']; isHotOrFresh = true; }
             else if (status === 'hot') { targetStages = ['Qualified', 'Opportunity', 'Negotiation', 'Booked', 'Closed Won']; isHotOrFresh = true; }
-            else if (status === 'incoming') targetStages = ['New', 'Lead Created', 'Open'];
+            else if (status === 'incoming') targetStages = ['Incoming', 'Open'];
             else if (status === 'prospect') targetStages = ['Prospect', 'Qualified'];
             else if (status === 'opportunity') targetStages = ['Opportunity'];
             else if (status === 'negotiation') targetStages = ['Negotiation', 'Booked'];
@@ -332,36 +399,34 @@ export const getLeads = async (req, res, next) => {
             }
         }
         
-        // --- 💤 DORMANT EXCLUSION (Hide by default) ---
-        if (showDormant !== "true") {
+        // --- 💤 DORMANT EXCLUSION (Hide by default unless showDormant is true) ---
+        if (showDormant !== "true" && !req.query.stage) {
             const dormantLookups = await Lookup.find({ 
                 lookup_value: { $regex: /^Dormant$/i } 
-            }).select('_id');
+            }).select('_id').lean();
             const dormantIds = dormantLookups.map(l => l._id);
             
             if (dormantIds.length > 0) {
                 const exclusionFilter = { 
-                    $and: [
-                        { stage: { $nin: dormantIds } },
-                        { status: { $nin: dormantIds } }
-                    ]
+                    stage: { $nin: dormantIds }
                 };
                 
                 if (query.$and) {
                     query.$and.push(exclusionFilter);
-                } else {
-                    // Extract existing fields from query and wrap them with exclusionFilter in a new $and
+                } else if (Object.keys(query).length > 0) {
                     const baseQuery = { ...query };
                     query = { $and: [baseQuery, exclusionFilter] };
+                } else {
+                    query = exclusionFilter;
                 }
             }
         }
 
         // ─── PERFORMANCE FIX: Pre-resolve Lookup IDs for Stats to avoid $lookup in aggregate ───
         const stageBuckets = {
-            fresh: ['New', 'Lead Created', 'Open', 'Prospect'],
-            hot: ['Qualified', 'Opportunity', 'Negotiation', 'Booked', 'Closed Won'],
-            incoming: ['New', 'Lead Created', 'Open'],
+            fresh: ['Incoming', 'Open', 'Prospect', 'New'],
+            hot: ['Qualified', 'Opportunity', 'Negotiation', 'Booked', 'Closed Won', 'Follow Up'],
+            incoming: ['Incoming', 'Open', 'New'],
             prospect: ['Prospect', 'Qualified'],
             opportunity: ['Opportunity'],
             negotiation: ['Negotiation', 'Booked'],
@@ -383,20 +448,21 @@ export const getLeads = async (req, res, next) => {
             bucketToIds[bucket] = labels.map(l => stageToId.get(l.toLowerCase())).filter(Boolean);
         });
 
-        // Calculate Stats (Total, Today, Fresh, Hot, and Pipeline) in a optimized way
-        // SENIOR OPTIMIZATION: Only calculate stats on Page 1 to save DB resources on scroll
+        // 📊 [SENIOR RESILIENCE] Wrap stats in try-catch
+        // Ensure stats failures don't block the lead list from loading
         let statsObj = null;
         if (Number(page) === 1) {
-            const stats = await Lead.aggregate([
-                { $match: visibilityFilter },
-                {
-                    $facet: {
-                        total: [{ $count: "count" }],
-                        today: [
-                            { $match: { createdAt: { $gte: new Date(new Date().setHours(0,0,0,0)) } } },
-                            { $count: "count" }
-                        ],
-                        fresh: [
+            try {
+                const stats = await Lead.aggregate([
+                    { $match: query },
+                    {
+                        $facet: {
+                            total: [{ $count: "count" }],
+                            today: [
+                                { $match: { createdAt: { $gte: new Date(new Date().setHours(0,0,0,0)) } } },
+                                { $count: "count" }
+                            ],
+                            fresh: [
                             { $match: { stage: { $in: bucketToIds.fresh || [] } } },
                             { $count: "count" }
                         ],
@@ -446,11 +512,21 @@ export const getLeads = async (req, res, next) => {
                     lost: stats[0]?.lost[0]?.count || 0
                 }
             };
+        } catch (err) {
+                console.error('[LeadStats] Failed to compute stats:', err.message);
+            }
         }
 
+        // --- 📊 DYNAMIC SORTING (Senior Professional Optimization) ---
+        const sortBy = req.query.sortBy || 'updatedAt';
+        const sortOrder = parseInt(req.query.sortOrder) || -1;
+        const sortOption = { [sortBy]: sortOrder };
+
         // Enable population for key fields (Use lean population for list view)
-        const results = await paginate(Lead, query, Number(page), Number(limit), { updatedAt: -1 }, leadListPopulateFields);
+        const results = await paginate(Lead, query, Number(page), Number(limit), sortOption, leadListPopulateFields);
         results.stats = statsObj;
+
+        console.log(`[DEBUG] getLeads found ${results.records?.length || 0} records out of ${results.totalRecords || 0} total for query: ${JSON.stringify(query)}`);
 
         // Attach Interaction Data (Activity Counts & Recent Activities)
         if (results.records && results.records.length > 0) {
@@ -832,10 +908,13 @@ export const getLeadById = async (req, res, next) => {
                     { path: 'title', select: 'lookup_value' },
                     { path: 'source', select: 'lookup_value' },
                     { path: 'personalAddress.location', select: 'lookup_value' },
+                    { path: 'personalAddress.pincode', select: 'lookup_value' },
                     { path: 'correspondenceAddress.city', select: 'lookup_value' },
                     { path: 'correspondenceAddress.state', select: 'lookup_value' },
                     { path: 'correspondenceAddress.country', select: 'lookup_value' },
                     { path: 'correspondenceAddress.location', select: 'lookup_value' },
+                    { path: 'correspondenceAddress.pincode', select: 'lookup_value' },
+                    { path: 'correspondenceAddress.tehsil', select: 'lookup_value' },
                     { path: 'professionCategory', select: 'lookup_value' },
                     { path: 'professionSubCategory', select: 'lookup_value' },
                     { path: 'designation', select: 'lookup_value' },

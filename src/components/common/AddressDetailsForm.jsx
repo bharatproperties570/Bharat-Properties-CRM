@@ -151,7 +151,7 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address", dis
 
       // If only one pincode available → auto select
       if (data.length === 1) {
-        handleAddressChange({ pinCode: data[0].lookup_value });
+        handleAddressChange({ pincode: data[0].lookup_value });
       }
     };
 
@@ -183,7 +183,7 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address", dis
                   location: "",
                   tehsil: "",
                   postOffice: "",
-                  pinCode: "",
+                  pincode: "",
                 })
               }
               style={getDropdownStyle(disabledFields.includes('country'))}
@@ -210,7 +210,7 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address", dis
                   location: "",
                   tehsil: "",
                   postOffice: "",
-                  pinCode: "",
+                  pincode: "",
                 })
               }
               disabled={!address.country || disabledFields.includes('state')}
@@ -236,7 +236,7 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address", dis
                   location: "",
                   tehsil: "",
                   postOffice: "",
-                  pinCode: "",
+                  pincode: "",
                 })
               }
               disabled={!address.state || disabledFields.includes('city')}
@@ -264,7 +264,7 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address", dis
                 handleAddressChange({
                   location: e.target.value,
                   postOffice: "",
-                  pinCode: "",
+                  pincode: "",
                 })
               }
               disabled={!address.city || disabledFields.includes('location')}
@@ -309,7 +309,7 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address", dis
               onChange={(e) =>
                 handleAddressChange({
                   postOffice: e.target.value,
-                  pinCode: "",
+                  pincode: "",
                 })
               }
               disabled={!address.location}
@@ -330,9 +330,9 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address", dis
             <input
               type="text"
               placeholder="Enter Pin Code"
-              value={address.pinCode || ""}
+              value={address.pincode || ""}
               onChange={(e) =>
-                handleAddressChange({ pinCode: e.target.value })
+                handleAddressChange({ pincode: e.target.value })
               }
               disabled={!address.postOffice}
               style={

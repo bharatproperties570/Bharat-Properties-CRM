@@ -33,20 +33,20 @@ export const getVisibilityFilter = async (user) => {
 
     // 1. Intelligent Scope Resolution:
     //    If dataScope is not set, Admins default to 'all', others to 'assigned'.
-    const effectiveScope = user.dataScope || (roleName.includes('admin') ? 'all' : 'assigned');
+    // 🛡️ [SENIOR FAIL-SAFE] Primary Owner/Admin Bypass
+    // Ensure the system owner never gets locked out due to hydration/role issues
+    const isSuperAdmin = 
+        userEmail === 'bharatproperties570@gmail.com' || 
+        userEmail === 'shreykeshwar@gmail.com' ||
+        roleName.includes('admin') || 
+        roleName.includes('owner');
 
-    const OWNER_EMAIL = 'bharatproperties570@gmail.com';
-    const isElevated = effectiveScope === 'all' || userEmail === OWNER_EMAIL;
-
-    console.log(
-        `[VISIBLE_AUDIT] 🚦 User: ${user.fullName || user.email} | ` +
-        `Role: ${roleName} | Effective Scope: ${effectiveScope} | Elevated: ${isElevated}`
-    );
-
-    if (isElevated) {
-        console.log(`[VISIBLE_AUDIT] ✅ Full Access granted.`);
+    if (isSuperAdmin) {
+        console.log(`[VISIBLE_AUDIT] ✅ ADMIN/OWNER BYPASS GRANTED for: ${user.email}`);
         return {};
     }
+
+    const effectiveScope = user.dataScope || (isSuperAdmin ? 'all' : 'assigned');
 
     // 2. Validate ObjectId
     const userId = user?._id || user?.id;
@@ -151,14 +151,8 @@ export const getVisibilityFilter = async (user) => {
         finalFilter = {
             $or: [
                 ...baseFilter.$or,
-                // Only show Everyone records if they are TRULY global (unassigned to any specific team)
-                // or if the user is explicitly interested.
-                {
-                    $and: [
-                        { visibleTo: 'Everyone' },
-                        { $or: [{ team: null }, { teams: { $size: 0 } }, { team: { $exists: false } }] }
-                    ]
-                }
+                { visibleTo: 'Everyone' },
+                { 'assignment.visibleTo': 'Everyone' }
             ]
         };
     }

@@ -97,7 +97,7 @@ export const DEFAULT_STAGE_RULES = [
         purpose: 'Introduction / First Contact',
         outcome: 'Not Connected', // Matches 'no answer', 'busy', 'missed' via resolveTransition contains logic
         reason: '*',
-        newStage: 'New', // Stay in New if not connected
+        newStage: 'Incoming', // Stay in Incoming if not connected
         requiredForms: [],
         priority: 10,
         active: true
@@ -434,7 +434,7 @@ export const DEFAULT_STAGE_RULES = [
         purpose: '*',
         outcome: 'No Reply',
         reason: '*',
-        newStage: 'New',
+        newStage: 'Incoming',
         requiredForms: [],
         priority: 5,
         active: true,
@@ -463,11 +463,11 @@ export const DEFAULT_STAGE_RULES = [
         purpose: '*',
         outcome: 'No Reply',
         reason: '*',
-        newStage: 'New',
+        newStage: 'Incoming',
         requiredForms: [],
         priority: 5,
         active: true,
-        description: 'WhatsApp → No Reply → stay New'
+        description: 'WhatsApp → No Reply → stay Incoming'
     },
 
     // ══════════════════════════════════════════════════════════

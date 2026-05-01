@@ -824,8 +824,8 @@ export const submitLeadForm = async (req, res) => {
                 email,
                 locCity: city,
                 source: await resolveLookup('Source', 'Website'),
-                status: await resolveLookup('Status', 'New'),
-                stage: await resolveLookup('Stage', 'Lead Created'),
+                status: await resolveLookup('Status', 'Incoming'),
+                stage: await resolveLookup('Stage', 'Incoming'),
                 description: `Captured from website ${activityType || 'Contact'} form.`
             });
 

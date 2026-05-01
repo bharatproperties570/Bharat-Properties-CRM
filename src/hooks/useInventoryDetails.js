@@ -20,31 +20,36 @@ export const useInventoryDetails = (inventoryId) => {
                 const inv = invResponse.data.data;
                 setInventory(inv);
                 if (inv.deals) setDeals(inv.deals);
+                
+                // Release UI first
+                setLoading(false);
 
-                // Fetch Matching Leads
-                const matchResponse = await api.get(`inventory/match?inventoryId=${inventoryId}`);
-                if (matchResponse.data && matchResponse.data.success) {
-                    setMatchingLeads(matchResponse.data.data || []);
-                    setActiveLeadsCount(matchResponse.data.count || 0);
-                }
+                // Fetch Matching Leads in Background
+                api.get(`inventory/match?inventoryId=${inventoryId}`).then(matchResponse => {
+                    if (matchResponse.data && matchResponse.data.success) {
+                        setMatchingLeads(matchResponse.data.data || []);
+                        setActiveLeadsCount(matchResponse.data.count || 0);
+                    }
+                }).catch(err => console.error("Matches fetch error:", err));
 
-                // Fetch Similar Properties
+                // Fetch Similar Properties in Background
                 const projectParam = inv.projectId?._id || inv.projectId || inv.projectName;
                 if (projectParam) {
-                    const similarResponse = await api.get(`inventory?project=${projectParam}&limit=10`);
-                    if (similarResponse.data && similarResponse.data.success) {
-                        const filtered = (similarResponse.data.records || []).filter(p => p._id !== inventoryId);
-                        setSimilarProperties(filtered);
-                    }
+                    api.get(`inventory?project=${projectParam}&limit=10`).then(similarResponse => {
+                        if (similarResponse.data && similarResponse.data.success) {
+                            const filtered = (similarResponse.data.records || []).filter(p => p._id !== inventoryId);
+                            setSimilarProperties(filtered);
+                        }
+                    }).catch(err => console.error("Similar properties fetch error:", err));
                 }
                 setLastRefresh(new Date());
             } else {
                 toast.error("Failed to load inventory details");
+                setLoading(false);
             }
         } catch (error) {
             console.error("Error fetching inventory details:", error);
             toast.error("Error loading inventory details");
-        } finally {
             setLoading(false);
         }
     }, [inventoryId]);

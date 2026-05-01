@@ -27,6 +27,7 @@ const LeadSchema = new mongoose.Schema({
     description: String,
     status: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup', index: true },
     stage: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup', index: true },
+    sequence: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
 
     // Extended Fields for Frontend Alignment
     budgetMin: { type: Number },
@@ -138,6 +139,9 @@ const LeadSchema = new mongoose.Schema({
 LeadSchema.index({ owner: 1, stage: 1, updatedAt: -1 });
 // teams + stage: Optimized multi-team visibility
 LeadSchema.index({ teams: 1, stage: 1 });
+// Lead Matching Optimization: project + requirement + subRequirement
+LeadSchema.index({ project: 1, requirement: 1, subRequirement: 1 });
+LeadSchema.index({ projectName: 1, updatedAt: -1 });
 // assignment.team + stage: covers team-filtered lead queries (Legacy)
 LeadSchema.index({ 'assignment.team': 1, stage: 1 });
 // assignment.assignedTo + updatedAt: covers assigned-to filter
@@ -335,6 +339,7 @@ LeadSchema.pre('findOneAndUpdate', async function (next) {
     if (update.campaign && typeof update.campaign === 'string') update.campaign = await resolveLeadLookup('Campaign', update.campaign);
     if (update.status && typeof update.status === 'string') update.status = await resolveLeadLookup('Status', update.status);
     if (update.stage && typeof update.stage === 'string') update.stage = await resolveLeadLookup('Stage', update.stage);
+    if (update.sequence && typeof update.sequence === 'string') update.sequence = await resolveLeadLookup('MarketingSequence', update.sequence);
     if (update.salutation && typeof update.salutation === 'string') update.salutation = await resolveLeadLookup('Title', update.salutation);
 
     const arrayTypes = {

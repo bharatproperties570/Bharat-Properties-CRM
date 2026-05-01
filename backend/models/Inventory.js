@@ -5,6 +5,27 @@ const escapeRegExp = (string) => {
     return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 };
 
+const isObjectId = (val) => {
+    if (!val) return false;
+    if (val instanceof mongoose.Types.ObjectId) return true;
+    return typeof val === 'string' && /^[0-9a-fA-F]{24}$/.test(val);
+};
+
+const resolveLookupLocal = async (type, value) => {
+    if (!value) return null;
+    const Lookup = mongoose.model('Lookup');
+    
+    if (isObjectId(value)) return new mongoose.Types.ObjectId(value);
+    if (typeof value === 'object' && value._id) return new mongoose.Types.ObjectId(value._id.toString());
+    
+    const escapedValue = escapeRegExp(value);
+    let lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: new RegExp(`^${escapedValue}$`, 'i') } });
+    if (!lookup) {
+        lookup = await Lookup.create({ lookup_type: type, lookup_value: value });
+    }
+    return lookup._id;
+};
+
 const InventorySchema = new mongoose.Schema({
 
     // Basic Info
@@ -119,7 +140,7 @@ const InventorySchema = new mongoose.Schema({
         tehsil: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
         postOffice: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
         state: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
-        pincode: String,
+        pincode: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
         country: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup', default: 'India' }
     },
 
@@ -202,68 +223,69 @@ InventorySchema.index({ assignedTo: 1, status: 1 });
 
 InventorySchema.pre('save', async function (next) {
     try {
-        const Lookup = mongoose.model('Lookup');
-        const resolveLookupLocal = async (type, value) => {
-            if (!value) return null;
-            if (mongoose.Types.ObjectId.isValid(value)) return value;
-            const escapedValue = escapeRegExp(value);
-            let lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: new RegExp(`^${escapedValue}$`, 'i') } });
-            if (!lookup) {
-                lookup = await Lookup.create({ lookup_type: type, lookup_value: value });
-            }
-            return lookup._id;
+        const resolveAddr = async (type, val) => {
+            if (!val) return null;
+            if (typeof val === 'object' && val !== null && val._id) val = val._id;
+            if (isObjectId(val)) return new mongoose.Types.ObjectId(val);
+            return await resolveLookupLocal(type, val);
         };
 
         if (this.intent !== undefined) {
             this.intent = await Promise.all((Array.isArray(this.intent) ? this.intent : [this.intent]).map(async (val) => {
                 if (!val) return null;
-                if (mongoose.Types.ObjectId.isValid(val)) return val;
+                if (isObjectId(val)) return new mongoose.Types.ObjectId(val);
                 return await resolveLookupLocal('Intent', val);
             }));
             this.intent = this.intent.filter(Boolean);
         }
-        if (this.status !== undefined && !mongoose.Types.ObjectId.isValid(this.status)) {
+        if (this.status !== undefined && !isObjectId(this.status)) {
             this.status = await resolveLookupLocal('Status', this.status);
         }
-        if (this.builtupType !== undefined && !mongoose.Types.ObjectId.isValid(this.builtupType)) {
+        if (this.builtupType !== undefined && !isObjectId(this.builtupType)) {
             this.builtupType = await resolveLookupLocal('BuiltupType', this.builtupType);
         }
-        if (this.category !== undefined && !mongoose.Types.ObjectId.isValid(this.category)) {
+        if (this.category !== undefined && !isObjectId(this.category)) {
             this.category = await resolveLookupLocal('Category', this.category);
         }
-        if (this.subCategory !== undefined && !mongoose.Types.ObjectId.isValid(this.subCategory)) {
+        if (this.subCategory !== undefined && !isObjectId(this.subCategory)) {
             this.subCategory = await resolveLookupLocal('SubCategory', this.subCategory);
         }
-        if (this.unitType !== undefined && !mongoose.Types.ObjectId.isValid(this.unitType)) {
+        if (this.unitType !== undefined && !isObjectId(this.unitType)) {
             this.unitType = await resolveLookupLocal('UnitType', this.unitType);
         }
-        if (this.facing !== undefined && !mongoose.Types.ObjectId.isValid(this.facing)) {
+        if (this.facing !== undefined && !isObjectId(this.facing)) {
             this.facing = await resolveLookupLocal('Facing', this.facing);
         }
-        if (this.direction !== undefined && !mongoose.Types.ObjectId.isValid(this.direction)) {
+        if (this.direction !== undefined && !isObjectId(this.direction)) {
             this.direction = await resolveLookupLocal('Direction', this.direction);
         }
-        if (this.orientation !== undefined && !mongoose.Types.ObjectId.isValid(this.orientation)) {
+        if (this.orientation !== undefined && !isObjectId(this.orientation)) {
             this.orientation = await resolveLookupLocal('Orientation', this.orientation);
         }
-        if (this.roadWidth !== undefined && !mongoose.Types.ObjectId.isValid(this.roadWidth)) {
-            this.roadWidth = await resolveLookupLocal('Road Width', this.roadWidth);
+        if (this.roadWidth !== undefined && !isObjectId(this.roadWidth)) {
+            this.roadWidth = await resolveLookupLocal('RoadWidth', this.roadWidth);
         }
-        if (this.sizeConfig !== undefined && !mongoose.Types.ObjectId.isValid(this.sizeConfig)) {
+        if (this.sizeConfig !== undefined && !isObjectId(this.sizeConfig)) {
             this.sizeConfig = await resolveLookupLocal('Size', this.sizeConfig);
         }
 
         // --- Address Sanitization ---
         if (this.address) {
-            const addressRefs = ['city', 'state', 'country', 'location', 'area', 'locality', 'tehsil', 'postOffice'];
-            addressRefs.forEach(f => {
-                if (this.address[f] === "") this.address[f] = null;
-            });
+            const address = this.address;
+            if (address.city) address.city = await resolveAddr('City', address.city);
+            if (address.tehsil) address.tehsil = await resolveAddr('Tehsil', address.tehsil);
+            if (address.state) address.state = await resolveAddr('State', address.state);
+            if (address.postOffice) address.postOffice = await resolveAddr('PostOffice', address.postOffice);
+            if (address.country) address.country = await resolveAddr('Country', address.country);
+            if (address.locality) address.locality = await resolveAddr('Location', address.locality) || await resolveAddr('Area', address.locality);
+            if (address.area) address.area = await resolveAddr('Area', address.area);
+            if (address.location) address.location = await resolveAddr('Location', address.location) || await resolveAddr('Area', address.location);
+            if (address.pincode) address.pincode = await resolveAddr('Pincode', address.pincode);
         }
 
         // --- Assignment & Visibility Synchronization ---
         if (this.assignedTo) {
-            this.assignedTo = (typeof this.assignedTo === 'string' && mongoose.Types.ObjectId.isValid(this.assignedTo))
+            this.assignedTo = isObjectId(this.assignedTo)
                 ? new mongoose.Types.ObjectId(this.assignedTo)
                 : this.assignedTo;
         }
@@ -277,7 +299,7 @@ InventorySchema.pre('save', async function (next) {
             
             const resolvedTeams = await Promise.all(teamArray.map(async (t) => {
                 if (!t) return null;
-                if (mongoose.Types.ObjectId.isValid(t)) return new mongoose.Types.ObjectId(t.toString());
+                if (isObjectId(t)) return new mongoose.Types.ObjectId(t);
                 const teamDoc = await Team.findOne({ name: { $regex: new RegExp(`^${escapeRegExp(t)}$`, 'i') } }).select('_id').lean();
                 return teamDoc?._id || null;
             }));
@@ -301,16 +323,11 @@ InventorySchema.pre('findOneAndUpdate', async function (next) {
         const update = this.getUpdate();
         if (!update) return next();
 
-        const Lookup = mongoose.model('Lookup');
-        const resolveLookupLocal = async (type, value) => {
-            if (!value) return null;
-            if (mongoose.Types.ObjectId.isValid(value)) return new mongoose.Types.ObjectId(value.toString());
-            const escapedValue = escapeRegExp(value);
-            let lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: new RegExp(`^${escapedValue}$`, 'i') } });
-            if (!lookup) {
-                lookup = await Lookup.create({ lookup_type: type, lookup_value: value });
-            }
-            return lookup._id;
+        const resolveAddr = async (type, val) => {
+            if (!val) return null;
+            if (typeof val === 'object' && val !== null && val._id) val = val._id;
+            if (isObjectId(val)) return new mongoose.Types.ObjectId(val);
+            return await resolveLookupLocal(type, val);
         };
 
         // Robust Resolver for both top-level and $set/atomic updates
@@ -319,7 +336,7 @@ InventorySchema.pre('findOneAndUpdate', async function (next) {
 
             // Sync assignment fields
             if (obj.assignedTo) {
-                obj.assignedTo = (typeof obj.assignedTo === 'string' && mongoose.Types.ObjectId.isValid(obj.assignedTo))
+                obj.assignedTo = isObjectId(obj.assignedTo)
                     ? new mongoose.Types.ObjectId(obj.assignedTo)
                     : obj.assignedTo;
             }
@@ -333,7 +350,7 @@ InventorySchema.pre('findOneAndUpdate', async function (next) {
                 
                 const resolvedTeams = await Promise.all(teamArray.map(async (t) => {
                     if (!t) return null;
-                    if (mongoose.Types.ObjectId.isValid(t)) return new mongoose.Types.ObjectId(t.toString());
+                    if (isObjectId(t)) return new mongoose.Types.ObjectId(t);
                     const teamDoc = await Team.findOne({ name: { $regex: new RegExp(`^${escapeRegExp(t)}$`, 'i') } }).select('_id').lean();
                     return teamDoc?._id || null;
                 }));
@@ -350,7 +367,7 @@ InventorySchema.pre('findOneAndUpdate', async function (next) {
             if (obj.intent) {
                 const resolveIntent = async (val) => {
                     if (typeof val === 'object' && val !== null && val._id) return val._id;
-                    if (mongoose.Types.ObjectId.isValid(val)) return val;
+                    if (isObjectId(val)) return new mongoose.Types.ObjectId(val);
                     return await resolveLookupLocal('Intent', val);
                 };
                 if (Array.isArray(obj.intent)) {
@@ -360,42 +377,59 @@ InventorySchema.pre('findOneAndUpdate', async function (next) {
                 }
             }
 
-            // Handle status
-            if (obj.status) {
-                if (typeof obj.status === 'object' && obj.status !== null && obj.status._id) obj.status = obj.status._id;
-                if (!mongoose.Types.ObjectId.isValid(obj.status)) {
-                    obj.status = await resolveLookupLocal('Status', obj.status);
-                }
-            }
+            // Handle categorical fields
+            const categoricalFields = [
+                { field: 'status', type: 'Status' },
+                { field: 'category', type: 'Category' },
+                { field: 'subCategory', type: 'SubCategory' },
+                { field: 'unitType', type: 'UnitType' },
+                { field: 'sizeType', type: 'PropertyType' }, // Added sizeType for Configuration
+                { field: 'facing', type: 'Facing' },
+                { field: 'direction', type: 'Direction' },
+                { field: 'orientation', type: 'Orientation' },
+                { field: 'roadWidth', type: 'Road Width' },
+                { field: 'sizeConfig', type: 'Size' },
+                { field: 'builtupType', type: 'BuiltupType' }
+            ];
 
-            // Handle builtupType
-            if (obj.builtupType) {
-                if (typeof obj.builtupType === 'object' && obj.builtupType !== null && obj.builtupType._id) obj.builtupType = obj.builtupType._id;
-                if (!mongoose.Types.ObjectId.isValid(obj.builtupType)) {
-                    obj.builtupType = await resolveLookupLocal('BuiltupType', obj.builtupType);
+            for (const { field, type } of categoricalFields) {
+                if (obj[field]) {
+                    if (typeof obj[field] === 'object' && obj[field] !== null && obj[field]._id) obj[field] = obj[field]._id;
+                    if (!isObjectId(obj[field])) {
+                        obj[field] = await resolveLookupLocal(type, obj[field]);
+                    }
                 }
             }
 
             // Address component resolution
             const address = obj.address || {};
-            if (address.city && !mongoose.Types.ObjectId.isValid(address.city)) address.city = await resolveLookupLocal('City', address.city);
-            if (address.tehsil && !mongoose.Types.ObjectId.isValid(address.tehsil)) address.tehsil = await resolveLookupLocal('Tehsil', address.tehsil);
-            if (address.state && !mongoose.Types.ObjectId.isValid(address.state)) address.state = await resolveLookupLocal('State', address.state);
-            if (address.postOffice && !mongoose.Types.ObjectId.isValid(address.postOffice)) address.postOffice = await resolveLookupLocal('PostOffice', address.postOffice);
-            if (address.country && !mongoose.Types.ObjectId.isValid(address.country)) address.country = await resolveLookupLocal('Country', address.country);
-            if (address.locality && !mongoose.Types.ObjectId.isValid(address.locality)) address.locality = await resolveLookupLocal('Area', address.locality);
-            if (address.area && !mongoose.Types.ObjectId.isValid(address.area)) address.area = await resolveLookupLocal('Area', address.area);
-            if (address.location && !mongoose.Types.ObjectId.isValid(address.location)) address.location = await resolveLookupLocal('Area', address.location);
+            const resolveAddr = async (type, val) => {
+                if (!val) return null;
+                if (typeof val === 'object' && val !== null && val._id) val = val._id;
+                if (isObjectId(val)) return new mongoose.Types.ObjectId(val);
+                return await resolveLookupLocal(type, val);
+            };
+
+            if (address.city) address.city = await resolveAddr('City', address.city);
+            if (address.tehsil) address.tehsil = await resolveAddr('Tehsil', address.tehsil);
+            if (address.state) address.state = await resolveAddr('State', address.state);
+            if (address.postOffice) address.postOffice = await resolveAddr('PostOffice', address.postOffice);
+            if (address.country) address.country = await resolveAddr('Country', address.country);
+            if (address.locality) address.locality = await resolveAddr('Location', address.locality) || await resolveAddr('Area', address.locality);
+            if (address.area) address.area = await resolveAddr('Area', address.area);
+            if (address.location) address.location = await resolveAddr('Location', address.location) || await resolveAddr('Area', address.location);
+            if (address.pincode) address.pincode = await resolveAddr('Pincode', address.pincode);
 
             // Dot notation support
-            if (obj['address.city'] && !mongoose.Types.ObjectId.isValid(obj['address.city'])) obj['address.city'] = await resolveLookupLocal('City', obj['address.city']);
-            if (obj['address.tehsil'] && !mongoose.Types.ObjectId.isValid(obj['address.tehsil'])) obj['address.tehsil'] = await resolveLookupLocal('Tehsil', obj['address.tehsil']);
-            if (obj['address.state'] && !mongoose.Types.ObjectId.isValid(obj['address.state'])) obj['address.state'] = await resolveLookupLocal('State', obj['address.state']);
-            if (obj['address.postOffice'] && !mongoose.Types.ObjectId.isValid(obj['address.postOffice'])) obj['address.postOffice'] = await resolveLookupLocal('PostOffice', obj['address.postOffice']);
-            if (obj['address.country'] && !mongoose.Types.ObjectId.isValid(obj['address.country'])) obj['address.country'] = await resolveLookupLocal('Country', obj['address.country']);
-            if (obj['address.locality'] && !mongoose.Types.ObjectId.isValid(obj['address.locality'])) obj['address.locality'] = await resolveLookupLocal('Area', obj['address.locality']);
-            if (obj['address.area'] && !mongoose.Types.ObjectId.isValid(obj['address.area'])) obj['address.area'] = await resolveLookupLocal('Area', obj['address.area']);
-            if (obj['address.location'] && !mongoose.Types.ObjectId.isValid(obj['address.location'])) obj['address.location'] = await resolveLookupLocal('Area', obj['address.location']);
+            if (obj['address.city']) obj['address.city'] = await resolveAddr('City', obj['address.city']);
+            if (obj['address.tehsil']) obj['address.tehsil'] = await resolveAddr('Tehsil', obj['address.tehsil']);
+            if (obj['address.state']) obj['address.state'] = await resolveAddr('State', obj['address.state']);
+            if (obj['address.postOffice']) obj['address.postOffice'] = await resolveAddr('PostOffice', obj['address.postOffice']);
+            if (obj['address.country']) obj['address.country'] = await resolveAddr('Country', obj['address.country']);
+            if (obj['address.locality']) obj['address.locality'] = await resolveAddr('Location', obj['address.locality']) || await resolveAddr('Area', obj['address.locality']);
+            if (obj['address.area']) obj['address.area'] = await resolveAddr('Area', obj['address.area']);
+            if (obj['address.location']) obj['address.location'] = await resolveAddr('Location', obj['address.location']) || await resolveAddr('Area', obj['address.location']);
+            if (obj['address.pincode']) obj['address.pincode'] = await resolveAddr('Pincode', obj['address.pincode']);
         };
 
         // Process top-level, $set, and other relevant operators

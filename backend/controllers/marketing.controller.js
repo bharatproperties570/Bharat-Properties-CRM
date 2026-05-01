@@ -418,13 +418,21 @@ export const importAudience = async (req, res) => {
 
         // NO UNLINK NEEDED since we use memoryStorage
 
-        // Standardize Data (Lenient mode for manual mapping)
+        // 🧠 SENIOR PROFESSIONAL: Resilient Field Discovery (Case-Insensitive & Pattern Matching)
         const recipients = rawData.map((row, idx) => {
-            // Initial Smart Field Mapping (Attempt)
-            const name = row.name || row['full name'] || row['contact name'] || row['customer'] || `Row-${idx + 1}`;
-            const rawMobile = row.mobile || row.phone || row['phone number'] || row['whatsapp'] || row['contact'] || row['Ph No'] || row['Mobile No'] || row['P.No'] || row['Number'] || row['Cust Mobile'] || '';
+            const keys = Object.keys(row);
+            const findValue = (possibleNames) => {
+                const foundKey = keys.find(k => {
+                    const normalizedK = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+                    return possibleNames.some(p => normalizedK === p.toLowerCase().replace(/[^a-z0-9]/g, ''));
+                });
+                return foundKey ? row[foundKey] : null;
+            };
+
+            const name = findValue(['name', 'fullname', 'contactname', 'customer', 'client', 'leadname', 'party']) || `Row-${idx + 1}`;
+            const rawMobile = findValue(['mobile', 'phone', 'phonenumber', 'whatsapp', 'contact', 'phno', 'mobileno', 'pno', 'number', 'custmobile', 'mob', 'wa', 'whatsappnumber', 'telephone']) || '';
             const mobile = normalizePhone(rawMobile);
-            const email = row.email || row['email address'] || '';
+            const email = findValue(['email', 'emailaddress', 'mail', 'id', 'emailid']) || '';
 
             return {
                 id: `imp-${idx}-${Date.now()}`,
@@ -506,8 +514,9 @@ export const sendCampaign = async (req, res) => {
 
         // Resolve DLT Metadata if using a template
         let dltMetadata = {};
-        if (smsData?.templateId) {
-            const tpl = await SmsTemplate.findById(smsData.templateId).lean();
+        const activeSmsTemplateId = smsData?.templateId || req.body.templateId;
+        if (activeSmsTemplateId && channel.toLowerCase() === 'sms') {
+            const tpl = await SmsTemplate.findById(activeSmsTemplateId).lean();
             if (tpl) {
                 dltMetadata = {
                     dltTemplateId: tpl.dltTemplateId,
@@ -550,11 +559,11 @@ export const sendCampaign = async (req, res) => {
             // Otherwise dispatch immediately
             _dispatchDirectly({
                 channel, name, subject, content, html,
-                templateName: req.body.templateName,
+                templateName: req.body.templateName || (channel.toLowerCase() === 'whatsapp' || channel === 'wa' ? req.body.templateId : undefined),
                 templateLang: req.body.templateLang,
                 templateComponents: req.body.templateComponents,
                 waMapping: activeMapping,
-                smsData: { ...smsData, ...dltMetadata },
+                smsData: { ...(smsData || {}), ...dltMetadata },
                 recipients,
                 performedBy: req.user?.firstName || 'System'
             }).catch(err => console.error('[MarketingController] Direct Dispatch Error:', err));
@@ -610,11 +619,11 @@ export const sendCampaign = async (req, res) => {
             subject: subject || 'Update',
             message: content || '',
             html:    html    || '',
-            templateName: req.body.templateName,
+            templateName: req.body.templateName || req.body.templateId,
             templateLang: req.body.templateLang || 'en_US',
             templateComponents: req.body.templateComponents || [],
             waMapping: activeMapping,
-            smsData: { ...smsData, ...dltMetadata },
+            smsData: { ...(smsData || {}), ...dltMetadata },
             mobiles,
             emails,
             leads: recipients,
@@ -929,12 +938,27 @@ export const _dispatchDirectly = async (data) => {
                 await emailService.sendEmail(lead.email, resolvedSubject, resolvedContent, html);
                 success = true;
             } else if (channel === 'sms') {
-                const res = await smsService.sendSMS(lead.mobile, resolvedContent, {
-                    dltHeaderId: smsData?.dltHeaderId,
-                    dltTemplateId: smsData?.dltTemplateId,
-                    category: smsData?.category || 'Transactional'
-                });
-                success = !!res; // sms.service.js returns the result object directly
+                if (templateName) {
+                    const res = await smsService.sendSMSWithTemplate(lead.mobile, templateName, resolutionData, {
+                        entityType: lead.context?.originalType || 'Import',
+                        entityId: lead.id,
+                        dltHeaderId: smsData?.dltHeaderId,
+                        dltTemplateId: smsData?.dltTemplateId,
+                        category: smsData?.category || 'Transactional'
+                    });
+                    success = res.success;
+                    msgId = res.providerId || res.data?.MessageId || (res.data?.JobId ? String(res.data.JobId) : null);
+                } else {
+                    const res = await smsService.sendSMS(lead.mobile, resolvedContent, {
+                        entityType: lead.context?.originalType || 'Import',
+                        entityId: lead.id,
+                        dltHeaderId: smsData?.dltHeaderId,
+                        dltTemplateId: smsData?.dltTemplateId,
+                        category: smsData?.category || 'Transactional'
+                    });
+                    success = res.success;
+                    msgId = res.providerId || res.data?.MessageId || (res.data?.JobId ? String(res.data.JobId) : null);
+                }
                 console.log(`[DirectDispatch] SMS to ${lead.mobile}: ${success ? '✅ Success' : '❌ Failed'}`);
             }
 

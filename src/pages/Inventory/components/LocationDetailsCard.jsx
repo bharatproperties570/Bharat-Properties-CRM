@@ -35,6 +35,7 @@ const LocationDetailsCard = ({ inventory, getLookupValue, onUpdateLocation }) =>
     
     // Full Address Calculation
     const fullAddressParts = [
+        renderValue(getLookupValue('Location', address.location || address.locality || address.area)),
         renderValue(getLookupValue('Tehsil', address.tehsil)),
         renderValue(getLookupValue('PostOffice', address.postOffice) || address.postOffice),
         renderValue(getLookupValue('City', address.city)),
@@ -47,14 +48,31 @@ const LocationDetailsCard = ({ inventory, getLookupValue, onUpdateLocation }) =>
 
     return (
         <div className="glass-card">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
-                <div style={{ width: '40px', height: '40px', background: 'rgba(239, 68, 68, 0.1)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <i className="fas fa-map-marker-alt" style={{ color: '#ef4444' }}></i>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{ width: '40px', height: '40px', background: 'rgba(239, 68, 68, 0.1)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <i className="fas fa-map-marker-alt" style={{ color: '#ef4444' }}></i>
+                    </div>
+                    <div>
+                        <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, color: '#0f172a', letterSpacing: '-0.3px' }}>Location Intelligence</h3>
+                        <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>Geospatial data & verified address</p>
+                    </div>
                 </div>
-                <div>
-                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, color: '#0f172a', letterSpacing: '-0.3px' }}>Location Intelligence</h3>
-                    <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>Geospatial data & verified address</p>
-                </div>
+                <button 
+                    onClick={onUpdateLocation}
+                    title="Edit Location Details"
+                    style={{
+                        width: '36px', height: '36px', borderRadius: '10px',
+                        background: 'rgba(79, 70, 229, 0.05)', border: '1px solid rgba(79, 70, 229, 0.1)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        color: 'var(--premium-blue)', cursor: 'pointer', transition: 'all 0.2s',
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+                    }}
+                    onMouseOver={(e) => { e.currentTarget.style.background = 'rgba(79, 70, 229, 0.1)'; e.currentTarget.style.transform = 'scale(1.05)'; }}
+                    onMouseOut={(e) => { e.currentTarget.style.background = 'rgba(79, 70, 229, 0.05)'; e.currentTarget.style.transform = 'scale(1)'; }}
+                >
+                    <i className="fas fa-edit"></i>
+                </button>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(380px, 450px) 1fr', gap: '32px' }}>
@@ -65,15 +83,15 @@ const LocationDetailsCard = ({ inventory, getLookupValue, onUpdateLocation }) =>
                         {renderSpec('State', 'map', getLookupValue('State', address.state))}
                         {renderSpec('City', 'city', getLookupValue('City', address.city))}
                         
-                        {renderSpec('Location', 'thumbtack', getLookupValue('Area', address.location))}
+                        {renderSpec('Location', 'thumbtack', getLookupValue('Location', address.location) || getLookupValue('Area', address.location || address.locality))}
                         {renderSpec('Tehsil', 'landmark', getLookupValue('Tehsil', address.tehsil))}
                         {renderSpec('Post Office', 'mail-bulk', getLookupValue('PostOffice', address.postOffice) || address.postOffice)}
                         
-                        {renderSpec('Pin Code', 'map-pin', address.pincode)}
+                        {renderSpec('Pin Code', 'map-pin', getLookupValue('Pincode', address.pincode))}
                         {renderSpec('House Number', 'home', address.hNo || address.houseNo)}
                         {renderSpec('Street / Road', 'road', address.street || address.landmark)}
                         
-                        {renderSpec('Area', 'vector-square', getLookupValue('Area', address.area || address.locality))}
+                        {renderSpec('Area', 'vector-square', getLookupValue('Area', address.area || address.locality) || getLookupValue('Location', address.area || address.locality))}
                     </div>
 
                     {/* Full Address Block */}

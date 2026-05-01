@@ -1329,6 +1329,7 @@ export const PropertyConfigProvider = ({ children }) => {
                 directions: getValues('Direction'),
                 roadWidths: getValues('RoadWidth'),
                 unitTypes: getValues('UnitType'),
+                pincodes: getValues('Pincode'), // Added Pincode sync
                 titles: helperGet(newLookups, 'Title') || [],
                 relations: helperGet(newLookups, 'Relation')?.map(l => ({
                     id: l._id,

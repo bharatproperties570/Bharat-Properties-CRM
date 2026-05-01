@@ -908,6 +908,7 @@ export default function MarketingOverviewPage() {
     } else if (channel === 'sms') {
       payload = { 
         ...payload, 
+        name: campaignName,
         content: smsData.content,
         smsData: {
             ...smsData,

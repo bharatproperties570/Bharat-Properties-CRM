@@ -122,9 +122,11 @@ const InventoryUnitSection = ({
                             onChange={e => setFormData(prev => ({ ...prev, unitType: e.target.value }))}
                         >
                             <option value="">Select Type</option>
-                            {['ordinary', 'corner', 'two side open', 'three side open'].map(t => (
-                                <option key={t} value={t}>{t.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}</option>
-                            ))}
+                            {(masterFields?.unitTypes || ['Ordinary', 'Corner', 'Two Side Open', 'Three Side Open']).map(t => {
+                                const val = typeof t === 'object' ? (t.lookup_value || t.name) : t;
+                                const id = typeof t === 'object' ? (t._id || t.id) : t;
+                                return <option key={id} value={id}>{val}</option>;
+                            })}
                         </select>
                     </div>
                 </div>

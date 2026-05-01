@@ -15,7 +15,7 @@ import InventoryOwnerSection from './inventory/InventoryOwnerSection';
 // Custom Hook
 import { useInventoryForm } from '../hooks/useInventoryForm';
 
-const AddInventoryModal = ({ isOpen, onClose, onSave, initialProject = null, property = null }) => {
+const AddInventoryModal = ({ isOpen, onClose, onSave, initialProject = null, property = null, initialTab = 'Unit' }) => {
     const {
         projects: allProjects,
         masterFields = {},
@@ -30,7 +30,13 @@ const AddInventoryModal = ({ isOpen, onClose, onSave, initialProject = null, pro
     const { executeDistribution } = useDistribution();
     const { evaluateAndEnroll } = useSequences();
 
-    const [activeTab, setActiveTab] = useState('Unit');
+    const [activeTab, setActiveTab] = useState(initialTab);
+
+    useEffect(() => {
+        if (isOpen && initialTab) {
+            setActiveTab(initialTab);
+        }
+    }, [isOpen, initialTab]);
     const [isLoading, setIsLoading] = useState(true);
     const [currentTime, setCurrentTime] = useState(new Date());
     const [isAddSizeModalOpen, setIsAddSizeModalOpen] = useState(false);
@@ -212,7 +218,7 @@ const AddInventoryModal = ({ isOpen, onClose, onSave, initialProject = null, pro
                         )}
                     </div>
                 </div>
-                <AddSizeModal isOpen={isAddSizeModalOpen} projectName={formData.projectName} block={formData.block} category={formData.category} subCategory={formData.subCategory} onClose={() => setIsAddSizeModalOpen(false)} onSave={(name) => setFormData(prev => ({ ...prev, size: name }))} />
+                <AddSizeModal isOpen={isAddSizeModalOpen} projectName={formData.projectName} block={formData.block} category={formData.category} subCategory={formData.subCategory} onClose={() => setIsAddSizeModalOpen(false)} onSave={(name, sizeType) => setFormData(prev => ({ ...prev, size: name, sizeType: sizeType }))} />
                 <style>{`
                     .grid-2-col { display: grid; grid-template-columns: repeat(2, 1fr); gap: 32px; }
                     .grid-3-col { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; }

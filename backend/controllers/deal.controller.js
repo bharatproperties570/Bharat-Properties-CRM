@@ -298,7 +298,16 @@ export const matchDeals = async (req, res) => {
         const inventoryIds = [...new Set(matchingDeals.map(d => d.inventoryId?._id || d.inventoryId).filter(Boolean))];
         const inventoryMap = new Map();
         if (inventoryIds.length > 0) {
-            const inventories = await mongoose.model('Inventory').find({ _id: { $in: inventoryIds } }).lean();
+            const inventories = await mongoose.model('Inventory').find({ _id: { $in: inventoryIds } })
+                .populate('address.city')
+                .populate('address.state')
+                .populate('address.location')
+                .populate('address.pincode')
+                .populate('address.tehsil')
+                .populate('address.postOffice')
+                .populate('address.locality')
+                .populate('address.area')
+                .lean();
             inventories.forEach(inv => inventoryMap.set(String(inv._id), inv));
         }
 

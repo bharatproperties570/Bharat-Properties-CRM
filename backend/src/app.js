@@ -17,6 +17,7 @@ import myDistributionRuleRoutes from "../routes/distributionRule.routes.js"; // 
 import companyRoutes from "../routes/company.routes.js";
 import dealRoutes from "../routes/deal.routes.js";
 import bookingRoutes from "../routes/booking.routes.js";
+import uploadRoutes from "../routes/upload.routes.js";
 
 // Existing structure (kept for safety)
 // import userRoutes from "./modules/users/user.routes.js"; (Not touching imports unless needed)
@@ -108,6 +109,7 @@ apiRouter.use("/distribution-rules", myDistributionRuleRoutes);
 apiRouter.use("/companies", companyRoutes);
 apiRouter.use("/deals", dealRoutes);
 apiRouter.use("/bookings", bookingRoutes);
+apiRouter.use("/upload", uploadRoutes);
 
 // New settings API routes
 apiRouter.use("/users", userRoutes);

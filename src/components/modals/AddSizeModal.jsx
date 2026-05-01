@@ -23,7 +23,7 @@ const AddSizeModal = ({ isOpen, onClose, onSave, projectName, block, category, s
         };
 
         await addSize(newSize);
-        if (onSave) onSave(newSize.name); // Return the display string
+        if (onSave) onSave(newSize.name, newSize.sizeType); // Return the display string and base type
 
         toast.success(`Size added!`);
         onClose();

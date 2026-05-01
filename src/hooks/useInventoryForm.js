@@ -14,6 +14,7 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
         builtupType: '',
         block: '',
         size: '',
+        sizeType: '', // Added for Configuration parity
         direction: '',
         facing: '',
         roadWidth: '',
@@ -43,7 +44,7 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
             city: '',
             tehsil: '',
             postOffice: '',
-            zip: '',
+            pincode: '',
             hNo: '',
             street: '',
             location: '',
@@ -103,6 +104,7 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
                 category: getLookupValue('Category', property.category) || property.category || 'Residential',
                 block: property.block || '',
                 size: property.sizeConfig?.lookup_value || property.sizeLabel || property.size || '',
+                sizeType: property.sizeType?.lookup_value || property.sizeType || '', // Populate sizeType
                 locationSearch: property.locationSearch || property.location || '',
                 status: getLookupValue('Status', property.status) || 'Active',
                 intent: getLookupValue('Intent', property.intent || 'Sell'),
@@ -111,7 +113,32 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
                 direction: getLookupValue('Direction', property.direction) || property.direction?.lookup_value || property.direction,
                 roadWidth: getLookupValue('Road Width', property.roadWidth) || property.roadWidth?.lookup_value || property.roadWidth,
                 builtupType: getLookupValue('BuiltupType', property.builtupType) || property.builtupType?.lookup_value || property.builtupType,
-                address: property.address || prev.address
+                assignedTo: property.assignedTo?._id || property.assignedTo || '',
+                team: property.team?._id || property.team || '',
+                visibleTo: property.visibleTo || 'Public',
+                possessionStatus: property.possessionStatus || '',
+                furnishType: property.furnishType || '',
+                furnishedItems: property.furnishedItems || '',
+                occupationDate: property.occupationDate || '',
+                ageOfConstruction: property.ageOfConstruction || '',
+                builtupDetails: (property.builtupDetails && property.builtupDetails.length > 0) 
+                    ? property.builtupDetails 
+                    : [{ floor: 'Ground Floor', cluster: '', length: '', width: '', totalArea: '' }],
+                owners: property.owners || [],
+                address: {
+                    ...prev.address,
+                    ...(property.address || {}),
+                    country: property.address?.country?._id || property.address?.country || prev.address.country,
+                    state: property.address?.state?._id || property.address?.state || '',
+                    city: property.address?.city?._id || property.address?.city || '',
+                    location: property.address?.location?._id || property.address?.location || '',
+                    tehsil: property.address?.tehsil?._id || property.address?.tehsil || '',
+                    postOffice: property.address?.postOffice?._id || property.address?.postOffice || '',
+                    pincode: property.address?.pincode?._id || property.address?.pincode || property.address?.zip || '',
+                    hNo: property.address?.hNo || '',
+                    street: property.address?.street || '',
+                    area: property.address?.area || ''
+                }
             }));
         } else if (isOpen) {
              // Reset form for new entry if needed (or keep defaults)
@@ -412,12 +439,36 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
                 }
             }
 
+            // Aggressive Sanitation for Senior Professional Robustness
             const payload = { ...formData };
+            
+            // 1. Strip System Fields that shouldn't be sent back
+            delete payload.history;
+            delete payload.ownerHistory;
+            delete payload.createdAt;
+            delete payload.updatedAt;
+            delete payload.__v;
+
+            // 2. Normalize Owners (IDs only)
             if (payload.owners && Array.isArray(payload.owners)) {
-                payload.owners = payload.owners.map(o => (typeof o === 'object' && o !== null) ? (o.id || o._id) : o).filter(Boolean);
+                payload.owners = payload.owners.map(o => {
+                    if (!o) return null;
+                    if (typeof o === 'object') return o._id || o.id;
+                    return o;
+                }).filter(o => o && typeof o === 'string' && o.length === 24);
             }
 
-            // File handling (Same as original)
+            // 3. Normalize Associates (IDs only)
+            if (payload.associates && Array.isArray(payload.associates)) {
+                payload.associates = payload.associates.map(a => {
+                    if (!a) return null;
+                    const contactId = (typeof a.contact === 'object' && a.contact !== null) ? (a.contact._id || a.contact.id) : a.contact;
+                    if (!contactId || typeof contactId !== 'string' || contactId.length !== 24) return null;
+                    return { ...a, contact: contactId };
+                }).filter(Boolean);
+            }
+
+            // 4. File handling (Same as original)
              const uploadFiles = async (items, fieldName) => {
                 if (!items) return [];
                 return await Promise.all(items.map(async (item) => {
@@ -445,10 +496,24 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
                 ...payload,
                 category: getLookupId('Category', payload.category),
                 subCategory: getLookupId('SubCategory', payload.subCategory),
+                unitType: getLookupId('UnitType', payload.unitType),
+                sizeType: getLookupId('PropertyType', payload.sizeType), // Resolve sizeType against PropertyType
                 status: getLookupId('InventoryStatus', payload.status),
                 intent: getLookupId('Intent', payload.intent),
                 facing: getLookupId('Facing', payload.facing),
-                builtupType: getLookupId('BuiltupType', payload.builtupType)
+                direction: getLookupId('Direction', payload.direction),
+                roadWidth: getLookupId('Road Width', payload.roadWidth),
+                builtupType: getLookupId('BuiltupType', payload.builtupType),
+                team: (typeof payload.team === 'object' && payload.team !== null) ? (payload.team._id || payload.team.id) : (payload.team || null),
+                assignedTo: (typeof payload.assignedTo === 'object' && payload.assignedTo !== null) ? (payload.assignedTo._id || payload.assignedTo.id) : (payload.assignedTo || null),
+                projectId: (typeof payload.projectId === 'object' && payload.projectId !== null) ? (payload.projectId._id || payload.projectId.id) : (payload.projectId || null),
+                occupationDate: payload.occupationDate === '' ? null : payload.occupationDate,
+                builtupDetails: (payload.builtupDetails || []).map(row => ({
+                    ...row,
+                    length: row.length === '' ? null : Number(row.length),
+                    width: row.width === '' ? null : Number(row.width),
+                    totalArea: row.totalArea === '' ? null : Number(row.totalArea)
+                }))
             };
 
             let response;

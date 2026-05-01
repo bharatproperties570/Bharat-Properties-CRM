@@ -292,7 +292,8 @@ export const getActivities = async (req, res) => {
             query.type = { 
                 $nin: [
                     /^WhatsApp$/i, /^SMS$/i, /^Email$/i, /^RCS$/i, 
-                    /^Messaging$/i, /^Conversation$/i, /^Chat$/i, /^whatsapp$/i
+                    /^Messaging$/i, /^Conversation$/i, /^Chat$/i, /^whatsapp$/i,
+                    /^Marketing$/i, /^Campaign$/i, /^Bulk$/i
                 ] 
             };
         }
@@ -850,8 +851,13 @@ export const syncMobileCalls = async (req, res) => {
 
         // Helper for entity matching
         const findEntity = async (phone) => {
-            const normalizedPhone = phone.replace(/[^0-9]/g, '').slice(-10);
+            if (!phone) return null;
+            const cleanPhone = phone.replace(/[^0-9]/g, '');
+            const normalizedPhone = cleanPhone.length > 10 ? cleanPhone.slice(-10) : cleanPhone;
             const escapedPhone = escapeRegExp(normalizedPhone);
+            
+            // Search criteria: match the last 10 digits
+            const phoneQuery = { $regex: new RegExp(`${escapedPhone}$`) };
 
             // 1. Try Contact
             const contact = await mongoose.model('Contact').findOne({
@@ -880,6 +886,8 @@ export const syncMobileCalls = async (req, res) => {
                 subject: `Mobile Call: ${call.type || 'Incoming'}`,
                 entityType: match ? match.type : 'Unknown',
                 entityId: match ? match.entity._id : null,
+                assignedTo: req.user?._id || req.user?.id,
+                createdBy: req.user?._id || req.user?.id,
                 relatedTo: match ? [{ id: match.entity._id, name: match.name, model: match.type }] : [],
                 participants: [{ name: participantName, mobile: call.number }],
                 dueDate: new Date(call.timestamp),
@@ -898,9 +906,13 @@ export const syncMobileCalls = async (req, res) => {
                 teams: match ? (match.entity.teams || match.entity.assignment?.team || []) : []
             };
             
-            // Fallback for unmatched calls: Creator's teams
+            // 🚀 [SENIOR FIX] Ensure teams and assignedTo are ALWAYS set for visibility
             if ((!activityData.teams || activityData.teams.length === 0) && req.user) {
+                // If user belongs to teams, assign this activity to those teams so it's visible in their scope
                 activityData.teams = Array.isArray(req.user.teams) ? req.user.teams : (req.user.team ? [req.user.team] : []);
+            }
+            if (!activityData.assignedTo && req.user) {
+                activityData.assignedTo = req.user._id || req.user.id;
             }
 
             const existing = await Activity.findOne({ "details.mobileId": call.id, "details.platform": 'Mobile' });
@@ -1096,8 +1108,8 @@ export const getMessagingActivities = async (req, res) => {
 
         // 1. Fetch Messaging & Voice Activities (SMS, WhatsApp, Mobile Calls)
         const activities = await Activity.find({
-            type: { $in: ['Messaging', 'messaging', 'WhatsApp', 'whatsapp', 'Call', 'call', 'Email', 'email', 'SMS', 'sms', 'RCS', 'rcs'] },
-            isDeleted: { $ne: true }
+            ...visibilityFilter,
+            type: { $in: ['Messaging', 'messaging', 'WhatsApp', 'whatsapp', 'Call', 'call', 'Email', 'email', 'SMS', 'sms', 'RCS', 'rcs'] }
         })
         .sort({ createdAt: -1 })
         .limit(200)

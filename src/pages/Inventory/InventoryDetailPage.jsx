@@ -69,6 +69,12 @@ export default function InventoryDetailPage({ inventoryId, onBack, onAddActivity
     const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
     const [isTagsModalOpen, setIsTagsModalOpen] = useState(false);
     const [modalData, setModalData] = useState(null);
+    const [modalTab, setModalTab] = useState('Unit');
+
+    const openEditModal = (tab = 'Unit') => {
+        setModalTab(tab);
+        setIsEditModalOpen(true);
+    };
     const [feedbackContext, setFeedbackContext] = useState(null); // Track Sell/Rent/Lease intent during feedback
     const [mediaViewer, setMediaViewer] = useState({ isOpen: false, data: null });
     // const [contactPicker, setContactPicker] = useState({ isOpen: false, type: 'call', contacts: [] });
@@ -221,7 +227,7 @@ export default function InventoryDetailPage({ inventoryId, onBack, onAddActivity
                     <LocationDetailsCard 
                         inventory={inventory} 
                         getLookupValue={getLookupValue} 
-                        onUpdateLocation={() => setIsEditModalOpen(true)}
+                        onUpdateLocation={() => openEditModal('Location')}
                     />
 
                     <BuiltupDetailsCard inventory={inventory} getLookupValue={getLookupValue} />
@@ -304,8 +310,9 @@ export default function InventoryDetailPage({ inventoryId, onBack, onAddActivity
             <AddInventoryModal 
                 isOpen={isEditModalOpen}
                 onClose={() => setIsEditModalOpen(false)}
-                editData={inventory}
-                onSuccess={refresh}
+                property={inventory}
+                onSave={refresh}
+                initialTab={modalTab}
             />
 
             <UploadModal 

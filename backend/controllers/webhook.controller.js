@@ -401,7 +401,8 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                         description: lead.description,
                         customFields: lead.customFields
                     } : null,
-                    entityType: entityType
+                    entityType: entityType,
+                    intakeResult: intakeResult
                 };
 
                 const aiResult = await generateBotResponse(messageText, aiContext);

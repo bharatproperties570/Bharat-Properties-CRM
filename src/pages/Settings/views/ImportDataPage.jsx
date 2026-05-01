@@ -223,6 +223,8 @@ const ImportDataPage = () => {
 
         setImporting(true);
         setProgress(0);
+        setImportErrors([]);
+        setImportStats({ success: 0, failed: 0, newCount: 0, updatedCount: 0 });
 
         try {
             // Transform data based on mapping
@@ -232,65 +234,81 @@ const ImportDataPage = () => {
                     item[systemKey] = row[fileHeader];
                 });
 
-                // Inject metadata for sizes and inventory
                 if (module === 'sizes' || module === 'inventory') {
                     const projectObj = projects.find(p => p._id === selectedProject);
                     item.projectId = selectedProject;
-                    item.project = projectObj ? projectObj.name : ''; // Fallback name
-                    item.projectName = projectObj ? projectObj.name : item.projectName; // Prioritize selected project
+                    item.project = projectObj ? projectObj.name : '';
+                    item.projectName = projectObj ? projectObj.name : item.projectName;
                     item.block = selectedBlock;
                 }
-
                 return item;
             });
 
+            const totalRecords = transformedData.length;
+            const chunkSize = 50; // Process 50 records at a time for live UI updates
+            let totalSuccessCount = 0;
+            let totalErrorCount = 0;
+            let totalNewCount = 0;
+            let totalUpdatedCount = 0;
+            let aggregatedErrors = [];
+
             // Determine endpoint
             let endpoint = `/${module}/import`;
-            let payload = {
-                data: transformedData,
-                updateDuplicates: updateDuplicates,
-                teams: selectedTeams
-            };
+            if (module === 'sizes') endpoint = '/lookups/import';
+            else if (module === 'propertyOwners') endpoint = '/inventory/bulk-update-owners';
 
-            // Special case for sizes
-            if (module === 'sizes') {
-                endpoint = '/lookups/import';
-                payload.lookup_type = 'Size';
-            } else if (module === 'inventory') {
-                payload.projectId = selectedProject;
-                payload.projectName = projects.find(p => p._id === selectedProject)?.name;
-                payload.block = selectedBlock;
-            } else if (module === 'propertyOwners') {
-                endpoint = '/inventory/bulk-update-owners';
-            }
+            // Loop through data in chunks
+            for (let i = 0; i < totalRecords; i += chunkSize) {
+                const chunk = transformedData.slice(i, i + chunkSize);
+                
+                let payload = {
+                    data: chunk,
+                    updateDuplicates: updateDuplicates,
+                    teams: selectedTeams
+                };
 
-            // Artificial delay for better UX (so progress is seen)
-            setProgress(20);
-            await new Promise(r => setTimeout(r, 500));
-            setProgress(50);
-
-            const response = await api.post(endpoint, payload);
-
-            if (response.data.success) {
-                const { successCount, errorCount, newCount, updatedCount } = response.data;
-
-                // Refresh context data if needed
-                if (module === 'sizes') {
-                    refreshSizes();
+                if (module === 'sizes') payload.lookup_type = 'Size';
+                else if (module === 'inventory') {
+                    payload.projectId = selectedProject;
+                    payload.projectName = projects.find(p => p._id === selectedProject)?.name;
+                    payload.block = selectedBlock;
                 }
 
-                setProgress(100);
-                setImportStats({
-                    success: successCount,
-                    failed: errorCount,
-                    newCount: newCount || 0,
-                    updatedCount: updatedCount || 0
-                });
-                setImportErrors(response.data.errors || []);
-                setStep(5);
-            } else {
-                toast.error(response.data.message || 'Import failed');
+                const response = await api.post(endpoint, payload);
+
+                if (response.data.success) {
+                    const { successCount, errorCount, newCount, updatedCount, errors } = response.data;
+                    
+                    totalSuccessCount += (successCount || 0);
+                    totalErrorCount += (errorCount || 0);
+                    totalNewCount += (newCount || 0);
+                    totalUpdatedCount += (updatedCount || 0);
+                    if (errors) aggregatedErrors = [...aggregatedErrors, ...errors];
+
+                    // Update live progress
+                    const currentProgress = Math.min(Math.round(((i + chunk.length) / totalRecords) * 100), 100);
+                    setProgress(currentProgress);
+                } else {
+                    console.error(`Batch at index ${i} failed:`, response.data.message);
+                    totalErrorCount += chunk.length;
+                    aggregatedErrors.push({ row: i + 1, name: 'Batch Failure', reason: response.data.message || 'Server rejected batch' });
+                }
             }
+
+            // Final Summary Display
+            setImportStats({
+                success: totalSuccessCount,
+                failed: totalErrorCount,
+                newCount: totalNewCount,
+                updatedCount: totalUpdatedCount
+            });
+            setImportErrors(aggregatedErrors);
+            
+            if (module === 'sizes') refreshSizes();
+            
+            setStep(5);
+            toast.success('Import process completed!');
+
         } catch (err) {
             console.error('Import Error:', err);
             toast.error(err.response?.data?.message || err.message || 'Import failed');

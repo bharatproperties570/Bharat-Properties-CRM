@@ -43,11 +43,11 @@ export const renderValue = (val, emptyValue = '-', prefix = '') => {
     
     if (result === null || result === undefined || result === '') return emptyValue;
     
-    // FINAL SAFETY: Never return a plain object to React
-    if (typeof result === 'object') {
+    // FINAL SAFETY: Never return a plain object or a raw MongoDB ID to React
+    if (typeof result === 'object' || (typeof result === 'string' && /^[0-9a-fA-F]{24}$/.test(result))) {
         try {
             const str = String(result);
-            return (str !== '[object Object]') ? str : emptyValue;
+            return (str !== '[object Object]' && !/^[0-9a-fA-F]{24}$/.test(str)) ? str : emptyValue;
         } catch (e) {
             return emptyValue;
         }

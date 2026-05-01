@@ -22,14 +22,19 @@ class SmsService {
         const providerName = configOverride ? 'Test' : activeProvider.provider;
 
         // Create initial log
-        const log = configOverride ? null : await SmsLog.create({
-            to,
-            message,
-            provider: activeProvider.provider,
-            status: 'Pending',
-            entityType: context.entityType || 'System',
-            entityId: context.entityId
-        });
+        let log = null;
+        try {
+            log = configOverride ? null : await SmsLog.create({
+                to,
+                message,
+                provider: activeProvider.provider,
+                status: 'Pending',
+                entityType: context.entityType || 'System',
+                entityId: context.entityId
+            });
+        } catch (logErr) {
+            console.error('[SmsService] Logging failed but proceeding with dispatch:', logErr.message);
+        }
 
         try {
             let result;
@@ -200,22 +205,7 @@ class SmsService {
             if (context.dltTemplateId && !isMongoId(context.dltTemplateId)) {
                 params.dlttemplateid = context.dltTemplateId;
             } else {
-                // Auto-fallback: look up the first active template's dltTemplateId
-                // This is required for DLT compliance in India
-                try {
-                    const SmsTemplate = (await import('./smsTemplate.model.js')).default;
-                    const fallbackTemplate = await SmsTemplate.findOne({ isActive: true, dltTemplateId: { $exists: true, $ne: '' } })
-                        .sort({ createdAt: 1 })
-                        .lean();
-                    if (fallbackTemplate?.dltTemplateId) {
-                        params.dlttemplateid = fallbackTemplate.dltTemplateId;
-                        console.log(`[SMSGatewayHub] Auto-resolved dlttemplateid: ${fallbackTemplate.dltTemplateId} from template "${fallbackTemplate.name}"`);
-                    } else {
-                        console.warn('[SMSGatewayHub] WARNING: No dlttemplateid found. Message may be rejected by DLT gateway.');
-                    }
-                } catch (templateErr) {
-                    console.warn('[SMSGatewayHub] Could not auto-resolve dlttemplateid:', templateErr.message);
-                }
+                console.warn('[SMSGatewayHub] WARNING: No dlttemplateid found. Message may be rejected by DLT gateway if route requires it.');
             }
 
             console.log('[SMSGatewayHub] Sending to:', url, '| Params:', JSON.stringify({ ...params, APIKey: '[REDACTED]', text: cleanMessage }));

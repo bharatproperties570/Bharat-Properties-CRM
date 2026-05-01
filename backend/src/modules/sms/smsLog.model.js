@@ -22,11 +22,12 @@ const SmsLogSchema = new mongoose.Schema({
     },
     entityType: {
         type: String,
-        enum: ['Lead', 'Deal', 'Contact', 'System', 'Test', 'Activity'],
+        enum: ['Lead', 'Deal', 'Contact', 'System', 'Test', 'Activity', 'Import', 'Inventory', 'Project'],
         default: 'System'
     },
     entityId: {
-        type: mongoose.Schema.Types.ObjectId,
+        type: mongoose.Schema.Types.Mixed,
+        required: false,
         index: true
     },
     providerId: {

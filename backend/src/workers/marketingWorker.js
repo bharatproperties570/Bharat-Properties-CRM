@@ -68,16 +68,38 @@ const processMarketingJob = async (job) => {
             let resolvedSubject = subject || '';
             let recipientParams = {};
 
+            const resolutionContext = { ...recipient, ...recipient.context };
+
             if (waMapping && Object.keys(waMapping).length > 0) {
                 // If we have a mapping, use the Enterprise Variable Registry
-                const resolutionContext = { ...recipient, ...recipient.context };
                 recipientParams = VariableResolutionService.resolveForLeads(resolutionContext, waMapping);
-            } else {
-                // Legacy / Simple replacement
-                const rName = recipient.name || 'Customer';
-                resolvedMessage = (message || '').replace(/{{name}}/g, rName).replace(/{{firstName}}/g, rName.split(' ')[0]);
-                resolvedSubject = (subject || '').replace(/{{name}}/g, rName);
             }
+
+            // Universal Variable Resolution for text (important for SMS & Email)
+            const resolutionData = { 
+                name: recipient.name || 'Customer', 
+                firstName: (recipient.name || 'Customer').split(' ')[0],
+                email: recipient.email || '',
+                mobile: recipient.mobile || '',
+                ...resolutionContext
+            };
+
+            // Replace both {{var}} and {#var#} formats (SmartPing/DLT compliant)
+            Object.entries(resolutionData).forEach(([key, val]) => {
+                const safeVal = String(val || '');
+                const regexes = [
+                    new RegExp(`\\{\\{${key}\\}\\}`, 'gi'),
+                    new RegExp(`\\{#${key}#\\}`, 'gi'),
+                    new RegExp(`\\[${key}\\]`, 'gi')
+                ];
+                regexes.forEach(re => {
+                    resolvedMessage = resolvedMessage.replace(re, safeVal);
+                    resolvedSubject = resolvedSubject.replace(re, safeVal);
+                });
+            });
+
+            // Cleanup any remaining placeholders to prevent DLT rejection
+            resolvedMessage = resolvedMessage.replace(/\{\{.*?\}\}/g, '').replace(/\{#.*?#\}/g, '');
 
             try {
                 let success = false;

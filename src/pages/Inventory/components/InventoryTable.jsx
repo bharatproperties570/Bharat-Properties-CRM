@@ -47,7 +47,8 @@ const InventoryTable = ({
                 <div>Owner Profile</div>
                 <div>Associate Contact</div>
                 <div style={{ textAlign: 'left' }}>Intersaction</div>
-                <div style={{ textAlign: 'right', paddingRight: '1rem' }}>Assignment</div>
+                <div>Assignment</div>
+                <div style={{ textAlign: 'center' }}>Actions</div>
             </div>
 
             {/* Grid Body */}
@@ -134,7 +135,17 @@ const InventoryTable = ({
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.75rem', color: '#64748b', marginBottom: '6px' }}>
                                     <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.8rem' }}></i>
-                                    {renderValue(getLookupValue('Locality', item.address?.locality) || getLookupValue('Area', item.address?.area) || item.address?.location || item.address?.locality || item.address?.area)}, {renderValue(getLookupValue('City', item.address?.city) || item.address?.city)}
+                                    {(() => {
+                                        const locality = getLookupValue('Location', item.address?.locality) || getLookupValue('Area', item.address?.area) || getLookupValue('Location', item.address?.location);
+                                        const city = getLookupValue('City', item.address?.city);
+                                        
+                                        // Robust fallback for raw strings or IDs that didn't resolve
+                                        const cleanLocality = (locality && !/^[0-9a-fA-F]{24}$/.test(locality)) ? locality : (item.address?.location?.lookup_value || item.address?.locality?.lookup_value || item.address?.location || item.address?.locality || '');
+                                        const cleanCity = (city && !/^[0-9a-fA-F]{24}$/.test(city)) ? city : (item.address?.city?.lookup_value || item.address?.city || '');
+                                        const pincode = item.address?.pincode || '';
+
+                                        return `${renderValue(cleanLocality)}${cleanCity ? ', ' + renderValue(cleanCity) : ''}${pincode ? ' - ' + renderValue(pincode) : ''}`;
+                                    })()}
                                 </div>
                                 {item.block && (
                                     <span style={{ fontSize: '0.58rem', padding: '2px 10px', background: '#f1f5f9', color: '#475569', fontWeight: 800, borderRadius: '4px', border: '1px solid #e2e8f0' }}>
@@ -301,6 +312,31 @@ const InventoryTable = ({
                                     <i className="far fa-clock" style={{ fontSize: '0.55rem' }}></i>
                                     {new Date(item.updatedAt || item.createdAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
                                 </div>
+                            </div>
+                            
+                            {/* Col 9: Row Actions */}
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                                <button 
+                                    onClick={(e) => { e.stopPropagation(); onAction('edit', item); }}
+                                    style={{ background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b', padding: '6px', borderRadius: '6px', cursor: 'pointer' }}
+                                    title="Edit Property"
+                                >
+                                    <i className="fas fa-edit" style={{ fontSize: '0.85rem' }}></i>
+                                </button>
+                                <button 
+                                    onClick={(e) => { e.stopPropagation(); onAction('match', item); }}
+                                    style={{ background: '#f0f9ff', border: '1px solid #e0f2fe', color: '#0369a1', padding: '6px', borderRadius: '6px', cursor: 'pointer' }}
+                                    title="Match Requirements"
+                                >
+                                    <i className="fas fa-bolt" style={{ fontSize: '0.85rem' }}></i>
+                                </button>
+                                <button 
+                                    onClick={(e) => { e.stopPropagation(); onAction('share', item); }}
+                                    style={{ background: '#f5f3ff', border: '1px solid #ede9fe', color: '#6d28d9', padding: '6px', borderRadius: '6px', cursor: 'pointer' }}
+                                    title="Share Property"
+                                >
+                                    <i className="fas fa-share-alt" style={{ fontSize: '0.85rem' }}></i>
+                                </button>
                             </div>
 
                         </div>

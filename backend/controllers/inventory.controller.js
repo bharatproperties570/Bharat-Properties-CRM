@@ -80,6 +80,7 @@ const populateFields = [
     { path: "direction" },
     { path: "orientation" },
     { path: "sizeConfig" },
+    { path: "sizeType" }, // Added for Configuration parity
     { path: "roadWidth" },
     { path: "intent" },
     { path: "team", select: "name" },
@@ -92,6 +93,7 @@ const populateFields = [
     { path: "address.location" },
     { path: "address.country" },
     { path: "address.postOffice" },
+    { path: "address.pincode" },
     { path: "builtupType" },
     { path: "team", select: "name" },
     { path: "teams", select: "name" }
@@ -282,7 +284,7 @@ export const getInventory = async (req, res) => {
         const subCategoryFilter = await resolveMultiFilter('SubCategory', subCategoryReq);
         if (subCategoryFilter) query.subCategory = subCategoryFilter;
 
-        const unitTypeFilter = await resolveMultiFilter('Size', unitTypeReq);
+        const unitTypeFilter = await resolveMultiFilter('UnitType', unitTypeReq);
         if (unitTypeFilter) query.unitType = unitTypeFilter;
 
         // [ORIENTATION FILTERS]
@@ -480,7 +482,7 @@ export const getInventory = async (req, res) => {
                 { field: 'category', type: 'Category' },
                 { field: 'subCategory', type: 'SubCategory' },
                 { field: 'status', type: 'Status' },
-                { field: 'unitType', type: 'Size' },
+                { field: 'unitType', type: 'UnitType' },
                 { field: 'facing', type: 'Facing' },
                 { field: 'direction', type: 'Direction' },
                 { field: 'orientation', type: 'Orientation' },
@@ -620,7 +622,7 @@ export const getInventoryById = async (req, res) => {
             { field: 'category', type: 'Category' },
             { field: 'subCategory', type: 'SubCategory' },
             { field: 'status', type: 'Status' },
-            { field: 'unitType', type: 'Size' },
+            { field: 'unitType', type: 'UnitType' },
             { field: 'facing', type: 'Facing' },
             { field: 'direction', type: 'Direction' },
             { field: 'orientation', type: 'Orientation' },
@@ -661,7 +663,10 @@ export const getInventoryById = async (req, res) => {
                 { field: 'state', type: 'State' },
                 { field: 'locality', type: 'Area' },
                 { field: 'area', type: 'Area' },
-                { field: 'location', type: 'Area' }
+                { field: 'location', type: 'Area' },
+                { field: 'pincode', type: 'Pincode' },
+                { field: 'tehsil', type: 'Tehsil' },
+                { field: 'postOffice', type: 'PostOffice' }
             ];
             for (const { field, type } of addrFields) {
                 let val = inventoryData.address[field];
@@ -784,7 +789,7 @@ export const addInventory = async (req, res) => {
         // Resolve Reference Fields to prevent CastErrors
         if (data.category !== undefined) data.category = await resolveLookup('Category', data.category, false);
         if (data.subCategory !== undefined) data.subCategory = await resolveLookup('SubCategory', data.subCategory, false);
-        if (data.unitType !== undefined) data.unitType = await resolveLookup('Size', data.unitType, false);
+        if (data.unitType !== undefined) data.unitType = await resolveLookup('UnitType', data.unitType, false);
         if (data.status !== undefined) data.status = await resolveLookup('Status', data.status, false); else if (!data.status) data.status = await resolveLookup('Status', 'Inactive', false);
         if (data.facing !== undefined) data.facing = await resolveLookup('Facing', data.facing, false);
         if (data.direction !== undefined) data.direction = await resolveLookup('Direction', data.direction, false);
@@ -848,6 +853,34 @@ export const updateInventory = async (req, res) => {
         else if (data.team) data.team = await resolveTeam(data.team);
 
         if (data.owners) data.owners = sanitizeIds(data.owners);
+
+        // 🌟 SENIOR HARDENING: Resolve categorical fields BEFORE update to prevent populate-stage CastErrors
+        const categoricalFields = [
+            { field: 'category', type: 'Category' },
+            { field: 'subCategory', type: 'SubCategory' },
+            { field: 'status', type: 'Status' },
+            { field: 'unitType', type: 'UnitType' },
+            { field: 'facing', type: 'Facing' },
+            { field: 'direction', type: 'Direction' },
+            { field: 'orientation', type: 'Orientation' },
+            { field: 'sizeConfig', type: 'Size' },
+            { field: 'roadWidth', type: 'RoadWidth' },
+            { field: 'builtupType', type: 'BuiltupType' }
+        ];
+
+        for (const { field, type } of categoricalFields) {
+            if (data[field] !== undefined) {
+                // If it's a populated object, extract ID
+                if (typeof data[field] === 'object' && data[field] !== null && data[field]._id) {
+                    data[field] = data[field]._id;
+                }
+                // If it's a string that is NOT a 24-char hex ID, resolve it via Lookup
+                const isStrictId = typeof data[field] === 'string' && /^[0-9a-fA-F]{24}$/.test(data[field]);
+                if (data[field] && !isStrictId) {
+                    data[field] = await resolveLookup(type, data[field], true);
+                }
+            }
+        }
         
         // 🚀 [MEDIA ENGINE] Handle 'media' field from mobile clients for strict schema compatibility
         if (data.media && Array.isArray(data.media)) {
@@ -1074,9 +1107,18 @@ const resolveLookup = async (type, value, createIfMissing = true) => {
         return await resolveLookup(type, value.split(',').map(v => v.trim()).filter(Boolean), createIfMissing);
     }
 
-    if (mongoose.Types.ObjectId.isValid(value)) return new mongoose.Types.ObjectId(value.toString());
+    if (!value) return null;
+    const cleanValue = String(value).trim();
 
-    const cacheKey = `${type}:${value.toLowerCase()}`;
+    // Protect against Excel Scientific Notation (e.g., 6.98e+23)
+    if (cleanValue.toLowerCase().includes('e+') && cleanValue.length < 15) {
+        console.warn(`[resolveLookup] Detected possible Excel corruption for ${type}: ${cleanValue}`);
+        return null;
+    }
+
+    if (mongoose.Types.ObjectId.isValid(cleanValue)) return new mongoose.Types.ObjectId(cleanValue);
+
+    const cacheKey = `${type}:${cleanValue.toLowerCase()}`;
     if (lookupCache.has(cacheKey)) return lookupCache.get(cacheKey);
 
     const escapedValue = escapeRegExp(value);
@@ -1098,7 +1140,7 @@ const resolveLookup = async (type, value, createIfMissing = true) => {
  * Professional Resolver for Size Labels
  * Matches by Project and Block to ensure correct configuration is picked
  */
-export const resolveSizeLookup = async (value, projectName, blockName) => {
+export const resolveSizeLookup = async (value, projectName, blockName, categoryName, subCategoryName) => {
     if (!value) return null;
     if (mongoose.Types.ObjectId.isValid(value)) {
         const lookup = await Lookup.findById(value).lean();
@@ -1111,7 +1153,7 @@ export const resolveSizeLookup = async (value, projectName, blockName) => {
         lookup_value: { $regex: new RegExp(`^${escapedValue}$`, 'i') }
     };
 
-    // If multiple matches exist, prioritize by Project and Block
+    // If multiple matches exist, prioritize by Project, Block, Category and Sub-Category
     const lookups = await Lookup.find(query).lean();
     if (lookups.length === 0) {
         const newLookup = await Lookup.create({ lookup_type: 'Size', lookup_value: value });
@@ -1120,13 +1162,25 @@ export const resolveSizeLookup = async (value, projectName, blockName) => {
 
     if (lookups.length === 1) return { id: lookups[0]._id, metadata: lookups[0].metadata };
 
-    // More than one match - filter by project/block
+    // Deep Context Matching: Prioritize by all constraints
     let matched = lookups.find(l =>
         l.metadata?.project?.toLowerCase() === projectName?.toLowerCase() &&
-        l.metadata?.block?.toLowerCase() === blockName?.toLowerCase()
+        l.metadata?.block?.toLowerCase() === blockName?.toLowerCase() &&
+        l.metadata?.category?.toLowerCase() === categoryName?.toLowerCase() &&
+        l.metadata?.subCategory?.toLowerCase() === subCategoryName?.toLowerCase()
     );
 
     if (!matched) {
+        // Fallback 1: Project + Category + SubCategory
+        matched = lookups.find(l => 
+            l.metadata?.project?.toLowerCase() === projectName?.toLowerCase() &&
+            l.metadata?.category?.toLowerCase() === categoryName?.toLowerCase() &&
+            l.metadata?.subCategory?.toLowerCase() === subCategoryName?.toLowerCase()
+        );
+    }
+
+    if (!matched) {
+        // Fallback 2: Project only
         matched = lookups.find(l => l.metadata?.project?.toLowerCase() === projectName?.toLowerCase());
     }
 
@@ -1225,27 +1279,42 @@ export const importInventory = async (req, res) => {
 
         for (let i = 0; i < data.length; i++) {
             const item = data[i];
+            
+            // DIAGNOSTIC SPY: Capture raw structure for first 3 records
+            if (i < 3) {
+                try {
+                    const fs = await import('fs');
+                    const diagPath = './import_diag.json';
+                    const diagData = {
+                        timestamp: new Date().toISOString(),
+                        itemKeys: Object.keys(item),
+                        itemData: item
+                    };
+                    fs.appendFileSync(diagPath, JSON.stringify(diagData, null, 2) + "\n---\n");
+                    console.log(`[DIAGNOSTIC] Data captured to ${diagPath}`);
+                } catch (e) { console.error('Diag failed', e); }
+            }
+
             try {
+                const rawPincode = item.pincode || item['Pincode'] || item['Pin Code'] || item.zipCode || item.zip || item['Zip Code'] || item['Loc Zip'] || item.locZip;
+                const rawLocality = item.locality || item['Locality'] || item.area || item['Area'] || item.location || item['Location'] || item.locArea || item['Loc Area'];
+
                 const result = {
                     projectName: item.projectName || item.project || item['Project Name'],
                     projectId: item.projectId,
-                    unitNo: item.unitNo || item.unitNumber || item['Unit No'] || item['Unit No*'],
-                    unitNumber: item.unitNo || item.unitNumber || item['Unit No'] || item['Unit No*'],
+                    block: item.block || item.sector || item['Block'] || item['Sector'],
+                    unitNo: item.unitNo || item.unitNumber || item['Unit No'] || item['Unit Number'],
+                    unitNumber: item.unitNo || item.unitNumber || item['Unit No'] || item['Unit Number'],
                     builtupType: await resolveLookup('BuiltupType', item.builtupType || item['Builtup Type'], true),
 
                     price: {
-                        value: parseFloat(item.price || item.value || item['Price'] || item['Asking Price'] || 0),
-                        currency: item.currency || 'INR'
+                        value: parseFloat(item.price || item.cost || item['Price'] || 0),
+                        currency: 'INR'
                     },
-                    totalCost: {
-                        value: parseFloat(item.totalCost || item.total_cost || item['Total Cost'] || 0),
-                        currency: item.currency || 'INR'
+                    rentPrice: {
+                        value: parseFloat(item.rentPrice || item.rent || item['Rent'] || 0),
+                        currency: 'INR'
                     },
-                    allInclusivePrice: {
-                        value: parseFloat(item.allInclusivePrice || item.all_inclusive_price || item['All Inclusive Price'] || 0),
-                        currency: item.currency || 'INR'
-                    },
-
                     size: {
                         value: parseFloat(item.size || item.plotArea || item['Size'] || item['Plot Area'] || 0),
                         unit: item.sizeUnit || item.unit || item['Size Unit'] || 'Sq.Ft.'
@@ -1266,27 +1335,25 @@ export const importInventory = async (req, res) => {
                     length: parseFloat(item.length || item.plotLength || item['Length'] || item['Plot Length'] || 0),
                     width: parseFloat(item.width || item.plotWidth || item['Width'] || item['Plot Width'] || 0),
                     floor: item.floor || item['Floor'],
-                    block: item.block || item['Block'],
                     ownership: item.ownership || item['Ownership'],
-
-                    occupationDate: item.occupationDate || item['Occupation Date'],
-                    possessionStatus: item.possessionStatus || item['Possession Status'],
-                    furnishType: item.furnishType || item['Furnish Type'],
-                    furnishedItems: item.furnishedItems || item['Furnished Items'],
 
                     address: {
                         hNo: item.hNo || item['H No'],
                         street: item.street || item['Street'],
-                        locality: await resolveLookup('Area', item.locality || item['Locality'], true),
-                        area: await resolveLookup('Area', item.area || item['Area'], true),
-                        location: await resolveLookup('Area', item.location || item['Location'], true),
-                        city: await resolveLookup('City', item.city || item['City'], true),
+                        locality: await resolveLookup('Location', rawLocality, true),
+                        area: await resolveLookup('Area', rawLocality, true),
+                        location: await resolveLookup('Location', rawLocality, true),
+                        city: await resolveLookup('City', item.city || item['City'] || item['City Name'], true),
                         tehsil: await resolveLookup('Tehsil', item.tehsil || item['Tehsil'], true),
                         postOffice: item.postOffice || item['Post Office'],
-                        pinCode: item.pinCode || item['Pin Code'] || item['Post Code'],
+                        pincode: await resolveLookup('Pincode', rawPincode, true),
                         state: await resolveLookup('State', item.state || item['State'], true),
                         country: item.country || item['Country'] || 'India'
                     },
+                    
+                    locArea: await resolveLookup('Location', rawLocality, true),
+                    locZip: await resolveLookup('Pincode', rawPincode, true),
+                    locSector: item.block || item.sector || item['Block'] || item['Sector'],
                     latitude: item.lat || item.latitude || item['Latitude'],
                     longitude: item.lng || item.longitude || item['Longitude'],
 
@@ -1307,7 +1374,9 @@ export const importInventory = async (req, res) => {
                 const sizeResult = await resolveSizeLookup(
                     item.sizeLabel || item.sizeConfig || item['Size Label'] || item['Size Label*'],
                     result.projectName,
-                    result.block
+                    result.block,
+                    item.category || item['Category'],
+                    item.subCategory || item['Sub Category']
                 );
                 result.sizeConfig = sizeResult?.id;
                 result.status = await resolveLookup('Status', item.status || item['Status'] || 'Inactive', false);
@@ -1316,15 +1385,12 @@ export const importInventory = async (req, res) => {
                     const meta = sizeResult.metadata;
                     if (!result.length && meta.length) result.length = parseFloat(meta.length);
                     if (!result.width && meta.width) result.width = parseFloat(meta.width);
-                    if (result.size.value === 0 && meta.totalArea) {
-                        result.size.value = parseFloat(meta.totalArea);
-                        result.size.unit = meta.resultMetric || result.sizeUnit;
+                    if (result.size.value === 0 && meta.area) { // Using meta.area from Size lookup
+                        result.size.value = parseFloat(meta.area);
+                        result.size.unit = meta.areaMetrics || result.sizeUnit;
                     }
-                    if (result.totalSaleableArea.value === 0 && meta.saleableArea) result.totalSaleableArea.value = parseFloat(meta.saleableArea);
-                    if (result.builtUpArea.value === 0 && meta.coveredArea) result.builtUpArea.value = parseFloat(meta.coveredArea);
-                    if (result.carpetArea.value === 0 && meta.carpetArea) result.carpetArea.value = parseFloat(meta.carpetArea);
                 }
-
+                
                 result.facing = await resolveLookup('Facing', item.facing || item['Facing'] || item['Orientation']);
                 result.direction = await resolveLookup('Direction', item.direction || item['Direction'] || item['Orientation']);
                 result.orientation = await resolveLookup('Orientation', item.orientation || item['Orientation']);
