@@ -19,6 +19,7 @@ import NurtureBot from '../services/NurtureBot.js';
 import marketingAudienceService from '../services/MarketingAudienceService.js';
 import { normalizePhone } from '../utils/normalization.js';
 import fs from 'fs';
+import path from 'path';
 
 // Lazy-import the marketing queue
 let _marketingQueue = null;
@@ -523,7 +524,10 @@ export const sendCampaign = async (req, res) => {
         let dltMetadata = {};
         const activeSmsTemplateId = smsData?.templateId || req.body.templateId;
         if (activeSmsTemplateId && channel.toLowerCase() === 'sms') {
-            const tpl = await SmsTemplate.findById(activeSmsTemplateId).lean();
+            const tplQuery = mongoose.Types.ObjectId.isValid(activeSmsTemplateId) 
+                ? { _id: activeSmsTemplateId } 
+                : { name: activeSmsTemplateId };
+            const tpl = await SmsTemplate.findOne(tplQuery).lean();
             if (tpl) {
                 dltMetadata = {
                     dltTemplateId: tpl.dltTemplateId,
@@ -875,14 +879,26 @@ export const syncSmsTemplates = async (req, res) => {
  * INTERNAL: High-Priority Direct Dispatch Loop
  * Used when Redis/BullMQ is unavailable.
  */
-export const _dispatchDirectly = async (data) => {
+export async function _dispatchDirectly(data) {
     const { 
         channel, name, subject, content, html, 
         templateName, templateLang, templateComponents,
         waMapping, smsData, recipients, performedBy 
     } = data;
 
+    // 🧠 SENIOR PROFESSIONAL: Observability Hook
+    const debugLog = (msg) => {
+        try {
+            const logMsg = `[${new Date().toISOString()}] ${msg}\n`;
+            fs.appendFileSync(path.join(process.cwd(), 'dispatch_debug.log'), logMsg);
+        } catch (e) { console.error("Logger Failed", e); }
+    };
+
+    debugLog(`INIT: Channel=${channel}, Recipients=${recipients?.length}, Name=${name}`);
+
     console.log(`[DirectDispatch] 🚀 Starting direct delivery for ${recipients?.length || 0} leads...`);
+    
+
     if (channel === 'sms') {
         console.log(`[DirectDispatch] SMS Config:`, { 
             senderId: smsData?.dltHeaderId || smsData?.senderId, 
@@ -896,8 +912,10 @@ export const _dispatchDirectly = async (data) => {
     const emailService = (await import('../services/email.service.js')).default;
     const Activity = (await import('../models/Activity.js')).default || mongoose.model('Activity');
 
-    for (const lead of recipients) {
+    for (let i = 0; i < recipients.length; i++) {
+        const lead = recipients[i];
         try {
+            debugLog(`LEAD[${i}]: Processing ${lead.name} (${lead.mobile || lead.email})`);
             let success = false;
             let msgId = null;
 
@@ -933,9 +951,37 @@ export const _dispatchDirectly = async (data) => {
 
             if (channel === 'wa' || channel === 'whatsapp') {
                 if (templateName) {
-                    const res = await waService.sendTemplate(lead.mobile, templateName, templateLang, templateComponents);
+                    // 🧠 SENIOR PROFESSIONAL: Resolve Template Components for Direct Dispatch
+                    const VariableResolutionService = (await import('../services/VariableResolutionService.js')).default;
+                    const recipientParams = VariableResolutionService.resolveForLeads(resolutionData, waMapping || {});
+                    
+                    let finalComponents = [];
+                    (templateComponents || []).forEach(comp => {
+                        const type = comp.type?.toLowerCase();
+                        if (!type) return;
+
+                        const compText = comp.text || '';
+                        const matches = compText.match(/{{(\d+)}}/g);
+                        
+                        if (matches) {
+                            const indices = [...new Set(matches.map(m => m.replace(/[{}]/g, '')))]
+                                .sort((a, b) => parseInt(a) - parseInt(b));
+
+                            const parameters = indices.map(idx => {
+                                const val = recipientParams[idx];
+                                return { type: 'text', text: String(val || '—') };
+                            });
+
+                            if (parameters.length > 0) {
+                                finalComponents.push({ type, parameters });
+                            }
+                        }
+                    });
+
+                    const res = await waService.sendTemplate(lead.mobile, templateName, templateLang || 'en', finalComponents);
                     success = res.success;
                     msgId = res.messageId;
+                    debugLog(`LEAD[${i}]: WA Result: ${success} | ID: ${msgId} | Error: ${res.error || 'none'}`);
                 } else {
                     const res = await waService.sendMessage(lead.mobile, resolvedContent);
                     success = res.success;

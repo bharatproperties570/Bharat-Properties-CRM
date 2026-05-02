@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { getInitials } from '../../utils/helpers';
 import { PermissionGate } from '../../hooks/usePermissions';
 import { renderValue } from '../../utils/renderUtils';
@@ -14,6 +14,8 @@ function CompanyPage({ onEdit, onNavigate }) {
     const [currentPage, setCurrentPage] = useState(1);
     const [recordsPerPage, setRecordsPerPage] = useState(25);
     const [viewMode, setViewMode] = useState('list'); // 'list' or 'card'
+    const [sortConfig, setSortConfig] = useState({ label: 'Newest First', by: 'createdAt', order: -1, icon: 'fa-calendar-plus' });
+    const [isSortOpen, setIsSortOpen] = useState(false);
 
     const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
     const [filters, setFilters] = useState({});
@@ -36,6 +38,8 @@ function CompanyPage({ onEdit, onNavigate }) {
                 page: currentPage,
                 limit: recordsPerPage,
                 search: searchTerm,
+                sortBy: sortConfig.by,
+                sortOrder: sortConfig.order,
                 ...filters
             };
             const response = await api.get('/companies', { params });
@@ -51,7 +55,7 @@ function CompanyPage({ onEdit, onNavigate }) {
         } finally {
             setLoading(false);
         }
-    }, [currentPage, recordsPerPage, searchTerm, filters]);
+    }, [currentPage, recordsPerPage, searchTerm, filters, sortConfig]);
 
     useEffect(() => {
         const timeoutId = setTimeout(() => {
@@ -425,6 +429,72 @@ function CompanyPage({ onEdit, onNavigate }) {
                                         >
                                             Next <i className="fas fa-chevron-right"></i>
                                         </button>
+
+                                        {/* Professional Sort Icon (Shifted to end of pagination) */}
+                                        <div style={{ position: 'relative' }}>
+                                            <button 
+                                                className="btn-pagination-icon" 
+                                                style={{ 
+                                                    display: 'flex', alignItems: 'center', justifyContent: 'center', 
+                                                    width: '32px', height: '32px', borderRadius: '8px',
+                                                    border: '1px solid #e2e8f0',
+                                                    background: isSortOpen ? 'var(--primary-color)' : '#fff',
+                                                    color: isSortOpen ? '#fff' : '#64748b',
+                                                    cursor: 'pointer', transition: 'all 0.2s'
+                                                }}
+                                                onClick={() => setIsSortOpen(!isSortOpen)}
+                                                title={`Sort: ${sortConfig.label}`}
+                                            >
+                                                <i className="fas fa-sort-amount-down-alt"></i>
+                                            </button>
+                                            {isSortOpen && (
+                                                <React.Fragment>
+                                                    <div 
+                                                        style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 998 }} 
+                                                        onClick={() => setIsSortOpen(false)} 
+                                                    />
+                                                    <ul className="shadow-lg border-0" style={{ 
+                                                        position: 'absolute', top: '100%', right: 0, zIndex: 999,
+                                                        backgroundColor: '#fff', borderRadius: '16px', padding: '10px', 
+                                                        minWidth: '220px', marginTop: '8px', listStyle: 'none',
+                                                        border: '1px solid #eef2f5'
+                                                    }}>
+                                                        <li><h6 style={{ fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', color: '#94a3b8', padding: '10px 15px', margin: 0 }}>Sort Options</h6></li>
+                                                        {[
+                                                            { label: 'Newest First', by: 'createdAt', order: -1, icon: 'fa-calendar-plus' },
+                                                            { label: 'Oldest First', by: 'createdAt', order: 1, icon: 'fa-history' },
+                                                            { label: 'Alphabetical (A-Z)', by: 'name', order: 1, icon: 'fa-sort-alpha-down' },
+                                                            { label: 'Last Activity', by: 'updatedAt', order: -1, icon: 'fa-bolt' },
+                                                        ].map((opt) => (
+                                                            <li key={opt.label}>
+                                                                <button 
+                                                                    className={`d-flex align-items-center gap-3`} 
+                                                                    style={{ 
+                                                                        width: '100%', border: 'none', textAlign: 'left',
+                                                                        borderRadius: '10px', 
+                                                                        padding: '10px 15px', 
+                                                                        fontSize: '0.9rem',
+                                                                        fontWeight: sortConfig.label === opt.label ? 700 : 500,
+                                                                        color: sortConfig.label === opt.label ? '#fff' : '#1e293b',
+                                                                        background: sortConfig.label === opt.label ? 'var(--primary-color)' : 'transparent',
+                                                                        cursor: 'pointer',
+                                                                        marginBottom: '2px',
+                                                                        transition: 'all 0.2s'
+                                                                    }}
+                                                                    onClick={() => {
+                                                                        setSortConfig(opt);
+                                                                        setIsSortOpen(false);
+                                                                    }}
+                                                                >
+                                                                    <i className={`fas ${opt.icon}`} style={{ width: '18px', opacity: sortConfig.label === opt.label ? 1 : 0.6 }}></i>
+                                                                    {opt.label}
+                                                                </button>
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                </React.Fragment>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                             </div>

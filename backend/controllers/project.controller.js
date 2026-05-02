@@ -14,12 +14,53 @@ const projectPopulateFields = [
     { path: 'unitType' }
 ];
 
+import { paginate } from "../utils/pagination.js";
+
 export const getProjects = async (req, res) => {
     try {
+        const { sortBy, sortOrder, page, limit, search } = req.query;
         const visibilityFilter = await getVisibilityFilter(req.user);
-        const projects = await Project.find({ ...visibilityFilter }).populate(projectPopulateFields).sort({ updatedAt: -1 }).lean();
-        res.json({ success: true, data: projects });
+
+        // Professional Search Logic
+        let query = { ...visibilityFilter };
+        if (search) {
+            const searchRegex = new RegExp(search, 'i');
+            query.$or = [
+                { name: searchRegex },
+                { reraNumber: searchRegex },
+                { 'address.locality': searchRegex },
+                { 'address.area': searchRegex },
+                { 'address.city': searchRegex },
+                { developerName: searchRegex }
+            ];
+        }
+
+        // Professional Sorting Engine
+        const finalSortBy = sortBy || 'updatedAt';
+        const finalSortOrder = parseInt(sortOrder) || -1;
+        const sortOption = { [finalSortBy]: finalSortOrder };
+
+        // Secondary alphabetical sort for consistency
+        if (!sortOption.name) sortOption.name = 1;
+
+        const results = await paginate(
+            Project, 
+            query, 
+            Number(page) || 1, 
+            Number(limit) || 25, 
+            sortOption, 
+            projectPopulateFields
+        );
+
+        res.json({ 
+            success: true, 
+            data: results.records, 
+            totalCount: results.totalCount,
+            totalPages: results.totalPages,
+            currentPage: results.currentPage
+        });
     } catch (error) {
+        console.error("[Project Controller] Error:", error);
         res.status(500).json({ success: false, error: error.message });
     }
 };

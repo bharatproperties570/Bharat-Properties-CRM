@@ -3,75 +3,61 @@ import { api } from '../utils/api';
 import toast from 'react-hot-toast';
 import useDebounce from './useDebounce';
 
-export const useInventoryList = (initialFilters = {}) => {
-    const [inventoryItems, setInventoryItems] = useState([]);
+export const useProjectList = (initialFilters = {}) => {
+    const [projects, setProjects] = useState([]);
     const [loading, setLoading] = useState(false);
     const [totalRecords, setTotalRecords] = useState(0);
     const [totalPages, setTotalPages] = useState(1);
     const [currentPage, setCurrentPage] = useState(1);
     const [recordsPerPage, setRecordsPerPage] = useState(25);
     const [searchTerm, setSearchTerm] = useState('');
-    const [statusFilter, setStatusFilter] = useState(''); // '' | 'Active' | 'InActive'
     const [filters, setFilters] = useState(initialFilters);
-    const [sortConfig, setSortConfig] = useState({ label: 'Newest Listed', by: 'createdAt', order: -1, icon: 'fa-calendar-plus' });
+    const [sortConfig, setSortConfig] = useState({ label: 'Recently Updated', by: 'updatedAt', order: -1, icon: 'fa-bolt' });
     const [refreshTrigger, setRefreshTrigger] = useState(0);
-    const [stats, setStats] = useState({ active: 0, inactive: 0, categories: [] });
 
     const debouncedSearchTerm = useDebounce(searchTerm, 500);
 
     // -- Pagination Reset Logic --
     useEffect(() => {
         setCurrentPage(1);
-    }, [debouncedSearchTerm, statusFilter, filters, recordsPerPage, sortConfig]);
+    }, [debouncedSearchTerm, filters, recordsPerPage, sortConfig]);
 
-    const fetchInventory = useCallback(async () => {
+    const fetchProjects = useCallback(async () => {
         setLoading(true);
         try {
             const queryParams = new URLSearchParams({
                 page: currentPage,
                 limit: recordsPerPage,
                 search: debouncedSearchTerm,
-                statusCategory: statusFilter,
                 sortBy: sortConfig.by,
                 sortOrder: sortConfig.order,
                 ...filters
             });
 
-            const response = await api.get(`inventory?${queryParams.toString()}`);
+            const response = await api.get(`projects?${queryParams.toString()}`);
 
             if (response.data && response.data.success) {
-                setInventoryItems(response.data.records || []);
+                setProjects(response.data.data || []);
                 setTotalRecords(response.data.totalCount || 0);
                 const tp = response.data.totalPages || 1;
                 setTotalPages(tp > 0 ? tp : 1);
-                setStats({
-                    active: response.data.activeCount || 0,
-                    inactive: response.data.inactiveCount || 0,
-                    categories: response.data.categoryStats || []
-                });
             }
         } catch (error) {
-            console.error("Error fetching inventory:", error);
-            toast.error("Error loading inventory");
+            console.error("Error fetching projects:", error);
+            toast.error("Error loading projects");
         } finally {
             setLoading(false);
         }
-    }, [currentPage, recordsPerPage, debouncedSearchTerm, statusFilter, filters, sortConfig]);
+    }, [currentPage, recordsPerPage, debouncedSearchTerm, filters, sortConfig]);
 
     useEffect(() => {
-        fetchInventory();
-    }, [fetchInventory, refreshTrigger]);
-
-    useEffect(() => {
-        const handleUpdate = () => setRefreshTrigger(prev => prev + 1);
-        window.addEventListener('inventory-updated', handleUpdate);
-        return () => window.removeEventListener('inventory-updated', handleUpdate);
-    }, []);
+        fetchProjects();
+    }, [fetchProjects, refreshTrigger]);
 
     const refresh = () => setRefreshTrigger(prev => prev + 1);
 
     return {
-        inventoryItems,
+        projects,
         loading,
         totalRecords,
         totalPages,
@@ -81,11 +67,8 @@ export const useInventoryList = (initialFilters = {}) => {
         setRecordsPerPage,
         searchTerm,
         setSearchTerm,
-        statusFilter,
-        setStatusFilter,
         filters,
         setFilters,
-        stats,
         sortConfig,
         setSortConfig,
         refresh

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import AccountPage from '../Account/AccountPage'; // Import AccountPage as a sub-view
 import AddBookingModal from '../../components/AddBookingModal';
 import { api } from '../../utils/api';
@@ -19,6 +19,8 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
 
     const [isClosingModalOpen, setIsClosingModalOpen] = useState(false);
     const [bookingToClose, setBookingToClose] = useState(null);
+    const [filters, setFilters] = useState({});
+    const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
 
     const handleFeedbackClick = () => {
         const booking = bookings.find(b => b.id === selectedIds[0]);
@@ -31,12 +33,19 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
     // Pagination State
     const [currentPage, setCurrentPage] = useState(1);
     const [recordsPerPage, setRecordsPerPage] = useState(25);
+    const [totalCount, setTotalCount] = useState(0);
+
+    // Sorting State
+    const [sortConfig, setSortConfig] = useState({ label: 'Booking Date', by: 'bookingDate', order: -1 });
+    const [isSortOpen, setIsSortOpen] = useState(false);
 
     const fetchBookings = async () => {
         setIsLoading(true);
         try {
-            const response = await api.get('/bookings');
+            const skip = (currentPage - 1) * recordsPerPage;
+            const response = await api.get(`/bookings?limit=${recordsPerPage}&skip=${skip}&sortBy=${sortConfig.by}&sortOrder=${sortConfig.order}`);
             if (response.data.success) {
+                setTotalCount(response.data.count || 0);
                 const mapped = response.data.data.map(b => ({
                     id: b.id || b._id.substring(b._id.length - 8).toUpperCase(),
                     _id: b._id,
@@ -91,7 +100,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
 
     useEffect(() => {
         fetchBookings();
-    }, []);
+    }, [currentPage, recordsPerPage, sortConfig]);
 
     // Logic to handle specific deal navigation (Drill-down)
     const handleViewLedger = (dealId) => {
@@ -433,6 +442,20 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                             <button onClick={() => setCurrentView('ledger')} style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', background: 'transparent', color: '#64748b', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}>Ledger</button>
                         </div>
                         <div style={{ display: 'flex', gap: '12px' }}>
+                            <button 
+                                className="btn-outline" 
+                                style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative' }}
+                                onClick={() => setIsFilterPanelOpen(true)}
+                            >
+                                <i className="fas fa-filter"></i> Filters
+                                {Object.keys(filters || {}).length > 0 && (
+                                    <span style={{
+                                        position: 'absolute', top: '-5px', right: '-5px',
+                                        width: '10px', height: '10px', background: 'red', borderRadius: '50%',
+                                        border: '2px solid #fff', boxShadow: '0 0 5px rgba(255,0,0,0.3)'
+                                    }}></span>
+                                )}
+                            </button>
                             <button className="btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <i className="fas fa-file-export"></i> Reports
                             </button>
@@ -494,9 +517,15 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                 ) : (
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                            <div style={{ position: 'relative', width: '300px' }}>
-                                <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }}></i>
-                                <input type="text" placeholder="Search bookings..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} style={{ width: '100%', padding: '10px 10px 10px 36px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }} />
+                            <div style={{ position: 'relative', width: '350px' }}>
+                                <input 
+                                    type="text" 
+                                    className="search-input-premium"
+                                    placeholder="Search bookings by ID, client or project..." 
+                                    value={searchTerm} 
+                                    onChange={(e) => setSearchTerm(e.target.value)} 
+                                />
+                                <i className={`fas fa-search search-icon-premium ${searchTerm ? 'active' : ''}`}></i>
                             </div>
                             <div style={{ display: 'flex', gap: '2px', background: '#f1f5f9', padding: '4px', borderRadius: '8px' }}>
                                 {['All', 'Pending', 'Booked', 'Agreement', 'Registry', 'Cancelled'].map(tab => (
@@ -506,13 +535,84 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                             <div style={{ fontSize: '0.85rem', color: '#68737d', fontWeight: 500 }}>Total: <strong>{totalRecords}</strong></div>
-                            <select value={recordsPerPage} onChange={handleRecordsPerPageChange} style={{ padding: "4px 8px", border: "1px solid #e2e8f0", borderRadius: "6px", fontSize: "0.8rem", fontWeight: 600, color: "#0f172a", outline: "none", cursor: "pointer" }}>
-                                {[10, 25, 50, 100, 300, 500, 750, 1000].map(v => <option key={v} value={v}>{v}</option>)}
-                            </select>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: '#64748b' }}>
+                                <span>Show:</span>
+                                <select value={recordsPerPage} onChange={handleRecordsPerPageChange} style={{ padding: "4px 8px", border: "1px solid #e2e8f0", borderRadius: "6px", fontSize: "0.8rem", fontWeight: 600, color: "#0f172a", outline: "none", cursor: "pointer", background: '#f8fafc' }}>
+                                    {[10, 25, 50, 100, 300, 500, 750, 1000].map(v => <option key={v} value={v}>{v}</option>)}
+                                </select>
+                            </div>
                             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                                 <button onClick={goToPreviousPage} disabled={currentPage === 1} style={{ padding: "6px 12px", border: "1px solid #e2e8f0", borderRadius: "6px", background: currentPage === 1 ? "#f8fafc" : "#fff", color: currentPage === 1 ? "#cbd5e1" : "#0f172a", cursor: currentPage === 1 ? "not-allowed" : "pointer", fontSize: "0.75rem", fontWeight: 600 }}><i className="fas fa-chevron-left"></i> Prev</button>
                                 <span style={{ fontSize: "0.8rem", fontWeight: 600, color: "#0f172a", minWidth: "80px", textAlign: "center" }}>{currentPage} / {totalPages || 1}</span>
                                 <button onClick={goToNextPage} disabled={currentPage >= totalPages} style={{ padding: "6px 12px", border: "1px solid #e2e8f0", borderRadius: "6px", background: currentPage >= totalPages ? "#f8fafc" : "#fff", color: currentPage >= totalPages ? "#cbd5e1" : "#0f172a", cursor: currentPage >= totalPages ? "not-allowed" : "pointer", fontSize: "0.75rem", fontWeight: 600 }}>Next <i className="fas fa-chevron-right"></i></button>
+                            </div>
+
+                            {/* Standardized Sort Icon */}
+                            <div style={{ position: 'relative' }}>
+                                <button 
+                                    className="btn-pagination-icon"
+                                    style={{ 
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center', 
+                                        width: '32px', height: '32px', borderRadius: '8px',
+                                        border: '1px solid #e2e8f0',
+                                        background: isSortOpen ? 'var(--primary-color)' : '#fff',
+                                        color: isSortOpen ? '#fff' : '#64748b',
+                                        cursor: 'pointer', transition: 'all 0.2s'
+                                    }}
+                                    onClick={() => setIsSortOpen(!isSortOpen)}
+                                    title={`Sort: ${sortConfig.label}`}
+                                >
+                                    <i className="fas fa-sort-amount-down-alt"></i>
+                                </button>
+                                {isSortOpen && (
+                                    <React.Fragment>
+                                        <div 
+                                            style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 998 }} 
+                                            onClick={() => setIsSortOpen(false)} 
+                                        />
+                                        <ul className="shadow-lg border-0" style={{ 
+                                            position: 'absolute', top: '100%', right: 0, zIndex: 999,
+                                            backgroundColor: '#fff', borderRadius: '16px', padding: '10px', 
+                                            minWidth: '220px', marginTop: '8px', listStyle: 'none',
+                                            border: '1px solid #eef2f5'
+                                        }}>
+                                            <li><h6 style={{ fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', color: '#94a3b8', padding: '10px 15px', margin: 0 }}>Advanced Sort</h6></li>
+                                            {[
+                                                { label: 'Booking Date', by: 'bookingDate', order: -1, icon: 'fa-calendar-alt' },
+                                                { label: 'Agreement Date', by: 'agreementDate', order: -1, icon: 'fa-file-contract' },
+                                                { label: 'Deal Value (High)', by: 'totalDealAmount', order: -1, icon: 'fa-sort-numeric-up' },
+                                                { label: 'Deal Value (Low)', by: 'totalDealAmount', order: 1, icon: 'fa-sort-numeric-down' },
+                                                { label: 'Token Amount', by: 'tokenAmount', order: -1, icon: 'fa-coins' },
+                                            ].map((opt) => (
+                                                <li key={opt.label}>
+                                                    <button 
+                                                        className={`d-flex align-items-center gap-3`} 
+                                                        style={{ 
+                                                            width: '100%', border: 'none', textAlign: 'left',
+                                                            borderRadius: '10px', 
+                                                            padding: '10px 15px', 
+                                                            fontSize: '0.85rem',
+                                                            fontWeight: sortConfig.label === opt.label ? 700 : 500,
+                                                            color: sortConfig.label === opt.label ? '#fff' : '#1e293b',
+                                                            background: sortConfig.label === opt.label ? 'var(--primary-color)' : 'transparent',
+                                                            cursor: 'pointer',
+                                                            marginBottom: '2px',
+                                                            transition: 'all 0.2s'
+                                                        }}
+                                                        onClick={() => {
+                                                            setSortConfig(opt);
+                                                            setIsSortOpen(false);
+                                                            setCurrentPage(1);
+                                                        }}
+                                                    >
+                                                        <i className={`fas ${opt.icon}`} style={{ width: '18px', opacity: sortConfig.label === opt.label ? 1 : 0.6 }}></i>
+                                                        {opt.label}
+                                                    </button>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </React.Fragment>
+                                )}
                             </div>
                         </div >
                     </div >

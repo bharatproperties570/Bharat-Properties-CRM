@@ -522,8 +522,13 @@ export const getLeads = async (req, res, next) => {
         const sortOrder = parseInt(req.query.sortOrder) || -1;
         const sortOption = { [sortBy]: sortOrder };
 
+        // Collated sorting for alphabetical fields
+        const collation = ['firstName', 'lastName', 'projectName'].includes(sortBy)
+            ? { locale: 'en', strength: 2 }
+            : null;
+
         // Enable population for key fields (Use lean population for list view)
-        const results = await paginate(Lead, query, Number(page), Number(limit), sortOption, leadListPopulateFields);
+        const results = await paginate(Lead, query, Number(page), Number(limit), sortOption, leadListPopulateFields, collation);
         results.stats = statsObj;
 
         console.log(`[DEBUG] getLeads found ${results.records?.length || 0} records out of ${results.totalRecords || 0} total for query: ${JSON.stringify(query)}`);

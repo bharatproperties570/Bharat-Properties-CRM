@@ -17,17 +17,33 @@ import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import { renderValue } from '../../utils/renderUtils';
 import usePermissions, { PermissionGate } from '../../hooks/usePermissions';
 
+import { useProjectList } from '../../hooks/useProjectList';
+
 function ProjectsPage({ onNavigate }) {
     const { teams } = useUserContext();
     const { getLookupValue } = usePropertyConfig();
-    const [searchTerm, setSearchTerm] = useState('');
     const [selectedIds, setSelectedIds] = useState([]);
+    const [isSortOpen, setIsSortOpen] = useState(false);
 
     const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
-    const [filters, setFilters] = useState({});
 
-    const [projectsData, setProjectsData] = useState([]);
-    const [, setLoading] = useState(false);
+    const {
+        projects: projectsData,
+        loading,
+        totalRecords,
+        totalPages,
+        currentPage,
+        setCurrentPage,
+        recordsPerPage,
+        setRecordsPerPage,
+        searchTerm,
+        setSearchTerm,
+        filters,
+        setFilters,
+        sortConfig,
+        setSortConfig,
+        refresh: fetchProjects
+    } = useProjectList();
 
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isPriceModalOpen, setIsPriceModalOpen] = useState(false);
@@ -35,10 +51,6 @@ function ProjectsPage({ onNavigate }) {
     const [editProjectData, setEditProjectData] = useState(null);
     const [initialModalTab, setInitialModalTab] = useState('Basic');
     const [activeRowMenu, setActiveRowMenu] = useState(null);
-
-    // Pagination State
-    const [currentPage, setCurrentPage] = useState(1);
-    const [recordsPerPage, setRecordsPerPage] = useState(25);
 
     const getTeamName = useCallback((teamValue) => {
         if (!teamValue) return "-";
@@ -69,24 +81,6 @@ function ProjectsPage({ onNavigate }) {
         return found ? (found.fullName || (found.firstName ? `${found.firstName} ${found.lastName}` : (found.name || found.username))) : "-";
     }, [users]);
     */
-
-    useEffect(() => {
-        fetchProjects();
-    }, []);
-
-    const fetchProjects = async () => {
-        setLoading(true);
-        try {
-            const response = await api.get('projects');
-            if (response.data.success) {
-                setProjectsData(response.data.data);
-            }
-        } catch (error) {
-            console.error("Error fetching projects:", error);
-        } finally {
-            setLoading(false);
-        }
-    };
 
     const [viewMode, setViewMode] = useState('list');
     const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
@@ -239,38 +233,6 @@ function ProjectsPage({ onNavigate }) {
             }
         };
 
-    // Filter Logic
-    const filteredProjects = React.useMemo(() => {
-        // 1. Apply Panel Filters
-        const baseFiltered = applyProjectFilters(projectsData, filters);
-
-        // 2. Apply Search
-        if (!searchTerm) return baseFiltered;
-        const lowerTerm = searchTerm.toLowerCase();
-        return baseFiltered.filter(p =>
-            p.name.toLowerCase().includes(lowerTerm) ||
-            (p.locationSearch && p.locationSearch.toLowerCase().includes(lowerTerm)) ||
-            (p.address?.location && p.address.location.toLowerCase().includes(lowerTerm)) ||
-            (p.units && p.units.some(u => u.toLowerCase().includes(lowerTerm)))
-        );
-    }, [projectsData, filters, searchTerm]);
-
-    // Pagination Logic
-    const totalRecords = filteredProjects.length;
-    const totalPages = Math.ceil(totalRecords / recordsPerPage);
-    const paginatedProjects = filteredProjects.slice(
-        (currentPage - 1) * recordsPerPage,
-        currentPage * recordsPerPage
-    );
-
-    const goToNextPage = () => {
-        if (currentPage < totalPages) setCurrentPage(currentPage + 1);
-    };
-
-    const goToPreviousPage = () => {
-        if (currentPage > 1) setCurrentPage(currentPage - 1);
-    };
-
     const handleRecordsPerPageChange = (e) => {
         setRecordsPerPage(Number(e.target.value));
         setCurrentPage(1);
@@ -309,7 +271,8 @@ function ProjectsPage({ onNavigate }) {
                     {Object.keys(filters).length > 0 && (
                         <span style={{
                             position: 'absolute', top: '-5px', right: '-5px',
-                            width: '10px', height: '10px', background: 'red', borderRadius: '50%'
+                            width: '10px', height: '10px', background: 'red', borderRadius: '50%',
+                            border: '2px solid #fff', boxShadow: '0 0 5px rgba(255,0,0,0.3)'
                         }}></span>
                     )}
                 </button>
@@ -327,7 +290,7 @@ function ProjectsPage({ onNavigate }) {
                         <div style={{ padding: '15px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
                             <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
                                 <i className="fas fa-map-pin" style={{ color: '#ef4444', marginRight: '6px' }}></i>
-                                Projects by Location ({filteredProjects.length})
+                                Projects by Location ({projectsData.length})
                             </div>
                         </div>
 
@@ -358,14 +321,14 @@ function ProjectsPage({ onNavigate }) {
                     {/* Professional Interactive Map */}
                     <div style={{ flex: 1, position: 'relative' }}>
                         <ProfessionalMap
-                            items={filteredProjects}
+                            items={projectsData}
                             onMarkerClick={(project) => onNavigate('project-detail', project._id)}
                         />
 
                         {/* Map Controls Overlay (Optional extras if needed, but ProfessionalMap handles zoom/controls) */}
                         <div style={{ position: 'absolute', top: '20px', left: '20px', background: 'rgba(255,255,255,0.9)', padding: '10px 15px', borderRadius: '8px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', backdropFilter: 'blur(4px)', zIndex: 1 }}>
                             <div style={{ fontWeight: 700, color: '#1e293b' }}><i className="fas fa-info-circle" style={{ color: '#3b82f6', marginRight: '8px' }}></i> Map View Active</div>
-                            <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Displaying {filteredProjects.length} projects</div>
+                             <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Displaying {projectsData.length} projects</div>
                         </div>
                     </div>
                 </div>
@@ -380,7 +343,7 @@ function ProjectsPage({ onNavigate }) {
                     {renderHeader()}
 
                     <div className="content-body" style={{ overflowY: 'visible', paddingTop: 0 }}>
-                        {/* Toolbar */}
+                        {/* Toolbar - Sticky 45px */}
                         <div className="toolbar-container" style={{ position: 'sticky', top: 0, zIndex: 1000, padding: '5px 2rem', borderBottom: '1px solid #eef2f5', minHeight: '45px', display: 'flex', alignItems: 'center', background: '#fff' }}>
                             {selectedIds.length > 0 ? (
                                 <div className="action-panel" style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%', overflowX: 'auto', paddingTop: '4px', paddingBottom: '2px' }}>
@@ -426,118 +389,101 @@ function ProjectsPage({ onNavigate }) {
                                 </div>
                             ) : (
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-                                    <div className="search-panel" style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                                        <div style={{ position: 'relative' }}>
-                                            <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.9rem' }}></i>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                                        {/* Premium Search Input */}
+                                        <div style={{ position: 'relative', width: '350px' }}>
                                             <input
                                                 type="text"
-                                                placeholder="Search project name, block or unit..."
+                                                className="search-input-premium"
+                                                placeholder="Search name, rera, locality..."
                                                 value={searchTerm}
                                                 onChange={(e) => setSearchTerm(e.target.value)}
-                                                style={{ width: '450px', padding: '10px 12px 10px 40px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.9rem', outline: 'none', transition: 'all 0.2s', boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.02)' }}
                                             />
+                                            <i className={`fas fa-search search-icon-premium ${searchTerm ? 'active' : ''}`}></i>
                                         </div>
                                     </div>
 
-                                    <div className="toolbar-right" style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                                        <div
-                                            style={{ display: 'flex', alignItems: 'center', gap: '15px' }}
-                                        >
-                                            <div style={{ fontSize: "0.8rem", color: "#64748b" }}>
-                                                Showing: <strong>{paginatedProjects.length}</strong> /{" "}
-                                                <strong>{totalRecords}</strong>
-                                            </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+                                        <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                                            Showing: <strong>{projectsData.length}</strong> / <strong>{totalCount}</strong>
+                                        </div>
 
-                                            {/* Records Per Page */}
-                                            <div
-                                                style={{
-                                                    display: "flex",
-                                                    alignItems: "center",
-                                                    gap: "8px",
-                                                    fontSize: "0.8rem",
-                                                    color: "#64748b",
-                                                }}
+                                        {/* Records Per Page */}
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: '#64748b' }}>
+                                            <span>Show:</span>
+                                            <select
+                                                value={recordsPerPage}
+                                                onChange={handleRecordsPerPageChange}
+                                                style={{ padding: "4px 8px", border: "1px solid #e2e8f0", borderRadius: "6px", fontSize: "0.8rem", fontWeight: 600, color: "#0f172a", outline: "none", cursor: "pointer", background: '#f8fafc' }}
                                             >
-                                                <span>Show:</span>
-                                                <select
-                                                    value={recordsPerPage}
-                                                    onChange={handleRecordsPerPageChange}
-                                                    style={{
-                                                        padding: "4px 8px",
-                                                        border: "1px solid #e2e8f0",
-                                                        borderRadius: "6px",
-                                                        fontSize: "0.8rem",
-                                                        fontWeight: 600,
-                                                        color: "#0f172a",
-                                                        outline: "none",
-                                                        cursor: "pointer",
-                                                    }}
-                                                >
-                                                    <option value={10}>10</option>
-                                                    <option value={25}>25</option>
-                                                    <option value={50}>50</option>
-                                                    <option value={100}>100</option>
-                                                    <option value={300}>300</option>
-                                                    <option value={500}>500</option>
-                                                    <option value={750}>750</option>
-                                                    <option value={1000}>1000</option>
-                                                </select>
-                                            </div>
+                                                {[10, 25, 50, 100, 300, 500, 750, 1000].map(v => <option key={v} value={v}>{v}</option>)}
+                                            </select>
+                                        </div>
 
-                                            {/* Pagination Controls */}
-                                            <div
-                                                style={{
-                                                    display: "flex",
-                                                    alignItems: "center",
-                                                    gap: "8px",
-                                                }}
+                                        {/* Pagination Controls */}
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <button
+                                                onClick={goToPreviousPage}
+                                                disabled={currentPage === 1}
+                                                style={{ padding: "6px 12px", border: "1px solid #e2e8f0", borderRadius: "6px", background: currentPage === 1 ? "#f8fafc" : "#fff", color: currentPage === 1 ? "#cbd5e1" : "#0f172a", cursor: currentPage === 1 ? "not-allowed" : "pointer", fontSize: "0.75rem", fontWeight: 600 }}
                                             >
-                                                <button
-                                                    onClick={goToPreviousPage}
-                                                    disabled={currentPage === 1}
-                                                    style={{
-                                                        padding: "6px 12px",
-                                                        border: "1px solid #e2e8f0",
-                                                        borderRadius: "6px",
-                                                        background: currentPage === 1 ? "#f8fafc" : "#fff",
-                                                        color: currentPage === 1 ? "#cbd5e1" : "#0f172a",
-                                                        cursor: currentPage === 1 ? "not-allowed" : "pointer",
-                                                        fontSize: "0.75rem",
-                                                        fontWeight: 600,
+                                                <i className="fas fa-chevron-left"></i> Prev
+                                            </button>
+                                            <span style={{ fontSize: "0.8rem", fontWeight: 600, color: "#0f172a", minWidth: "80px", textAlign: "center" }}>
+                                                {currentPage} / {totalPages || 1}
+                                            </span>
+                                            <button
+                                                onClick={goToNextPage}
+                                                disabled={currentPage >= totalPages}
+                                                style={{ padding: "6px 12px", border: "1px solid #e2e8f0", borderRadius: "6px", background: currentPage >= totalPages ? "#f8fafc" : "#fff", color: currentPage >= totalPages ? "#cbd5e1" : "#0f172a", cursor: currentPage >= totalPages ? "not-allowed" : "pointer", fontSize: "0.75rem", fontWeight: 600 }}
+                                            >
+                                                Next <i className="fas fa-chevron-right"></i>
+                                            </button>
+
+                                            {/* Professional Sort Icon */}
+                                            <div style={{ position: 'relative' }}>
+                                                <button 
+                                                    className="btn-pagination-icon" 
+                                                    style={{ 
+                                                        display: 'flex', alignItems: 'center', justifyContent: 'center', 
+                                                        width: '32px', height: '32px', borderRadius: '8px',
+                                                        border: '1px solid #e2e8f0',
+                                                        background: isSortOpen ? 'var(--primary-color)' : '#fff',
+                                                        color: isSortOpen ? '#fff' : '#64748b',
+                                                        cursor: 'pointer', transition: 'all 0.2s'
                                                     }}
+                                                    onClick={() => setIsSortOpen(!isSortOpen)}
+                                                    title={`Sort: ${sortConfig.label}`}
                                                 >
-                                                    <i className="fas fa-chevron-left"></i> Prev
+                                                    <i className="fas fa-sort-amount-down-alt"></i>
                                                 </button>
-                                                <span
-                                                    style={{
-                                                        fontSize: "0.8rem",
-                                                        fontWeight: 600,
-                                                        color: "#0f172a",
-                                                        minWidth: "80px",
-                                                        textAlign: "center",
-                                                    }}
-                                                >
-                                                    {currentPage} / {totalPages || 1}
-                                                </span>
-                                                <button
-                                                    onClick={goToNextPage}
-                                                    disabled={currentPage >= totalPages}
-                                                    style={{
-                                                        padding: "6px 12px",
-                                                        border: "1px solid #e2e8f0",
-                                                        borderRadius: "6px",
-                                                        background:
-                                                            currentPage >= totalPages ? "#f8fafc" : "#fff",
-                                                        color:
-                                                            currentPage >= totalPages ? "#cbd5e1" : "#0f172a",
-                                                        cursor:
-                                                            currentPage >= totalPages ? "not-allowed" : "pointer",
-                                                        fontSize: "0.75rem",
-                                                        fontWeight: 600,
-                                                    }}
-                                                >
-                                                    Next <i className="fas fa-chevron-right"></i>
-                                                </button>
+                                                {isSortOpen && (
+                                                    <React.Fragment>
+                                                        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 998 }} onClick={() => setIsSortOpen(false)} />
+                                                        <ul className="shadow-lg border-0" style={{ position: 'absolute', top: '100%', right: 0, zIndex: 999, backgroundColor: '#fff', borderRadius: '16px', padding: '10px', minWidth: '220px', marginTop: '8px', listStyle: 'none', border: '1px solid #eef2f5' }}>
+                                                            <li><h6 style={{ fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', color: '#94a3b8', padding: '10px 15px', margin: 0 }}>Advanced Sort</h6></li>
+                                                            {[
+                                                                { label: 'A-Z Name', by: 'name', order: 1, icon: 'fa-sort-alpha-down' },
+                                                                { label: 'Newest Created', by: 'createdAt', order: -1, icon: 'fa-calendar-plus' },
+                                                                { label: 'Oldest Created', by: 'createdAt', order: 1, icon: 'fa-history' },
+                                                                { label: 'Recently Updated', by: 'updatedAt', order: -1, icon: 'fa-bolt' },
+                                                                { label: 'Total Units', by: 'totalUnits', order: -1, icon: 'fa-building' },
+                                                                { label: 'Launch Status', by: 'status', order: 1, icon: 'fa-rocket' },
+                                                            ].map((opt) => (
+                                                                <li key={opt.label}>
+                                                                    <button 
+                                                                        className={`d-flex align-items-center gap-3`} 
+                                                                        style={{ width: '100%', border: 'none', textAlign: 'left', borderRadius: '10px', padding: '10px 15px', fontSize: '0.85rem', fontWeight: sortConfig.label === opt.label ? 700 : 500, color: sortConfig.label === opt.label ? '#fff' : '#1e293b', background: sortConfig.label === opt.label ? 'var(--primary-color)' : 'transparent', cursor: 'pointer', marginBottom: '2px', transition: 'all 0.2s' }}
+                                                                        onClick={() => { setSortConfig(opt); setIsSortOpen(false); }}
+                                                                    >
+                                                                        <i className={`fas ${opt.icon}`} style={{ width: '18px', opacity: sortConfig.label === opt.label ? 1 : 0.6 }}></i>
+                                                                        {opt.label}
+                                                                    </button>
+                                                                </li>
+                                                            ))}
+                                                        </ul>
+                                                    </React.Fragment>
+                                                )}
                                             </div>
                                         </div>
                                     </div>
@@ -558,7 +504,7 @@ function ProjectsPage({ onNavigate }) {
 
                         <div className="list-content">
                             {Object.entries(
-                                paginatedProjects.reduce((acc, project) => {
+                                projectsData.reduce((acc, project) => {
                                     // Professional Team Grouping
                                     const teamId = (project.team && project.team.length > 0) ? 
                                         (typeof project.team[0] === 'object' ? project.team[0]._id : project.team[0]) : 

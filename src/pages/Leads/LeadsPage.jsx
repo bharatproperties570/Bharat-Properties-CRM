@@ -517,7 +517,8 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                             {Object.keys(filters).length > 0 && (
                                 <span style={{
                                     position: 'absolute', top: '-5px', right: '-5px',
-                                    width: '10px', height: '10px', background: 'red', borderRadius: '50%'
+                                    width: '10px', height: '10px', background: 'red', borderRadius: '50%',
+                                    border: '2px solid #fff', boxShadow: '0 0 5px rgba(255,0,0,0.3)'
                                 }}></span>
                             )}
                         </button>
@@ -790,24 +791,27 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                             placeholder="Search name, mobile, email..."
                                             value={searchTerm}
                                             onChange={(e) => setSearchTerm(e.target.value)}
-                                            style={{ width: '100%' }}
                                         />
                                         <i className={`fas fa-search search-icon-premium ${searchTerm ? 'active' : ''}`}></i>
                                     </div>
 
-                                    {/* Professional Sort Dropdown */}
+                                    {/* Professional Sort Icon (Moved next to search) */}
                                     <div style={{ position: 'relative' }}>
                                         <button 
-                                            className="btn-outline" 
-                                            style={{ display: 'flex', alignItems: 'center', gap: '8px', height: '40px', padding: '0 15px', borderRadius: '12px', border: isSortOpen ? '1px solid var(--primary-color)' : '1px solid #cbd5e1' }}
-                                            type="button"
+                                            className="btn-pagination-icon" 
+                                            style={{ 
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center', 
+                                                width: '32px', height: '32px', borderRadius: '8px',
+                                                border: '1px solid #e2e8f0',
+                                                background: isSortOpen ? 'var(--primary-color)' : '#fff',
+                                                color: isSortOpen ? '#fff' : '#64748b',
+                                                cursor: 'pointer', transition: 'all 0.2s'
+                                            }}
                                             onClick={() => setIsSortOpen(!isSortOpen)}
+                                            title={`Sort: ${sortConfig.label}`}
                                         >
-                                            <i className="fas fa-sort-amount-down-alt" style={{ color: isSortOpen ? 'var(--primary-color)' : 'inherit' }}></i>
-                                            <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>Sort: {sortConfig.label}</span>
-                                            <i className={`fas fa-chevron-${isSortOpen ? 'up' : 'down'}`} style={{ fontSize: '0.7rem', marginLeft: '4px', opacity: 0.5 }}></i>
+                                            <i className="fas fa-sort-amount-down-alt"></i>
                                         </button>
-                                        
                                         {isSortOpen && (
                                             <React.Fragment>
                                                 <div 
@@ -820,13 +824,14 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                                     minWidth: '220px', marginTop: '8px', listStyle: 'none',
                                                     border: '1px solid #eef2f5'
                                                 }}>
-                                                    <li><h6 style={{ fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', color: '#94a3b8', padding: '10px 15px', margin: 0 }}>Sort Options</h6></li>
+                                                    <li><h6 style={{ fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', color: '#94a3b8', padding: '10px 15px', margin: 0 }}>Advanced Sort</h6></li>
                                                     {[
                                                         { label: 'Newest First', by: 'createdAt', order: -1, icon: 'fa-calendar-plus' },
-                                                        { label: 'Oldest First', by: 'createdAt', order: 1, icon: 'fa-history' },
-                                                        { label: 'Alphabetical (A-Z)', by: 'firstName', order: 1, icon: 'fa-sort-alpha-down' },
-                                                        { label: 'Last Activity', by: 'updatedAt', order: -1, icon: 'fa-bolt' },
-                                                        { label: 'Highest Score', by: 'intent_index', order: -1, icon: 'fa-chart-line' },
+                                                        { label: 'Oldest First', by: 'createdAt', order: 1, icon: 'fa-calendar-minus' },
+                                                        { label: 'High Score First', by: 'leadScore', order: -1, icon: 'fa-star' },
+                                                        { label: 'Recently Updated', by: 'updatedAt', order: -1, icon: 'fa-bolt' },
+                                                        { label: 'Name (A-Z)', by: 'firstName', order: 1, icon: 'fa-sort-alpha-down' },
+                                                        { label: 'Stage Sequence', by: 'stage', order: 1, icon: 'fa-layer-group' }
                                                     ].map((opt) => (
                                                         <li key={opt.label}>
                                                             <button 
@@ -835,7 +840,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                                                     width: '100%', border: 'none', textAlign: 'left',
                                                                     borderRadius: '10px', 
                                                                     padding: '10px 15px', 
-                                                                    fontSize: '0.9rem',
+                                                                    fontSize: '0.85rem',
                                                                     fontWeight: sortConfig.label === opt.label ? 700 : 500,
                                                                     color: sortConfig.label === opt.label ? '#fff' : '#1e293b',
                                                                     background: sortConfig.label === opt.label ? 'var(--primary-color)' : 'transparent',
@@ -846,6 +851,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                                                 onClick={() => {
                                                                     setSortConfig(opt);
                                                                     setIsSortOpen(false);
+                                                                    setCurrentPage(1);
                                                                 }}
                                                             >
                                                                 <i className={`fas ${opt.icon}`} style={{ width: '18px', opacity: sortConfig.label === opt.label ? 1 : 0.6 }}></i>
@@ -924,11 +930,15 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                                 color: currentPage >= totalPages ? '#cbd5e1' : '#0f172a',
                                                 cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer',
                                                 fontSize: '0.75rem',
-                                                fontWeight: 600
+                                                fontWeight: 600,
+                                                marginRight: '10px'
                                             }}
                                         >
                                             Next <i className="fas fa-chevron-right"></i>
                                         </button>
+
+                                    </div>
+                                </div>
                                     </div>
                                 </div>
                             </div>

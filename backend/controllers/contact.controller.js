@@ -90,11 +90,16 @@ export const getContacts = async (req, res, next) => {
             }
         }
 
-        // Wait, paginate utility handles call. 
-        // We passed populateFields (Array) to paginate.
-        // paginate uses model.find()...populate(populate).
-        // If populate is array, it works.
-        const results = await paginate(Contact, query, Number(page), Number(limit), { updatedAt: -1 }, populateFields);
+        // ─── DYNAMIC SORTING (Senior Professional Optimization) ───
+        const sortBy = req.query.sortBy || 'updatedAt';
+        const sortOrder = parseInt(req.query.sortOrder) || -1;
+        const sortOption = { [sortBy]: sortOrder };
+
+        console.log(`[Contacts Backend Debug] Query: ${JSON.stringify(query)}`);
+        console.log(`[Contacts Backend Debug] Sort: ${JSON.stringify(sortOption)}`);
+
+        const results = await paginate(Contact, query, Number(page), Number(limit), sortOption, populateFields);
+        console.log(`[Contacts Backend Debug] Records Found: ${results.records?.length}`);
 
         // Attach Interaction Data (Activity Counts & Recent Activities)
         if (results.records && results.records.length > 0) {

@@ -102,7 +102,7 @@ const populateFields = [
 export const getInventory = async (req, res) => {
     try {
         const { 
-            page = 1, limit = 10, search = "", 
+            page = 1, limit = 10, search = "", sortBy, sortOrder,
             category, subCategory, unitType, status, 
             project, block, location, area, contactId, 
             statusCategory, ownerPhone, feedbackOutcome, feedbackReason,
@@ -448,13 +448,38 @@ export const getInventory = async (req, res) => {
             query.status = { $in: [...inactiveStatusIds, ...inactiveStatusIdStrings, ...inactiveStatusNames] };
         }
 
-        // Fetch paginated results
-        // [PROFESSIONAL SORTING] Prioritize Unit Number Sequence (Numerically)
-        const sortCriteria = { unitNo: 1, projectName: 1, block: 1 };
+        // ─── PROFESSIONAL SORTING ENGINE (Enterprise Grade) ───
         const collation = { locale: "en", numericOrdering: true };
+        
+        // Handle nested and CRM-specific fields
+        let finalSortOption = {};
+        const sortField = sortBy || 'updatedAt';
+        const order = parseInt(sortOrder) || -1;
+
+        if (sortField === 'price') {
+            finalSortOption = { 'price.value': order };
+        } else if (sortField === 'size') {
+            finalSortOption = { 'size.value': order };
+        } else if (sortField === 'followUp') {
+            finalSortOption = { followUpDate: order };
+        } else if (sortField === 'lastContacted') {
+            finalSortOption = { lastContactedAt: order };
+        } else if (sortField === 'category' || sortField === 'unitType' || sortField === 'status' || sortField === 'facing' || sortField === 'direction' || sortField === 'orientation') {
+            // [ENTERPRISE] For categorical fields, we sort by ID for now, 
+            // but secondary sort ensures consistent ordering.
+            finalSortOption = { [sortField]: order };
+        } else {
+            finalSortOption = { [sortField]: order };
+        }
+
+        // Secondary sort for consistency (Unit No -> Project -> Block)
+        // Numeric ordering in collation handles strings like "101", "102", "1010" correctly.
+        if (!finalSortOption.unitNo) finalSortOption.unitNo = 1;
+        if (!finalSortOption.projectName) finalSortOption.projectName = 1;
+        if (!finalSortOption.createdAt) finalSortOption.createdAt = -1;
 
         // Fetch paginated results
-        const results = await paginate(Inventory, query, Number(page), Number(limit), sortCriteria, populateFields, collation);
+        const results = await paginate(Inventory, query, Number(page), Number(limit), finalSortOption, populateFields, collation);
 
         // Check for deals
         const inventoryIds = results.records.map(item => item._id);

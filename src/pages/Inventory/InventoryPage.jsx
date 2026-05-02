@@ -54,6 +54,8 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
         filters,
         setFilters,
         stats,
+        sortConfig,
+        setSortConfig,
         refresh
     } = useInventoryList();
 
@@ -61,6 +63,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
     const [viewMode, setViewMode] = useState('list');
     const [selectedIds, setSelectedIds] = useState([]);
     const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+    const [isSortOpen, setIsSortOpen] = useState(false);
     const [selectedProperty, setSelectedProperty] = useState(null);
     const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
     const [isDocumentModalOpen, setIsDocumentModalOpen] = useState(false);
@@ -255,6 +258,12 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                 handleDocumentClick={() => { setSelectedProperty(getSelectedPropertyObj()); setIsDocumentModalOpen(true); }}
                                 handleFeedbackClick={() => { setSelectedProperty(getSelectedPropertyObj()); setIsFeedbackModalOpen(true); }}
                                 handleDelete={handleDelete}
+                                sortConfig={sortConfig}
+                                setSortConfig={setSortConfig}
+                                isSortOpen={isSortOpen}
+                                setIsSortOpen={setIsSortOpen}
+                                filters={filters}
+                                setIsFilterPanelOpen={setIsFilterPanelOpen}
                             />
                             <InventoryTable 
                                 inventoryItems={inventoryItems}

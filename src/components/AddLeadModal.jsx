@@ -1748,7 +1748,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                 stageNameStr = initialData.stage.lookup_value || initialData.stage.label || initialData.stage.name || String(initialData.stage);
                             }
 
-                            const stageInfo = STAGE_PIPELINE.find(s => s.label.toLowerCase() === stageNameStr.toLowerCase()) || { color: '#94a3b8', icon: 'fa-circle', label: stageNameStr };
+                            const stageInfo = STAGE_PIPELINE.find(s => s.label?.toLowerCase() === stageNameStr?.toLowerCase()) || { color: '#94a3b8', icon: 'fa-circle', label: stageNameStr };
 
                             // fallback formatting if it still isn't a string to drop errors
                             const displayLabel = typeof stageInfo.label === 'string' ? stageInfo.label : 'New';

@@ -150,6 +150,9 @@ LeadSchema.index({ 'assignment.assignedTo': 1, updatedAt: -1 });
 LeadSchema.index({ lastActivityAt: 1 });
 // mobile + email: fast duplicate detection
 LeadSchema.index({ mobile: 1, email: 1 });
+LeadSchema.index({ firstName: 1 });
+LeadSchema.index({ intent_index: -1 });
+LeadSchema.index({ lastActivityAt: -1 });
 
 // Virtual for full name
 LeadSchema.virtual("fullName").get(function () {

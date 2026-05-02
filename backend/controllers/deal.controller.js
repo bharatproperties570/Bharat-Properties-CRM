@@ -366,22 +366,31 @@ const syncInventoryStatus = async (deal) => {
 export const getDeals = async (req, res) => {
     try {
         const { 
-            page = 1, limit = 25, search = "", 
+            page = 1, limit = 25, search = "", sortBy, sortOrder,
             projectId, inventoryId, category, subCategory, 
             status, contactPhone 
         } = req.query;
         const visibilityFilter = await getVisibilityFilter(req.user);
 
-        // 🛠️ SENIOR DIAGNOSTIC LOG (Harden for potential undefined user)
-        if (req.user) {
-            console.log(`[VISIBLE_AUDIT] User: ${req.user.email}, Scope: ${req.user.dataScope}, Teams: ${JSON.stringify(req.user.teams?.map(t => t._id || t))}`);
-        } else {
-            console.log(`[VISIBLE_AUDIT] Anonymous request - Visibility restricted to public data.`);
-        }
-        console.log(`[VISIBLE_AUDIT] Generated Filter: ${JSON.stringify(visibilityFilter, null, 2)}`);
+        // ─── DYNAMIC SORTING (Senior Professional Optimization) ───
+        const finalSortBy = sortBy || 'updatedAt';
+        const finalSortOrder = parseInt(sortOrder) || -1;
+        const sortOption = { [finalSortBy]: finalSortOrder };
 
         // [ENTERPRISE FILTERS] Multi-Source Visibility & Query Resolution
         let query = { ...visibilityFilter, isVisible: { $ne: false } };
+
+        if (search) {
+            query = {
+                ...query,
+                $or: [
+                    { dealId: { $regex: search, $options: "i" } },
+                    { unitNo: { $regex: search, $options: "i" } },
+                    { location: { $regex: search, $options: "i" } },
+                    { projectName: { $regex: search, $options: "i" } }
+                ]
+            };
+        }
 
         // ROBUST MULTI-FILTER RESOLUTION
         const resolveMultiFilter = async (type, value) => {
@@ -395,7 +404,7 @@ export const getDeals = async (req, res) => {
         };
 
         const { 
-            direction, facing, roadWidth, block, range, location, 
+            direction, facing, roadWidth, block, range, location: queryLocation, 
             minPrice, maxPrice, dealType, transactionType, source,
             intent: queryIntent, stage: queryStage, unitType: queryUnitType
         } = req.query;
@@ -442,17 +451,6 @@ export const getDeals = async (req, res) => {
         if (dealType) query.dealType = { $in: Array.isArray(dealType) ? dealType : dealType.split(',') };
         if (transactionType) query.transactionType = { $in: Array.isArray(transactionType) ? transactionType : transactionType.split(',') };
         if (source) query.source = { $in: Array.isArray(source) ? source : source.split(',') };
-
-        if (search) {
-            query = {
-                $or: [
-                    { dealId: { $regex: search, $options: "i" } },
-                    { unitNo: { $regex: search, $options: "i" } },
-                    { location: { $regex: search, $options: "i" } },
-                    { projectName: { $regex: search, $options: "i" } }
-                ]
-            };
-        }
 
         if (projectId) query.projectId = projectId;
         if (inventoryId) query.inventoryId = inventoryId;
@@ -548,7 +546,7 @@ export const getDeals = async (req, res) => {
             { path: 'teams', select: 'name' }
         ];
 
-        const results = await paginate(Deal, query, Number(page), Number(limit), { updatedAt: -1 }, dealListPopulateFields);
+        const results = await paginate(Deal, query, Number(page), Number(limit), sortOption, dealListPopulateFields);
 
         // --- OPTIMIZATION: Only calculate category stats on Page 1 ---
         let categoryCounts = [];
@@ -967,9 +965,13 @@ export const addDeal = async (req, res) => {
 };
 
 export const updateDeal = async (req, res) => {
-    console.log('[DEBUG] Incoming Update Deal Payload:', JSON.stringify(req.body, null, 2));
+    console.log(`[DealController] updateDeal for ID: ${req.params.id}`, { body: req.body });
     try {
+        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+            return res.status(400).json({ success: false, error: "Invalid Deal ID format" });
+        }
         const sanitizedData = sanitizeData(req.body);
+        console.log(`[DealController] Sanitized Payload:`, JSON.stringify(sanitizedData, null, 2));
 
         // ━━ Stage & Assignment History: auto-track changes ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         const existing = await Deal.findById(req.params.id)
@@ -1202,8 +1204,13 @@ export const updateDeal = async (req, res) => {
             );
         }, 100);
     } catch (error) {
-        console.error('Error in updateDeal:', error);
-        res.status(500).json({ success: false, error: error.message, message: error.message });
+        console.error('[CRITICAL_ERROR] Error in updateDeal:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: error.message, 
+            message: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
     }
 };
 

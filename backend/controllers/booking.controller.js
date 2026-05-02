@@ -95,7 +95,12 @@ export const createBooking = async (req, res) => {
 
 export const getBookings = async (req, res) => {
     try {
-        const { limit = 50, skip = 0 } = req.query;
+        const { limit = 50, skip = 0, sortBy = 'createdAt', sortOrder = -1 } = req.query;
+        
+        // Dynamic Sort Mapping
+        let sortCriteria = {};
+        sortCriteria[sortBy] = Number(sortOrder);
+
         const bookings = await Booking.find()
             .populate({
                 path: 'property',
@@ -105,7 +110,7 @@ export const getBookings = async (req, res) => {
             .populate('seller')
             .populate('salesAgent', 'fullName name')
             .populate('channelPartner')
-            .sort({ createdAt: -1 })
+            .sort(sortCriteria)
             .limit(Number(limit))
             .skip(Number(skip));
 

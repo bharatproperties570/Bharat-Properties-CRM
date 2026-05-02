@@ -279,11 +279,21 @@ export const getActivities = async (req, res) => {
             search,
             page = 1,
             limit = 100,
-            includeCommunications = 'false'
+            includeCommunications = 'false',
+            sortBy,
+            sortOrder
         } = req.query;
 
         const visibilityFilter = await getVisibilityFilter(req.user);
         const query = { ...visibilityFilter };
+
+        // Professional Sorting Engine
+        const finalSortBy = sortBy || 'dueDate';
+        const finalSortOrder = parseInt(sortOrder) || -1;
+        const sortOption = { [finalSortBy]: finalSortOrder };
+
+        // Secondary sort for consistency
+        if (!sortOption.createdAt) sortOption.createdAt = -1;
 
         // 🌟 Senior Logic: Filter out omnichannel communications from the global activity list
         // These should only be visible in Communication Hub or Entity Timelines.
@@ -332,7 +342,7 @@ export const getActivities = async (req, res) => {
         }
 
         const activities = await Activity.find(query)
-            .sort({ dueDate: -1, createdAt: -1 })
+            .sort(sortOption)
             .skip((page - 1) * limit)
             .limit(Number(limit))
             .populate('assignedTo', 'fullName name email')
@@ -1104,15 +1114,25 @@ export const sendReply = async (req, res) => {
  */
 export const getMessagingActivities = async (req, res) => {
     try {
+        const {
+            page = 1,
+            limit = 50,
+            sortBy = 'date',
+            sortOrder = -1,
+            search,
+            channel = 'all',
+            subTab = 'all'
+        } = req.query;
+
         const visibilityFilter = await getVisibilityFilter(req.user);
 
-        // 1. Fetch Messaging & Voice Activities (SMS, WhatsApp, Mobile Calls)
+        // 1. Fetch Messaging & Voice Activities (Increased horizon for better grouping)
         const activities = await Activity.find({
             ...visibilityFilter,
             type: { $in: ['Messaging', 'messaging', 'WhatsApp', 'whatsapp', 'Call', 'call', 'Email', 'email', 'SMS', 'sms', 'RCS', 'rcs'] }
         })
         .sort({ createdAt: -1 })
-        .limit(200)
+        .limit(1000) // Fetch enough for effective grouping
         .lean();
 
         // 2. Fetch AI Conversations (Fast fetch, manual lookup later)
@@ -1231,7 +1251,7 @@ export const getMessagingActivities = async (req, res) => {
 
                 const isCall = a.type?.toLowerCase() === 'call';
                 const isEmail = a.type?.toLowerCase() === 'email';
-                const via = isCall ? 'Voice' : (isEmail ? 'Email' : (a.details?.platform?.toLowerCase() === 'whatsapp' || a.type?.toLowerCase() === 'whatsapp' ? 'WhatsApp' : 'SMS'));
+                const via = isCall ? 'Calls' : (isEmail ? 'Email' : (a.details?.platform?.toLowerCase() === 'whatsapp' || a.type?.toLowerCase() === 'whatsapp' ? 'WhatsApp' : 'SMS'));
 
                 const item = {
                     _id: a._id,
@@ -1344,12 +1364,50 @@ export const getMessagingActivities = async (req, res) => {
         }
 
         // 6. Final Sort and return
-        const unified = Array.from(conversationsMap.values());
-        unified.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        let unified = Array.from(conversationsMap.values());
+
+        // Apply Channel Filter
+        if (channel !== 'all') {
+            unified = unified.filter(i => i.via === channel);
+        }
+
+        // Apply SubTab Filter
+        if (subTab === 'matched') {
+            unified = unified.filter(i => i.isMatched);
+        } else if (subTab === 'unmatched') {
+            unified = unified.filter(i => !i.isMatched);
+        }
+        
+        // Dynamic Sorting Engine
+        unified.sort((a, b) => {
+            let valA = a[sortBy] || a.timestamp;
+            let valB = b[sortBy] || b.timestamp;
+            
+            if (sortBy === 'date') {
+                valA = new Date(a.timestamp).getTime();
+                valB = new Date(b.timestamp).getTime();
+            }
+
+            if (valA < valB) return -1 * sortOrder;
+            if (valA > valB) return 1 * sortOrder;
+            return 0;
+        });
+
+        // Pagination Engine
+        const totalCount = unified.length;
+        const totalPages = Math.ceil(totalCount / limit);
+        const startIndex = (page - 1) * limit;
+        const paginatedData = unified.slice(startIndex, startIndex + Number(limit));
 
         res.json({
             success: true,
-            data: unified
+            data: paginatedData,
+            pagination: {
+                totalCount,
+                totalPages,
+                currentPage: Number(page),
+                limit: Number(limit)
+            }
         });
     } catch (error) {
         console.error("[ActivityController] getMessagingActivities error:", error);

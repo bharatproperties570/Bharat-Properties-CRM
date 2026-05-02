@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, memo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, memo } from "react";
 import toast from "react-hot-toast";
 import Swal from 'sweetalert2';
 
@@ -354,6 +354,8 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
   const [isSendMailOpen, setIsSendMailOpen] = useState(false);
   const [isAddLeadModalOpen, setIsAddLeadModalOpen] = useState(false);
   const [contactForLead, setContactForLead] = useState(null);
+  const [sortConfig, setSortConfig] = useState({ label: 'Newest First', by: 'createdAt', order: -1, icon: 'fa-calendar-plus' });
+  const [isSortOpen, setIsSortOpen] = useState(false);
   
   const { teams, users } = useUserContext();
   const { getLookupValue } = usePropertyConfig();
@@ -367,15 +369,17 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
         page: currentPage,
         limit: recordsPerPage,
         search: debouncedSearchTerm,
+        sortBy: sortConfig.by,
+        sortOrder: sortConfig.order
       });
       console.log("[Contacts Audit] Fetching contacts with params:", queryParams.toString());
       const response = await api.get(`contacts?${queryParams.toString()}`);
-      console.log("[Contacts Audit] Response received Success:", response.data?.success, "Count:", response.data?.records?.length);
-      
       if (response.data && response.data.success) {
+        console.log("[Contacts Debug] Data loaded:", response.data.records?.length, "Total:", response.data.totalCount);
         setContacts(response.data.records || []);
         setTotalRecords(response.data.totalCount || 0);
       } else {
+        console.warn("[Contacts Debug] API Error or no data:", response.data);
         toast.error("Failed to fetch contacts: Invalid API response");
         setContacts([]);
       }
@@ -385,7 +389,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
     } finally {
       setLoading(false);
     }
-  }, [currentPage, recordsPerPage, debouncedSearchTerm]);
+  }, [currentPage, recordsPerPage, debouncedSearchTerm, sortConfig]);
 
   useEffect(() => {
     const handleRefresh = () => fetchContacts();
@@ -556,7 +560,13 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
             </button>
             <button className="btn-outline" onClick={() => setIsFilterPanelOpen(true)} style={{ position: 'relative' }}>
               <i className="fas fa-filter"></i> Filters
-              {Object.keys(filters).length > 0 && <span style={{ position: 'absolute', top: '-5px', right: '-5px', width: '10px', height: '10px', background: 'red', borderRadius: '50%' }}></span>}
+              {Object.keys(filters).length > 0 && (
+                <span style={{ 
+                  position: 'absolute', top: '-5px', right: '-5px', 
+                  width: '10px', height: '10px', background: 'red', borderRadius: '50%',
+                  border: '2px solid #fff', boxShadow: '0 0 5px rgba(255,0,0,0.3)' 
+                }}></span>
+              )}
             </button>
           </div>
         </div>
@@ -627,8 +637,75 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                 <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
                   {viewMode === "card" && <input type="checkbox" checked={isAllSelected} ref={(input) => { if (input) input.indeterminate = isIndeterminate; }} onChange={toggleSelectAll} style={{ cursor: "pointer" }} />}
                   <div style={{ position: "relative", width: "350px" }}>
-                    <input type="text" className="search-input-premium" placeholder="Search by name, phone or email..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} style={{ width: "100%" }} />
+                    <input type="text" className="search-input-premium" placeholder="Search by name, phone or email..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                     <i className={`fas fa-search search-icon-premium ${searchTerm ? "active" : ""}`}></i>
+                  </div>
+
+                  {/* Professional Sort Icon (Moved next to search) */}
+                  <div style={{ position: 'relative' }}>
+                    <button 
+                      className="btn-pagination-icon" 
+                      style={{ 
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', 
+                        width: '32px', height: '32px', borderRadius: '8px',
+                        border: '1px solid #e2e8f0',
+                        background: isSortOpen ? 'var(--primary-color)' : '#fff',
+                        color: isSortOpen ? '#fff' : '#64748b',
+                        cursor: 'pointer', transition: 'all 0.2s'
+                      }}
+                      onClick={() => setIsSortOpen(!isSortOpen)}
+                      title={`Sort: ${sortConfig.label}`}
+                    >
+                      <i className="fas fa-sort-amount-down-alt"></i>
+                    </button>
+                    {isSortOpen && (
+                      <React.Fragment>
+                        <div 
+                          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 998 }} 
+                          onClick={() => setIsSortOpen(false)} 
+                        />
+                        <ul className="shadow-lg border-0" style={{ 
+                          position: 'absolute', top: '100%', left: 0, zIndex: 999,
+                          backgroundColor: '#fff', borderRadius: '16px', padding: '10px', 
+                          minWidth: '220px', marginTop: '8px', listStyle: 'none',
+                          border: '1px solid #eef2f5'
+                        }}>
+                          <li><h6 style={{ fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', color: '#94a3b8', padding: '10px 15px', margin: 0 }}>Advanced Sort</h6></li>
+                          {[
+                            { label: 'Recently Created', by: 'createdAt', order: -1, icon: 'fa-calendar-plus' },
+                            { label: 'Recently Updated', by: 'updatedAt', order: -1, icon: 'fa-bolt' },
+                            { label: 'Name (A-Z)', by: 'name', order: 1, icon: 'fa-sort-alpha-down' },
+                            { label: 'Name (Z-A)', by: 'name', order: -1, icon: 'fa-sort-alpha-up' },
+                          ].map((opt) => (
+                            <li key={opt.label}>
+                              <button 
+                                className={`d-flex align-items-center gap-3`} 
+                                style={{ 
+                                  width: '100%', border: 'none', textAlign: 'left',
+                                  borderRadius: '10px', 
+                                  padding: '10px 15px', 
+                                  fontSize: '0.85rem',
+                                  fontWeight: sortConfig.label === opt.label ? 700 : 500,
+                                  color: sortConfig.label === opt.label ? '#fff' : '#1e293b',
+                                  background: sortConfig.label === opt.label ? 'var(--primary-color)' : 'transparent',
+                                  cursor: 'pointer',
+                                  marginBottom: '2px',
+                                  transition: 'all 0.2s'
+                                }}
+                                onClick={() => {
+                                  setSortConfig(opt);
+                                  setIsSortOpen(false);
+                                  setCurrentPage(1);
+                                }}
+                              >
+                                <i className={`fas ${opt.icon}`} style={{ width: '18px', opacity: sortConfig.label === opt.label ? 1 : 0.6 }}></i>
+                                {opt.label}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      </React.Fragment>
+                    )}
                   </div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
@@ -643,11 +720,12 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                   <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                     <button onClick={goToPreviousPage} disabled={currentPage === 1 || loading} className="btn-pagination"><i className="fas fa-chevron-left"></i> Prev</button>
                     <span style={{ fontSize: "0.8rem", fontWeight: 600, color: "#0f172a", minWidth: "80px", textAlign: "center" }}>{currentPage} / {totalPages || 1}</span>
-                    <button onClick={goToNextPage} disabled={currentPage >= totalPages || loading} className="btn-pagination">Next <i className="fas fa-chevron-right"></i></button>
+                    <button onClick={goToNextPage} disabled={currentPage >= totalPages || loading} className="btn-pagination" style={{ marginRight: '10px' }}>Next <i className="fas fa-chevron-right"></i></button>
+
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
+              )}
           </div>
 
           <ActiveFiltersChips filters={filters} onRemoveFilter={(k) => { const n = { ...filters }; delete n[k]; setFilters(n); }} onClearAll={() => setFilters({})} />

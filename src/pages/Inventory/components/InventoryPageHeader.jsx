@@ -32,18 +32,22 @@ const InventoryPageHeader = ({ viewMode, setViewMode, setIsFilterPanelOpen, acti
                     </button>
                 </div>
                 <button
-                    className="toolbar-btn"
+                    className="btn-outline"
                     onClick={() => setIsFilterPanelOpen(true)}
-                    style={{
-                        display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px',
-                        backgroundColor: activeFiltersCount > 0 ? '#eff6ff' : '#fff',
-                        color: activeFiltersCount > 0 ? '#2563eb' : '#64748b',
-                        border: activeFiltersCount > 0 ? '1px solid #2563eb' : '1px solid #e2e8f0',
-                        borderRadius: '8px', cursor: 'pointer', fontWeight: 600
+                    style={{ 
+                        display: 'flex', alignItems: 'center', gap: '8px', position: 'relative',
+                        height: '38px', padding: '0 15px', borderRadius: '10px'
                     }}
                 >
-                    <i className="fas fa-filter"></i> Filters
-                    {activeFiltersCount > 0 && <span style={{ background: '#2563eb', color: '#fff', fontSize: '0.7rem', padding: '2px 6px', borderRadius: '10px' }}>{activeFiltersCount}</span>}
+                    <i className="fas fa-filter"></i>
+                    Filters
+                    {activeFiltersCount > 0 && (
+                        <span style={{
+                            position: 'absolute', top: '-5px', right: '-5px',
+                            width: '10px', height: '10px', background: 'red', borderRadius: '50%',
+                            border: '2px solid #fff', boxShadow: '0 0 5px rgba(255,0,0,0.3)'
+                        }}></span>
+                    )}
                 </button>
             </div>
         </div>

@@ -149,12 +149,13 @@ const sanitizeData = (data) => {
 
 export const getCompanies = async (req, res, next) => {
     try {
-        const { page = 1, limit = 10, search = "" } = req.query;
+        const { page = 1, limit = 10, search = "", sortBy, sortOrder } = req.query;
         const visibilityFilter = await getVisibilityFilter(req.user);
 
         let query = { ...visibilityFilter };
         if (search) {
             query = {
+                ...query,
                 $or: [
                     { name: { $regex: search, $options: "i" } },
                     { description: { $regex: search, $options: "i" } },
@@ -165,7 +166,12 @@ export const getCompanies = async (req, res, next) => {
             };
         }
 
-        const results = await paginate(Company, query, page, limit, { updatedAt: -1 }, populateFields);
+        // ─── DYNAMIC SORTING (Senior Professional Optimization) ───
+        const finalSortBy = sortBy || 'updatedAt';
+        const finalSortOrder = parseInt(sortOrder) || -1;
+        const sortOption = { [finalSortBy]: finalSortOrder };
+
+        const results = await paginate(Company, query, page, limit, sortOption, populateFields);
 
         // Enhanced: Industry-based counts for summary footer
         const industries = await Lookup.find({ lookup_type: 'Industry' });

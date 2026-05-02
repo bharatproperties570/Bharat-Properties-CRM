@@ -77,12 +77,32 @@ export default function CommunicationPage() {
     const [nextPageToken, setNextPageToken] = useState(null);
     const [emailError,    setEmailError]    = useState(null); // 'oauth' | 'network' | null
     const [previewMedia,  setPreviewMedia]  = useState(null); // 🚀 Media Preview State
+    
+    // Pagination State
+    const [currentPage, setCurrentPage] = useState(1);
+    const [recordsPerPage, setRecordsPerPage] = useState(50);
+    const [totalPages, setTotalPages] = useState(1);
+    const [totalRecords, setTotalRecords] = useState(0);
+
+    // Sorting State
+    const [sortConfig, setSortConfig] = useState({ label: 'Newest Active', by: 'date', order: -1, icon: 'fa-history' });
+    const [isSortOpen, setIsSortOpen] = useState(false);
 
     /* ── Fetch messaging activities ─── */
     const fetchActivities = useCallback(async (silent = false) => {
         if (!silent) setLoading(true); else setRefreshing(true);
         try {
-            const res = await activitiesAPI.getMessagingStream();
+            const params = {
+                page: currentPage,
+                limit: recordsPerPage,
+                sortBy: sortConfig.by,
+                sortOrder: sortConfig.order,
+                search: searchQ,
+                channel: channel,
+                subTab: subTab,
+                ...filters
+            };
+            const res = await activitiesAPI.getMessagingStream(params);
             if (res?.success) {
                 console.log('[CommHub] Messaging Stream:', res.data); // Debug Log
                 setActivities(res.data.map(act => {
@@ -141,9 +161,13 @@ export default function CommunicationPage() {
                         phoneNumber: phone || act.phone || act.phoneNumber,
                     };
                 }));
+                if (res.pagination) {
+                    setTotalPages(res.pagination.totalPages || 1);
+                    setTotalRecords(res.pagination.totalCount || 0);
+                }
             }
         } catch(e){ console.error(e); } finally { setLoading(false); setRefreshing(false); }
-    }, []);
+    }, [currentPage, recordsPerPage, sortConfig, searchQ, filters]);
 
     /* ── Fetch emails ─── */
     const mapEmails = useCallback(emails => emails.map(e => ({
@@ -228,17 +252,14 @@ export default function CommunicationPage() {
     }, []);
 
     /* ── Init & refresh ─── */
-    useEffect(() => { fetchActivities(); fetchAIConvos(); }, [fetchActivities, fetchAIConvos]);
+    useEffect(() => { 
+        if (channel !== 'Email' && channel !== 'AI') {
+            fetchActivities(); 
+        }
+        if (channel === 'AI') fetchAIConvos();
+    }, [fetchActivities, fetchAIConvos, channel, subTab, currentPage, recordsPerPage, sortConfig]);
     useEffect(() => { if (channel==='Email' && !liveEmails.length && !emailError) fetchEmails(); }, [channel, liveEmails.length, fetchEmails, emailError]);
 
-    useEffect(() => {
-        if (channel === 'Email') return; 
-        const t = setInterval(() => {
-            if (channel === 'AI') fetchAIConvos();
-            else fetchActivities(true); // Silent refresh
-        }, 5000);
-        return () => clearInterval(t);
-    }, [channel, fetchAIConvos, fetchActivities]);
 
     const handleRefresh = () => {
         if (channel==='Email') fetchEmails();
@@ -247,49 +268,19 @@ export default function CommunicationPage() {
     };
 
     /* ── Filtered list ─── */
-    const allItems = useMemo(() => {
-        if (channel==='AI')    return [];
-        if (channel==='Email') return liveEmails;
-        const base = channel==='all' ? activities : activities.filter(a=>a.via===channel);
-        return applyCommunicationFilters(base, filters, searchQ);
-    }, [channel, activities, liveEmails, filters, searchQ]);
-
-    /* ── Filtered list with Thread Grouping ─── */
     const displayItems = useMemo(() => {
-        let base = allItems;
-        if (subTab==='matched')   base = allItems.filter(i=>i.isMatched);
-        else if (subTab==='unmatched') base = allItems.filter(i=>!i.isMatched);
+        if (channel === 'AI') return [];
+        if (channel === 'Email') {
+            let base = liveEmails;
+            if (subTab === 'matched') base = base.filter(i => i.isMatched);
+            else if (subTab === 'unmatched') base = base.filter(i => !i.isMatched);
+            return base;
+        }
+        // For Activities, the backend ALREADY groups and filters by channel/subTab
+        return activities;
+    }, [channel, activities, liveEmails, subTab]);
 
-        if (channel === 'Email' || channel === 'AI') return base;
-
-        const groups = {};
-        base.forEach(item => {
-            const key = item.phone || item.phoneNumber || item.participant || 'Unknown';
-            if (!groups[key]) {
-                groups[key] = { ...item, thread: [...(item.thread || [])] };
-            } else {
-                const combinedThread = [...(groups[key].thread || []), ...(item.thread || [])];
-                const seen = new Set();
-                const uniqueSortedThread = combinedThread
-                    .filter(m => {
-                        const mKey = `${m.time}-${m.text}-${m.sender}`;
-                        if (seen.has(mKey)) return false;
-                        seen.add(mKey);
-                        return true;
-                    })
-                    .sort((a, b) => new Date(a.time) - new Date(b.time));
-
-                if (new Date(item.date) > new Date(groups[key].date)) {
-                    const currentId = groups[key].id;
-                    Object.assign(groups[key], item);
-                    groups[key].id = currentId;
-                }
-                groups[key].thread = uniqueSortedThread;
-            }
-        });
-
-        return Object.values(groups).sort((a, b) => new Date(b.date) - new Date(a.date));
-    }, [allItems, subTab, channel]);
+    const allItems = displayItems; // For KPI counts in sub-tabs
 
     const selectedItem = useMemo(() => {
         if (!selectedId) return null;
@@ -457,6 +448,7 @@ export default function CommunicationPage() {
                         ⚙️ Filters {Object.keys(filters).length > 0 && <span style={{background:'#fff',color:'#6366f1',borderRadius:'20px',padding:'0 5px',fontSize:'0.6rem'}}>{Object.keys(filters).length}</span>}
                     </button>
 
+
                     {/* Theme toggle */}
                     <button onClick={() => setTheme(t => t==='dark'?'light':'dark')} title="Toggle theme" style={{
                         padding:'7px 12px', borderRadius:'9px', border:`1px solid ${T.border}`,
@@ -486,9 +478,9 @@ export default function CommunicationPage() {
                     {channel !== 'AI' && (
                         <div style={{ display:'flex', alignItems:'center', gap:'6px', padding:'8px 16px', background: T.surface, borderBottom:`1px solid ${T.border}`, flexShrink:0 }}>
                             {[
-                                { id:'all',       label:`All (${allItems.length})` },
-                                { id:'matched',   label:`✅ Matched (${allItems.filter(i=>i.isMatched).length})` },
-                                { id:'unmatched', label:`⚠️ Unmatched (${allItems.filter(i=>!i.isMatched).length})` },
+                                { id:'all',       label:`All (${totalRecords})` },
+                                { id:'matched',   label:`✅ Matched` },
+                                { id:'unmatched', label:`⚠️ Unmatched` },
                             ].map(st => (
                                 <button key={st.id} onClick={() => setSubTab(st.id)} style={{
                                     padding:'5px 13px', borderRadius:'6px', border:'none', cursor:'pointer',
@@ -498,8 +490,102 @@ export default function CommunicationPage() {
                                     borderBottom: subTab===st.id ? `2px solid ${T.accent}` : '2px solid transparent',
                                 }}>{st.label}</button>
                             ))}
-                            <div style={{marginLeft:'auto', fontSize:'0.68rem', color: T.text3, fontWeight:600}}>
-                                {displayItems.length} record{displayItems.length!==1?'s':''}
+                            <div style={{marginLeft:'auto', display:'flex', alignItems:'center', gap:'15px'}}>
+                                <div style={{ fontSize:'0.75rem', color: T.text3, fontWeight:700 }}>Total: <strong style={{color: T.text}}>{totalRecords}</strong> Streams</div>
+                                
+                                <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.72rem", color: T.text3 }}>
+                                    <span>Show:</span>
+                                    <select 
+                                        value={recordsPerPage} 
+                                        onChange={(e) => { setRecordsPerPage(Number(e.target.value)); setCurrentPage(1); }} 
+                                        style={{ padding: "2px 6px", border: `1px solid ${T.border}`, borderRadius: "6px", background: T.surface, fontSize: "0.72rem", fontWeight: 700, color: T.text, outline: "none", cursor: "pointer" }}
+                                    >
+                                        {[25, 50, 100, 200, 500].map(v => <option key={v} value={v}>{v}</option>)}
+                                    </select>
+                                </div>
+
+                                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                    <button 
+                                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))} 
+                                        disabled={currentPage === 1} 
+                                        style={{ padding: "3px 8px", border: `1px solid ${T.border}`, borderRadius: "6px", background: currentPage === 1 ? T.bg : T.surface, color: currentPage === 1 ? T.text3 : T.text, cursor: currentPage === 1 ? "not-allowed" : "pointer", fontSize: "0.7rem", fontWeight: 700 }}
+                                    >
+                                        <i className="fas fa-chevron-left"></i>
+                                    </button>
+                                    <span style={{ fontSize: "0.72rem", fontWeight: 800, color: T.text, minWidth: "50px", textAlign: "center" }}>{currentPage} / {totalPages || 1}</span>
+                                    <button 
+                                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} 
+                                        disabled={currentPage >= totalPages} 
+                                        style={{ padding: "3px 8px", border: `1px solid ${T.border}`, borderRadius: "6px", background: currentPage >= totalPages ? T.bg : T.surface, color: currentPage >= totalPages ? T.text3 : T.text, cursor: currentPage >= totalPages ? "not-allowed" : "pointer", fontSize: "0.7rem", fontWeight: 700 }}
+                                    >
+                                        <i className="fas fa-chevron-right"></i>
+                                    </button>
+                                </div>
+
+                                {/* Standardized Sort Icon (Moved here) */}
+                                <div style={{ position: 'relative' }}>
+                                    <button 
+                                        style={{ 
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center', 
+                                            width: '32px', height: '32px', borderRadius: '8px',
+                                            border: `1px solid ${isSortOpen ? T.accent : T.border}`,
+                                            background: isSortOpen ? T.accent : T.surface,
+                                            color: isSortOpen ? '#fff' : T.text2,
+                                            cursor: 'pointer', transition: 'all 0.2s'
+                                        }}
+                                        onClick={() => setIsSortOpen(!isSortOpen)}
+                                        title={`Sort: ${sortConfig.label}`}
+                                    >
+                                        <i className="fas fa-sort-amount-down-alt"></i>
+                                    </button>
+                                    {isSortOpen && (
+                                        <>
+                                            <div 
+                                                style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 998 }} 
+                                                onClick={() => setIsSortOpen(false)} 
+                                            />
+                                            <ul className="shadow-lg border-0" style={{ 
+                                                position: 'absolute', top: '100%', right: 0, zIndex: 999,
+                                                backgroundColor: T.surface, borderRadius: '12px', padding: '10px', 
+                                                minWidth: '220px', marginTop: '8px', listStyle: 'none',
+                                                border: `1px solid ${T.border}`,
+                                                boxShadow: '0 10px 25px rgba(0,0,0,0.15)'
+                                            }}>
+                                                <li><h6 style={{ fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', color: T.text3, padding: '10px 15px', margin: 0 }}>Communication Sort</h6></li>
+                                                {[
+                                                    { label: 'Newest Active', by: 'date', order: -1, icon: 'fa-history' },
+                                                    { label: 'Oldest Active', by: 'date', order: 1, icon: 'fa-calendar-alt' },
+                                                    { label: 'Name (A-Z)', by: 'participant', order: 1, icon: 'fa-sort-alpha-down' },
+                                                    { label: 'Channel (By Type)', by: 'via', order: 1, icon: 'fa-layer-group' },
+                                                ].map((opt) => (
+                                                    <li key={opt.label}>
+                                                        <button 
+                                                            style={{ 
+                                                                width: '100%', border: 'none', textAlign: 'left',
+                                                                borderRadius: '8px', 
+                                                                padding: '10px 15px', 
+                                                                fontSize: '0.8rem',
+                                                                fontWeight: sortConfig.label === opt.label ? 700 : 500,
+                                                                color: sortConfig.label === opt.label ? '#fff' : T.text,
+                                                                background: sortConfig.label === opt.label ? T.accent : 'transparent',
+                                                                cursor: 'pointer',
+                                                                marginBottom: '2px',
+                                                                transition: 'all 0.2s'
+                                                            }}
+                                                            onClick={() => {
+                                                                setSortConfig(opt);
+                                                                setIsSortOpen(false);
+                                                            }}
+                                                        >
+                                                            <i className={`fas ${opt.icon}`} style={{ width: '18px', opacity: sortConfig.label === opt.label ? 1 : 0.6, marginRight: '8px' }}></i>
+                                                            {opt.label}
+                                                        </button>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     )}
