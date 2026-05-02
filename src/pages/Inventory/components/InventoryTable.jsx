@@ -48,7 +48,6 @@ const InventoryTable = ({
                 <div>Associate Contact</div>
                 <div style={{ textAlign: 'left' }}>Intersaction</div>
                 <div>Assignment</div>
-                <div style={{ textAlign: 'center' }}>Actions</div>
             </div>
 
             {/* Grid Body */}
@@ -314,31 +313,6 @@ const InventoryTable = ({
                                 </div>
                             </div>
                             
-                            {/* Col 9: Row Actions */}
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                                <button 
-                                    onClick={(e) => { e.stopPropagation(); onAction('edit', item); }}
-                                    style={{ background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b', padding: '6px', borderRadius: '6px', cursor: 'pointer' }}
-                                    title="Edit Property"
-                                >
-                                    <i className="fas fa-edit" style={{ fontSize: '0.85rem' }}></i>
-                                </button>
-                                <button 
-                                    onClick={(e) => { e.stopPropagation(); onAction('match', item); }}
-                                    style={{ background: '#f0f9ff', border: '1px solid #e0f2fe', color: '#0369a1', padding: '6px', borderRadius: '6px', cursor: 'pointer' }}
-                                    title="Match Requirements"
-                                >
-                                    <i className="fas fa-bolt" style={{ fontSize: '0.85rem' }}></i>
-                                </button>
-                                <button 
-                                    onClick={(e) => { e.stopPropagation(); onAction('share', item); }}
-                                    style={{ background: '#f5f3ff', border: '1px solid #ede9fe', color: '#6d28d9', padding: '6px', borderRadius: '6px', cursor: 'pointer' }}
-                                    title="Share Property"
-                                >
-                                    <i className="fas fa-share-alt" style={{ fontSize: '0.85rem' }}></i>
-                                </button>
-                            </div>
-
                         </div>
                     );
                 })}
