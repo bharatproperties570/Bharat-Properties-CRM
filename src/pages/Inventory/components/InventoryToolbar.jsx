@@ -112,74 +112,6 @@ const InventoryToolbar = ({
                             />
                             <i className={`fas fa-search search-icon-premium ${searchTerm ? 'active' : ''}`}></i>
                         </div>
-
-                        {/* Professional Sort Icon (Moved next to search) */}
-                        <div style={{ position: 'relative' }}>
-                            <button 
-                                className="btn-pagination-icon" 
-                                style={{ 
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center', 
-                                    width: '32px', height: '32px', borderRadius: '8px',
-                                    border: '1px solid #e2e8f0',
-                                    background: isSortOpen ? 'var(--primary-color)' : '#fff',
-                                    color: isSortOpen ? '#fff' : '#64748b',
-                                    cursor: 'pointer', transition: 'all 0.2s'
-                                }}
-                                onClick={() => setIsSortOpen(!isSortOpen)}
-                                title={`Sort: ${sortConfig.label}`}
-                            >
-                                <i className="fas fa-sort-amount-down-alt"></i>
-                            </button>
-                            {isSortOpen && (
-                                <React.Fragment>
-                                    <div 
-                                        style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 998 }} 
-                                        onClick={() => setIsSortOpen(false)} 
-                                    />
-                                    <ul className="shadow-lg border-0" style={{ 
-                                        position: 'absolute', top: '100%', left: 0, zIndex: 999,
-                                        backgroundColor: '#fff', borderRadius: '16px', padding: '10px', 
-                                        minWidth: '220px', marginTop: '8px', listStyle: 'none',
-                                        border: '1px solid #eef2f5'
-                                    }}>
-                                        <li><h6 style={{ fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', color: '#94a3b8', padding: '10px 15px', margin: 0 }}>Advanced Sort</h6></li>
-                                        {[
-                                            { label: 'Unit Sequence', by: 'unitNo', order: 1, icon: 'fa-sort-numeric-down' },
-                                            { label: 'Sector/Locality', by: 'address.locality', order: 1, icon: 'fa-map-marker-alt' },
-                                            { label: 'Recently Updated', by: 'updatedAt', order: -1, icon: 'fa-bolt' },
-                                            { label: 'Price (Low to High)', by: 'pricing.expectedPrice', order: 1, icon: 'fa-sort-amount-down' },
-                                            { label: 'Price (High to Low)', by: 'pricing.expectedPrice', order: -1, icon: 'fa-sort-amount-up' },
-                                            { label: 'Size (Smallest)', by: 'area.size', order: 1, icon: 'fa-compress-arrows-alt' },
-                                        ].map((opt) => (
-                                            <li key={opt.label}>
-                                                <button 
-                                                    className={`d-flex align-items-center gap-3`} 
-                                                    style={{ 
-                                                        width: '100%', border: 'none', textAlign: 'left',
-                                                        borderRadius: '10px', 
-                                                        padding: '10px 15px', 
-                                                        fontSize: '0.85rem',
-                                                        fontWeight: sortConfig.label === opt.label ? 700 : 500,
-                                                        color: sortConfig.label === opt.label ? '#fff' : '#1e293b',
-                                                        background: sortConfig.label === opt.label ? 'var(--primary-color)' : 'transparent',
-                                                        cursor: 'pointer',
-                                                        marginBottom: '2px',
-                                                        transition: 'all 0.2s'
-                                                    }}
-                                                    onClick={() => {
-                                                        setSortConfig(opt);
-                                                        setIsSortOpen(false);
-                                                    }}
-                                                >
-                                                    <i className={`fas ${opt.icon}`} style={{ width: '18px', opacity: sortConfig.label === opt.label ? 1 : 0.6 }}></i>
-                                                    {opt.label}
-                                                </button>
-                                            </li>
-                                        ))}
-                                    </ul>
-                                </React.Fragment>
-                            )}
-                        </div>
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
@@ -226,11 +158,78 @@ const InventoryToolbar = ({
                                         fontSize: '0.75rem', fontWeight: 700, 
                                         color: (currentPage >= totalPages || loading) ? '#cbd5e1' : '#64748b', 
                                         cursor: (currentPage >= totalPages || loading) ? 'not-allowed' : 'pointer',
-                                        transition: 'all 0.2s ease'
+                                        transition: 'all 0.2s ease',
+                                        marginRight: '10px'
                                     }}
                                 >
                                     Next <i className="fas fa-chevron-right" style={{ fontSize: '0.65rem' }}></i>
                                 </button>
+                                
+                                {/* Professional Sort Icon (Shifted to end of pagination) */}
+                                <div style={{ position: 'relative' }}>
+                                    <button 
+                                        className="btn-pagination-icon" 
+                                        style={{ 
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center', 
+                                            width: '32px', height: '32px', borderRadius: '8px',
+                                            border: '1px solid #e2e8f0',
+                                            background: isSortOpen ? 'var(--primary-color)' : '#fff',
+                                            color: isSortOpen ? '#fff' : '#64748b',
+                                            cursor: 'pointer', transition: 'all 0.2s'
+                                        }}
+                                        onClick={() => setIsSortOpen(!isSortOpen)}
+                                        title={`Sort: ${sortConfig.label}`}
+                                    >
+                                        <i className="fas fa-sort-amount-down-alt"></i>
+                                    </button>
+                                    {isSortOpen && (
+                                        <React.Fragment>
+                                            <div 
+                                                style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 998 }} 
+                                                onClick={() => setIsSortOpen(false)} 
+                                            />
+                                            <ul className="shadow-lg border-0" style={{ 
+                                                position: 'absolute', top: '100%', right: 0, zIndex: 999,
+                                                backgroundColor: '#fff', borderRadius: '16px', padding: '10px', 
+                                                minWidth: '220px', marginTop: '8px', listStyle: 'none',
+                                                border: '1px solid #eef2f5'
+                                            }}>
+                                                <li><h6 style={{ fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', color: '#94a3b8', padding: '10px 15px', margin: 0 }}>Advanced Sort</h6></li>
+                                                {[
+                                                    { label: 'Unit Sequence', by: 'unitNo', order: 1, icon: 'fa-sort-numeric-down' },
+                                                    { label: 'Sector/Locality', by: 'address.locality', order: 1, icon: 'fa-map-marker-alt' },
+                                                    { label: 'Recently Updated', by: 'updatedAt', order: -1, icon: 'fa-bolt' },
+                                                    { label: 'Size (Smallest)', by: 'area.size', order: 1, icon: 'fa-compress-arrows-alt' },
+                                                ].map((opt) => (
+                                                    <li key={opt.label}>
+                                                        <button 
+                                                            className={`d-flex align-items-center gap-3`} 
+                                                            style={{ 
+                                                                width: '100%', border: 'none', textAlign: 'left',
+                                                                borderRadius: '10px', 
+                                                                padding: '10px 15px', 
+                                                                fontSize: '0.85rem',
+                                                                fontWeight: sortConfig.label === opt.label ? 700 : 500,
+                                                                color: sortConfig.label === opt.label ? '#fff' : '#1e293b',
+                                                                background: sortConfig.label === opt.label ? 'var(--primary-color)' : 'transparent',
+                                                                cursor: 'pointer',
+                                                                marginBottom: '2px',
+                                                                transition: 'all 0.2s'
+                                                            }}
+                                                            onClick={() => {
+                                                                setSortConfig(opt);
+                                                                setIsSortOpen(false);
+                                                            }}
+                                                        >
+                                                            <i className={`fas ${opt.icon}`} style={{ width: '18px', opacity: sortConfig.label === opt.label ? 1 : 0.6 }}></i>
+                                                            {opt.label}
+                                                        </button>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </React.Fragment>
+                                    )}
+                                </div>
                             </div>
 
                         </div>

@@ -42,8 +42,12 @@ function ProjectsPage({ onNavigate }) {
         setFilters,
         sortConfig,
         setSortConfig,
+        setProjects: setProjectsData,
         refresh: fetchProjects
     } = useProjectList();
+    
+    const goToNextPage = () => { if (currentPage < totalPages) setCurrentPage(p => p + 1); };
+    const goToPreviousPage = () => { if (currentPage > 1) setCurrentPage(p => p - 1); };
 
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isPriceModalOpen, setIsPriceModalOpen] = useState(false);
@@ -295,7 +299,7 @@ function ProjectsPage({ onNavigate }) {
                         </div>
 
                         <div style={{ flex: 1, overflowY: 'auto' }}>
-                            {filteredProjects.map(project => (
+                            {projectsData.map(project => (
                                 <div
                                     key={project._id}
                                     style={{ padding: '15px', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.2s' }}
@@ -405,7 +409,7 @@ function ProjectsPage({ onNavigate }) {
 
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
                                         <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
-                                            Showing: <strong>{projectsData.length}</strong> / <strong>{totalCount}</strong>
+                                            Showing: <strong>{projectsData.length}</strong> / <strong>{totalRecords}</strong>
                                         </div>
 
                                         {/* Records Per Page */}

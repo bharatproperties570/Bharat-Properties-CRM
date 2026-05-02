@@ -71,6 +71,7 @@ export const useProjectList = (initialFilters = {}) => {
         setFilters,
         sortConfig,
         setSortConfig,
+        setProjects,
         refresh
     };
 };
