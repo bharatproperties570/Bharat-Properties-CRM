@@ -1,4 +1,1 @@
-# Deployment Trigger
-This file is used to trigger a fresh Vercel deployment for the Luxury Portal update.
-Version: 1.0.1
-Time: 2026-05-03 19:46:59
+Production Build: Standardized Variable Resolution & Multi-Match Property Portfolio (Detailed) - Sun May  3 21:50:13 IST 2026
