@@ -123,10 +123,10 @@ const SiteVisitSettingsPage = ({ onBack }) => {
                                                 <LucideCode size={18} />
                                             </button>
                                             <button onClick={() => {
-                                                const baseUrl = 'https://bharatproperties.co';
+                                                const baseUrl = 'https://crm.bharatproperties.co';
                                                 const smartUrl = `${baseUrl}/public/form/${form.slug}?ref={{1}}`;
                                                 navigator.clipboard.writeText(smartUrl);
-                                                toast.success('Production Smart Link copied! Ready for Meta Template.');
+                                                toast.success('Production Smart Link (CRM) copied!');
                                             }} style={{ background: 'none', border: 'none', color: '#c9921a', cursor: 'pointer', padding: 0 }} title="WhatsApp Smart Link">
                                                 <i className="fab fa-whatsapp" style={{ fontSize: '1.1rem' }}></i>
                                             </button>
