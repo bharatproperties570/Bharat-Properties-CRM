@@ -10,23 +10,41 @@ import jwt from 'jsonwebtoken';
 
 class VariableResolutionService {
     /**
-     * Extracts values for a list of leads based on a mapping configuration.
-     * @param {Object|Array} leadData - Single lead or array of leads (already enriched with some context)
-     * @param {Object} mapping - { "1": "firstName", "2": "possessionStatus", ... }
-     * @returns {Object|Array} Resolved params or array of resolved params
+     * "Tiered Resolution Engine"
+     * Priority: Runtime Overrides > Template Mapping > Global Mapping
      */
-    resolveForLeads(leads, mapping) {
+    resolveForLeads(leads, globalMapping = {}, templateMapping = {}, runtimeOverrides = {}) {
         if (!leads) return [];
         const isArray = Array.isArray(leads);
         const dataArr = isArray ? leads : [leads];
         
         const resolved = dataArr.map(lead => {
             const params = {};
-            for (const [idx, source] of Object.entries(mapping)) {
-                // If the key is not a number (e.g., custom_val), skip here
-                if (isNaN(idx)) continue;
+            
+            // 🧠 SENIOR PROFESSIONAL LOGIC: Combine all mapping layers
+            // We iterate through a unified set of indices (1-30)
+            for (let i = 1; i <= 30; i++) {
+                const idx = String(i);
                 
-                params[idx] = this.extractValue(lead, source, mapping[`${idx}_val`]);
+                // 1. Check Runtime Overrides (e.g. from an API payload)
+                if (runtimeOverrides && runtimeOverrides[idx]) {
+                    params[idx] = runtimeOverrides[idx];
+                    continue;
+                }
+
+                // 2. Check Template-Level Overrides
+                if (templateMapping && templateMapping[idx]) {
+                    params[idx] = this.extractValue(lead, templateMapping[idx]);
+                    continue;
+                }
+
+                // 3. Fallback to Global Mapping
+                const globalSource = globalMapping[idx];
+                if (globalSource) {
+                    params[idx] = this.extractValue(lead, globalSource);
+                } else {
+                    params[idx] = ''; // Safe empty fallback
+                }
             }
             return params;
         });

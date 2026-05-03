@@ -429,12 +429,11 @@ const VariableRegistryTab = () => {
 
     const fieldOptions = [
         {
-            category: 'Contact & Names',
+                            category: 'Contact & Names',
             options: [
                 { id: 'fullName', label: 'Full Name (Lead)' },
                 { id: 'firstName', label: 'First Name only' },
                 { id: 'lastName', label: 'Last Name only' },
-                { id: 'salutation', label: 'Salutation (Mr./Ms.)' },
                 { id: 'mobile', label: 'Mobile Number' },
                 { id: 'email', label: 'Email Address' },
                 { id: 'agentMobile', label: 'Assigned RM Mobile' }
@@ -446,89 +445,25 @@ const VariableRegistryTab = () => {
                 { id: 'unitNo', label: 'Unit/Plot Number' },
                 { id: 'floor', label: 'Floor Level' },
                 { id: 'facing', label: 'Facing (N/S/E/W)' },
-                { id: 'direction', label: 'Entry Direction' },
-                { id: 'carpetArea', label: 'Carpet Area' },
-                { id: 'builtUpArea', label: 'Built-up Area' },
-                { id: 'totalSaleableArea', label: 'Super Area' },
-                { id: 'subCategory', label: 'Property Sub-Category (Plot/Flat)' },
                 { id: 'sizeType', label: 'Size (10 Marla / 3 BHK / 1500 Sqft)' },
-                { id: 'unitType', label: 'Unit Category (Corner / PLC / Ordinary)' },
-                { id: 'road', label: 'Road Width (ft)' },
-                { id: 'furnishType', label: 'Furnishing (Semi/Full)' },
-                { id: 'ageOfConstruction', label: 'Construction Age' }
+                { id: 'price', label: 'Basic Sale Price' }
             ]
         },
         {
-            category: 'Project Deep-Dive',
+            category: 'Advanced Matching (New)',
             options: [
-                { id: 'projectName', label: 'Project Name' },
-                { id: 'developerName', label: 'Developer/Builder' },
-                { id: 'reraNumber', label: 'RERA Registration No' },
-                { id: 'projectCity', label: 'Project City' },
-                { id: 'projectLocality', label: 'Project Locality' },
-                { id: 'projectArea', label: 'Project Sector/Area' },
-                { id: 'totalUnits', label: 'Total Units in Project' },
-                { id: 'totalBlocks', label: 'Total Towers/Blocks' },
-                { id: 'totalFloors', label: 'Max Project Floors' },
-                { id: 'landArea', label: 'Project Land Size' },
-                { id: 'approvedBank', label: 'Bank Approvals' },
-                { id: 'amenities', label: 'Amenities List' }
-            ]
-        },
-        {
-            category: 'Pricing & Financials',
-            options: [
-                { id: 'price', label: 'Basic Sale Price' },
-                { id: 'totalCost', label: 'All-Inclusive Cost' },
-                { id: 'rentPrice', label: 'Monthly Rent' },
-                { id: 'maintenanceAmount', label: 'Maintenance Charges' },
-                { id: 'gstStatus', label: 'GST Logic (Inc/Exc)' },
-                { id: 'paymentPlan', label: 'Default Payment Plan' },
-                { id: 'tokenAmount', label: 'Booking Amount' },
-                { id: 'agreementAmount', label: 'Agreement Value' }
-            ]
-        },
-        {
-            category: 'CRM Status & Activity',
-            options: [
-                { id: 'leadId', label: 'CRM Lead ID' },
-                { id: 'source', label: 'Lead Source' },
-                { id: 'stage', label: 'Sales Stage' },
-                { id: 'priority', label: 'Priority' },
-                { id: 'remark', label: 'Latest Remarks' },
-                { id: 'visitDate', label: 'Last Visit Date' },
-                { id: 'bookingDate', label: 'Unit Booking Date' },
-                { id: 'followUpDate', label: 'Next Follow-up' }
-            ]
-        },
-        {
-            category: 'AI Insights & Scoring',
-            options: [
-                { id: 'intentSummary', label: 'AI Intent Summary' },
-                { id: 'aiClosingProbability', label: 'AI Closing Prob. (%)' },
-                { id: 'customPrompt', label: 'AI Custom Content' }
+                { id: 'matchListDefault', label: 'Match Property (Default) - Project | Size | Price' },
+                { id: 'matchListDetailed', label: 'Match Property (Detailed) - Unit# | Project | Size | Price | Maps' },
+                { id: 'siteVisitLink', label: 'Site Visit Booking Link (Smart Form)' },
+                { id: 'feedbackLink', label: 'Customer Feedback Link' }
             ]
         },
         {
             category: 'System & Branding',
             options: [
                 { id: 'companyName', label: 'Company Name' },
-                { id: 'officeAddress', label: 'Office Address' },
-                { id: 'customerSupportNo', label: 'Support Number' },
-                { id: 'currentDate', label: "Today's Date" },
                 { id: 'crmLink', label: 'Portal Link' },
                 { id: 'agentName', label: 'Current User/Agent Name' }
-            ]
-        },
-        {
-            category: 'Dynamic Outcome Context',
-            options: [
-                { id: 'currentOutcome', label: 'Target Outcome Name' },
-                { id: 'nextFollowUpDate', label: 'Next Follow-up Date/Time' },
-                { id: 'siteVisitLink', label: 'Site Visit Booking Link (Smart Form)' },
-                { id: 'feedbackLink', label: 'Customer Feedback Link' },
-                { id: 'matchListDefault', label: 'Match Property (Default) - Project | Size | Price' },
-                { id: 'matchListDetailed', label: 'Match Property (Detailed) - Unit# | Project | Size | Price | Maps' }
             ]
         }
     ];
@@ -537,14 +472,21 @@ const VariableRegistryTab = () => {
         try {
             const res = await systemSettingsAPI.getByKey('messaging_variable_registry');
             if (res.success && res.data?.value) {
+                const raw = res.data.value;
                 const normalized = {};
-                Object.keys(res.data.value).forEach(k => {
-                    normalized[String(k)] = res.data.value[k];
+                // 🧠 Professional Migration Logic: Convert legacy strings to object schema
+                Object.keys(raw).forEach(k => {
+                    const val = raw[k];
+                    if (typeof val === 'string') {
+                        normalized[String(k)] = { source: val, mode: 'static' };
+                    } else {
+                        normalized[String(k)] = val;
+                    }
                 });
                 setVariables(normalized);
             }
         } catch (err) {
-            console.warn('No variable registry found, using defaults.');
+            console.warn('No variable registry found.');
         } finally {
             setIsLoading(false);
         }
@@ -560,91 +502,88 @@ const VariableRegistryTab = () => {
             await systemSettingsAPI.upsert('messaging_variable_registry', {
                 category: 'messaging',
                 value: variables,
-                description: 'Global mapping for messaging template variables {{1}}, {{2}} etc.',
+                description: 'Tiered variable registry (Static/Dynamic support)',
                 isPublic: true
             });
-            toast.success('Variable registry updated successfully');
+            toast.success('Enterprise mapping registry updated');
         } catch (err) {
-            toast.error('Failed to save variables: ' + err.message);
+            toast.error('Save failed: ' + err.message);
         } finally {
             setIsSaving(false);
         }
     };
 
-    if (isLoading) return <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text3)' }}><span className="spinner-sm"></span> Loading variable configuration...</div>;
+    const updateVar = (idx, field, val) => {
+        setVariables(p => ({
+            ...p,
+            [idx]: { ...(p[idx] || { source: '', mode: 'static' }), [field]: val }
+        }));
+    };
+
+    if (isLoading) return <div style={{ padding: '40px', textAlign: 'center' }}><span className="spinner-sm"></span></div>;
+
+    const lockedIndices = ['1', '7', '8'];
 
     return (
         <div style={{ animation: 'fadeIn 0.3s ease-out' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', background: 'rgba(255,255,255,0.03)', padding: '20px', borderRadius: '12px', border: '1px solid #f1f5f9' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', background: '#fff', padding: '20px', borderRadius: '12px', border: '1px solid #f1f5f9' }}>
                 <div>
-                    <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#1e293b' }}>Variable Mapping Registry</div>
-                    <div style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '4px' }}>Map indices like {"{{1}}"}, {"{{2}}"} to CRM fields globally for Meta, SMS & RCS.</div>
+                    <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Database size={20} color="var(--primary-color)" /> Hybrid Resolution Registry
+                    </div>
+                    <div style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '4px' }}>Configure <b>Static</b> (Global) vs <b>Dynamic</b> (Runtime) variables for enterprise campaigns.</div>
                 </div>
-                <div style={{ display: 'flex', gap: '12px' }}>
-                    <button 
-                        className="btn-secondary" 
-                        onClick={() => {
-                            if (window.confirm('Reset all variable mappings to empty?')) {
-                                setVariables({});
-                            }
-                        }}
-                        style={{ border: '1px solid #e2e8f0', background: '#fff', color: '#64748b' }}
-                    >
-                        Reset
-                    </button>
-                    <button className="btn-primary" onClick={handleSave} disabled={isSaving}>
-                        {isSaving ? 'Saving...' : 'Save Configuration'}
-                    </button>
-                </div>
-
+                <button className="btn-primary" onClick={handleSave} disabled={isSaving}>
+                    {isSaving ? 'Synchronizing...' : 'Save Registry'}
+                </button>
             </div>
 
-            <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)', minHeight: '400px' }}>
+            <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                     <thead>
                         <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                            <th style={{ padding: '16px', textAlign: 'left', width: '60px' }}>#</th>
-                            <th style={{ padding: '16px', textAlign: 'left', width: '120px' }}>Variable</th>
-                            <th style={{ padding: '16px', textAlign: 'left' }}>CRM Field Data Source</th>
-                            <th style={{ padding: '16px', textAlign: 'left' }}>Default Instruction / Note</th>
+                            <th style={{ padding: '16px', textAlign: 'left', width: '80px' }}>Index</th>
+                            <th style={{ padding: '16px', textAlign: 'left', width: '200px' }}>Mode</th>
+                            <th style={{ padding: '16px', textAlign: 'left' }}>Global Default Data Source</th>
+                            <th style={{ padding: '16px', textAlign: 'left' }}>Status</th>
                         </tr>
                     </thead>
-                    <tbody style={{ borderTop: 'none' }}>
+                    <tbody>
                         {Array.from({ length: 30 }).map((_, i) => {
                             const idx = String(i + 1);
-                            const currentVal = variables[idx] || '';
-                            let label = 'Will require manual mapping if found in template.';
-                            fieldOptions.forEach(cat => {
-                                const found = cat.options.find(o => o.id === currentVal);
-                                if (found) label = `Automatically pull ${found.label}`;
-                            });
+                            const config = variables[idx] || { source: '', mode: 'static' };
+                            const isLocked = lockedIndices.includes(idx);
 
                             return (
-                                <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                    <td style={{ padding: '12px 16px', color: '#94a3b8', fontWeight: 600, fontSize: '0.8rem' }}>
-                                        {idx}
+                                <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9', background: isLocked ? '#fafafa' : '#fff' }}>
+                                    <td style={{ padding: '12px 16px' }}>
+                                        <div style={{ background: '#1e293b', color: '#fff', width: '32px', height: '32px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.75rem' }}>
+                                            {idx}
+                                        </div>
                                     </td>
                                     <td style={{ padding: '12px 16px' }}>
-                                        <span style={{ 
-                                            background: 'linear-gradient(135deg, #fbbf24, #d97706)', 
-                                            color: '#fff', 
-                                            padding: '4px 10px', 
-                                            borderRadius: '6px', 
-                                            fontWeight: 800, 
-                                            fontSize: '0.75rem',
-                                            fontFamily: 'monospace',
-                                            boxShadow: '0 2px 4px rgba(217, 119, 6, 0.2)'
-                                        }}>
-                                            {`{{${idx}}}`}
-                                        </span>
+                                        <div style={{ display: 'flex', background: '#f1f5f9', padding: '3px', borderRadius: '8px', width: 'fit-content' }}>
+                                            <button 
+                                                onClick={() => !isLocked && updateVar(idx, 'mode', 'static')}
+                                                style={{ padding: '6px 12px', border: 'none', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700, cursor: isLocked ? 'not-allowed' : 'pointer', background: config.mode === 'static' ? '#fff' : 'transparent', color: config.mode === 'static' ? '#1e293b' : '#64748b', boxShadow: config.mode === 'static' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none' }}
+                                            >
+                                                <ShieldCheck size={12} style={{ marginRight: '4px', display: 'inline' }} /> Static
+                                            </button>
+                                            <button 
+                                                onClick={() => !isLocked && updateVar(idx, 'mode', 'dynamic')}
+                                                style={{ padding: '6px 12px', border: 'none', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700, cursor: isLocked ? 'not-allowed' : 'pointer', background: config.mode === 'dynamic' ? '#fff' : 'transparent', color: config.mode === 'dynamic' ? 'var(--primary-color)' : '#64748b', boxShadow: config.mode === 'dynamic' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none' }}
+                                            >
+                                                <Sparkles size={12} style={{ marginRight: '4px', display: 'inline' }} /> Dynamic
+                                            </button>
+                                        </div>
                                     </td>
                                     <td style={{ padding: '12px 16px' }}>
                                         <select 
-                                            value={currentVal} 
-                                            onChange={e => setVariables(p => ({ ...p, [idx]: e.target.value }))}
-                                            style={{ width: '100%', padding: '10px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.85rem', color: currentVal ? '#1e293b' : '#94a3b8' }}
+                                            value={config.source} 
+                                            onChange={e => updateVar(idx, 'source', e.target.value)}
+                                            style={{ width: '100%', padding: '10px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.85rem' }}
                                         >
-                                            <option value="">-- No Default Mapping --</option>
+                                            <option value="">-- No Global Fallback --</option>
                                             {fieldOptions.map(cat => (
                                                 <optgroup key={cat.category} label={cat.category}>
                                                     {cat.options.map(opt => (
@@ -654,8 +593,20 @@ const VariableRegistryTab = () => {
                                             ))}
                                         </select>
                                     </td>
-                                    <td style={{ padding: '12px 16px', color: '#64748b', fontStyle: 'italic' }}>
-                                        {label}
+                                    <td style={{ padding: '12px 16px' }}>
+                                        {isLocked ? (
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#94a3b8', fontSize: '0.75rem', fontWeight: 600 }}>
+                                                <History size={14} /> System Locked
+                                            </div>
+                                        ) : config.mode === 'dynamic' ? (
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#f59e0b', fontSize: '0.75rem', fontWeight: 700 }}>
+                                                <MessageSquare size={14} /> Override Allowed
+                                            </div>
+                                        ) : (
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#10b981', fontSize: '0.75rem', fontWeight: 600 }}>
+                                                <ShieldCheck size={14} /> Global Only
+                                            </div>
+                                        )}
                                     </td>
                                 </tr>
                             );
