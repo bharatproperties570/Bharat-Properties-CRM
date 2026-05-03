@@ -17,43 +17,57 @@ class VariableResolutionService {
     resolveNamed(lead, customOverrides = {}) {
         if (!lead) return {};
         
-        // Comprehensive named registry (Restored Full Enterprise List)
+        // Comprehensive named registry (Restored Full Enterprise List with Aliases)
         const namedPayload = {
             // --- Customer / Lead ---
+            "name": this.extractValue(lead, 'fullName'),
             "customer_name": this.extractValue(lead, 'fullName'),
             "customer_first_name": this.extractValue(lead, 'firstName'),
+            "mobile": this.extractValue(lead, 'mobile'),
             "customer_mobile": this.extractValue(lead, 'mobile'),
+            "email": this.extractValue(lead, 'email'),
             "customer_email": this.extractValue(lead, 'email'),
             "lead_id": this.extractValue(lead, 'leadId'),
             "lead_source": this.extractValue(lead, 'source'),
             "lead_stage": this.extractValue(lead, 'stage'),
             
             // --- Unit Specifications ---
+            "unit": this.extractValue(lead, 'unitNo'),
             "unit_number": this.extractValue(lead, 'unitNo'),
             "floor_level": this.extractValue(lead, 'floor'),
+            "facing": this.extractValue(lead, 'facing'),
             "property_facing": this.extractValue(lead, 'facing'),
+            "size": this.extractValue(lead, 'sizeType'),
             "property_size": this.extractValue(lead, 'sizeType'),
             "built_up_area": this.extractValue(lead, 'builtUpArea'),
             "carpet_area": this.extractValue(lead, 'carpetArea'),
             
             // --- Project Deep-Dive ---
+            "project": this.extractValue(lead, 'projectName'),
             "project_name": this.extractValue(lead, 'projectName'),
+            "developer": this.extractValue(lead, 'developerName'),
             "developer_name": this.extractValue(lead, 'developerName'),
             "rera_number": this.extractValue(lead, 'reraNumber'),
+            "location": this.extractValue(lead, 'projectLocality'),
             "project_location": this.extractValue(lead, 'projectLocality'),
             
             // --- Financials ---
+            "price": this.extractValue(lead, 'price'),
             "property_price": this.extractValue(lead, 'price'),
             "total_cost": this.extractValue(lead, 'totalCost'),
             "payment_plan": this.extractValue(lead, 'paymentPlan'),
             
             // --- AI Insights ---
+            "ai_summary": this.extractValue(lead, 'intentSummary'),
             "ai_intent_summary": this.extractValue(lead, 'intentSummary'),
+            "ai_score": this.extractValue(lead, 'aiClosingProbability'),
             "ai_closing_score": this.extractValue(lead, 'aiClosingProbability'),
             
             // --- Agent / System ---
+            "agent": this.extractValue(lead, 'agentName'),
             "agent_name": this.extractValue(lead, 'agentName'),
             "agent_mobile": this.extractValue(lead, 'agentMobile'),
+            "company": "Bharat Properties",
             "company_name": "Bharat Properties",
             "office_address": "Gurugram, Haryana",
             
