@@ -429,41 +429,37 @@ const VariableRegistryTab = () => {
 
     const fieldOptions = [
         {
-                            category: 'Contact & Names',
+            category: 'Customer (Internal)',
             options: [
-                { id: 'fullName', label: 'Full Name (Lead)' },
-                { id: 'firstName', label: 'First Name only' },
-                { id: 'lastName', label: 'Last Name only' },
-                { id: 'mobile', label: 'Mobile Number' },
-                { id: 'email', label: 'Email Address' },
-                { id: 'agentMobile', label: 'Assigned RM Mobile' }
+                { id: 'customer_name', label: 'Full Name' },
+                { id: 'customer_first_name', label: 'First Name only' },
+                { id: 'customer_mobile', label: 'Mobile Number' },
+                { id: 'customer_email', label: 'Email Address' }
             ]
         },
         {
-            category: 'Unit Specifications',
+            category: 'Property Details (Internal)',
             options: [
-                { id: 'unitNo', label: 'Unit/Plot Number' },
-                { id: 'floor', label: 'Floor Level' },
-                { id: 'facing', label: 'Facing (N/S/E/W)' },
-                { id: 'sizeType', label: 'Size (10 Marla / 3 BHK / 1500 Sqft)' },
-                { id: 'price', label: 'Basic Sale Price' }
+                { id: 'project_name', label: 'Project Name' },
+                { id: 'unit_number', label: 'Unit Number' },
+                { id: 'property_list_default', label: 'Property List (Default)' },
+                { id: 'property_list_detailed', label: 'Property List (Detailed + Maps)' }
             ]
         },
         {
-            category: 'Advanced Matching (New)',
+            category: 'Dynamic Links (Internal)',
             options: [
-                { id: 'matchListDefault', label: 'Match Property (Default) - Project | Size | Price' },
-                { id: 'matchListDetailed', label: 'Match Property (Detailed) - Unit# | Project | Size | Price | Maps' },
-                { id: 'siteVisitLink', label: 'Site Visit Booking Link (Smart Form)' },
-                { id: 'feedbackLink', label: 'Customer Feedback Link' }
+                { id: 'site_visit_link', label: 'Site Visit Form Link' },
+                { id: 'feedback_link', label: 'Feedback Form Link' },
+                { id: 'portal_link', label: 'Public Portal Link' }
             ]
         },
         {
-            category: 'System & Branding',
+            category: 'Branding (Internal)',
             options: [
-                { id: 'companyName', label: 'Company Name' },
-                { id: 'crmLink', label: 'Portal Link' },
-                { id: 'agentName', label: 'Current User/Agent Name' }
+                { id: 'agent_name', label: 'Agent Name' },
+                { id: 'agent_mobile', label: 'Agent Mobile' },
+                { id: 'company_name', label: 'Company Name' }
             ]
         }
     ];
@@ -543,8 +539,8 @@ const VariableRegistryTab = () => {
                     <thead>
                         <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                             <th style={{ padding: '16px', textAlign: 'left', width: '80px' }}>Index</th>
-                            <th style={{ padding: '16px', textAlign: 'left', width: '200px' }}>Mode</th>
-                            <th style={{ padding: '16px', textAlign: 'left' }}>Global Default Data Source</th>
+                            <th style={{ padding: '16px', textAlign: 'left', width: '200px' }}>Resolution Mode</th>
+                            <th style={{ padding: '16px', textAlign: 'left' }}>Internal Semantic Name</th>
                             <th style={{ padding: '16px', textAlign: 'left' }}>Status</th>
                         </tr>
                     </thead>

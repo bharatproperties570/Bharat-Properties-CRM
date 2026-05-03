@@ -10,8 +10,82 @@ import jwt from 'jsonwebtoken';
 
 class VariableResolutionService {
     /**
-     * "Tiered Resolution Engine"
+     * LAYER 1: Named Resolution (Internal)
+     * Resolves all CRM data points into a human-readable object.
+     * Use this for SMS, Email, and internal logging.
+     */
+    resolveNamed(lead, customOverrides = {}) {
+        if (!lead) return {};
+        
+        // Comprehensive named registry
+        const namedPayload = {
+            // Lead / Customer
+            "customer_name": this.extractValue(lead, 'fullName'),
+            "customer_first_name": this.extractValue(lead, 'firstName'),
+            "customer_mobile": this.extractValue(lead, 'mobile'),
+            "customer_email": this.extractValue(lead, 'email'),
+            
+            // Property / Matches
+            "property_list_default": this.extractValue(lead, 'matchListDefault'),
+            "property_list_detailed": this.extractValue(lead, 'matchListDetailed'),
+            "project_name": this.extractValue(lead, 'projectName'),
+            "unit_number": this.extractValue(lead, 'unitNumber'),
+            
+            // Agent / System
+            "agent_name": this.extractValue(lead, 'agentName'),
+            "agent_mobile": this.extractValue(lead, 'agentMobile'),
+            "company_name": "Bharat Properties",
+            
+            // Smart Links
+            "site_visit_link": this.extractValue(lead, 'siteVisitLink'),
+            "feedback_link": this.extractValue(lead, 'feedbackLink'),
+            "portal_link": "https://crm.bharatproperties.co",
+
+            // Inject Runtime Custom Data
+            ...customOverrides
+        };
+
+        return namedPayload;
+    }
+
+    /**
+     * LAYER 2: Platform Transformer (WhatsApp / Numbered)
+     * Converts named payload to numbered indices ({{1}}, {{2}}...)
      * Priority: Runtime Overrides > Template Mapping > Global Mapping
+     */
+    transformToNumbered(namedPayload, templateMapping = {}, globalMapping = {}) {
+        const numberedPayload = {};
+        
+        // We iterate through standard indices (1-30)
+        for (let i = 1; i <= 30; i++) {
+            const idx = String(i);
+            
+            // 1. Check Template Level Mapping (Highest Priority)
+            // Example templateMapping[idx] = "customer_name"
+            const templateTargetName = templateMapping[idx];
+            if (templateTargetName && namedPayload[templateTargetName]) {
+                numberedPayload[idx] = namedPayload[templateTargetName];
+                continue;
+            }
+
+            // 2. Check Global Registry Mapping (Fallback)
+            // Example globalMapping[idx] = { source: "customer_name", mode: "static" }
+            const globalConfig = globalMapping[idx];
+            const globalTargetName = typeof globalConfig === 'object' ? globalConfig.source : globalConfig;
+            
+            if (globalTargetName && namedPayload[globalTargetName]) {
+                numberedPayload[idx] = namedPayload[globalTargetName];
+            } else {
+                numberedPayload[idx] = ''; // Safe empty string
+            }
+        }
+
+        return numberedPayload;
+    }
+
+    /**
+     * LEGACY WRAPPER: resolveForLeads
+     * Maintains backward compatibility for existing controllers.
      */
     resolveForLeads(leads, globalMapping = {}, templateMapping = {}, runtimeOverrides = {}) {
         if (!leads) return [];
@@ -19,39 +93,8 @@ class VariableResolutionService {
         const dataArr = isArray ? leads : [leads];
         
         const resolved = dataArr.map(lead => {
-            const params = {};
-            
-            // 🧠 SENIOR PROFESSIONAL LOGIC: Combine all mapping layers
-            // We iterate through a unified set of indices (1-30)
-            for (let i = 1; i <= 30; i++) {
-                const idx = String(i);
-                
-                // 1. Check Runtime Overrides (e.g. from an API payload)
-                if (runtimeOverrides && runtimeOverrides[idx]) {
-                    params[idx] = runtimeOverrides[idx];
-                    continue;
-                }
-
-                // 2. Check Template-Level Overrides
-                const templateConfig = templateMapping[idx];
-                const templateSource = typeof templateConfig === 'object' ? templateConfig.source : templateConfig;
-                if (templateSource) {
-                    params[idx] = this.extractValue(lead, templateSource);
-                    continue;
-                }
-
-                // 3. Fallback to Global Mapping
-                const globalConfig = globalMapping[idx];
-                // 🧠 Professional Resilience: Handle both object {source, mode} and legacy string
-                const globalSource = typeof globalConfig === 'object' ? globalConfig.source : globalConfig;
-                
-                if (globalSource) {
-                    params[idx] = this.extractValue(lead, globalSource);
-                } else {
-                    params[idx] = ''; // Safe empty fallback
-                }
-            }
-            return params;
+            const named = this.resolveNamed(lead, runtimeOverrides);
+            return this.transformToNumbered(named, templateMapping, globalMapping);
         });
 
         return isArray ? resolved : resolved[0];
