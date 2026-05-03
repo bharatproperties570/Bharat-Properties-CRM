@@ -210,12 +210,22 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
         const fieldOptions = [
             { id: 'customer_name', label: 'Full Name' },
             { id: 'customer_first_name', label: 'First Name' },
+            { id: 'customer_mobile', label: 'Mobile Number' },
+            { id: 'customer_email', label: 'Email Address' },
+            { id: 'unit_number', label: 'Unit/Plot Number' },
+            { id: 'floor_level', label: 'Floor Level' },
+            { id: 'property_facing', label: 'Facing' },
+            { id: 'property_size', label: 'Size (3 BHK/Marla)' },
+            { id: 'property_price', label: 'Basic Price' },
+            { id: 'project_name', label: 'Project Name' },
+            { id: 'developer_name', label: 'Developer Name' },
             { id: 'property_list_default', label: 'Property List (Default)' },
             { id: 'property_list_detailed', label: 'Property List (Detailed)' },
             { id: 'site_visit_link', label: 'Site Visit Link' },
             { id: 'feedback_link', label: 'Feedback Link' },
-            { id: 'project_name', label: 'Project Name' },
-            { id: 'agent_name', label: 'Agent Name' }
+            { id: 'agent_name', label: 'Agent Name' },
+            { id: 'agent_mobile', label: 'Agent Mobile' },
+            { id: 'ai_intent_summary', label: 'AI Intent Summary' }
         ];
 
         return (
