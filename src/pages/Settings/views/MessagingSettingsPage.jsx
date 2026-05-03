@@ -528,7 +528,8 @@ const VariableRegistryTab = () => {
                 { id: 'outcomeNotes', label: 'Latest Outcome Notes' },
                 { id: 'visitLocation', label: 'Site Visit Location Link' },
                 { id: 'siteVisitLink', label: 'Site Visit Booking Link (Smart Form)' },
-                { id: 'feedbackLink', label: 'Customer Feedback Link' }
+                { id: 'feedbackLink', label: 'Customer Feedback Link' },
+                { id: 'matchList', label: 'Matched Property List (1️⃣... 2️⃣...)' }
             ]
         }
     ];
