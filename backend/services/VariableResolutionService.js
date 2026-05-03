@@ -33,13 +33,18 @@ class VariableResolutionService {
                 }
 
                 // 2. Check Template-Level Overrides
-                if (templateMapping && templateMapping[idx]) {
-                    params[idx] = this.extractValue(lead, templateMapping[idx]);
+                const templateConfig = templateMapping[idx];
+                const templateSource = typeof templateConfig === 'object' ? templateConfig.source : templateConfig;
+                if (templateSource) {
+                    params[idx] = this.extractValue(lead, templateSource);
                     continue;
                 }
 
                 // 3. Fallback to Global Mapping
-                const globalSource = globalMapping[idx];
+                const globalConfig = globalMapping[idx];
+                // 🧠 Professional Resilience: Handle both object {source, mode} and legacy string
+                const globalSource = typeof globalConfig === 'object' ? globalConfig.source : globalConfig;
+                
                 if (globalSource) {
                     params[idx] = this.extractValue(lead, globalSource);
                 } else {
