@@ -711,8 +711,10 @@ export const sendManualMatch = async (req, res) => {
                         matchedProperties: finalDealIds.map(id => ({ inventoryId: id })) 
                     };
 
-                    // Default Meta Mapping
-                    const mapping = {
+                    // 🧠 DYNAMIC MAPPING: Fetch from SystemSettings (Variable Registry)
+                    const SystemSetting = mongoose.model('SystemSetting');
+                    const registrySetting = await SystemSetting.findOne({ key: 'messaging_variable_registry' }).lean();
+                    const mapping = (registrySetting && registrySetting.value) ? registrySetting.value : {
                         "1": "name",
                         "2": "location",
                         "3": "matchList"
@@ -720,13 +722,16 @@ export const sendManualMatch = async (req, res) => {
 
                     const resolvedParams = (await import('../services/VariableResolutionService.js')).default.resolveForLeads(enrichedLead, mapping);
                     
-                    // Construct the message based on template or default
-                    // Note: In production, this would call waService.sendTemplateMessage
-                    const propertyList = resolvedParams["3"];
-                    const name = resolvedParams["1"];
-                    const location = resolvedParams["2"];
+                    // Construct the message based on the resolved parameters
+                    // We build a message that mimics the template structure
+                    let message = `Hi ${resolvedParams["1"] || 'Customer'} 👋\n\nBased on your requirement in ${resolvedParams["2"] || 'your preferred area'}, here are a few suitable options:\n\n${resolvedParams["3"] || resolvedParams["4"] || resolvedParams["5"] || 'Property matches below:'}`;
                     
-                    const message = `Hi ${name} 👋\n\nBased on your requirement in ${location}, here are a few suitable options:\n\n${propertyList}\n\nWould you like photos, more details, or to schedule a visit?`;
+                    // If matchList was mapped to another index, use that
+                    Object.keys(mapping).forEach(key => {
+                        if (mapping[key] === 'matchList') {
+                            message = `Hi ${resolvedParams["1"] || 'Customer'} 👋\n\nBased on your requirement in ${resolvedParams["2"] || 'your preferred area'}, here are a few suitable options:\n\n${resolvedParams[key]}`;
+                        }
+                    });
 
                     try {
                         const res = await waService.sendMessage(mobile, message);
