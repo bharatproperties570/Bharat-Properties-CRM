@@ -159,16 +159,38 @@ class VariableResolutionService {
                     return 'error';
                 }
 
-            case 'matchList':
+            case 'matchListDefault':
+            case 'matchList': // Legacy support
                 if (!lead.matchedProperties || !Array.isArray(lead.matchedProperties)) {
                     return 'Please check our latest premium property matches below:';
                 }
                 return lead.matchedProperties.map((p, i) => {
-                    const loc = p.location || p.sector || p.inventoryId?.sector || p.inventoryId?.projectName || 'Prime Location';
-                    const sz = p.size || p.inventoryId?.size || 'Standard Size';
-                    const pr = p.price || p.inventoryId?.price || 'On Request';
-                    return `${i + 1}️⃣ 📍 ${loc} | 📏 ${sz} | 💰 ${pr}`;
+                    const loc = p.inventoryId?.projectName || p.sector || 'Prime Location';
+                    const sz = p.size || p.inventoryId?.size?.value || 'Standard Size';
+                    const szUnit = p.inventoryId?.size?.unit || 'Sq.Ft.';
+                    const pr = p.price || (p.inventoryId?.price?.value ? `₹${(p.inventoryId.price.value / 10000000).toFixed(2)} Cr` : 'On Request');
+                    return `${i + 1}️⃣ 🏢 ${loc} | 📐 ${sz} ${szUnit} | 💰 ${pr}`;
                 }).join('\n');
+
+            case 'matchListDetailed':
+                if (!lead.matchedProperties || !Array.isArray(lead.matchedProperties)) {
+                    return 'Here are the detailed property options curated for you:';
+                }
+                return lead.matchedProperties.map((p, i) => {
+                    const inv = p.inventoryId || {};
+                    const unit = inv.unitNo || inv.unitNumber || 'TBD';
+                    const project = inv.projectName || 'Premium Project';
+                    const sz = inv.size?.value || 'N/A';
+                    const szUnit = inv.size?.unit || 'Sq.Ft.';
+                    const pr = inv.price?.value ? `₹${(inv.price.value / 10000000).toFixed(2)} Cr` : 'On Request';
+                    
+                    let mapsLink = '';
+                    if (inv.latitude && inv.longitude) {
+                        mapsLink = `\n📍 View Location: https://www.google.com/maps?q=${inv.latitude},${inv.longitude}`;
+                    }
+
+                    return `${i + 1}️⃣ #${unit} | ${project} | ${sz} ${szUnit} | ${pr}${mapsLink}`;
+                }).join('\n\n');
 
             default:
                 // Try deep access for custom fields
