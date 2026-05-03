@@ -538,7 +538,11 @@ const VariableRegistryTab = () => {
         try {
             const res = await systemSettingsAPI.getByKey('messaging_variable_registry');
             if (res.success && res.data?.value) {
-                setVariables(res.data.value);
+                const normalized = {};
+                Object.keys(res.data.value).forEach(k => {
+                    normalized[String(k)] = res.data.value[k];
+                });
+                setVariables(normalized);
             }
         } catch (err) {
             console.warn('No variable registry found, using defaults.');
@@ -608,7 +612,7 @@ const VariableRegistryTab = () => {
                     </thead>
                     <tbody style={{ borderTop: 'none' }}>
                         {Array.from({ length: 30 }).map((_, i) => {
-                            const idx = i + 1;
+                            const idx = String(i + 1);
                             const currentVal = variables[idx] || '';
                             let label = 'Will require manual mapping if found in template.';
                             fieldOptions.forEach(cat => {
