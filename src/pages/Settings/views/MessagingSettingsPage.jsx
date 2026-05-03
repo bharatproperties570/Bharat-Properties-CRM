@@ -488,37 +488,68 @@ const VariableRegistryTab = () => {
 
     const fieldOptions = [
         {
-            category: 'Customer (Internal)',
+            category: 'Customer / Lead (Internal)',
             options: [
                 { id: 'customer_name', label: 'Full Name' },
-                { id: 'customer_first_name', label: 'First Name only' },
+                { id: 'customer_first_name', label: 'First Name' },
                 { id: 'customer_mobile', label: 'Mobile Number' },
-                { id: 'customer_email', label: 'Email Address' }
+                { id: 'customer_email', label: 'Email Address' },
+                { id: 'lead_source', label: 'Lead Source' },
+                { id: 'lead_stage', label: 'Sales Stage' }
             ]
         },
         {
-            category: 'Property Details (Internal)',
+            category: 'Unit Specifications (Internal)',
+            options: [
+                { id: 'unit_number', label: 'Unit/Plot Number' },
+                { id: 'floor_level', label: 'Floor Level' },
+                { id: 'property_facing', label: 'Facing (N/S/E/W)' },
+                { id: 'property_size', label: 'Size (10 Marla / 3 BHK)' },
+                { id: 'built_up_area', label: 'Built-up Area' },
+                { id: 'carpet_area', label: 'Carpet Area' }
+            ]
+        },
+        {
+            category: 'Project Deep-Dive (Internal)',
             options: [
                 { id: 'project_name', label: 'Project Name' },
-                { id: 'unit_number', label: 'Unit Number' },
-                { id: 'property_list_default', label: 'Property List (Default)' },
-                { id: 'property_list_detailed', label: 'Property List (Detailed + Maps)' }
+                { id: 'developer_name', label: 'Developer/Builder' },
+                { id: 'rera_number', label: 'RERA Registration No' },
+                { id: 'project_location', label: 'Project Locality' }
             ]
         },
         {
-            category: 'Dynamic Links (Internal)',
+            category: 'Financials & Pricing (Internal)',
             options: [
+                { id: 'property_price', label: 'Basic Sale Price' },
+                { id: 'total_cost', label: 'All-Inclusive Cost' },
+                { id: 'payment_plan', label: 'Payment Plan' }
+            ]
+        },
+        {
+            category: 'Dynamic Links & Lists (Internal)',
+            options: [
+                { id: 'property_list_default', label: 'Match Property (Default)' },
+                { id: 'property_list_detailed', label: 'Match Property (Detailed)' },
                 { id: 'site_visit_link', label: 'Site Visit Form Link' },
                 { id: 'feedback_link', label: 'Feedback Form Link' },
                 { id: 'portal_link', label: 'Public Portal Link' }
             ]
         },
         {
-            category: 'Branding (Internal)',
+            category: 'AI Insights (Internal)',
+            options: [
+                { id: 'ai_intent_summary', label: 'AI Intent Summary' },
+                { id: 'ai_closing_score', label: 'AI Closing Prob. (%)' }
+            ]
+        },
+        {
+            category: 'System & Branding (Internal)',
             options: [
                 { id: 'agent_name', label: 'Agent Name' },
                 { id: 'agent_mobile', label: 'Agent Mobile' },
-                { id: 'company_name', label: 'Company Name' }
+                { id: 'company_name', label: 'Company Name' },
+                { id: 'office_address', label: 'Office Address' }
             ]
         }
     ];
