@@ -34,7 +34,8 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
                     // Ensure nested fields are initialized if missing
                     buttons: initialData.buttons || [],
                     tags: initialData.tags || [],
-                    headerType: initialData.headerType || 'NONE'
+                    headerType: initialData.headerType || 'NONE',
+                    variableMapping: initialData.variableMapping || {}
                 });
             } else {
                 setTemplateData({
@@ -49,7 +50,8 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
                     tags: [],
                     shared: true,
                     dltTemplateId: '',
-                    dltHeaderId: ''
+                    dltHeaderId: '',
+                    variableMapping: {}
                 });
             }
         }
@@ -202,6 +204,58 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
         </div>
     );
 
+    const renderVariableMapping = () => {
+        if (channelType !== 'whatsapp') return null;
+
+        const fieldOptions = [
+            { id: 'customer_name', label: 'Full Name' },
+            { id: 'customer_first_name', label: 'First Name' },
+            { id: 'property_list_default', label: 'Property List (Default)' },
+            { id: 'property_list_detailed', label: 'Property List (Detailed)' },
+            { id: 'site_visit_link', label: 'Site Visit Link' },
+            { id: 'feedback_link', label: 'Feedback Link' },
+            { id: 'project_name', label: 'Project Name' },
+            { id: 'agent_name', label: 'Agent Name' }
+        ];
+
+        return (
+            <div style={{ marginTop: '32px', background: '#f8fafc', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '0.9rem', fontWeight: 800, color: '#1e293b', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <ShieldCheck size={18} color="var(--primary-color)" /> Template Variable Mapping (Override)
+                </div>
+                <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '20px' }}>Define what each {"{{n}}"} variable represents for THIS template specifically.</div>
+                
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
+                    {[1, 2, 3, 4, 5, 6].map(num => {
+                        const idx = String(num);
+                        const currentVal = (templateData.variableMapping && templateData.variableMapping[idx]) || '';
+                        
+                        return (
+                            <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '12px', background: '#fff', padding: '8px 12px', borderRadius: '8px', border: '1px solid #f1f5f9' }}>
+                                <div style={{ background: '#1e293b', color: '#fff', width: '28px', height: '28px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 800 }}>
+                                    {idx}
+                                </div>
+                                <select 
+                                    value={currentVal}
+                                    onChange={e => {
+                                        const newMapping = { ...(templateData.variableMapping || {}), [idx]: e.target.value };
+                                        setTemplateData({ ...templateData, variableMapping: newMapping });
+                                    }}
+                                    style={{ flex: 1, border: 'none', outline: 'none', fontSize: '0.8rem', color: currentVal ? '#1e293b' : '#94a3b8' }}
+                                >
+                                    <option value="">-- Use Global Default --</option>
+                                    {fieldOptions.map(opt => (
+                                        <option key={opt.id} value={opt.id}>{opt.label}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+        );
+    };
+
     const renderSMSFields = () => (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             <div>
@@ -352,7 +406,12 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
 
                         <div style={{ height: '1px', background: '#f1f5f9', margin: '32px 0' }}></div>
 
-                        {channelType === 'whatsapp' ? renderWhatsAppFields() : channelType === 'rcs' ? renderRCSFields() : renderSMSFields()}
+                        {channelType === 'whatsapp' ? (
+                            <>
+                                {renderWhatsAppFields()}
+                                {renderVariableMapping()}
+                            </>
+                        ) : channelType === 'rcs' ? renderRCSFields() : renderSMSFields()}
                     </div>
 
                     {/* Right Panel: Preview */}

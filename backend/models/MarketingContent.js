@@ -49,6 +49,11 @@ const marketingContentSchema = new mongoose.Schema({
         aiAgentId: { type: mongoose.Schema.Types.ObjectId, ref: 'AiAgent' }
     },
     mediaUrls: [String],
+    variableMapping: {
+        type: Map,
+        of: String,
+        default: {}
+    },
     author: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'
