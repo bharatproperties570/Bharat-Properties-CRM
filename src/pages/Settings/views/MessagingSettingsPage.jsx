@@ -525,6 +525,8 @@ const VariableRegistryTab = () => {
             options: [
                 { id: 'currentOutcome', label: 'Target Outcome Name' },
                 { id: 'nextFollowUpDate', label: 'Next Follow-up Date/Time' },
+                { id: 'siteVisitLink', label: 'Site Visit Booking Link (Smart Form)' },
+                { id: 'feedbackLink', label: 'Customer Feedback Link' },
                 { id: 'matchListDefault', label: 'Match Property (Default) - Project | Size | Price' },
                 { id: 'matchListDetailed', label: 'Match Property (Detailed) - Unit# | Project | Size | Price | Maps' }
             ]
