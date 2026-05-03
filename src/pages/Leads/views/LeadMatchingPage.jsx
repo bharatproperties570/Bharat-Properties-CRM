@@ -163,18 +163,24 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             return;
         }
 
-        const template = whatsappTemplates.find(t => t.name === 'Property Portfolio');
-        let message = template.content;
+        // 🧠 PROFESSIONAL META-STYLE MAPPING
+        // {{1}} -> Name
+        // {{2}} -> Primary Requirement Location
+        // {{3}} -> The formatted multi-line property list
 
-        // Group properties list
         const propertyListText = selectedDeals.map((item, index) => {
-            return `${index + 1}. *${item.propertyType || item.type || 'Property'}* in ${item.location}\n📐 ${item.size} | 💰 ₹${item.price}\n🔗 http://bharatproperties.in/p/${item.id || item.unitNo}`;
-        }).join('\n\n');
+            const loc = item.location || item.inventoryId?.sector || 'Prime Location';
+            const size = item.size || 'Standard Size';
+            const price = item.price || 'On Request';
+            return `${index + 1}️⃣ 📍 ${loc} | 📏 ${size} | 💰 ₹${price}`;
+        }).join('\n');
 
-        // Inject variables
-        message = message.replace('{{ContactName}}', lead.name);
-        message = message.replace('{{PropertiesCount}}', selectedDeals.length);
-        message = message.replace('{{PropertyList}}', propertyListText);
+        const name = lead.name || 'Customer';
+        const location = lead.location || 'your preferred area';
+
+        // Construct message for Click-to-Chat (wa.me)
+        // Note: For official Meta API, this data would be sent via /api/marketing/send-campaign
+        const message = `Hi ${name} 👋\n\nBased on your requirement in ${location}, here are a few suitable options:\n\n${propertyListText}\n\nWould you like photos, more details, or to schedule a visit?`;
 
         window.open(`https://wa.me/91${lead.mobile}?text=${encodeURIComponent(message)}`, '_blank');
 

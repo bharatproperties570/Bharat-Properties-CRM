@@ -700,12 +700,36 @@ export const sendManualMatch = async (req, res) => {
                 console.log(`[ManualDispatch] Processing Match: Prop:${dId} -> Lead:${lId}`);
                 const matchResults = [];
 
-                // Dispatch WhatsApp
+                // 🧠 ENTERPRISE GRADE: Resolve variables using VariableResolutionService
+                // This handles {{1}}, {{2}}, and our new {{matchList}} automatically.
                 if (toggles?.whatsapp && (lead.mobile || lead.phones?.[0])) {
                     const mobile = lead.mobile || lead.phones?.[0]?.number || lead.phones?.[0];
-                    const template = buildWhatsAppTemplate(propertyData, mockInv);
+                    
+                    // Inject selected properties into lead context for the resolver
+                    const enrichedLead = { 
+                        ...lead, 
+                        matchedProperties: finalDealIds.map(id => ({ inventoryId: id })) 
+                    };
+
+                    // Default Meta Mapping
+                    const mapping = {
+                        "1": "name",
+                        "2": "location",
+                        "3": "matchList"
+                    };
+
+                    const resolvedParams = (await import('../services/VariableResolutionService.js')).default.resolveForLeads(enrichedLead, mapping);
+                    
+                    // Construct the message based on template or default
+                    // Note: In production, this would call waService.sendTemplateMessage
+                    const propertyList = resolvedParams["3"];
+                    const name = resolvedParams["1"];
+                    const location = resolvedParams["2"];
+                    
+                    const message = `Hi ${name} 👋\n\nBased on your requirement in ${location}, here are a few suitable options:\n\n${propertyList}\n\nWould you like photos, more details, or to schedule a visit?`;
+
                     try {
-                        const res = await waService.sendMessage(mobile, template.message);
+                        const res = await waService.sendMessage(mobile, message);
                         matchResults.push({ channel: 'whatsapp', status: res.success ? 'success' : 'failed' });
                     } catch (err) { matchResults.push({ channel: 'whatsapp', status: 'failed', error: err.message }); }
                 }

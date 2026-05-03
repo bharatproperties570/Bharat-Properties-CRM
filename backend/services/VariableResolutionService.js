@@ -159,6 +159,17 @@ class VariableResolutionService {
                     return 'error';
                 }
 
+            case 'matchList':
+                if (!lead.matchedProperties || !Array.isArray(lead.matchedProperties)) {
+                    return 'Please check our latest premium property matches below:';
+                }
+                return lead.matchedProperties.map((p, i) => {
+                    const loc = p.location || p.sector || p.inventoryId?.sector || p.inventoryId?.projectName || 'Prime Location';
+                    const sz = p.size || p.inventoryId?.size || 'Standard Size';
+                    const pr = p.price || p.inventoryId?.price || 'On Request';
+                    return `${i + 1}️⃣ 📍 ${loc} | 📏 ${sz} | 💰 ${pr}`;
+                }).join('\n');
+
             default:
                 // Try deep access for custom fields
                 return lead[source] || '';
