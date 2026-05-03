@@ -120,10 +120,10 @@ const LeadCaptureSettingsPage = () => {
                                                 <i className="fas fa-code"></i>
                                             </button>
                                             <button onClick={() => {
-                                                const baseUrl = 'https://bharatproperties.co';
+                                                const baseUrl = 'https://crm.bharatproperties.co';
                                                 const smartUrl = `${baseUrl}/public/form/${form.slug}?ref={{1}}`;
                                                 navigator.clipboard.writeText(smartUrl);
-                                                toast.success('WhatsApp Smart Link copied! Paste this in Meta Template.');
+                                                toast.success('Production Smart Link (CRM) copied!');
                                             }} style={{ background: 'none', border: 'none', color: '#c9921a', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '4px' }} title="WhatsApp Smart Link">
                                                 <i className="fab fa-whatsapp"></i> WhatsApp Link
                                             </button>
