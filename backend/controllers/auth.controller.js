@@ -28,8 +28,8 @@ export const login = async (req, res) => {
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) return res.status(401).json({ success: false, message: "Invalid credentials" });
 
-        const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "4h" });
-        const refreshToken = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "7d" });
+        const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "24h" });
+        const refreshToken = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "30d" });
 
         // Record login activity
         await user.recordLogin(req.ip, req.get('user-agent'));
@@ -39,7 +39,7 @@ export const login = async (req, res) => {
             httpOnly: true,
             secure: isProd,
             sameSite: 'strict',
-            maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+            maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
         });
 
         const populatedUser = await User.findById(user._id).populate('role', 'name');
@@ -67,31 +67,54 @@ export const register = async (req, res) => {
 
 export const refresh = async (req, res) => {
     try {
-        const refreshToken = req.cookies.refreshToken || req.body.refreshToken;
-        if (!refreshToken) return res.status(401).json({ success: false, message: "No refresh token provided" });
+        const refreshToken = (req.cookies && req.cookies.refreshToken) || req.body.refreshToken;
+        
+        console.log(`[Auth] Refresh attempt. Token present: ${!!refreshToken}`);
+        
+        if (!refreshToken) {
+            return res.status(401).json({ success: false, message: "No refresh token provided" });
+        }
 
         const isBlacklisted = await BlacklistedToken.findOne({ token: refreshToken });
-        if (isBlacklisted) return res.status(401).json({ success: false, message: "Invalidated token" });
+        if (isBlacklisted) {
+            console.warn(`[Auth] Blacklisted refresh token used: ${refreshToken.substring(0, 10)}...`);
+            return res.status(401).json({ success: false, message: "Invalidated token" });
+        }
 
-        jwt.verify(refreshToken, process.env.JWT_SECRET, async (err, decoded) => {
-            if (err) return res.status(403).json({ success: false, message: "Refresh token expired or invalid" });
-
-            const newAccessToken = jwt.sign({ id: decoded.id, role: decoded.role }, process.env.JWT_SECRET, { expiresIn: "4h" });
-            const newRefreshToken = jwt.sign({ id: decoded.id, role: decoded.role }, process.env.JWT_SECRET, { expiresIn: "7d" });
-
-            await BlacklistedToken.create({ token: refreshToken }).catch(() => null);
-
-            const isProd = process.env.NODE_ENV === "production";
-            res.cookie('refreshToken', newRefreshToken, {
-                httpOnly: true,
-                secure: isProd,
-                sameSite: 'strict',
-                maxAge: 7 * 24 * 60 * 60 * 1000
+        // Promisify jwt.verify for cleaner async/await
+        const decoded = await new Promise((resolve, reject) => {
+            jwt.verify(refreshToken, process.env.JWT_SECRET, (err, decoded) => {
+                if (err) reject(err);
+                else resolve(decoded);
             });
-
-            res.json({ success: true, token: newAccessToken, refreshToken: newRefreshToken });
         });
+
+        console.log(`[Auth] Token verified for user: ${decoded.id}`);
+
+        const newAccessToken = jwt.sign({ id: decoded.id, role: decoded.role }, process.env.JWT_SECRET, { expiresIn: "24h" });
+        const newRefreshToken = jwt.sign({ id: decoded.id, role: decoded.role }, process.env.JWT_SECRET, { expiresIn: "30d" });
+
+        // Invalidate old refresh token
+        await BlacklistedToken.create({ token: refreshToken }).catch(err => {
+            console.warn(`[Auth] Failed to blacklist old token: ${err.message}`);
+        });
+
+        const isProd = process.env.NODE_ENV === "production";
+        res.cookie('refreshToken', newRefreshToken, {
+            httpOnly: true,
+            secure: isProd,
+            sameSite: 'strict',
+            maxAge: 30 * 24 * 60 * 60 * 1000
+        });
+
+        console.log(`[Auth] Refresh successful for user: ${decoded.id}`);
+        return res.json({ success: true, token: newAccessToken, refreshToken: newRefreshToken });
+
     } catch (error) {
+        console.error(`[Auth_REFRESH_ERROR] ${error.message}`);
+        if (error.name === 'TokenExpiredError' || error.name === 'JsonWebTokenError') {
+            return res.status(403).json({ success: false, message: "Refresh token expired or invalid" });
+        }
         res.status(500).json({ success: false, error: error.message });
     }
 };

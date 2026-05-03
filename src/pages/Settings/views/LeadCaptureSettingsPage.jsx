@@ -120,11 +120,12 @@ const LeadCaptureSettingsPage = () => {
                                                 <i className="fas fa-code"></i>
                                             </button>
                                             <button onClick={() => {
-                                                const url = window.location.origin + '/public/form/' + form.slug;
-                                                navigator.clipboard.writeText(url);
-                                                toast.success('Public URL copied!');
-                                            }} style={{ background: 'none', border: 'none', color: 'var(--primary-color)', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }} title="Copy Link">
-                                                <i className="fas fa-link"></i> Copy Link
+                                                const baseUrl = 'https://bharatproperties.co';
+                                                const smartUrl = `${baseUrl}/public/form/${form.slug}?ref={{1}}`;
+                                                navigator.clipboard.writeText(smartUrl);
+                                                toast.success('WhatsApp Smart Link copied! Paste this in Meta Template.');
+                                            }} style={{ background: 'none', border: 'none', color: '#c9921a', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '4px' }} title="WhatsApp Smart Link">
+                                                <i className="fab fa-whatsapp"></i> WhatsApp Link
                                             </button>
                                             <button onClick={() => window.open(`/public/form/${form.slug}`, '_blank')} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer' }} title="Public View">
                                                 <i className="fas fa-external-link-alt"></i>

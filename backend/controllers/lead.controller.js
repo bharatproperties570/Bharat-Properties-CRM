@@ -68,7 +68,7 @@ const resolveUser = async (identifier) => {
 // Resolve All Reference Fields for Lead
 const resolveAllReferenceFields = async (doc) => {
     // If field is an empty string, set it to null so Mongoose doesn't try to cast it as ObjectId
-    const fieldsToResolve = ['requirement', 'subRequirement', 'budget', 'location', 'source', 'status', 'stage', 'countryCode', 'campaign', 'subSource'];
+    const fieldsToResolve = ['salutation', 'requirement', 'subRequirement', 'budget', 'location', 'source', 'status', 'stage', 'countryCode', 'campaign', 'subSource', 'locPincode'];
     for (const field of fieldsToResolve) {
         if (doc[field] === "") doc[field] = null;
         // If it's an object from frontend state that didn't get flattened, try to extract ID or string
@@ -79,6 +79,7 @@ const resolveAllReferenceFields = async (doc) => {
 
     // ─── PERFORMANCE FIX: Parallel resolution of all scalar lookups ──────────────
     const scalarFieldMap = [
+        ['salutation', 'Title'],
         ['requirement', 'Requirement'],
         ['subRequirement', 'SubRequirement'],
         ['budget', 'Budget'],
@@ -89,6 +90,7 @@ const resolveAllReferenceFields = async (doc) => {
         ['countryCode', 'CountryCode'],
         ['campaign', 'Campaign'],
         ['subSource', 'SubSource'],
+        ['locPincode', 'Pincode'],
     ];
     const scalarResults = await Promise.all(
         scalarFieldMap.map(([field, type]) => doc[field] ? resolveLookup(type, doc[field], true) : Promise.resolve(null))
@@ -97,8 +99,8 @@ const resolveAllReferenceFields = async (doc) => {
 
     // Handle Arrays (Lookup fields)
     const arrayLookups = {
-        propertyType: 'PropertyType',
-        subType: 'SubType',
+        propertyType: 'Category',
+        subType: 'SubCategory',
         unitType: 'UnitType',
         facing: 'Facing',
         roadWidth: 'RoadWidth',
@@ -293,7 +295,7 @@ export const getLeads = async (req, res, next) => {
             else if (mongoose.Types.ObjectId.isValid(stage)) query.stage = stage;
         }
 
-        if (status && status !== "" && status !== "undefined") {
+        if (status && status !== "" && status !== "undefined" && mongoose.Types.ObjectId.isValid(status)) {
             query.status = status;
         }
 
@@ -1102,7 +1104,7 @@ export const importLeads = async (req, res, next) => {
                     locCity: item.locCity || item.city,
                     locArea: item.locArea || item.area,
                     locBlock: item.locBlock ? (Array.isArray(item.locBlock) ? item.locBlock : [item.locBlock]) : [],
-                    locPinCode: item.locPinCode || item.pinCode,
+                    locPincode: item.locPincode || item.locPinCode || item.pinCode || item.pincode,
                     locState: item.locState || item.state,
                     locCountry: item.locCountry || item.country,
                     searchLocation: item.searchLocation,

@@ -16,6 +16,8 @@ import { getVisibilityFilter } from "../utils/visibility.js";
 import { normalizePhone } from "../utils/normalization.js";
 import Contact from "../models/Contact.js";
 import Lookup from "../models/Lookup.js";
+import Project from "../models/Project.js";
+import Inventory from "../models/Inventory.js";
 
 /**
  * Enterprise Enrichment Layer:
@@ -297,16 +299,26 @@ export const getActivities = async (req, res) => {
 
         // 🌟 Senior Logic: Filter out omnichannel communications from the global activity list
         // These should only be visible in Communication Hub or Entity Timelines.
-        // Using regex for case-insensitive robust filtering.
+        // We include manual 'Call' and 'Email' tasks but exclude automated logs.
         if (includeCommunications !== 'true') {
-            query.type = { 
-                $nin: [
-                    /^WhatsApp$/i, /^SMS$/i, /^Email$/i, /^RCS$/i, 
-                    /^Messaging$/i, /^Conversation$/i, /^Chat$/i, /^whatsapp$/i,
-                    /^Marketing$/i, /^Campaign$/i, /^Bulk$/i
-                ] 
-            };
+            const excludedTypes = [
+                /^WhatsApp$/i, /^SMS$/i, /^RCS$/i, 
+                /^Messaging$/i, /^Conversation$/i, /^Chat$/i, /^whatsapp$/i,
+                /^Marketing$/i, /^Campaign$/i, /^Bulk$/i
+            ];
+            
+            query.$or = [
+                { type: { $nin: excludedTypes } },
+                { 
+                    type: { $in: ['Call', 'Email', 'call', 'email'] },
+                    'details.sid': { $exists: false },
+                    'details.callSid': { $exists: false },
+                    'details.messageId': { $exists: false },
+                    'details.isAutomated': { $ne: true }
+                }
+            ];
         }
+
 
         if (entityId && mongoose.Types.ObjectId.isValid(entityId)) query.entityId = entityId;
         else if (entityId) return res.status(400).json({ success: false, error: "Invalid entityId format" });
@@ -324,6 +336,16 @@ export const getActivities = async (req, res) => {
             }
         }
         if (assignedTo) query.assignedTo = assignedTo;
+        
+        if (req.query.contactPhone) {
+            const cleanPhone = req.query.contactPhone.replace(/[^0-9]/g, "").slice(-10);
+            const phoneRegex = new RegExp(`${cleanPhone}$`);
+            query.$or = query.$or || [];
+            query.$or.push(
+                { "participants.mobile": phoneRegex },
+                { "contactPhone": phoneRegex }
+            );
+        }
 
         // Date Range Filtering
         if (startDate || endDate) {
@@ -444,8 +466,9 @@ export const getUnifiedTimeline = async (req, res) => {
             contacts: Contact,
             deal: Deal, 
             deals: Deal,
-            project: mongoose.model('Project'),
-            inventory: mongoose.model('Inventory')
+            project: Project,
+            projects: Project,
+            inventory: Inventory
         };
         const ParentModel = ModelMap[entityType.toLowerCase()];
         
@@ -554,7 +577,7 @@ export const getUnifiedTimeline = async (req, res) => {
                 title: m.role === 'user' ? 'Inbound WhatsApp' : 'AI Bot Response',
                 description: m.content,
                 status: 'Completed',
-                actor: m.role === 'user' ? (entityType === 'Lead' ? 'Lead' : 'Contact') : 'AI Nurture Bot',
+                actor: m.role === 'user' ? (entityType.toLowerCase() === 'lead' ? 'Lead' : 'Contact') : 'AI Nurture Bot',
                 isStarred: false,
                 createdAt: m.timestamp, // Fallback
                 date: m.timestamp, // Fallback

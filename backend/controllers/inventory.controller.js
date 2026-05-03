@@ -695,12 +695,27 @@ export const getInventoryById = async (req, res) => {
             ];
             for (const { field, type } of addrFields) {
                 let val = inventoryData.address[field];
-                if (val && typeof val === 'string' && !mongoose.Types.ObjectId.isValid(val)) {
-                    const lookup = await Lookup.findOne({ lookup_type: type, lookup_value: val }).lean();
-                    inventoryData.address[field] = lookup || { lookup_value: val };
-                } else if (val && mongoose.Types.ObjectId.isValid(val)) {
-                    const lookup = await Lookup.findById(val).lean();
-                    inventoryData.address[field] = lookup || { _id: val };
+                if (!val) continue;
+
+                // Case 1: Already an object (partially populated or placeholder)
+                if (typeof val === 'object' && val !== null) continue;
+
+                const valStr = String(val).trim();
+                
+                // Case 2: It's a valid Mongo ID
+                if (mongoose.Types.ObjectId.isValid(valStr) && /^[0-9a-fA-F]{24}$/.test(valStr)) {
+                    const lookup = await Lookup.findById(valStr).lean();
+                    inventoryData.address[field] = lookup || { _id: valStr };
+                } 
+                // Case 3: It's a raw string or numeric value (e.g., Pincode)
+                else {
+                    // Try to find the lookup by value
+                    const lookup = await Lookup.findOne({ 
+                        lookup_type: type, 
+                        lookup_value: { $regex: new RegExp(`^${escapeRegExp(valStr)}$`, 'i') } 
+                    }).lean();
+                    
+                    inventoryData.address[field] = lookup || { lookup_value: valStr };
                 }
             }
         }

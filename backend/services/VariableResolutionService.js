@@ -6,6 +6,8 @@
  * and source data (Lead, Deal, Inventory).
  */
 
+import jwt from 'jsonwebtoken';
+
 class VariableResolutionService {
     /**
      * Extracts values for a list of leads based on a mapping configuration.
@@ -129,6 +131,33 @@ class VariableResolutionService {
             case 'budget':
             case 'price':
                 return lead.budget?.lookup_value || lead.price || lead.budget || '';
+
+            case 'siteVisitLink':
+                try {
+                    const leadId = lead.id || lead._id;
+                    if (!leadId) return 'token_missing';
+                    
+                    // Generate a signed token (JWT) for secure pre-filling
+                    const token = jwt.sign(
+                        { 
+                            leadId, 
+                            projectId: lead.projectName || lead.project?.name || null,
+                            source: 'whatsapp_smart_link'
+                        }, 
+                        process.env.JWT_SECRET || 'crm_secret_key', 
+                        { expiresIn: '30d' }
+                    );
+
+                    // 🚀 SENIOR PROFESSIONAL FIX: Return the FULL URL including domain and slug
+                    // This allows the user to just put {{1}} in the Meta template button.
+                    const baseUrl = process.env.FRONTEND_URL || 'https://bharatproperties.co';
+                    const formSlug = 'standard-project-tour-scheduler-bqnh6'; // Based on your specific form
+                    
+                    return `${baseUrl}/public/form/${formSlug}?ref=${token}`;
+                } catch (e) {
+                    console.error("[VariableResolution] JWT Error:", e.message);
+                    return 'error';
+                }
 
             default:
                 // Try deep access for custom fields

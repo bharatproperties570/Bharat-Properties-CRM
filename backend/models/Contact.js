@@ -51,7 +51,7 @@ const ContactSchema = new mongoose.Schema({
         city: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
         tehsil: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
         postOffice: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
-        pinCode: String,
+        pincode: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
         location: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
         area: String
     },
@@ -65,7 +65,7 @@ const ContactSchema = new mongoose.Schema({
         city: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
         tehsil: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
         postOffice: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
-        pinCode: String,
+        pincode: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
         location: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
         area: String
     },
@@ -204,6 +204,7 @@ ContactSchema.pre("save", async function (next) {
                 if (this[field].country && typeof this[field].country === 'string') this[field].country = await resolveLookupLocal('Country', this[field].country);
                 if (this[field].tehsil && typeof this[field].tehsil === 'string') this[field].tehsil = await resolveLookupLocal('Tehsil', this[field].tehsil);
                 if (this[field].postOffice && typeof this[field].postOffice === 'string') this[field].postOffice = await resolveLookupLocal('PostOffice', this[field].postOffice);
+                if (this[field].pincode && (typeof this[field].pincode === 'string' || typeof this[field].pincode === 'number')) this[field].pincode = await resolveLookupLocal('Pincode', this[field].pincode);
                 if (this[field].location && typeof this[field].location === 'string') this[field].location = await resolveLookupLocal('Area', this[field].location);
             }
         }

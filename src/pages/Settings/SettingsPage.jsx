@@ -45,6 +45,8 @@ import FeedbackSettingsPage from './views/FeedbackSettingsPage';
 import FormsSettingsPage from './views/FormsSettingsPage';
 import StagePage from './views/StagePage';
 import AiAgentsSettingsPage from './views/AiAgentsSettingsPage';
+import SiteVisitSettingsPage from './views/SiteVisitSettingsPage';
+import CustomFormsSettingsPage from './views/CustomFormsSettingsPage';
 
 
 // --- Sub-Components (Defined Outside to prevent re-creation crashes) ---
@@ -1140,6 +1142,10 @@ const SettingsPage = () => {
                         <StagePage />
                     ) : activeTab === 'export' ? (
                         <ExportDataPage />
+                    ) : activeTab === 'site-visit-schedule' ? (
+                        <SiteVisitSettingsPage onBack={() => setActiveTab('forms')} />
+                    ) : activeTab === 'custom-forms' ? (
+                        <CustomFormsSettingsPage onBack={() => setActiveTab('forms')} />
                     ) : activeTab === 'forms' ? (
                         <FormsSettingsPage setActiveTab={setActiveTab} />
                     ) : (

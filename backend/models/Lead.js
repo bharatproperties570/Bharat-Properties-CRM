@@ -51,7 +51,7 @@ const LeadSchema = new mongoose.Schema({
     locCity: { type: String },
     locArea: { type: String },
     locBlock: [String],
-    locPinCode: { type: String },
+    locPincode: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
     locState: { type: String },
     locCountry: { type: String },
     searchLocation: { type: String },
@@ -264,6 +264,7 @@ LeadSchema.pre('save', async function (next) {
     if (this.status && typeof this.status === 'string') this.status = await resolveLeadLookup('Status', this.status);
     if (this.stage && typeof this.stage === 'string') this.stage = await resolveLeadLookup('Stage', this.stage);
     if (this.salutation && typeof this.salutation === 'string') this.salutation = await resolveLeadLookup('Title', this.salutation);
+    if (this.locPincode && (typeof this.locPincode === 'string' || typeof this.locPincode === 'number')) this.locPincode = await resolveLeadLookup('Pincode', this.locPincode);
 
     // Handle arrays
     const arrayFields = ['propertyType', 'subType', 'unitType', 'facing', 'roadWidth', 'direction'];
@@ -344,6 +345,7 @@ LeadSchema.pre('findOneAndUpdate', async function (next) {
     if (update.stage && typeof update.stage === 'string') update.stage = await resolveLeadLookup('Stage', update.stage);
     if (update.sequence && typeof update.sequence === 'string') update.sequence = await resolveLeadLookup('MarketingSequence', update.sequence);
     if (update.salutation && typeof update.salutation === 'string') update.salutation = await resolveLeadLookup('Title', update.salutation);
+    if (update.locPincode && (typeof update.locPincode === 'string' || typeof update.locPincode === 'number')) update.locPincode = await resolveLeadLookup('Pincode', update.locPincode);
 
     const arrayTypes = {
         propertyType: 'Category',

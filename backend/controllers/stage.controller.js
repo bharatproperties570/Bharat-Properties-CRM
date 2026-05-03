@@ -862,66 +862,78 @@ export const getDealScores = async (req, res) => {
         const SystemSetting = mongoose.model('SystemSetting');
         const dealRulesSetting = await SystemSetting.findOne({ key: 'dealScoringRules' }).lean();
         const dealRules = dealRulesSetting?.value || {};
-        const stageRules = dealRules.stages || {};
+        
+        // Structure from ScoringSettingsPage.jsx
+        const stageWeights = dealRules.stageWeights || {};
+        const activityRules = dealRules.activityRecency || {};
+        const historyRules = dealRules.historyDepth || {};
 
         const getDealStageWeight = (stage) => {
-            const key = (stage || 'Open').toLowerCase();
-            const foundKey = Object.keys(stageRules).find(k => k.toLowerCase() === key);
-            return foundKey ? (stageRules[foundKey]?.points || 20) : 20;
+            const key = (stage || 'Open').toLowerCase().replace(/\s+/g, '');
+            // Try to find matching key in stageWeights
+            const foundKey = Object.keys(stageWeights).find(k => k.toLowerCase().replace(/\s+/g, '') === key);
+            if (foundKey) return stageWeights[foundKey]?.points || 20;
+            
+            // Fallback to legacy defaults
+            const FALLBACK = {
+                'open': 20, 'quote': 35, 'opportunity': 45, 'negotiation': 60,
+                'booked': 85, 'closedwon': 100, 'closed': 90,
+                'closedlost': 5, 'stalled': 15
+            };
+            return FALLBACK[key] || 20;
         };
 
-        const STAGE_WEIGHTS = {
-            'Open': 20, 'Quote': 35, 'Opportunity': 45, 'Negotiation': 60,
-            'Booked': 85, 'Closed Won': 100, 'Closed': 90,
-            'Closed Lost': 5, 'Stalled': 15
-        };
-
-        // Populate STAGE_WEIGHTS from dealRules if available
-        Object.keys(STAGE_WEIGHTS).forEach(key => {
-            const points = getDealStageWeight(key);
-            if (points) STAGE_WEIGHTS[key] = points;
-        });
-
-        // Support ?dealId= filter (for detail page — same formula, same score)
-        let dealQuery = {};
+        // Support ?dealId= filter (for detail page)
+        let dealQuery = { status: 'Open' };
         if (req.query.dealId && mongoose.Types.ObjectId.isValid(req.query.dealId)) {
             dealQuery._id = req.query.dealId;
         }
 
         const deals = await Deal.find(dealQuery)
-            .select('_id stage stageHistory lastActivityAt stageChangedAt dealProbability dealScore')
+            .select('_id stage history lastActivityAt createdAt')
             .lean();
-
+            
         const scores = {};
-        const now = Date.now();
+        const now = new Date();
 
-        for (const deal of deals) {
-            const stageName = deal.stage || 'Open';
-            const stageWeight = STAGE_WEIGHTS[stageName] || 20;
+        deals.forEach(deal => {
+            const stageWeight = getDealStageWeight(deal.stage);
+            
+            // 1. Activity Momentum (ActivityRecency)
+            let activityBonus = 0;
+            const lastActivity = deal.lastActivityAt ? new Date(deal.lastActivityAt) : new Date(deal.createdAt);
+            const daysSinceActivity = (now - lastActivity) / (1000 * 60 * 60 * 24);
 
-            const lastActivity = deal.lastActivityAt || deal.stageChangedAt;
-            const daysAgo = lastActivity ? Math.floor((now - new Date(lastActivity)) / 86400000) : 999;
-            const activityBonus = daysAgo <= 3 ? 15 : daysAgo <= 7 ? 10 : daysAgo <= 14 ? 5 : 0;
+            if (daysSinceActivity < 1) activityBonus = activityRules.last24h?.points || 15;
+            else if (daysSinceActivity < 3) activityBonus = activityRules.last3d?.points || 10;
+            else if (daysSinceActivity < 7) activityBonus = activityRules.last7d?.points || 5;
+            else if (daysSinceActivity > 7) activityBonus = activityRules.noActivity7d?.points || -10;
 
-            // BUG D1 FIX: Removed persistenceBonus (deal.dealScore was being added to itself on every
-            // recalculation → score inflated exponentially). Score is now purely computed, not self-referencing.
-            // historyDepth: number of stage changes * 2 pts each (capped at 10)
-            const historyDepth = Math.min(10, (deal.stageHistory?.length || 0) * 2);
-            const score = Math.min(100, stageWeight + activityBonus + historyDepth);
+            // 2. History Depth
+            let historyBonus = 0;
+            const interactionCount = (deal.history || []).length;
+            if (interactionCount >= 10) historyBonus = historyRules.interactions10Plus?.points || 20;
+            else if (interactionCount >= 5) historyBonus = historyRules.interactions5Plus?.points || 10;
+            
+            // Check for meetings in history
+            const hasMeeting = (deal.history || []).some(h => (h.type || '').toLowerCase().includes('meeting') || (h.action || '').toLowerCase().includes('meeting'));
+            if (hasMeeting) historyBonus += (historyRules.meetingsDone?.points || 15);
 
-            const color = score >= 80 ? '#10B981'   // Healthy / Booked
-                : score >= 55 ? '#F59E0B'            // Watch / Negotiation
-                    : score >= 30 ? '#3B82F6'            // Open / Quote
-                        : '#EF4444';                         // At Risk / Stalled
-
-            const label = score >= 80 ? 'Strong' : score >= 55 ? 'Active' : score >= 30 ? 'Open' : 'At Risk';
+            const score = Math.min(100, Math.max(0, stageWeight + activityBonus + historyBonus));
+            
+            // Bands logic
+            let color = '#3b82f6'; // Blue
+            let label = 'Active';
+            if (score >= 80) { color = '#ef4444'; label = 'Super Hot'; }
+            else if (score >= 60) { color = '#f59e0b'; label = 'Hot'; }
+            else if (score < 30) { color = '#94a3b8'; label = 'Cold'; }
 
             scores[deal._id.toString()] = { score, color, label };
-        }
+        });
 
         res.json({ success: true, count: deals.length, scores });
-    } catch (err) {
-        console.error('[StageEngine] getDealScores error:', err);
-        res.status(500).json({ success: false, error: err.message });
+    } catch (error) {
+        console.error('getDealScores Error:', error);
+        res.status(500).json({ success: false, error: error.message });
     }
 };

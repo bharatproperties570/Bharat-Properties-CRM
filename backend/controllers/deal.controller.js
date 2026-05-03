@@ -455,6 +455,32 @@ export const getDeals = async (req, res) => {
         if (projectId) query.projectId = projectId;
         if (inventoryId) query.inventoryId = inventoryId;
 
+        if (contactPhone) {
+            const cleanPhone = contactPhone.replace(/[^0-9]/g, "").slice(-10);
+            const phoneRegex = new RegExp(`${cleanPhone}$`);
+            
+            // Find contacts/leads with this phone first to get their IDs
+            const [contacts, leads] = await Promise.all([
+                Contact.find({ "phones.number": phoneRegex }).select('_id').lean(),
+                Lead.find({ mobile: phoneRegex }).select('_id').lean()
+            ]);
+            
+            const entityIds = [
+                ...contacts.map(c => c._id),
+                ...leads.map(l => l._id)
+            ];
+
+            if (entityIds.length > 0) {
+                query.$or = query.$or || [];
+                query.$or.push(
+                    { owner: { $in: entityIds } },
+                    { associatedContact: { $in: entityIds } },
+                    { "partyStructure.owner": { $in: entityIds } },
+                    { "partyStructure.buyer": { $in: entityIds } }
+                );
+            }
+        }
+
         if (req.query.contactId) {
             const contactIds = req.query.contactId.split(',').filter(id => id && mongoose.Types.ObjectId.isValid(id));
             

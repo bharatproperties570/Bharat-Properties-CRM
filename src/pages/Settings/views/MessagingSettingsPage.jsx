@@ -527,6 +527,7 @@ const VariableRegistryTab = () => {
                 { id: 'nextFollowUpDate', label: 'Next Follow-up Date/Time' },
                 { id: 'outcomeNotes', label: 'Latest Outcome Notes' },
                 { id: 'visitLocation', label: 'Site Visit Location Link' },
+                { id: 'siteVisitLink', label: 'Site Visit Booking Link (Smart Form)' },
                 { id: 'feedbackLink', label: 'Customer Feedback Link' }
             ]
         }

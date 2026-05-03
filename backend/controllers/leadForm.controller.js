@@ -1,4 +1,5 @@
 import LeadForm from "../models/LeadForm.js";
+import DynamicForm from "../models/DynamicForm.js";
 import Lead from "../models/Lead.js";
 import Lookup from "../models/Lookup.js";
 import mongoose from "mongoose";
@@ -67,7 +68,13 @@ export const deleteForm = async (req, res, next) => {
 
 export const getFormBySlug = async (req, res, next) => {
     try {
-        const form = await LeadForm.findOne({ slug: req.params.slug, isActive: true });
+        let form = await LeadForm.findOne({ slug: req.params.slug, isActive: true });
+        
+        // 🚀 Senior professional fallback: Check DynamicForm collection if not found in LeadForms
+        if (!form) {
+            form = await DynamicForm.findOne({ slug: req.params.slug, isActive: true });
+        }
+
         if (!form) return res.status(404).json({ success: false, message: "Form not found or inactive" });
 
         // Track View
@@ -85,10 +92,31 @@ export const submitForm = async (req, res) => {
         const { slug } = req.params;
         const { formData, sourceMeta } = req.body; // formData is { fieldId: value }
 
-        const form = await LeadForm.findOne({ slug, isActive: true });
+        let form = await LeadForm.findOne({ slug, isActive: true });
+        
+        // Fallback to DynamicForm
+        if (!form) {
+            form = await DynamicForm.findOne({ slug, isActive: true });
+        }
+
         if (!form) return res.status(404).json({ success: false, message: "Form not found" });
 
         // 1. Map Form Data to Lead Model
+        let leadId = null;
+        const urlParams = new URLSearchParams(sourceMeta?.search || "");
+        const refToken = urlParams.get('ref');
+
+        if (refToken) {
+            try {
+                const decoded = jwt.verify(refToken, process.env.JWT_SECRET || 'crm_secret_key');
+                if (decoded && decoded.leadId) {
+                    leadId = decoded.leadId;
+                }
+            } catch (e) {
+                console.warn("[SUBMIT] Token verification failed, falling back to new lead capture");
+            }
+        }
+
         const leadData = {
             source_meta: sourceMeta || {},
             capture_form: form._id,
@@ -102,8 +130,6 @@ export const submitForm = async (req, res) => {
             const value = formData[field.id];
             if (value === undefined || value === null || value === "") continue;
 
-            // Add to score if value is provided (simple weight logic)
-            // Advanced: field.options could have specific weights? Prompt said "Each field should support weight config"
             preScore += field.weight || 0;
 
             if (!field.mappingField) continue;
@@ -114,7 +140,6 @@ export const submitForm = async (req, res) => {
             } else if (['budgetMin', 'budgetMax', 'areaMin', 'areaMax'].includes(field.mappingField)) {
                 leadData[field.mappingField] = Number(value);
             } else if (['requirement', 'budget', 'location', 'source', 'stage', 'status'].includes(field.mappingField)) {
-                // Resolve Lookup
                 const lookupTypeMap = {
                     requirement: 'Requirement',
                     budget: 'Budget',
@@ -125,7 +150,6 @@ export const submitForm = async (req, res) => {
                 };
                 leadData[field.mappingField] = await resolveLookup(lookupTypeMap[field.mappingField], value);
             } else if (['propertyType', 'subType', 'unitType', 'facing', 'roadWidth', 'direction'].includes(field.mappingField)) {
-                // Resolve Array Lookups
                 const lookupTypeMap = {
                     propertyType: 'Property Type',
                     subType: 'Sub Type',
@@ -141,10 +165,31 @@ export const submitForm = async (req, res) => {
 
         leadData.pre_intent_score = preScore;
 
-        // 2. Create Lead (Pre-distribution)
-        const lead = await Lead.create(leadData);
+        // 2. Create or Link Lead
+        let lead;
+        if (leadId) {
+            lead = await Lead.findByIdAndUpdate(leadId, leadData, { new: true });
+            console.log(`[FORM SUBMIT] Linked to existing lead: ${leadId}`);
+        } else {
+            lead = await Lead.create(leadData);
+        }
 
-        // 🧠 SENIOR PROFESSIONAL: Enterprise Distribution Engine
+        // 🚀 SMART ACTIVITY INTEGRATION: If Site Visit category, create Activity
+        if (form.category === 'site_visit') {
+            const Activity = mongoose.model('Activity');
+            await Activity.create({
+                leadId: lead._id,
+                entityType: 'Lead',
+                entityId: lead._id,
+                type: 'Site Visit',
+                status: 'Scheduled',
+                subject: `🌐 Site Visit Scheduled via Public Form: ${form.name}`,
+                description: `Client scheduled a visit for project: ${formData[allFields.find(f => f.dynamicSource === 'projects')?.id] || 'Not specified'}.
+                               Notes: ${leadData.description || 'No additional notes'}`,
+                scheduledAt: formData[allFields.find(f => f.type === 'date')?.id] || new Date(),
+                owner: lead.owner || form.settings.autoAssignTo
+            });
+        }
         try {
             const { distributeEntity } = await import("../src/utils/distributionEngine.js");
             const assignment = await distributeEntity(lead, 'onWebCapture');

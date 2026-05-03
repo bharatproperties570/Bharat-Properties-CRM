@@ -30,6 +30,7 @@
         "multer": "^2.0.2",
         "nodemailer": "^8.0.1",
         "pdf-parse": "^1.1.4",
+        "slugify": "^1.6.9",
         "tesseract.js": "^7.0.0",
         "xlsx": "^0.18.5"
     },

@@ -372,23 +372,24 @@ export const PropertyConfigProvider = ({ children }) => {
     });
 
     const [dealScoringRules, setDealScoringRules] = useSystemSetting('dealScoringRules', {
-        stages: {
+        stageWeights: {
             open: { label: 'Open', points: 10 },
             quote: { label: 'Quote', points: 20 },
             negotiation: { label: 'Negotiation', points: 35 },
-            booked: { label: 'Booked', points: 50 }
+            booked: { label: 'Booked', points: 50 },
+            closedWon: { label: 'Closed Won', points: 100 },
+            closedLost: { label: 'Closed Lost', points: 0 }
         },
-        signals: {
-            priceDiscussion: { label: 'Price discussion', points: 10 },
-            counterOffer: { label: 'Counter offer', points: 15 },
-            visitRepeated: { label: 'Visit repeated', points: 20 },
-            legalDocs: { label: 'Legal docs asked', points: 25 }
+        activityRecency: {
+            last24h: { label: 'Activity in last 24h', points: 15 },
+            last3d: { label: 'Activity in last 3 days', points: 10 },
+            last7d: { label: 'Activity in last 7 days', points: 5 },
+            noActivity7d: { label: 'No activity > 7 days', points: -10 }
         },
-        risks: {
-            ownerNonResponsive: { label: 'Owner non-responsive', points: -20 },
-            budgetGap: { label: 'Buyer budget gap', points: -15 },
-            competition: { label: 'Inventory competition', points: -10 },
-            delay15: { label: 'Delay > 15 days', points: -20 }
+        historyDepth: {
+            interactions5Plus: { label: '5+ Interactions', points: 10 },
+            interactions10Plus: { label: '10+ Interactions', points: 20 },
+            meetingsDone: { label: 'Meeting Conducted', points: 15 }
         }
     });
 
@@ -1251,28 +1252,27 @@ export const PropertyConfigProvider = ({ children }) => {
     }, [typeValueMap]);
 
     const getLookupValue = useCallback((type, id) => {
-        if (!id) return id;
+        if (id === null || id === undefined) return '-';
 
         // Case A: ID is already a populated object
         if (typeof id === 'object') {
             const val = id.lookup_value || id.name || id.label || id.value || id.displayName;
-            if (val && typeof val !== 'object') return val;
+            if (val !== undefined && val !== null && typeof val !== 'object') return String(val);
             return typeof id.toString === 'function' && id.toString() !== '[object Object]' ? id.toString() : '-';
         }
 
-        const idStr = id.toString();
+        const idStr = String(id).trim();
 
         // Case B: O(1) Instant Resolution using pre-calculated Map
-        // We first try the global map (covers both specific category and fallbacks)
         const resolved = lookupMap.get(idStr);
-        if (resolved) return resolved;
+        if (resolved) return String(resolved);
 
-        // Case C: ID is not a mongo ID (likely a raw string/value)
-        if (typeof id === 'string' && !/^[0-9a-fA-F]{24}$/.test(id)) {
-            return id;
+        // Case C: ID is not a mongo ID (likely a raw string/numeric value)
+        if (!/^[0-9a-fA-F]{24}$/.test(idStr)) {
+            return idStr;
         }
 
-        return null;
+        return '-';
     }, [lookupMap]);
 
     const findLookup = useCallback((type, value, parentId = null) => {
@@ -2054,7 +2054,9 @@ export const PropertyConfigProvider = ({ children }) => {
                 ...prev,
                 [section]: { ...prev[section], ...newRules }
             };
-            systemSettingsAPI.upsert('deal_scoring_rules', {
+            // Note: useSystemSetting already handles the sync to backend via its internal effect/setValue.
+            // We explicitly call upsert here just to be safe and use the correct key if it differs.
+            systemSettingsAPI.upsert('dealScoringRules', {
                 category: 'sales_config',
                 value: updated,
                 isPublic: true

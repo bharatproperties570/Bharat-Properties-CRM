@@ -58,7 +58,34 @@ export const completeActivity = async (req, res, next) => {
         activity.details.outcome = outcome;
         activity.details.outcomeReason = outcomeReason || '';
 
+        // 🌟 Senior Enterprise Feature: Auto-detect latest call log for duration auto-fill
+        if (activity.type?.toLowerCase() === 'call' && activity.entityId) {
+            try {
+                // Find the most recent automated call log for this entity
+                const latestLog = await Activity.findOne({
+                    entityId: activity.entityId,
+                    type: { $regex: /^Call$/i },
+                    'details.sid': { $exists: true },
+                    createdAt: { $lt: new Date() }
+                }).sort({ createdAt: -1 }).lean();
+
+                if (latestLog && latestLog.details?.duration) {
+                    activity.details.duration = latestLog.details.duration;
+                    activity.details.callSid = latestLog.details.sid;
+                    activity.details.autoDetected = true;
+                    // Auto-append to description for professional record keeping
+                    const durationText = `\n[System] Auto-matched with latest call log (Duration: ${latestLog.details.duration}s)`;
+                    activity.description = activity.description 
+                        ? `${activity.description}${durationText}`
+                        : durationText.trim();
+                }
+            } catch (err) {
+                console.error('[ActivityCompletion] Failed to auto-detect call log:', err.message);
+            }
+        }
+
         await activity.save();
+
 
         // 2. Only process stage + scoring if this activity is linked to a Lead
         if (activity.entityType !== 'Lead' || !activity.entityId) {
