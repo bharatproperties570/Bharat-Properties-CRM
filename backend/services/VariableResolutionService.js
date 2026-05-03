@@ -107,6 +107,27 @@ class VariableResolutionService {
     }
 
     /**
+     * LAYER 3: Content Parser (Named Tags)
+     * Replaces {named_variable} tags in a string with actual values.
+     * Use this for SMS and Email bodies.
+     */
+    resolveContent(content, lead, customOverrides = {}) {
+        if (!content || !lead) return content;
+        
+        const namedPayload = this.resolveNamed(lead, customOverrides);
+        let resolvedContent = content;
+
+        // Regex to find {variable_name}
+        const regex = /\{([a-zA-Z0-9_]+)\}/g;
+        
+        resolvedContent = resolvedContent.replace(regex, (match, key) => {
+            return namedPayload[key] !== undefined ? namedPayload[key] : match;
+        });
+
+        return resolvedContent;
+    }
+
+    /**
      * LEGACY WRAPPER: resolveForLeads
      * Maintains backward compatibility for existing controllers.
      */
