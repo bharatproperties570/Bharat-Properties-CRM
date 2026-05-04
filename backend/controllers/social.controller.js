@@ -52,25 +52,88 @@ export const saveSocialConfig = async (req, res) => {
  */
 export const sendWhatsAppMessage = async (req, res) => {
     try {
-        const { mobile, message, type = 'text', mediaUrl, filename, caption, templateId, templateComponents } = req.body;
+        console.log('[SocialController] RAW PAYLOAD:', JSON.stringify(req.body, null, 2));
+        const { mobile, message, type = 'text', mediaUrl, filename, caption, templateId, templateComponents, language } = req.body;
         
         if (!mobile || (!message && !mediaUrl && !templateId)) {
             return res.status(400).json({ success: false, error: 'Mobile and message/media/template are required' });
         }
 
+        // Safe Model Retrieval
+        const Lead = mongoose.model('Lead');
+        const Activity = mongoose.model('Activity');
         const WhatsAppService = (await import('../services/WhatsAppService.js')).default;
-        const Activity = (await import('../models/Activity.js')).default;
-        const Lead = (await import('../models/Lead.js')).default;
+
+        console.log(`[SocialController] Dispatching WhatsApp to: ${mobile} (Template: ${templateId || 'None'})`);
 
         // 1. Dispatch via Service
         let result;
         if (templateId) {
-            // SENIOR PROFESSIONAL: Meta templates require components for placeholders ({{1}}, {{2}})
-            const components = Array.isArray(templateComponents) && templateComponents.length > 0 
-                ? [{ type: 'body', parameters: templateComponents }] 
-                : [];
+            // 🚀 SENIOR PROFESSIONAL: Fetch template definition to intelligently route variables
+            const templates = await WhatsAppService.getTemplates();
+            const templateDef = templates.find(t => t.name === templateId);
+            
+            const components = [];
+            let currentVarIndex = 0;
 
-            result = await WhatsAppService.sendTemplate(mobile, templateId, 'en_US', components);
+            if (templateDef) {
+                console.log(`[WhatsApp/Debug] Template Definition found for: ${templateId}`);
+                console.log(`[WhatsApp/Debug] Raw Components:`, JSON.stringify(templateDef.components, null, 2));
+                templateDef.components.forEach(compDef => {
+                    if (compDef.type === 'BODY') {
+                        const bodyMatches = compDef.text.match(/{{(\d+)}}/g) || [];
+                        const bodyVarCount = bodyMatches.length;
+                        const bodyParams = templateComponents.slice(currentVarIndex, currentVarIndex + bodyVarCount);
+                        console.log(`[WhatsApp/Debug] Body Matches:`, bodyMatches);
+                        console.log(`[WhatsApp/Debug] Body Vars found: ${bodyVarCount}, parameters provided: ${bodyParams.length}`);
+                        if (bodyParams.length > 0) {
+                            components.push({
+                                type: 'body',
+                                parameters: bodyParams.map(val => ({ type: 'text', text: val }))
+                            });
+                            currentVarIndex += bodyVarCount;
+                        }
+                    } else if (compDef.type === 'BUTTONS') {
+                        compDef.buttons?.forEach((btn, btnIdx) => {
+                            if (btn.url && btn.url.includes('{{1}}')) {
+                                const btnParam = templateComponents[currentVarIndex];
+                                console.log(`[WhatsApp/Debug] Button URL Var found at index ${btnIdx}, param: ${btnParam}`);
+                                if (btnParam) {
+                                    components.push({
+                                        type: 'button',
+                                        sub_type: 'url',
+                                        index: btnIdx,
+                                        parameters: [{ type: 'text', text: btnParam }]
+                                    });
+                                    currentVarIndex++;
+                                }
+                            }
+                        });
+                    }
+                });
+            } else {
+                console.warn(`[WhatsApp/Debug] Template Definition NOT FOUND for: ${templateId}`);
+            }
+
+            // Fallback for Header Media
+            if (mediaUrl) {
+                const hType = type === 'image' ? 'image' : (type === 'document' ? 'document' : 'video');
+                components.push({
+                    type: 'header',
+                    parameters: [{ type: hType, [hType]: { link: mediaUrl } }]
+                });
+            }
+
+            // Absolute Fallback if intelligence loop added nothing
+            if (components.length === 0 && Array.isArray(templateComponents) && templateComponents.length > 0) {
+                components.push({ 
+                    type: 'body', 
+                    parameters: templateComponents.map(val => ({ type: 'text', text: val })) 
+                });
+            }
+
+            console.log(`[WhatsApp/Debug] Final Components for ${templateId}:`, JSON.stringify(components, null, 2));
+            result = await WhatsAppService.sendTemplate(mobile, templateId, language || 'en_US', components);
             
             // If template send failed (e.g. unknown template), fallback to text if message exists
             if (!result.success && message) {
@@ -114,12 +177,19 @@ export const sendWhatsAppMessage = async (req, res) => {
                 lead.lastActivityAt = new Date();
                 await lead.save();
             }
+        } else {
+            console.error('[SocialController] WhatsApp Service returned failure:', result);
         }
+
 
         res.json(result || { success: false, error: 'Unknown service error' });
     } catch (err) {
-        console.error('[SocialController] sendWhatsAppMessage error:', err.message);
-        res.status(500).json({ success: false, error: err.message });
+        console.error('[SocialController] sendWhatsAppMessage CRITICAL ERROR:', err);
+        res.status(500).json({ 
+            success: false, 
+            error: err.message,
+            stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+        });
     }
 };
 

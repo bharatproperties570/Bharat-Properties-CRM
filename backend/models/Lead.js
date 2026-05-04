@@ -122,7 +122,7 @@ const LeadSchema = new mongoose.Schema({
         daysInStage: { type: Number, default: 0 },         // Computed on exit
         triggeredBy: {
             type: String,
-            enum: ['activity', 'manual_override', 'bulk_recalc', 'system', 'import'],
+            enum: ['activity', 'manual', 'manual_override', 'bulk_recalc', 'system', 'import'],
             default: 'activity'
         },
         activityId: { type: mongoose.Schema.Types.ObjectId, ref: 'Activity' },

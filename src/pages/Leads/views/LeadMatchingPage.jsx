@@ -88,6 +88,10 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
     const [mailBody, setMailBody] = useState('');
     const [mailAttachments, setMailAttachments] = useState([]);
     const [mailTemplateId, setMailTemplateId] = useState('');
+    const [recipients, setRecipients] = useState([]);
+    const [initialTemplateId, setInitialTemplateId] = useState('');
+    const [initialChannel, setInitialChannel] = useState('SMS');
+    const [selectedProperties, setSelectedProperties] = useState([]);
 
     // 2. Pre-parse Lead Context (Simplified for display only)
     const leadContext = useMemo(() => {
@@ -132,19 +136,15 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
     };
 
     const handleWhatsApp = (item) => {
-        const template = whatsappTemplates.find(t => t.name === 'Property Presentation');
-        let message = template.content;
-
-        // Inject variables
-        message = message.replace('{{ContactName}}', lead.name);
-        message = message.replace('{{PropertyType}}', item.propertyType || item.type || 'Property');
-        message = message.replace('{{Location}}', item.location);
-        message = message.replace('{{Size}}', item.size);
-        message = message.replace('{{Price}}', item.price);
-        message = message.replace('{{PropertyLink}}', `http://bharatproperties.in/p/${item.id || item.unitNo}`);
-
-        window.open(`https://wa.me/91${lead.mobile}?text=${encodeURIComponent(message)}`, '_blank');
-        logActivity('WhatsApp Sent', item);
+        setRecipients([{
+            ...lead,
+            name: lead.name || 'Lead',
+            phone: lead.mobile || lead.phone
+        }]);
+        setInitialTemplateId('property_presentation_default'); // Or a single item template
+        setInitialChannel('WHATSAPP');
+        setIsMessageOpen(true);
+        logActivity('WhatsApp Prepared', item);
     };
 
     if (loading) {
@@ -163,30 +163,19 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             return;
         }
 
-        // 🧠 PROFESSIONAL META-STYLE MAPPING
-        // {{1}} -> Name
-        // {{2}} -> Primary Requirement Location
-        // {{3}} -> The formatted multi-line property list
+        // 🚀 Senior Professional: Bridge to Official WhatsApp API
+        setRecipients([{
+            ...lead,
+            name: lead.name || 'Lead',
+            phone: lead.mobile || lead.phone
+        }]);
+        setInitialTemplateId('property_match_default');
+        setInitialChannel('WHATSAPP');
+        setSelectedProperties(selectedDeals);
+        setIsMessageOpen(true);
 
-        const propertyListText = selectedDeals.map((item, index) => {
-            const loc = item.location || item.inventoryId?.sector || 'Prime Location';
-            const size = item.size || 'Standard Size';
-            const price = item.price || 'On Request';
-            return `${index + 1}️⃣ 📍 ${loc} | 📏 ${size} | 💰 ₹${price}`;
-        }).join('\n');
-
-        const name = lead.name || 'Customer';
-        const location = lead.location || 'your preferred area';
-
-        // Construct message for Click-to-Chat (wa.me)
-        // Note: For official Meta API, this data would be sent via /api/marketing/send-campaign
-        const message = `Hi ${name} 👋\n\nBased on your requirement in ${location}, here are a few suitable options:\n\n${propertyListText}\n\nWould you like photos, more details, or to schedule a visit?`;
-
-        window.open(`https://wa.me/91${lead.mobile}?text=${encodeURIComponent(message)}`, '_blank');
-
-        selectedDeals.forEach(item => logActivity('Portfolio Shared', item));
-        setSelectedItems([]);
-        toast.success(`Portfolio of ${selectedDeals.length} deals sent to ${lead.name}`);
+        selectedDeals.forEach(item => logActivity('Portfolio Preparation', item));
+        // Note: The variable mapping is handled by the Modal's reactive resolver
     };
 
     const generateEmailContent = (items) => {
@@ -323,8 +312,8 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                             <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px' }}>
                                 <div style={{ padding: '0 0 16px 0', borderBottom: '1px solid #f1f5f9', marginBottom: '20px' }}>
-                                    <p style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0f172a', margin: '4px 0' }}>{lead.req?.type}</p>
-                                    <p style={{ fontSize: '0.85rem', color: '#64748b', margin: 0 }}><i className="fas fa-map-marker-alt"></i> {lead.location}</p>
+                                    <p style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0f172a', margin: '4px 0' }}>{renderValue(lead.req?.type)}</p>
+                                    <p style={{ fontSize: '0.85rem', color: '#64748b', margin: 0 }}><i className="fas fa-map-marker-alt"></i> {renderValue(lead.location)}</p>
                                 </div>
 
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
@@ -688,14 +677,14 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             <SendMessageModal
                 isOpen={isMessageOpen}
                 onClose={() => setIsMessageOpen(false)}
-                initialRecipients={[{
-                    ...lead,
-                    name: lead.name || 'Lead',
-                    phone: lead.mobile || lead.phone
-                }]}
+                initialRecipients={recipients}
+                initialTemplateId={initialTemplateId}
+                initialChannel={initialChannel}
+                initialProperties={selectedProperties}
                 onSend={(data, res) => {
                     toast.success(res?.message || 'Message Sent!');
                     setIsMessageOpen(false);
+                    setSelectedItems([]);
                 }}
             />
             <AlgorithmSettingsModal
