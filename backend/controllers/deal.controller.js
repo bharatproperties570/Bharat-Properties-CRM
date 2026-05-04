@@ -562,15 +562,16 @@ export const getDeals = async (req, res) => {
             { path: 'inventoryId', select: 'projectName unitNo unitNumber block city location area size sizeUnit sizeLabel sizeConfig unitSpecification' },
             { path: 'projectId', select: 'name' },
             { path: 'owner', select: 'name phones', model: 'Contact' },
-            { path: 'category', select: 'lookup_value' },
-            { path: 'intent', select: 'lookup_value' },
-            { path: 'status', select: 'lookup_value' },
             { path: 'assignedTo', select: 'fullName name email' },
             { path: 'assignment.assignedTo', select: 'fullName name email' },
             { path: 'assignment.team', select: 'name' },
             { path: 'team', select: 'name' },
             { path: 'teams', select: 'name' }
         ];
+
+        // ⚠️ SENIOR NOTE: We removed category, intent, status from populateFields because they are Mixed 
+        // and might contain strings instead of ObjectIds, causing CastErrors. 
+        // We will resolve them manually after pagination.
 
         const results = await paginate(Deal, query, Number(page), Number(limit), sortOption, dealListPopulateFields);
 
@@ -640,9 +641,32 @@ export const getDeals = async (req, res) => {
             inventories.forEach(inv => inventoryMap.set(String(inv._id), inv));
         }
 
-        // --- [ENTERPRISE HARDENING]: Live Multi-Source Sync ---
+        // --- [ENTERPRISE HARDENING]: Live Multi-Source Sync & Manual Lookup Resolution ---
+        const allLookups = await Lookup.find({ 
+            lookup_type: { $in: ['Category', 'Intent', 'SubCategory', 'Status'] } 
+        }).lean();
+        const lookupMap = new Map(allLookups.map(l => [String(l._id), l]));
+        const lookupValueMap = new Map(allLookups.map(l => [String(l.lookup_value).toLowerCase(), l]));
+
+        const enrichWithLookup = (item, field) => {
+            const val = item[field];
+            if (!val) return;
+            if (mongoose.Types.ObjectId.isValid(val)) {
+                item[field] = lookupMap.get(String(val)) || val;
+            } else if (typeof val === 'string') {
+                item[field] = lookupValueMap.get(val.toLowerCase()) || { lookup_value: val };
+            }
+        };
+
         const enrichedRecords = results.records.map((deal) => {
             const dealObj = deal.toObject ? deal.toObject() : deal;
+            
+            // Manual Resolve Lookups to prevent CastErrors
+            enrichWithLookup(dealObj, 'category');
+            enrichWithLookup(dealObj, 'intent');
+            enrichWithLookup(dealObj, 'subCategory');
+            enrichWithLookup(dealObj, 'status');
+
             const invId = dealObj.inventoryId?._id || dealObj.inventoryId;
             const inventory = inventoryMap.get(String(invId));
 
