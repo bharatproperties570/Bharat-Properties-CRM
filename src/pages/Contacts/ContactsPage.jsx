@@ -512,7 +512,11 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
   };
 
   const handleSendMessage = () => {
-    const selected = getSelectedContacts().map((c) => ({ name: c.name, phone: c.mobile }));
+    const selected = getSelectedContacts().map((c) => {
+      // SENIOR RESILIENCE: Grab the best available phone number
+      const phone = c.mobile || c.phones?.[0]?.number || c.phone;
+      return { name: c.name, phone: phone };
+    });
     setSelectedContactsForMessage(selected);
     setIsSendMessageOpen(true);
   };

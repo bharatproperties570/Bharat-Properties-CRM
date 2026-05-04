@@ -29,6 +29,7 @@ const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [], ini
 
     // WhatsApp Templates State
     const [whatsappTemplates, setWhatsappTemplates] = useState([]);
+    const [whatsappComponents, setWhatsappComponents] = useState([]);
     const [isLoadingWhatsApp, setIsLoadingWhatsApp] = useState(false);
     const [variableRegistry, setVariableRegistry] = useState({});
 
@@ -92,6 +93,7 @@ const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [], ini
             setScheduleTime('');
             loadSmsTemplates();
             loadVariableRegistry();
+            setWhatsappComponents([]);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen]);
@@ -189,7 +191,8 @@ const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [], ini
             }
         }
 
-        // Apply Global Registry + Local Data Auto-Resolution
+        // Resolve registry-mapped placeholders like {{1}}, {{2}} and store values for Meta
+        const components = [];
         if (resolvedBody) {
             const recipient = recipients[0] || {};
             // Replace standard tags
@@ -197,11 +200,10 @@ const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [], ini
             resolvedBody = resolvedBody.replace(/{{FirstName}}/g, recipient.firstName || recipient.name?.split(' ')[0] || 'valued customer');
             resolvedBody = resolvedBody.replace(/{{Phone}}/g, recipient.phone || 'your phone');
             
-            // Resolve registry-mapped placeholders like {{1}}, {{2}}
+            // Map values for Meta Components (e.g. {{1}} -> value)
             resolvedBody = resolvedBody.replace(/{{(\d+)}}/g, (match, vIdx) => {
                 const mappedField = variableRegistry[vIdx] || variableRegistry[String(vIdx)];
                 if (mappedField) {
-                    // Map the technical field name to the lead's actual data
                     const fieldMap = {
                         'name': recipient.name,
                         'firstName': recipient.firstName || recipient.name?.split(' ')[0],
@@ -234,12 +236,17 @@ const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [], ini
                         'agreementAmount': recipient.financialDetails?.agreement?.amount,
                         'dealType': recipient.dealType
                     };
-                    return fieldMap[mappedField] || match;
+                    const val = String(fieldMap[mappedField] || match);
+                    // Add to components for WhatsApp API
+                    components.push({ type: 'text', text: val });
+                    return val;
                 }
+                components.push({ type: 'text', text: match });
                 return match;
             });
         }
         
+        setWhatsappComponents(components);
         setMessageBody(resolvedBody);
         setIsTemplateModified(false);
     };
@@ -288,6 +295,7 @@ const SendMessageModal = ({ isOpen, onClose, onSend, initialRecipients = [], ini
                     mobile: recipients[0]?.phone || recipients[0]?.mobile, // WhatsApp currently supports 1-to-1 from this modal
                     message: messageBody,
                     templateId,
+                    templateComponents: !isTemplateModified ? whatsappComponents : [], // Only send components if template wasn't manually edited
                     mediaUrl: attachment?.url,
                     filename: attachment?.name,
                     type: attachment?.type || 'text'

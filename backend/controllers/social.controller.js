@@ -52,7 +52,7 @@ export const saveSocialConfig = async (req, res) => {
  */
 export const sendWhatsAppMessage = async (req, res) => {
     try {
-        const { mobile, message, type = 'text', mediaUrl, filename, caption, templateId } = req.body;
+        const { mobile, message, type = 'text', mediaUrl, filename, caption, templateId, templateComponents } = req.body;
         
         if (!mobile || (!message && !mediaUrl && !templateId)) {
             return res.status(400).json({ success: false, error: 'Mobile and message/media/template are required' });
@@ -65,11 +65,12 @@ export const sendWhatsAppMessage = async (req, res) => {
         // 1. Dispatch via Service
         let result;
         if (templateId) {
-            // SENIOR PROFESSIONAL: If templateId is provided, use Template API for Meta compliance
-            // Note: In single message modal, we usually send resolved text, but for Meta 24h window, 
-            // we should ideally use the template name. 
-            // Here we fallback to sendMessage if templateId is just a label, but if it's a valid Meta template name, we use it.
-            result = await WhatsAppService.sendTemplate(mobile, templateId, 'en_US', []);
+            // SENIOR PROFESSIONAL: Meta templates require components for placeholders ({{1}}, {{2}})
+            const components = Array.isArray(templateComponents) && templateComponents.length > 0 
+                ? [{ type: 'body', parameters: templateComponents }] 
+                : [];
+
+            result = await WhatsAppService.sendTemplate(mobile, templateId, 'en_US', components);
             
             // If template send failed (e.g. unknown template), fallback to text if message exists
             if (!result.success && message) {

@@ -657,7 +657,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                                     setSelectedLeadsForMessage(selected.map(l => ({
                                                         id: l._id,
                                                         name: l.name,
-                                                        mobile: l.mobile
+                                                        mobile: l.mobile || l.phones?.[0]?.number || l.phone
                                                     })));
                                                     setIsSendMessageOpen(true);
                                                 }
