@@ -1919,15 +1919,17 @@ export default function MarketingOverviewPage() {
                                    <div key={vIdx} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                       <div style={{ width: '30px', fontSize: '10px', fontWeight: 800, color: 'var(--text3)' }}>{`{{${vIdx}}}`}</div>
                                       <select 
-                                        value={waMapping[vIdx] || variableRegistry[vIdx] || ''} 
+                                        value={typeof (waMapping[vIdx] || variableRegistry[vIdx]) === 'object' ? (waMapping[vIdx] || variableRegistry[vIdx]).source : (waMapping[vIdx] || variableRegistry[vIdx] || '')} 
                                         onChange={e => setWaMapping(p => ({ ...p, [vIdx]: e.target.value }))}
                                         style={{ flex: 1, padding: '6px 10px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontSize: '11px' }}
                                       >
                                         <option value="">-- Manual Selection --</option>
                                         <option value="name">Lead Full Name</option>
-                                        <option value="firstName">Lead First Name</option>
+                                        <option value="customer_first_name">Lead First Name</option>
                                         <option value="mobile">Lead Mobile</option>
                                         <option value="email">Lead Email</option>
+                                        <option value="project">Project Name</option>
+                                        <option value="price">Price</option>
                                         <option value="source">Lead Source (Platform)</option>
                                         <option value="status">Lead Stage/Status</option>
                                         <option value="assignedTo">Sales Executive/Owner</option>
@@ -4312,24 +4314,34 @@ export default function MarketingOverviewPage() {
 <div className="wa-bubble-income" style={{ background: theme === 'dark' ? '#056162' : '#fff', padding: '10px 14px', borderRadius: '8px 8px 8px 0', maxWidth: '85%', boxShadow: '0 1px 2px rgba(0,0,0,0.2)', position: 'relative', marginLeft: '4px', border: theme === 'dark' ? 'none' : '1px solid #eee' }}>
                               <div style={{ fontSize: '13px', color: theme === 'dark' ? '#e9edef' : '#111b21', lineHeight: '1.4', whiteSpace: 'pre-wrap' }}>
                                 {(selectedMetaTemplate.components.find(c => c.type === 'BODY')?.text || '').replace(/{{(\d+)}}/g, (match, p1) => {
-                                  const field = waMapping[p1] || variableRegistry[p1];
+                                  const fieldRaw = waMapping[p1] || variableRegistry[p1];
+                                  if (!fieldRaw) return match;
+                                  
+                                  const field = typeof fieldRaw === 'object' ? fieldRaw.source : fieldRaw;
                                   if (!field) return match;
+
                                   const samples = {
+                                    // --- Semantic Aliases ---
+                                    name: 'Rajesh Kumar',
+                                    customer_name: 'Rajesh Kumar',
+                                    customer_first_name: 'Rajesh',
+                                    mobile: '9876543210',
+                                    email: 'rajesh@example.com',
+                                    project: 'Bharat Heights',
+                                    project_name: 'Bharat Heights',
+                                    unit: 'Plot 42',
+                                    unit_number: 'Plot 42',
+                                    price: '₹54.5L',
+                                    property_price: '₹54.5L',
+                                    location: 'Sector 7 Kurukshetra',
+                                    ai_summary: 'Looking for 3BHK high-rise floor',
+                                    agent: 'Sumeet Singh',
+                                    
+                                    // --- Legacy Compat ---
                                     fullName: 'Rajesh Kumar', 
                                     firstName: 'Rajesh', 
                                     projectName: 'Bharat Heights',
                                     budget: '₹54.5L', 
-                                    location: 'Sector 7 Kurukshetra',
-                                    city: 'Kurukshetra',
-                                    mobile: '9876543210',
-                                    email: 'rajesh@example.com',
-                                    subCategory: 'Residential Plot',
-                                    sizeType: '10 Marla',
-                                    unitType: 'Corner',
-                                    road: '30 Ft. Wide',
-                                    agentMobile: '9988776655',
-                                    aiClosingProbability: '88%',
-                                    intentSummary: 'Looking for 3BHK high-rise floor',
                                     currentDate: new Date().toLocaleDateString('en-IN')
                                   };
                                   return samples[field] || `[${field.replace(/_/g, ' ')}]`;
@@ -4355,14 +4367,16 @@ export default function MarketingOverviewPage() {
                                     <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text2)' }}>{`{{${vIdx}}}`}</div>
                                     <div style={{ display: 'flex', gap: '8px' }}>
                                       <select 
-                                        value={waMapping[vIdx] || variableRegistry[vIdx] || ''} 
+                                        value={typeof (waMapping[vIdx] || variableRegistry[vIdx]) === 'object' ? (waMapping[vIdx] || variableRegistry[vIdx]).source : (waMapping[vIdx] || variableRegistry[vIdx] || '')} 
                                         onChange={e => setWaMapping(p => ({ ...p, [vIdx]: e.target.value }))}
                                         style={{ width: '100%', padding: '6px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '4px', color: 'var(--text)', fontSize: '11px' }}
                                       >
                                         <option value="">Default (Registry)</option>
-                                        <option value="fullName">Full Name</option>
-                                        <option value="firstName">First Name</option>
+                                        <option value="name">Full Name</option>
+                                        <option value="customer_first_name">First Name</option>
                                         <option value="mobile">Mobile Number</option>
+                                        <option value="project">Project Name</option>
+                                        <option value="price">Price</option>
                                         <option value="email">Email Address</option>
                                         <option value="projectName">Project Name</option>
                                         <option value="budget">Budget Selection</option>
