@@ -177,7 +177,9 @@ const processMarketingJob = async (job) => {
                         const { templateName } = data;
                         if (templateName) {
                             // Professional Template Dispatch with DLT support
-                            const res = await smsService.sendSMSWithTemplate(targetMobile, templateName, recipientParams, {
+                            // Combine numbered params with named ones for legacy template support ({{Name}})
+                            const smsVariables = { ...recipientParams, ...resolutionData };
+                            const res = await smsService.sendSMSWithTemplate(targetMobile, templateName, smsVariables, {
                                 entityType: recipient.context?.originalType || 'Lead',
                                 entityId: recipient.id,
                                 dltHeaderId: smsData?.dltHeaderId,

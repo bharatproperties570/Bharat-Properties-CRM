@@ -178,8 +178,9 @@ class SmsService {
             else if (context.category === 'Transactional') resolvedChannel = 2;
             else if (context.category === 'OTP') resolvedChannel = 4;
 
-            // SENIOR PROFESSIONAL HARDENING: Strip excessive whitespace which often breaks DLT matching
-            const cleanMessage = message.trim().replace(/\s+/g, ' ');
+            // SENIOR PROFESSIONAL: DO NOT strip extra whitespace as it breaks DLT template matching in India.
+            // Templates must match the registered pattern exactly.
+            const cleanMessage = message.trim();
 
             params = {
                 APIKey: apiKey,
