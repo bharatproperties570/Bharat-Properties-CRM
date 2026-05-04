@@ -1,5 +1,33 @@
 {
   "expo": {
+    "name": "Bharat Properties CRM",
+    "slug": "bharat-properties-crm",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./src/assets/logo.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./src/assets/logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.bharatproperties.crm"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./src/assets/logo.png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.bharatproperties.crm"
+    },
+    "web": {
+      "favicon": "./src/assets/logo.png"
+    },
     "extra": {
       "eas": {
         "projectId": "3ebf87f0-bd45-42df-9ae6-4da9db8891bc"
