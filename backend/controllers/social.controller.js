@@ -52,10 +52,10 @@ export const saveSocialConfig = async (req, res) => {
  */
 export const sendWhatsAppMessage = async (req, res) => {
     try {
-        const { mobile, message, type = 'text', mediaUrl, filename, caption } = req.body;
+        const { mobile, message, type = 'text', mediaUrl, filename, caption, templateId } = req.body;
         
-        if (!mobile || (!message && !mediaUrl)) {
-            return res.status(400).json({ success: false, error: 'Mobile and message/media are required' });
+        if (!mobile || (!message && !mediaUrl && !templateId)) {
+            return res.status(400).json({ success: false, error: 'Mobile and message/media/template are required' });
         }
 
         const WhatsAppService = (await import('../services/WhatsAppService.js')).default;
@@ -64,15 +64,27 @@ export const sendWhatsAppMessage = async (req, res) => {
 
         // 1. Dispatch via Service
         let result;
-        if (type === 'text') {
+        if (templateId) {
+            // SENIOR PROFESSIONAL: If templateId is provided, use Template API for Meta compliance
+            // Note: In single message modal, we usually send resolved text, but for Meta 24h window, 
+            // we should ideally use the template name. 
+            // Here we fallback to sendMessage if templateId is just a label, but if it's a valid Meta template name, we use it.
+            result = await WhatsAppService.sendTemplate(mobile, templateId, 'en_US', []);
+            
+            // If template send failed (e.g. unknown template), fallback to text if message exists
+            if (!result.success && message) {
+                console.log(`[SocialController] Template send failed, falling back to text for ${mobile}`);
+                result = await WhatsAppService.sendMessage(mobile, message);
+            }
+        } else if (type === 'text') {
             result = await WhatsAppService.sendMessage(mobile, message);
         } else {
             result = await WhatsAppService.sendMedia(mobile, type, mediaUrl, caption || message, filename);
         }
 
-        if (result.success) {
+        if (result && result.success) {
             // 2. Normalize mobile for Lead lookup
-            const cleanPhone = mobile.replace(/\D/g, '').slice(-10);
+            const cleanPhone = String(mobile).replace(/\D/g, '').slice(-10);
             const lead = await Lead.findOne({ mobile: { $regex: new RegExp(cleanPhone + '$') } });
 
             // 3. Log as Activity for Timeline visibility
@@ -81,7 +93,7 @@ export const sendWhatsAppMessage = async (req, res) => {
                 subject: `Sent WhatsApp to ${mobile}`,
                 entityType: lead ? 'Lead' : 'System',
                 entityId: lead ? lead._id : null,
-                description: message || `Sent ${type} media`,
+                description: message || `Sent ${type} media / template: ${templateId}`,
                 status: 'Completed',
                 performedBy: req.user?.fullName || 'System',
                 details: {
@@ -91,6 +103,7 @@ export const sendWhatsAppMessage = async (req, res) => {
                     message: message,
                     mediaUrl: mediaUrl,
                     type: type,
+                    templateId: templateId,
                     messageId: result.messageId
                 },
                 dueDate: new Date()
@@ -102,7 +115,7 @@ export const sendWhatsAppMessage = async (req, res) => {
             }
         }
 
-        res.json(result);
+        res.json(result || { success: false, error: 'Unknown service error' });
     } catch (err) {
         console.error('[SocialController] sendWhatsAppMessage error:', err.message);
         res.status(500).json({ success: false, error: err.message });
