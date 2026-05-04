@@ -261,12 +261,13 @@ export const sendSms = async (req, res, next) => {
                     // Direct Send
                     let messageBody = content.body;
 
-                    // Basic merge field replacement for 'Name'
-                    if (messageBody && messageBody.includes('{{Name}}')) {
-                        messageBody = messageBody.replace(/\{\{Name\}\}/g, recipient.name || 'User');
-                    }
-                    if (messageBody && messageBody.includes('{{Phone}}')) {
-                        messageBody = messageBody.replace(/\{\{Phone\}\}/g, phone);
+                    // SENIOR RESILIENCE: Match variable resolution logic with SmsService
+                    // (Case-insensitive replacement for Name and Phone)
+                    if (messageBody) {
+                        const nameRegex = /\{\{Name\}\}/gi;
+                        const phoneRegex = /\{\{Phone\}\}/gi;
+                        messageBody = messageBody.replace(nameRegex, recipient.name || 'User');
+                        messageBody = messageBody.replace(phoneRegex, phone);
                     }
 
                     let msgContext = { entityType: 'Contact', entityId: recipient._id || null };
