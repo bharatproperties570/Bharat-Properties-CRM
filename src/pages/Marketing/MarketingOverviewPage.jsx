@@ -280,9 +280,12 @@ export default function MarketingOverviewPage() {
 
   // Detect variables like {{1}}, {{2}} in body text
   const detectVariables = useCallback((template) => {
-    if (!template) return [];
-    const bodyText = template.components?.find(c => c.type === 'BODY')?.text || '';
-    const matches = bodyText.match(/{{(\d+)}}/g);
+    if (!template || !template.components) return [];
+    let allText = '';
+    template.components.forEach(c => {
+      allText += (c.text || '') + ' ' + (c.format || '') + ' ';
+    });
+    const matches = allText.match(/{{(\d+)}}/g);
     if (!matches) return [];
     return [...new Set(matches.map(m => m.replace(/[{}]/g, '')))].sort((a,b) => a-b);
   }, []);
@@ -894,7 +897,8 @@ export default function MarketingOverviewPage() {
             const fullMapping = { ...variableRegistry, ...waMapping };
             const filtered = {};
             templateVars.forEach(idx => {
-              if (fullMapping[idx]) filtered[idx] = fullMapping[idx];
+              // Always include the index to maintain parameter count integrity for Meta
+              filtered[idx] = fullMapping[idx] || ''; 
               if (fullMapping[`${idx}_val`]) filtered[`${idx}_val`] = fullMapping[`${idx}_val`]; 
             });
             return filtered;
