@@ -116,15 +116,24 @@ const processMarketingJob = async (job) => {
                             const type = comp.type?.toLowerCase();
                             if (!type) return;
 
-                            // Find variables in this specific component's text
+                            // Find variables in this specific component's text (if text provided)
                             const compText = comp.text || '';
                             const matches = compText.match(/{{(\d+)}}/g);
                             
+                            let indices = [];
                             if (matches) {
-                                // Extract indices and SORT them numerically to match Meta's expected order
-                                const indices = [...new Set(matches.map(m => m.replace(/[{}]/g, '')))]
+                                // Extract indices from text
+                                indices = [...new Set(matches.map(m => m.replace(/[{}]/g, '')))]
                                     .sort((a, b) => parseInt(a) - parseInt(b));
+                            } else if (type === 'body' && waMapping) {
+                                // 🧠 ENTERPRISE FIX: If no text is provided but it's a BODY component,
+                                // use all numeric keys from waMapping as indices.
+                                indices = Object.keys(waMapping)
+                                    .filter(k => /^\d+$/.test(k))
+                                    .sort((a, b) => parseInt(a) - parseInt(b));
+                            }
 
+                            if (indices.length > 0) {
                                 const parameters = indices.map(idx => {
                                     const val = recipientParams[idx];
                                     // Fallback to avoid "Required parameter is missing" rejections by Meta
@@ -135,9 +144,7 @@ const processMarketingJob = async (job) => {
                                     return { type: 'text', text: cleanedVal };
                                 });
 
-                                if (parameters.length > 0) {
-                                    finalComponents.push({ type, parameters });
-                                }
+                                finalComponents.push({ type, parameters });
                             }
                         });
 
