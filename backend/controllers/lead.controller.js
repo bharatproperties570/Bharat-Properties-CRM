@@ -898,9 +898,12 @@ export const deleteLead = async (req, res, next) => {
         const { deleteContact } = req.query;
 
         const visibilityFilter = await getVisibilityFilter(req.user);
+        console.log(`[DELETE_AUDIT] Attempt by ${req.user?.email} for lead ${id}. Filter: ${JSON.stringify(visibilityFilter)}`);
+        
         const lead = await Lead.findOne({ _id: id, ...visibilityFilter });
         if (!lead) {
-            return res.status(404).json({ success: false, message: "Lead not found or access denied" });
+            console.warn(`[DELETE_AUDIT] ⛔ Lead ${id} not found or access denied for ${req.user?.email}`);
+            return res.status(404).json({ success: false, message: "Lead not found or access denied (Regional Isolation)" });
         }
 
         if (deleteContact === 'true' && lead.mobile) {
