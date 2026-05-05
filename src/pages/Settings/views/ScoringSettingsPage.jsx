@@ -12,7 +12,8 @@ const ScoringSettingsPage = () => {
         stageMultipliers, updateStageMultipliers,
         dealScoringRules, updateDealScoringRules,
         scoreBands, updateScoreBands,
-        scoringConfig, updateScoringConfig
+        scoringConfig, updateScoringConfig,
+        agingRules, updateAgingRule
     } = usePropertyConfig();
 
     const [notification, setNotification] = useState({ show: false, message: '', type: 'success' });
@@ -261,17 +262,64 @@ const ScoringSettingsPage = () => {
                             </div>
                         </div>
 
-                        {/* E. Time Decay */}
+                        {/* E. Time Decay & Dormant Threshold */}
                         <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
                             <SectionHeader
-                                title="E. Time Decay"
-                                subtitle="Inactivity Penalties"
+                                title="E. Time Decay & Dormant Logic"
+                                subtitle="Inactivity Penalties & Thresholds"
                                 icon="fa-hourglass-start"
                                 color="#ef4444"
                                 isEnabled={scoringConfig?.decay?.enabled}
                                 onToggle={(val) => updateScoringConfig('decay', { enabled: val })}
                             />
                             <div style={{ padding: '20px', opacity: scoringConfig?.decay?.enabled ? 1 : 0.5, pointerEvents: scoringConfig?.decay?.enabled ? 'auto' : 'none', transition: 'opacity 0.2s' }}>
+                                {/* Threshold Settings */}
+                                <div style={{ marginBottom: '20px', padding: '16px', background: '#fef2f2', borderRadius: '12px', border: '1px solid #fee2e2' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <i className="fas fa-bed" style={{ color: '#ef4444' }} />
+                                            <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#991b1b' }}>Dormant Threshold (Days)</span>
+                                        </div>
+                                        <input 
+                                            type="number" 
+                                            value={scoringConfig?.decay?.dormantThresholdDays || 7} 
+                                            onChange={(e) => updateScoringConfig('decay', { ...scoringConfig.decay, dormantThresholdDays: parseInt(e.target.value) || 0 })}
+                                            style={{ width: '60px', padding: '6px', borderRadius: '6px', border: '1px solid #fecaca', textAlign: 'center', fontWeight: 700 }}
+                                        />
+                                    </div>
+                                    <p style={{ margin: 0, fontSize: '0.75rem', color: '#b91c1c' }}>Leads with no activity for more than these days will automatically move to <strong>Dormant</strong> status.</p>
+                                </div>
+
+                                {/* Stalled Threshold Settings */}
+                                <div style={{ marginBottom: '20px', padding: '16px', background: '#fffbeb', borderRadius: '12px', border: '1px solid #fef3c7' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <i className="fas fa-pause-circle" style={{ color: '#d97706' }} />
+                                            <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#92400e' }}>Negotiation Stalled (Days)</span>
+                                        </div>
+                                        <input 
+                                            type="number" 
+                                            value={agingRules?.negotiationStalledDays?.value || 21} 
+                                            onChange={(e) => updateAgingRule({ ...agingRules, negotiationStalledDays: { ...agingRules.negotiationStalledDays, value: parseInt(e.target.value) || 0 } })}
+                                            style={{ width: '60px', padding: '6px', borderRadius: '6px', border: '1px solid #fcd34d', textAlign: 'center', fontWeight: 700 }}
+                                        />
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <i className="fas fa-clock" style={{ color: '#d97706' }} />
+                                            <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#92400e' }}>Opportunity Risk (Days)</span>
+                                        </div>
+                                        <input 
+                                            type="number" 
+                                            value={agingRules?.opportunityMaxDays?.value || 30} 
+                                            onChange={(e) => updateAgingRule({ ...agingRules, opportunityMaxDays: { ...agingRules.opportunityMaxDays, value: parseInt(e.target.value) || 0 } })}
+                                            style={{ width: '60px', padding: '6px', borderRadius: '6px', border: '1px solid #fcd34d', textAlign: 'center', fontWeight: 700 }}
+                                        />
+                                    </div>
+                                    <p style={{ margin: 0, fontSize: '0.75rem', color: '#b45309' }}>Controls when a deal is flagged as <strong>Stalled</strong> or <strong>At Risk</strong> in the pipeline.</p>
+                                </div>
+
+                                {/* Scoring Penalties */}
                                 {Object.entries(decayRules).map(([key, data]) => (
                                     <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                                         <span style={{ fontSize: '0.9rem', color: '#1e293b' }}>{data.label}</span>
@@ -345,29 +393,88 @@ const ScoringSettingsPage = () => {
 
                 {/* --- SCORE BANDS TAB --- */}
                 {activeTab === 'bands' && (
-                    <div style={{ maxWidth: '800px', margin: '0 auto' }}>
+                    <div style={{ maxWidth: '860px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+
+                        {/* Enterprise Architecture Notice */}
+                        <div style={{ background: 'linear-gradient(135deg, #ede9fe 0%, #dbeafe 100%)', border: '1px solid #c4b5fd', borderRadius: '12px', padding: '16px 20px', display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                            <i className="fas fa-shield-alt" style={{ color: '#7c3aed', fontSize: '1.2rem', marginTop: '2px', flexShrink: 0 }} />
+                            <div>
+                                <div style={{ fontWeight: 700, color: '#4c1d95', marginBottom: '4px', fontSize: '0.95rem' }}>
+                                    Enterprise Design: Score Bands define Labels — Triggers define Actions
+                                </div>
+                                <div style={{ fontSize: '0.85rem', color: '#5b21b6', lineHeight: 1.5 }}>
+                                    Actions are <strong>managed exclusively via Settings → Triggers</strong> using the <code style={{ background: '#ede9fe', padding: '1px 5px', borderRadius: '3px' }}>lead_score_changed</code> event.
+                                    This prevents duplicate notifications or sequence enrolments that would occur if both Score Bands and Triggers fired actions simultaneously.
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Score Bands Cards */}
                         <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-                            <SectionHeader title="Score Bands & Automation" subtitle="Define what scores mean and what they trigger" icon="fa-layer-group" color="#8b5cf6" />
-                            <div style={{ padding: '24px' }}>
-                                {Object.entries(scoreBands).map(([key, band]) => (
-                                    <div key={key} style={{ marginBottom: '24px', border: `1px solid ${band.color}`, borderRadius: '12px', overflow: 'hidden' }}>
-                                        <div style={{ background: `${band.color}10`, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${band.color}30` }}>
-                                            <span style={{ fontWeight: 700, color: band.color, fontSize: '1.1rem' }}>{band.label}</span>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                <input type="number" value={band.min} onChange={(e) => handleBandChange(key, 'min', e.target.value)} style={{ width: '60px', padding: '4px', textAlign: 'center', borderRadius: '4px', border: '1px solid #cbd5e1' }} />
-                                                <span style={{ color: '#64748b' }}>to</span>
-                                                <input type="number" value={band.max} onChange={(e) => handleBandChange(key, 'max', e.target.value)} style={{ width: '60px', padding: '4px', textAlign: 'center', borderRadius: '4px', border: '1px solid #cbd5e1' }} />
+                            <SectionHeader title="Score Band Thresholds" subtitle="Set the numeric ranges — actions are configured in Triggers" icon="fa-layer-group" color="#8b5cf6" />
+                            <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                {Object.entries(scoreBands).map(([key, band]) => {
+                                    const bandMeta = {
+                                        cold:     { icon: 'fa-snowflake',       desc: 'Inactive or unresponsive leads', triggerEvent: 'crossed_below', threshold: band.max },
+                                        warm:     { icon: 'fa-thermometer-half', desc: 'Leads showing moderate interest', triggerEvent: 'crossed_above', threshold: band.min },
+                                        hot:      { icon: 'fa-fire',            desc: 'High-intent leads requiring priority attention', triggerEvent: 'crossed_above', threshold: band.min },
+                                        superHot: { icon: 'fa-bolt',            desc: 'Immediately deal-ready — escalate to senior agent', triggerEvent: 'crossed_above', threshold: band.min }
+                                    }[key] || { icon: 'fa-circle', desc: '' };
+
+                                    return (
+                                        <div key={key} style={{ border: `1.5px solid ${band.color}40`, borderRadius: '10px', overflow: 'hidden' }}>
+                                            {/* Band Header */}
+                                            <div style={{ background: `${band.color}10`, padding: '12px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                    <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: band.color, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                        <i className={`fas ${bandMeta.icon}`} style={{ color: '#fff', fontSize: '0.85rem' }} />
+                                                    </div>
+                                                    <div>
+                                                        <div style={{ fontWeight: 800, color: band.color, fontSize: '1rem' }}>{band.label}</div>
+                                                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{bandMeta.desc}</div>
+                                                    </div>
+                                                </div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                    <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600 }}>Range:</span>
+                                                    <input type="number" value={band.min} onChange={(e) => handleBandChange(key, 'min', e.target.value)}
+                                                        style={{ width: '56px', padding: '5px 8px', textAlign: 'center', borderRadius: '6px', border: `1px solid ${band.color}60`, fontWeight: 700, color: band.color }} />
+                                                    <span style={{ color: '#94a3b8', fontWeight: 700 }}>—</span>
+                                                    <input type="number" value={band.max} onChange={(e) => handleBandChange(key, 'max', e.target.value)}
+                                                        style={{ width: '56px', padding: '5px 8px', textAlign: 'center', borderRadius: '6px', border: `1px solid ${band.color}60`, fontWeight: 700, color: band.color }} />
+                                                </div>
+                                            </div>
+
+                                            {/* Trigger Reference — No duplicate actions */}
+                                            <div style={{ padding: '12px 18px', background: '#fafafa', borderTop: `1px solid ${band.color}20`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', color: '#475569' }}>
+                                                    <i className="fas fa-bolt" style={{ color: '#6366f1' }} />
+                                                    <span>Actions configured in <strong>Triggers</strong> via event:</span>
+                                                    <code style={{ background: '#f1f5f9', padding: '2px 7px', borderRadius: '4px', color: '#6366f1', fontWeight: 700 }}>
+                                                        lead_score_changed → score {bandMeta.triggerEvent === 'crossed_above' ? 'crossed ≥' : 'dropped <'} {bandMeta.threshold}
+                                                    </code>
+                                                </div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                    <i className="fas fa-check-circle" style={{ color: '#10b981', fontSize: '0.8rem' }} />
+                                                    <span style={{ fontSize: '0.75rem', color: '#10b981', fontWeight: 600 }}>Conflict-Free</span>
+                                                </div>
                                             </div>
                                         </div>
-                                        <div style={{ padding: '16px', fontSize: '0.9rem', color: '#475569' }}>
-                                            <strong>Effective Actions:</strong>
-                                            {key === 'cold' && <ul style={{ margin: '8px 0 0 20px' }}><li>Mark as Dormant</li><li>Pause marketing sequences</li><li>Add "Cold" tag</li></ul>}
-                                            {key === 'warm' && <ul style={{ margin: '8px 0 0 20px' }}><li>Auto-assign to junior sales</li><li>Start WhatsApp + Call sequence</li><li>Enable reminders</li></ul>}
-                                            {key === 'hot' && <ul style={{ margin: '8px 0 0 20px' }}><li>Auto-match inventory</li><li>Push to Deal creation</li><li>Alert assigned agent</li></ul>}
-                                            {key === 'superHot' && <ul style={{ margin: '8px 0 0 20px' }}><li>Manager notification</li><li>Priority badge</li><li>SLA timer start</li></ul>}
-                                        </div>
-                                    </div>
-                                ))}
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        {/* Quick-nav to Triggers */}
+                        <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <i className="fas fa-external-link-alt" style={{ color: '#6366f1', fontSize: '1.1rem' }} />
+                                <div>
+                                    <div style={{ fontWeight: 700, color: '#1e293b', fontSize: '0.95rem' }}>Configure Score-Based Actions</div>
+                                    <div style={{ fontSize: '0.82rem', color: '#64748b' }}>Go to Settings → Business Rules → Triggers → filter by <code style={{ background: '#f1f5f9', padding: '1px 5px', borderRadius: '3px' }}>lead_score_changed</code></div>
+                                </div>
+                            </div>
+                            <div style={{ fontSize: '0.8rem', color: '#6366f1', fontWeight: 700, padding: '8px 16px', background: '#eef2ff', borderRadius: '8px', border: '1px solid #c7d2fe' }}>
+                                Settings → Triggers
                             </div>
                         </div>
                     </div>

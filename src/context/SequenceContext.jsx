@@ -43,13 +43,47 @@ export const SequenceProvider = ({ children }) => {
     // Sequence Execution Logs (for Timeline)
     const [sequenceLogs, setSequenceLogs] = useState([]);
 
-    const enrollInSequence = (entityId, sequenceId) => {
+    /**
+     * Enroll an entity in a sequence.
+     *
+     * Enterprise Idempotency Rules:
+     *   1. An entity CANNOT be enrolled in the same sequence twice if status is 'active' or 'paused'.
+     *      (paused = lead responded; re-enrolling would restart the sequence — incorrect behaviour)
+     *   2. Re-enrollment IS allowed if previous enrollment is 'completed' or 'stopped'.
+     *      (e.g., lead re-enters a stage or score band after some time)
+     *   3. source param stamps the audit log — 'trigger', 'sequence_engine', 'manual'
+     *
+     * @param {string} entityId
+     * @param {string} sequenceId
+     * @param {Object} options - { source: 'trigger'|'sequence_engine'|'manual' }
+     */
+    const enrollInSequence = (entityId, sequenceId, options = {}) => {
+        const { source = 'system' } = options;
         const sequence = sequences.find(s => s.id === sequenceId);
-        if (!sequence) return;
+        if (!sequence) {
+            console.warn(`[SequenceEngine] Cannot enroll: Sequence '${sequenceId}' not found.`);
+            return { success: false, reason: 'sequence_not_found' };
+        }
 
-        // Check if already enrolled
-        const existing = enrollments.find(e => e.entityId === entityId && e.sequenceId === sequenceId && e.status === 'active');
-        if (existing) return;
+        // ── Enterprise Idempotency Guard ──────────────────────────────────────────
+        // Block re-enrollment if entity already has an ACTIVE or PAUSED enrollment.
+        // 'paused' means the lead responded and sequence is waiting — re-enrolling
+        // would reset the sequence and erase the lead's progress, which is incorrect.
+        const BLOCKING_STATUSES = ['active', 'paused'];
+        const existingEnrollment = enrollments.find(
+            e => e.entityId === entityId &&
+                 e.sequenceId === sequenceId &&
+                 BLOCKING_STATUSES.includes(e.status)
+        );
+
+        if (existingEnrollment) {
+            console.log(
+                `[SequenceEngine] IDEMPOTENCY: Skipped duplicate enrollment.` +
+                ` Entity: ${entityId}, Sequence: ${sequence.name}, Source: ${source},` +
+                ` Existing status: ${existingEnrollment.status}`
+            );
+            return { success: false, reason: 'already_enrolled', status: existingEnrollment.status };
+        }
 
         const newEnrollment = {
             id: `enr_${Date.now()}`,
@@ -58,16 +92,20 @@ export const SequenceProvider = ({ children }) => {
             currentStep: 0,
             status: 'active',
             enrolledAt: new Date().toISOString(),
+            enrolledBy: source,  // ← Audit: who/what triggered enrollment
             nextStepAt: calculateStepExecutionTime(new Date(), sequence.steps[0].day, sequence.steps[0].time).toISOString(),
             logs: [{
                 timestamp: new Date().toISOString(),
-                message: `Enrolled in ${sequence.name}`,
-                event: 'enrolled'
+                message: `Enrolled in ${sequence.name} via ${source}`,
+                event: 'enrolled',
+                source
             }]
         };
 
         setEnrollments(prev => [...prev, newEnrollment]);
-        addLog(entityId, sequenceId, 'Enrolled', `Enrolled in ${sequence.name}`);
+        addLog(entityId, sequenceId, 'Enrolled', `Enrolled in ${sequence.name} via ${source}`);
+        console.log(`[SequenceEngine] Enrolled entity ${entityId} in '${sequence.name}' (source: ${source})`);
+        return { success: true, enrollmentId: newEnrollment.id };
     };
 
     const updateEnrollmentStatus = (entityId, status) => {
@@ -95,12 +133,29 @@ export const SequenceProvider = ({ children }) => {
         ]);
     };
 
+    /**
+     * Evaluate all active sequences and enroll the entity in any that match.
+     * Called when a lead/contact is first created or updates to a new stage.
+     *
+     * Source is stamped as 'sequence_engine' to distinguish from trigger-based
+     * or manual enrollments in the audit trail.
+     *
+     * @param {Object} entity - The lead/contact/deal
+     * @param {string} module - 'leads', 'contacts', 'deals'
+     */
     const evaluateAndEnroll = (entity, module = 'leads') => {
+        const entityId = entity._id || entity.id;
+        if (!entityId) {
+            console.warn('[SequenceEngine] evaluateAndEnroll called without entity ID — skipped.');
+            return;
+        }
+
         const activeSequences = sequences.filter(s => s.active && s.module === module);
 
         activeSequences.forEach(seq => {
             if (evaluateSequenceTrigger(entity, seq.trigger)) {
-                enrollInSequence(entity, seq.id);
+                // ── Source stamp: 'sequence_engine' = auto-evaluated by Sequence rules
+                enrollInSequence(entityId, seq.id, { source: 'sequence_engine' });
             }
         });
     };
@@ -131,6 +186,42 @@ export const SequenceProvider = ({ children }) => {
         return enrollments.filter(e => e.sequenceId === sequenceId && e.status === 'active').length;
     };
 
+    /**
+     * Check if an entity is currently enrolled (active or paused) in a sequence.
+     * Used by EnrollSequenceModal to prevent manual duplicate enrollment.
+     *
+     * @param {string} entityId
+     * @param {string} sequenceId
+     * @returns {{ enrolled: boolean, status: string|null }}
+     */
+    const isEnrolled = (entityId, sequenceId) => {
+        const ACTIVE_STATUSES = ['active', 'paused'];
+        const enrollment = enrollments.find(
+            e => e.entityId === entityId &&
+                 e.sequenceId === sequenceId &&
+                 ACTIVE_STATUSES.includes(e.status)
+        );
+        return {
+            enrolled: !!enrollment,
+            status: enrollment?.status || null,
+            enrolledBy: enrollment?.enrolledBy || null
+        };
+    };
+
+    /**
+     * Get all active/paused enrollments for a given entity.
+     * Useful for showing current nurture state in Lead Detail sidebar.
+     *
+     * @param {string} entityId
+     * @returns {Array}
+     */
+    const getActiveEnrollments = (entityId) => {
+        const ACTIVE_STATUSES = ['active', 'paused'];
+        return enrollments.filter(
+            e => e.entityId === entityId && ACTIVE_STATUSES.includes(e.status)
+        );
+    };
+
     const getSequenceStats = (sequenceId) => {
         const allEnrollments = enrollments.filter(e => e.sequenceId === sequenceId);
         const active = allEnrollments.filter(e => e.status === 'active').length;
@@ -154,7 +245,10 @@ export const SequenceProvider = ({ children }) => {
             deleteSequence,
             toggleSequence,
             getEnrollmentCount,
-            getSequenceStats
+            getSequenceStats,
+            // Enterprise helpers
+            isEnrolled,
+            getActiveEnrollments
         }}>
             {children}
         </SequenceContext.Provider>

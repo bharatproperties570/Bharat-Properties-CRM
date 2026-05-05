@@ -167,11 +167,31 @@ export const loadScoringConfig = async () => {
     }
 
     try {
-        const setting = await SystemSetting.findOne({ key: 'lead_scoring_config' }).lean();
-        _configCache = setting?.value || DEFAULT_CONFIG;
+        // [SENIOR FIX]: Fetch individual keys as stored by the frontend (PropertyConfigContext)
+        const keys = [
+            'scoringAttributes', 
+            'activityMasterFields', 
+            'sourceQualityScores', 
+            'inventoryFitScores', 
+            'decayRules', 
+            'stageMultipliers', 
+            'scoreBands', 
+            'scoringConfig'
+        ];
+
+        const settings = await SystemSetting.find({ key: { $in: keys } }).lean();
+        
+        // Start with default and overlay from DB
+        const config = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+        settings.forEach(s => {
+            config[s.key] = s.value;
+        });
+
+        _configCache = config;
         _configCacheAt = now;
         return _configCache;
-    } catch {
+    } catch (err) {
+        console.error(`[LeadScoringService] Load failed:`, err.message);
         return DEFAULT_CONFIG;
     }
 };
@@ -495,6 +515,20 @@ export const bulkRecompute = async (filter = {}, options = {}) => {
 
 // ─── TEMPERATURE / INTENT HELPERS ────────────────────────────────────────────
 export const getTemperature = (score, scoreBands = {}) => {
+    // If array (new format from frontend)
+    if (Array.isArray(scoreBands)) {
+        const sortedBands = [...scoreBands].sort((a, b) => (b.min || 0) - (a.min || 0));
+        const match = sortedBands.find(b => score >= (b.min || 0));
+        if (match) {
+            return { 
+                label: match.label?.toUpperCase() || 'NORMAL', 
+                class: (match.label || '').toLowerCase().replace(/\s+/g, '-'), 
+                color: match.color || '#64748b' 
+            };
+        }
+    }
+
+    // Fallback to legacy object format
     if (scoreBands.superHot && score >= (scoreBands.superHot.min || 81)) {
         return { label: scoreBands.superHot.label || 'SUPER HOT', class: 'super-hot', color: scoreBands.superHot.color || '#7c3aed' };
     }

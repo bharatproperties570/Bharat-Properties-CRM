@@ -1065,7 +1065,12 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                             entityType: 'leads',
                             previousValue: previousEntity.stage,
                             currentValue: leadPayload.stage,
-                            previousEntity
+                            previousEntity,
+                            // ── Enterprise: Source Stamp ───────────────────────────────────────────
+                            // 'manual_edit' = admin changed stage directly via lead form.
+                            // StageTransitionEngine fires with 'stage_engine' (backend).
+                            // This allows Triggers to distinguish source and apply different logic.
+                            triggeredBy: 'manual_edit'
                         });
                     }
                     if (leadPayload.status !== previousEntity.status) {

@@ -18,7 +18,12 @@ export const TriggersProvider = ({ children }) => {
     const [triggers, setTriggers] = useState([
         {
             id: 'trigger_1',
-            name: 'Hot Lead Notification',
+            // ── Enterprise Trigger: Score Band Crossing Guard ──────────────────────────
+            // Uses 'crossed_above' operator (NOT '>=') to fire ONLY when lead score
+            // first crosses the Hot Band threshold (70). This prevents duplicate
+            // notifications/sequences every time score is recalculated above 70.
+            // Decoupled from Stage to work across all stages (Prospect, Qualified, etc.)
+            name: 'Lead Entered HOT Band — Alert & Fast-Track',
             module: 'leads',
             event: 'lead_score_changed',
             priority: 1,
@@ -26,8 +31,9 @@ export const TriggersProvider = ({ children }) => {
             conditions: {
                 operator: 'AND',
                 rules: [
-                    { field: 'score', operator: '>=', value: 70 },
-                    { field: 'stage', operator: '==', value: 'Prospect' }
+                    // ENTERPRISE: Threshold Crossing — fires only when score goes FROM <70 TO >=70
+                    // NOT '>=' which would fire on every recalculation above 70
+                    { field: 'leadScore', operator: 'crossed_above', value: 70 }
                 ]
             },
             actions: [
@@ -35,11 +41,40 @@ export const TriggersProvider = ({ children }) => {
                     type: 'send_notification',
                     target: 'manager',
                     template: 'hot_lead_alert',
-                    data: { message: 'High-value lead detected' }
+                    data: { message: '🔥 Lead {{firstName}} {{lastName}} just entered HOT band (Score: {{leadScore}}). Immediate follow-up required.' }
                 },
                 {
                     type: 'start_sequence',
                     sequenceId: 'seq2' // Hot Lead Fast-Track
+                }
+            ],
+            createdAt: new Date().toISOString(),
+            createdBy: 'system'
+        },
+        {
+            id: 'trigger_1b',
+            // When score drops back below 70 (from Hot to Warm/Cold) — stop fast-track sequence
+            name: 'Lead Exited HOT Band — Pause Fast-Track',
+            module: 'leads',
+            event: 'lead_score_changed',
+            priority: 2,
+            isActive: true,
+            conditions: {
+                operator: 'AND',
+                rules: [
+                    { field: 'leadScore', operator: 'crossed_below', value: 70 }
+                ]
+            },
+            actions: [
+                {
+                    type: 'stop_sequence',
+                    sequenceId: 'seq2'
+                },
+                {
+                    type: 'send_notification',
+                    target: 'manager',
+                    template: 'lead_cooled_alert',
+                    data: { message: '📉 Lead {{firstName}} {{lastName}} score dropped below HOT band (Score: {{leadScore}}). Fast-track paused.' }
                 }
             ],
             createdAt: new Date().toISOString(),
@@ -492,8 +527,11 @@ export const TriggersProvider = ({ children }) => {
             // Action Handlers - These connect triggers to actual system functions
             const actionHandlers = {
                 startSequence: async (entityId, sequenceId) => {
-                    enrollInSequence(entityId, sequenceId);
-                    return { success: true, sequenceId };
+                    // ── Enterprise: Source Stamp 'trigger' ────────────────────────────────
+                    // Idempotency guard in enrollInSequence will block if entity is already
+                    // enrolled via 'sequence_engine' (evaluateAndEnroll) or another trigger.
+                    const result = enrollInSequence(entityId, sequenceId, { source: 'trigger' });
+                    return { success: result?.success ?? true, sequenceId, result };
                 },
 
                 stopSequence: async (entityId, sequenceId) => {

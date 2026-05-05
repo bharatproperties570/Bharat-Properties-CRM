@@ -398,8 +398,8 @@ export const activitiesAPI = {
     update: (id, data) => apiRequest(`/activities/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id) => apiRequest(`/activities/${id}`, { method: 'DELETE' }),
     // ── Unified Backend Pipeline: Stage + Scoring ──
-    complete: (id, data) => apiRequest(`/activities/completion/${id}/complete`, { method: 'POST', body: JSON.stringify(data) }),
-    completeWithForm: (id, data) => apiRequest(`/activities/completion/${id}/complete-with-form`, { method: 'POST', body: JSON.stringify(data) }),
+    complete: (id, data) => apiRequest(`/activities/${id}/complete`, { method: 'POST', body: JSON.stringify(data) }),
+    completeWithForm: (id, data) => apiRequest(`/activities/${id}/complete-with-form`, { method: 'POST', body: JSON.stringify(data) }),
     sendReply: (data) => apiRequest('/activities/messaging/reply', { method: 'POST', body: JSON.stringify(data) }),
     convertToLead: (data) => apiRequest('/activities/messaging/convert-to-lead', { method: 'POST', body: JSON.stringify(data) }),
 };

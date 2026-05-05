@@ -52,6 +52,25 @@ export const evaluateTriggerConditions = (entity, conditions, previousEntity = n
                 return previousEntity !== null && currentVal == value && currentVal !== prevVal;
             case 'in':
                 return Array.isArray(value) && value.includes(currentVal);
+            // ── Enterprise: Threshold Crossing Detection ──────────────────────────────
+            // Fires ONLY when value crosses the threshold boundary — not on every evaluation.
+            // Prevents duplicate actions when trigger re-evaluates on same entity.
+            case 'crossed_above':
+                // Score was BELOW threshold before, and is AT/ABOVE threshold now
+                return previousEntity !== null &&
+                    Number(prevVal) < Number(value) &&
+                    Number(currentVal) >= Number(value);
+            case 'crossed_below':
+                // Score was AT/ABOVE threshold before, and is now BELOW threshold
+                return previousEntity !== null &&
+                    Number(prevVal) >= Number(value) &&
+                    Number(currentVal) < Number(value);
+            case '>=':
+            case 'gte':
+                return Number(currentVal) >= Number(value);
+            case '<=':
+            case 'lte':
+                return Number(currentVal) <= Number(value);
             default:
                 console.warn(`Unknown operator: ${ruleOp}`);
                 return false;
@@ -138,6 +157,10 @@ export const validateTriggerSafety = (trigger, entity, context = {}) => {
  */
 const getRestrictedActions = (module) => {
     const restrictions = {
+        // ── CRITICAL: Leads module — Triggers MUST NOT change stage directly.
+        // Stage transitions are exclusively managed by StageTransitionEngine.
+        // Any trigger attempting auto_stage_change will be blocked.
+        leads: ['auto_stage_change', 'force_stage_override'],
         inventory: ['modify_price', 'change_owner', 'auto_status_change'],
         deals: ['auto_close', 'commission_payout', 'modify_price'],
         post_sale: ['auto_refund', 'backward_stage_movement', 'modify_payment'],
@@ -249,14 +272,31 @@ export const executeTriggerActions = async (trigger, entity, actionHandlers = {}
 };
 
 /**
- * Check if a field is critical and should not be auto-updated
+ * Check if a field is critical and should not be auto-updated by Triggers.
+ *
+ * Enterprise Rule: Stage and Score are EXCLUSIVELY managed by their own engines:
+ *   - stage       → StageTransitionEngine  (backend, activity-driven)
+ *   - leadScore   → LeadScoringService     (backend, multi-factor calculation)
+ *   - dealStatus  → Deal workflow engine
+ *
+ * Triggers may REACT to these changes (via lead_stage_changed, lead_score_changed events)
+ * but MUST NOT directly mutate these fields via update_field action.
+ *
  * @param {string} field - Field name
  * @returns {boolean} - Whether field is critical
  */
 const isCriticalField = (field) => {
     const criticalFields = [
+        // ── Core Lifecycle Fields — Engine-Owned ──────────────────────────────
+        'stage',            // → StageTransitionEngine exclusive
+        'leadScore',        // → LeadScoringService exclusive
+        'activityScore',    // → LeadScoringService exclusive
+        'scoreBreakdown',   // → LeadScoringService exclusive
+        // ── Financial Fields — Must not be auto-changed ───────────────────────
         'price', 'budget', 'amount', 'commission',
+        // ── Deal/Status Lifecycle Fields ──────────────────────────────────────
         'inventoryStatus', 'dealStatus', 'paymentStatus',
+        // ── Assignment Fields — Distribution Engine exclusive ─────────────────
         'owner', 'assignedTo'
     ];
 
@@ -334,7 +374,7 @@ export const createExecutionLog = (trigger, entity, event, conditionsMet, action
  * @returns {Promise<Array>} - Execution logs
  */
 export const evaluateAndExecuteTriggers = async (event, entity, triggers, actionHandlers, context = {}) => {
-    const { entityType, previousEntity = null, depth = 0 } = context;
+    const { entityType, previousEntity = null, depth = 0, triggeredBy = null } = context;
     const logs = [];
 
     // Safety: Infinite Loop Protection
@@ -346,6 +386,17 @@ export const evaluateAndExecuteTriggers = async (event, entity, triggers, action
             success: false,
             error: 'Infinite loop detected'
         }];
+    }
+
+    // ── Enterprise: Stage Engine Source Guard ─────────────────────────────────
+    // When StageTransitionEngine fires lead_stage_changed, the context will carry
+    // triggeredBy: 'stage_engine'. Any trigger listening on lead_stage_changed
+    // is ALLOWED to react (notify, sequence, etc.) but BLOCKED from mutating stage.
+    // This is enforced by isCriticalField('stage') in the update_field action handler.
+    // Logging here makes the guard visible for debugging.
+    if (triggeredBy === 'stage_engine' && event === 'lead_stage_changed') {
+        console.log(`[TriggerEngine] lead_stage_changed fired by StageTransitionEngine — ` +
+            `Triggers may react but cannot update 'stage' field. Source: stage_engine`);
     }
 
     // Filter relevant triggers

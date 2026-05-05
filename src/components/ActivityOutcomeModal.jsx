@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { useActivities } from '../context/ActivityContext';
+import { useTriggers } from '../context/TriggersContext';
 import StageTransitionModal from './StageTransitionModal';
 import { activitiesAPI } from '../utils/api';
+
 
 /**
  * ActivityOutcomeModal — v2
@@ -20,6 +22,7 @@ import { activitiesAPI } from '../utils/api';
 const ActivityOutcomeModal = ({ isOpen, onClose, activity }) => {
     const { activityMasterFields } = usePropertyConfig();
     const { updateActivity } = useActivities();
+    const { fireEvent } = useTriggers();
 
     const [formData, setFormData] = useState({
         outcomeStatus: '',
@@ -125,6 +128,23 @@ const ActivityOutcomeModal = ({ isOpen, onClose, activity }) => {
             // Stage changed (or no change needed) — show result
             if (data.stageChanged) {
                 showToast(`✅ Stage → ${data.newStage} | Score: ${data.score ?? '—'}`);
+
+                // ── Enterprise: Fire Trigger Event with Source Stamp ──────────────────
+                // triggeredBy: 'stage_engine' tells TriggerEngine this is an AUTOMATED
+                // transition from the backend StageTransitionEngine, NOT a manual edit.
+                // Triggers can REACT (send notifications, start sequences) but
+                // isCriticalField('stage') ensures no trigger can overwrite the stage.
+                fireEvent('lead_stage_changed', {
+                    id: activity?.entityId,
+                    _id: activity?.entityId,
+                    stage: data.newStage,
+                    leadScore: data.score
+                }, {
+                    entityType: 'leads',
+                    triggeredBy: 'stage_engine',
+                    previousValue: data.prevStage,
+                    currentValue: data.newStage
+                });
             } else if (data.skippedStage) {
                 showToast(`ℹ️ Activity completed. No stage change needed.`);
             }

@@ -6,6 +6,7 @@ import Activity from '../../models/Activity.js';
 import AuditLog from '../../models/AuditLog.js';
 import { notificationQueue } from '../queues/queueManager.js';
 import { computeAndSave as computeScore } from '../services/LeadScoringService.js';
+import SystemSetting from '../modules/systemSettings/system.model.js';
 
 // Setup connection options
 const workerOptions = { connection: redisConnection };
@@ -14,15 +15,26 @@ export const cronWorker = new Worker('cronQueue', async (job) => {
     console.log(`[Cron Worker] Executing scheduled job: ${job.name}`);
 
     if (job.name === 'dailyInactivityCheck') {
+        // Fetch Dormant Threshold from System Settings (fallback to 7 days)
+        let dormantThresholdDays = 7;
+        try {
+            const config = await SystemSetting.findOne({ key: 'scoringConfig' }).lean();
+            if (config?.value?.decay?.dormantThresholdDays) {
+                dormantThresholdDays = parseInt(config.value.decay.dormantThresholdDays);
+            }
+        } catch (err) {
+            console.error(`[Cron Worker] Failed to fetch scoringConfig, using default 7 days:`, err.message);
+        }
+
         const thresholdDate = new Date();
-        thresholdDate.setDate(thresholdDate.getDate() - 7); // 7 Days ago
+        thresholdDate.setDate(thresholdDate.getDate() - dormantThresholdDays);
 
         // Resolve Dormant Stage ID
         let dormantStageId = null;
         const dormantLookup = await Lookup.findOne({ lookup_type: { $regex: /^stage$/i }, lookup_value: { $regex: /^Dormant$/i } });
         if (dormantLookup) dormantStageId = dormantLookup._id;
 
-        // Find leads with no activity for 7 days, currently not Dormant
+        // Find leads with no activity for the threshold period, currently not Dormant
         const query = { lastActivityAt: { $lt: thresholdDate } };
         if (dormantStageId) query.stage = { $ne: dormantStageId };
 
@@ -61,7 +73,7 @@ export const cronWorker = new Worker('cronQueue', async (job) => {
                 `${lead.firstName || ''} ${lead.lastName || ''}`.trim(),
                 null,
                 { before: prevDecay, after: newDecay },
-                `System Cron: decay_score +10 (inactivity >7 days). leadScore recalculated.`
+                `System Cron: decay_score +10 (inactivity >${dormantThresholdDays} days). leadScore recalculated.`
             );
 
             updatedCount++;
