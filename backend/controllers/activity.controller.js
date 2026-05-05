@@ -683,19 +683,27 @@ export const addActivity = async (req, res) => {
             }
         }
 
-        // 🚀 Team Inheritance from Parent Entity
+        // 🚀 Team & Department Inheritance from Parent Entity
         if (activityData.entityType && activityData.entityId && mongoose.Types.ObjectId.isValid(activityData.entityId)) {
-            const ModelMap = { leads: Lead, contact: mongoose.model('Contact'), deal: Deal, project: mongoose.model('Project'), company: mongoose.model('Company') };
+            const ModelMap = { leads: Lead, contact: mongoose.model('Contact'), deal: Deal, project: mongoose.model('Project'), company: mongoose.model('Company'), inventory: mongoose.model('Inventory') };
             const ParentModel = ModelMap[activityData.entityType.toLowerCase() + 's'] || ModelMap[activityData.entityType.toLowerCase()];
             if (ParentModel) {
-                const parent = await ParentModel.findById(activityData.entityId).select('teams assignment.team').lean();
+                const parent = await ParentModel.findById(activityData.entityId).select('teams department assignment.team').lean();
                 if (parent) {
                     const inheritedTeams = parent.teams || parent.assignment?.team || [];
                     if (inheritedTeams.length > 0) {
                         activityData.teams = inheritedTeams;
                     }
+                    if (parent.department) {
+                        activityData.department = parent.department;
+                    }
                 }
             }
+        }
+
+        // Fallback to user's department if not inherited
+        if (!activityData.department && req.user?.department) {
+            activityData.department = req.user.department;
         }
 
         const activity = await Activity.create(activityData);
@@ -787,9 +795,10 @@ export const updateActivity = async (req, res) => {
             updateData.performedBy = req.user.fullName || req.user.name || `${req.user.firstName || ''} ${req.user.lastName || ''}`.trim();
         }
 
+        const visibilityFilter = await getVisibilityFilter(req.user);
         // 🌟 SENIOR ADDITION: Notify on reassignment
         if (updateData.assignedTo) {
-            const existingAct = await Activity.findById(req.params.id).select('assignedTo subject type').lean();
+            const existingAct = await Activity.findOne({ _id: req.params.id, ...visibilityFilter }).select('assignedTo subject type').lean();
             if (existingAct && String(existingAct.assignedTo) !== String(updateData.assignedTo)) {
                 await createNotification(
                     updateData.assignedTo,
@@ -802,8 +811,8 @@ export const updateActivity = async (req, res) => {
             }
         }
 
-        const activity = await Activity.findByIdAndUpdate(
-            req.params.id,
+        const activity = await Activity.findOneAndUpdate(
+            { _id: req.params.id, ...visibilityFilter },
             updateData,
             { new: true, runValidators: true }
         );
@@ -844,7 +853,8 @@ export const updateActivity = async (req, res) => {
 // @route   DELETE /api/activities/:id
 export const deleteActivity = async (req, res) => {
     try {
-        const activity = await Activity.findByIdAndDelete(req.params.id);
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const activity = await Activity.findOneAndDelete({ _id: req.params.id, ...visibilityFilter });
 
         if (!activity) {
             return res.status(404).json({ success: false, error: "Activity not found" });

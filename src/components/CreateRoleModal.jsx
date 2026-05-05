@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 
-const CreateRoleModal = ({ isOpen, onClose, onSave }) => {
+const CreateRoleModal = ({ isOpen, onClose, onSave, isEdit, roleData }) => {
     const [formData, setFormData] = useState({
         name: '',
         description: '',
@@ -29,8 +29,58 @@ const CreateRoleModal = ({ isOpen, onClose, onSave }) => {
     const [error, setError] = useState('');
     const [activeTab, setActiveTab] = useState('basic');
 
+    // Handle Edit Mode Population
+    useEffect(() => {
+        if (isEdit && roleData && isOpen) {
+            setFormData({
+                name: roleData.name || '',
+                description: roleData.description || '',
+                department: roleData.department || 'sales',
+                moduleAccess: roleData.moduleAccess || {},
+                defaultDataScope: roleData.defaultDataScope || 'assigned',
+                financialPermissions: roleData.financialPermissions || {
+                    viewMargin: false,
+                    editCommission: false,
+                    overrideCommission: false,
+                    approvePayment: false,
+                    approvePayout: false
+                },
+                approvalRights: roleData.approvalRights || {
+                    approveDeal: false,
+                    approveDiscount: false,
+                    approveStageChange: false,
+                    approveListingPublish: false
+                }
+            });
+        } else if (!isEdit && isOpen) {
+            // Reset for new role
+            setFormData({
+                name: '',
+                description: '',
+                department: 'sales',
+                moduleAccess: {},
+                defaultDataScope: 'assigned',
+                financialPermissions: {
+                    viewMargin: false,
+                    editCommission: false,
+                    overrideCommission: false,
+                    approvePayment: false,
+                    approvePayout: false
+                },
+                approvalRights: {
+                    approveDeal: false,
+                    approveDiscount: false,
+                    approveStageChange: false,
+                    approveListingPublish: false
+                }
+            });
+        }
+    }, [isEdit, roleData, isOpen]);
+
     // Departments
     const departments = [
+        { id: 'sales', name: 'Sales', icon: '📈', color: '#3b82f6' },
+        { id: 'marketing', name: 'Marketing', icon: '📣', color: '#8b5cf6' },
         { id: 'inventory', name: 'Inventory', icon: '🏢', color: '#10b981' },
         { id: 'accounts', name: 'Accounts', icon: '💰', color: '#f59e0b' }
     ];
@@ -139,7 +189,12 @@ const CreateRoleModal = ({ isOpen, onClose, onSave }) => {
         setLoading(true);
 
         try {
-            const response = await axios.post('/api/roles', formData);
+            let response;
+            if (isEdit && roleData?._id) {
+                response = await axios.put(`/api/roles/${roleData._id}`, formData);
+            } else {
+                response = await axios.post('/api/roles', formData);
+            }
 
             if (response.data.success) {
                 if (onSave) {
@@ -172,8 +227,8 @@ const CreateRoleModal = ({ isOpen, onClose, onSave }) => {
                 onClose();
             }
         } catch (error) {
-            console.error('Failed to create role:', error);
-            setError(error.response?.data?.message || 'Failed to create role. Please try again.');
+            console.error(`Failed to ${isEdit ? 'update' : 'create'} role:`, error);
+            setError(error.response?.data?.message || `Failed to ${isEdit ? 'update' : 'create'} role. Please try again.`);
         } finally {
             setLoading(false);
         }
@@ -208,8 +263,8 @@ const CreateRoleModal = ({ isOpen, onClose, onSave }) => {
             }}>
                 {/* Header */}
                 <div style={{ padding: '20px 24px', borderBottom: '1px solid #f1f5f9' }}>
-                    <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: '#0f172a' }}>Create New Role</h2>
-                    <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>Define a custom role with specific permissions for your team</p>
+                    <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: '#0f172a' }}>{isEdit ? 'Edit Role' : 'Create New Role'}</h2>
+                    <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>{isEdit ? 'Modify role permissions and details' : 'Define a custom role with specific permissions for your team'}</p>
                 </div>
 
                 {/* Tabs */}
@@ -562,7 +617,7 @@ const CreateRoleModal = ({ isOpen, onClose, onSave }) => {
                         disabled={loading}
                         style={{ padding: '8px 24px', borderRadius: '6px', fontWeight: 700, opacity: loading ? 0.6 : 1 }}
                     >
-                        {loading ? 'Creating...' : 'Create Role'}
+                        {loading ? (isEdit ? 'Saving...' : 'Creating...') : (isEdit ? 'Update Role' : 'Create Role')}
                     </button>
                 </div>
             </div>

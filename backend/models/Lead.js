@@ -69,6 +69,7 @@ const LeadSchema = new mongoose.Schema({
 
     notes: { type: String },
     isContacted: { type: Boolean, default: false },
+    department: { type: String, index: true }, // Explicit branch/regional isolation
     teams: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team' }],
     assignment: {
         method: String,

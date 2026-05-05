@@ -163,6 +163,7 @@ const DealSchema = new mongoose.Schema({
 
     teams: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team', index: true }],
     team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', index: true },
+    department: { type: String, index: true }, // Explicit branch/regional isolation
     assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     assignment: {
         assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },

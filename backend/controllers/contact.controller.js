@@ -180,8 +180,9 @@ export const getContact = async (req, res, next) => {
         if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
             return res.status(400).json({ success: false, error: "Invalid Contact ID format" });
         }
-        const contact = await Contact.findById(req.params.id).populate(populateFields);
-        if (!contact) return res.status(404).json({ success: false, error: "Contact not found" });
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const contact = await Contact.findOne({ _id: req.params.id, ...visibilityFilter }).populate(populateFields);
+        if (!contact) return res.status(404).json({ success: false, error: "Contact not found or access denied" });
 
         // Attach Recent Activities and Interaction Counts
         const contactIdStr = req.params.id.toString();
@@ -350,8 +351,13 @@ export const createContact = async (req, res, next) => {
             }
         };
 
-        await resolveAllReferenceFields(data);
-        cleanEmptyStrings(data);
+        // 🔒 Enterprise Isolation: Auto-tag with creator's department and teams
+        if (req.user) {
+            if (req.user.department && !data.department) data.department = req.user.department;
+            if (req.user.teams && req.user.teams.length > 0 && (!data.teams || data.teams.length === 0)) {
+                data.teams = req.user.teams.map(t => t._id || t);
+            }
+        }
 
         const contact = await Contact.create(data);
 
@@ -402,8 +408,9 @@ export const updateContact = async (req, res, next) => {
         await resolveAllReferenceFields(cleanData);
         cleanEmptyStrings(cleanData);
 
-        const contact = await Contact.findByIdAndUpdate(req.params.id, cleanData, { new: true, runValidators: true });
-        if (!contact) return res.status(404).json({ success: false, error: "Contact not found" });
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const contact = await Contact.findOneAndUpdate({ _id: req.params.id, ...visibilityFilter }, cleanData, { new: true, runValidators: true });
+        if (!contact) return res.status(404).json({ success: false, error: "Contact not found or access denied" });
 
         // Sync to Google
         googleSyncQueue.add('syncContact', { contactId: contact._id }).catch(() => { });
@@ -535,7 +542,8 @@ export const deleteContact = async (req, res, next) => {
             Activity.deleteMany({ $or: [{ entityId: id }, { 'relatedTo.id': id }] })
         ]);
 
-        await Contact.findByIdAndDelete(id);
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        await Contact.findOneAndDelete({ _id: id, ...visibilityFilter });
 
 
         // Sync to Google

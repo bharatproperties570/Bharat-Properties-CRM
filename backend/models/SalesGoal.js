@@ -15,6 +15,7 @@ const SalesGoalSchema = new mongoose.Schema({
         type: Number,
         required: true,
     },
+    department: { type: String, index: true }, 
     // The user mentioned a unified form for "teeno goal" (Revenue, Deals, Site Visits)
     revenueGoal: {
         type: Number,

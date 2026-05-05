@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { getVisibilityFilter } from "../utils/visibility.js";
 import FeedbackForm from "../models/FeedbackForm.js";
 import FeedbackSubmission from "../models/FeedbackSubmission.js";
 import Inventory from "../models/Inventory.js";
@@ -10,7 +11,15 @@ import NurtureBot from "../services/NurtureBot.js";
 
 export const createForm = async (req, res, next) => {
     try {
-        const form = await FeedbackForm.create(req.body);
+        const formData = { ...req.body };
+        // 🔒 Enterprise Isolation: Auto-tag with creator's department and teams
+        if (req.user) {
+            if (req.user.department && !formData.department) formData.department = req.user.department;
+            if (req.user.teams && req.user.teams.length > 0 && (!formData.teams || formData.teams.length === 0)) {
+                formData.teams = req.user.teams.map(t => t._id || t);
+            }
+        }
+        const form = await FeedbackForm.create(formData);
         res.status(201).json({ success: true, data: form });
     } catch (error) {
         next(error);
@@ -19,7 +28,8 @@ export const createForm = async (req, res, next) => {
 
 export const getForms = async (req, res, next) => {
     try {
-        const forms = await FeedbackForm.find().sort({ createdAt: -1 });
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const forms = await FeedbackForm.find(visibilityFilter).sort({ createdAt: -1 });
         res.json({ success: true, data: forms });
     } catch (error) {
         next(error);
@@ -28,8 +38,9 @@ export const getForms = async (req, res, next) => {
 
 export const getFormById = async (req, res, next) => {
     try {
-        const form = await FeedbackForm.findById(req.params.id);
-        if (!form) return res.status(404).json({ success: false, message: "Form not found" });
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const form = await FeedbackForm.findOne({ _id: req.params.id, ...visibilityFilter });
+        if (!form) return res.status(404).json({ success: false, message: "Form not found or access denied" });
         res.json({ success: true, data: form });
     } catch (error) {
         next(error);
@@ -38,7 +49,8 @@ export const getFormById = async (req, res, next) => {
 
 export const updateForm = async (req, res, next) => {
     try {
-        const form = await FeedbackForm.findByIdAndUpdate(req.params.id, req.body, { new: true });
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const form = await FeedbackForm.findOneAndUpdate({ _id: req.params.id, ...visibilityFilter }, req.body, { new: true });
         res.json({ success: true, data: form });
     } catch (error) {
         next(error);
@@ -47,7 +59,8 @@ export const updateForm = async (req, res, next) => {
 
 export const deleteForm = async (req, res, next) => {
     try {
-        await FeedbackForm.findByIdAndDelete(req.params.id);
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        await FeedbackForm.findOneAndDelete({ _id: req.params.id, ...visibilityFilter });
         res.json({ success: true, message: "Form deleted" });
     } catch (error) {
         next(error);
@@ -108,6 +121,8 @@ export const submitFeedback = async (req, res, next) => {
             form: form._id,
             lead: (finalLeadId && mongoose.Types.ObjectId.isValid(finalLeadId)) ? finalLeadId : null,
             inventory: (inventoryId && mongoose.Types.ObjectId.isValid(inventoryId)) ? inventoryId : null,
+            department: form.department, // Heritage: inherit branch from form
+            teams: form.teams,
             responses,
             rating: submissionRating,
             sourceMeta: sourceMeta || {}

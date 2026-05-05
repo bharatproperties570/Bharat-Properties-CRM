@@ -119,6 +119,7 @@ const AuditLogSchema = new mongoose.Schema({
         enum: ['success', 'failure', 'warning'],
         default: 'success'
     },
+    department: { type: String, index: true }, // Regional tracking for Enterprise Isolation
 
     // Error details if failed
     errorMessage: String,
@@ -246,14 +247,15 @@ AuditLogSchema.statics.logDataTransfer = async function (fromUserId, toUserId, a
 
 // Log generic entity update (tracking previous and new values)
 AuditLogSchema.statics.logEntityUpdate = async function (eventType, targetType, targetId, targetName, userId, changes, description) {
-    const User = mongoose.model('User');
-    const user = userId ? await User.findById(userId).select('fullName email') : null;
+    const user = userId ? await User.findById(userId).select('fullName email department') : null;
+    const department = user?.department;
 
     return this.create({
         eventType,
         userId,
         userName: user?.fullName || 'System',
         userEmail: user?.email || 'system@crm.local',
+        department,
         targetType,
         targetId,
         targetName,

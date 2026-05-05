@@ -652,6 +652,15 @@ export const addLead = async (req, res, next) => {
     try {
         console.log("[DEBUG] addLead called with body:", JSON.stringify(req.body, null, 2));
         const data = { ...req.body };
+
+        // 🔒 Enterprise Isolation: Auto-tag with creator's department and teams
+        if (req.user) {
+            if (req.user.department && !data.department) data.department = req.user.department;
+            if (req.user.teams && req.user.teams.length > 0 && (!data.teams || data.teams.length === 0)) {
+                data.teams = req.user.teams.map(t => t._id || t);
+            }
+        }
+
         await resolveAllReferenceFields(data);
         console.log("[DEBUG] Data after resolution:", JSON.stringify(data, null, 2));
         const lead = await Lead.create(data);
@@ -734,8 +743,9 @@ export const updateLead = async (req, res, next) => {
         const updateData = { ...req.body };
         await resolveAllReferenceFields(updateData);
 
-        // ━━ Stage & Assignment History: auto-track changes ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        const existing = await Lead.findById(req.params.id)
+        // ━━ Security: Enforce visibility for updates ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const existing = await Lead.findOne({ _id: req.params.id, ...visibilityFilter })
             .select('stage stageHistory stageChangedAt createdAt owner assignment firstName lastName')
             .lean();
 
@@ -887,9 +897,10 @@ export const deleteLead = async (req, res, next) => {
         const { id } = req.params;
         const { deleteContact } = req.query;
 
-        const lead = await Lead.findById(id);
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const lead = await Lead.findOne({ _id: id, ...visibilityFilter });
         if (!lead) {
-            return res.status(404).json({ success: false, message: "Lead not found" });
+            return res.status(404).json({ success: false, message: "Lead not found or access denied" });
         }
 
         if (deleteContact === 'true' && lead.mobile) {
@@ -940,12 +951,13 @@ export const getLeadById = async (req, res, next) => {
         ];
 
         // Check if ID is a valid MongoDB ObjectId
+        const visibilityFilter = await getVisibilityFilter(req.user);
         let lead;
         if (id.match(/^[0-9a-fA-F]{24}$/)) {
-            lead = await Lead.findById(id).populate(leadPopulateReduced);
+            lead = await Lead.findOne({ _id: id, ...visibilityFilter }).populate(leadPopulateReduced);
         } else {
-            // Fallback: search by mobile number
-            lead = await Lead.findOne({ mobile: id }).populate(leadPopulateReduced);
+            // Fallback: search by mobile number (still filtered by branch)
+            lead = await Lead.findOne({ mobile: id, ...visibilityFilter }).populate(leadPopulateReduced);
         }
 
         if (!lead) {

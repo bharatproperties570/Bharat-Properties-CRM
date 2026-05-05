@@ -154,6 +154,7 @@ const InventorySchema = new mongoose.Schema({
     // System
     teams: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team' }],
     team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', index: true },
+    department: { type: String, index: true }, // Explicit branch/regional isolation
     assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     visibleTo: String,
     tags: { type: String, default: '-' },

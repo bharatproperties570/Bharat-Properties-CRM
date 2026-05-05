@@ -12,6 +12,14 @@ export const createBooking = async (req, res) => {
         const bookingData = req.body;
         console.log(`[BOOKING_ENGINE] Initializing new booking for Deal: ${bookingData.dealId || 'Manual'}`);
 
+        // 🔒 Enterprise Isolation: Auto-tag with creator's department and teams
+        if (req.user) {
+            if (req.user.department && !bookingData.department) bookingData.department = req.user.department;
+            if (req.user.teams && req.user.teams.length > 0 && (!bookingData.teams || bookingData.teams.length === 0)) {
+                bookingData.teams = req.user.teams.map(t => t._id || t);
+            }
+        }
+
         const booking = new Booking(bookingData);
         await booking.save();
 
@@ -101,7 +109,8 @@ export const getBookings = async (req, res) => {
         let sortCriteria = {};
         sortCriteria[sortBy] = Number(sortOrder);
 
-        const bookings = await Booking.find()
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const bookings = await Booking.find({ ...visibilityFilter })
             .populate({
                 path: 'property',
                 populate: { path: 'projectId' }
@@ -135,7 +144,8 @@ export const getBookings = async (req, res) => {
 
 export const getBooking = async (req, res) => {
     try {
-        const booking = await Booking.findById(req.params.id)
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const booking = await Booking.findOne({ _id: req.params.id, ...visibilityFilter })
             .populate({
                 path: 'property',
                 populate: [{ path: 'projectId' }, { path: 'owners' }]
@@ -164,8 +174,9 @@ export const getBooking = async (req, res) => {
 
 export const updateBooking = async (req, res) => {
     try {
-        const booking = await Booking.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
-        if (!booking) return res.status(404).json({ success: false, message: "Booking record unavailable." });
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const booking = await Booking.findOneAndUpdate({ _id: req.params.id, ...visibilityFilter }, req.body, { new: true, runValidators: true });
+        if (!booking) return res.status(404).json({ success: false, message: "Booking record unavailable or access denied." });
         
         console.log(`[BOOKING_ENGINE] Updated Booking ${req.params.id}`);
         res.status(200).json({ success: true, data: booking });
@@ -176,8 +187,9 @@ export const updateBooking = async (req, res) => {
 
 export const deleteBooking = async (req, res) => {
     try {
-        const booking = await Booking.findByIdAndDelete(req.params.id);
-        if (!booking) return res.status(404).json({ success: false, message: "Booking not found" });
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const booking = await Booking.findOneAndDelete({ _id: req.params.id, ...visibilityFilter });
+        if (!booking) return res.status(404).json({ success: false, message: "Booking not found or access denied" });
         res.status(200).json({ success: true, message: "Booking removed from active records." });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });

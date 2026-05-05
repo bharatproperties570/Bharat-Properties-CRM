@@ -93,8 +93,8 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
         background: '#f8fafc'
     };
 
-    const renderActivitySection = () => {
-        const props = { formData, handleChange, errors, activityMasterFields };
+    const renderActivitySection = (view = 'full') => {
+        const props = { formData, handleChange, errors, activityMasterFields, view };
         switch (formData.activityType) {
             case 'Call': return <CallActivitySection {...props} />;
             case 'Meeting': return <MeetingActivitySection {...props} />;
@@ -161,9 +161,10 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                             formData={formData} 
                             handleChange={handleChange} 
                             errors={errors} 
+                            activityMasterFields={activityMasterFields}
                         />
 
-                        {!isCompleted && renderActivitySection()}
+                        {(['Site Visit', 'Meeting'].includes(formData.activityType)) ? renderActivitySection('selection') : (!isCompleted && renderActivitySection())}
 
                         <div style={{ marginTop: '20px' }}>
                             <FormLabel>Description / Notes</FormLabel>
@@ -184,7 +185,7 @@ const CreateActivityModal = ({ isOpen, onClose, onSave, initialData }) => {
                     {isCompleted && (
                         <div style={{ flex: 1, borderLeft: '1px solid #f1f5f9', paddingLeft: '24px' }}>
                              <ActivityStatusToggle status={formData.status} onStatusChange={(status) => handleChange({ target: { name: 'status', value: status } })} />
-                             {renderActivitySection()}
+                             {(['Site Visit', 'Meeting'].includes(formData.activityType)) ? renderActivitySection('results') : renderActivitySection()}
                              
                              <div style={{ marginTop: '20px' }}>
                                 <FormLabel>Completion Feedback</FormLabel>

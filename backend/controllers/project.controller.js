@@ -86,7 +86,15 @@ export const getProjectById = async (req, res) => {
 
 export const addProject = async (req, res) => {
     try {
-        let project = await Project.create(req.body);
+        const data = { ...req.body };
+        // 🔒 Enterprise Isolation: Auto-tag with creator's department and teams
+        if (req.user) {
+            if (req.user.department && !data.department) data.department = req.user.department;
+            if (req.user.teams && req.user.teams.length > 0 && (!data.teams || data.teams.length === 0)) {
+                data.teams = req.user.teams.map(t => t._id || t);
+            }
+        }
+        let project = await Project.create(data);
         project = await Project.findById(project._id).populate(projectPopulateFields);
         res.json({ success: true, data: project });
     } catch (error) {
@@ -106,8 +114,9 @@ export const updateProject = async (req, res) => {
         if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
             return res.status(400).json({ success: false, error: "Invalid Project ID format" });
         }
-        const project = await Project.findByIdAndUpdate(req.params.id, req.body, { new: true }).populate(projectPopulateFields);
-        if (!project) return res.status(404).json({ success: false, error: "Project not found" });
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const project = await Project.findOneAndUpdate({ _id: req.params.id, ...visibilityFilter }, req.body, { new: true }).populate(projectPopulateFields);
+        if (!project) return res.status(404).json({ success: false, error: "Project not found or access denied" });
         res.json({ success: true, data: project });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -119,8 +128,9 @@ export const deleteProject = async (req, res) => {
         if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
             return res.status(400).json({ success: false, error: "Invalid Project ID format" });
         }
-        const project = await Project.findByIdAndDelete(req.params.id);
-        if (!project) return res.status(404).json({ success: false, error: "Project not found" });
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const project = await Project.findOneAndDelete({ _id: req.params.id, ...visibilityFilter });
+        if (!project) return res.status(404).json({ success: false, error: "Project not found or access denied" });
         res.json({ success: true, message: "Project deleted successfully" });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });

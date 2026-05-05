@@ -745,9 +745,10 @@ export const getDealById = async (req, res) => {
             { path: 'teams' }
         ];
 
-        let deal = await Deal.findById(req.params.id).populate(populateFields);
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        let deal = await Deal.findOne({ _id: req.params.id, ...visibilityFilter }).populate(populateFields);
         if (!deal) {
-            return res.status(404).json({ success: false, error: "Deal not found" });
+            return res.status(404).json({ success: false, error: "Deal not found or access denied" });
         }
 
         // Manual Enrichment for Mixed fields that might be strings (preventing CastErrors)
@@ -859,6 +860,14 @@ export const addDeal = async (req, res) => {
     console.log('[DEBUG] Incoming Add Deal Payload:', JSON.stringify(req.body, null, 2));
     try {
         const sanitizedData = sanitizeData(req.body);
+
+        // 🔒 Enterprise Isolation: Auto-tag with creator's department and teams
+        if (req.user) {
+            if (req.user.department && !sanitizedData.department) sanitizedData.department = req.user.department;
+            if (req.user.teams && req.user.teams.length > 0 && (!sanitizedData.teams || sanitizedData.teams.length === 0)) {
+                sanitizedData.teams = req.user.teams.map(t => t._id || t);
+            }
+        }
 
         // Rule: One Deal per Type per Inventory
         if (sanitizedData.inventoryId && sanitizedData.intent) {
@@ -1023,8 +1032,9 @@ export const updateDeal = async (req, res) => {
         const sanitizedData = sanitizeData(req.body);
         console.log(`[DealController] Sanitized Payload:`, JSON.stringify(sanitizedData, null, 2));
 
-        // ━━ Stage & Assignment History: auto-track changes ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        const existing = await Deal.findById(req.params.id)
+        // ━━ Security: Enforce visibility for updates ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const existing = await Deal.findOne({ _id: req.params.id, ...visibilityFilter })
             .select('stage stageHistory stageChangedAt createdAt assignedTo assignment projectName')
             .lean();
 
@@ -1266,8 +1276,9 @@ export const updateDeal = async (req, res) => {
 
 export const deleteDeal = async (req, res) => {
     try {
-        const deal = await Deal.findByIdAndDelete(req.params.id);
-        if (!deal) return res.status(404).json({ success: false, error: "Deal not found" });
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const deal = await Deal.findOneAndDelete({ _id: req.params.id, ...visibilityFilter });
+        if (!deal) return res.status(404).json({ success: false, error: "Deal not found or access denied" });
 
         // Reset inventory status if the deal was deleted
         if (deal.inventoryId) {

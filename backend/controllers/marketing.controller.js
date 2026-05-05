@@ -18,6 +18,7 @@ import MarketingContent from '../models/MarketingContent.js';
 import NurtureBot from '../services/NurtureBot.js';
 import marketingAudienceService from '../services/MarketingAudienceService.js';
 import { normalizePhone } from '../utils/normalization.js';
+import { getVisibilityFilter } from '../utils/visibility.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -68,15 +69,16 @@ export const getMarketingStats = async (req, res) => {
 
 export const getCampaignRuns = async (req, res) => {
     try {
-        const Activity = mongoose.model('Activity');
+        const visibilityFilter = await getVisibilityFilter(req.user);
         
-        // Fetch all marketing activities from last 30 days
+        // Fetch all marketing activities from last 30 days within regional scope
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
  
         // 🧠 SENIOR PROFESSIONAL: Strict Batch Filter
         // Only include activities that are part of an orchestrated campaign batch
         const activities = await Activity.find({ 
+            ...visibilityFilter,
             $or: [
                 { 'details.campaignName': { $exists: true } },
                 { 'details.jobId': { $exists: true } }
@@ -282,8 +284,9 @@ export const generateSocialContent = async (req, res) => {
         const { dealId, platform } = req.body;
         if (!dealId || !platform) return res.status(400).json({ success: false, error: 'Deal ID and platform are required' });
 
-        const deal = await Deal.findById(dealId);
-        if (!deal) return res.status(404).json({ success: false, error: 'Deal not found' });
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const deal = await Deal.findOne({ _id: dealId, ...visibilityFilter });
+        if (!deal) return res.status(404).json({ success: false, error: 'Deal not found or access denied' });
 
         const content = await marketingService.generateSocialPost(deal, platform.toLowerCase());
 
@@ -307,8 +310,9 @@ export const generateSocialContent = async (req, res) => {
 export const generateEmailCampaign = async (req, res) => {
     try {
         const { dealId, audience } = req.body;
-        const deal = await Deal.findById(dealId);
-        if (!deal) return res.status(404).json({ success: false, error: 'Deal not found' });
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const deal = await Deal.findOne({ _id: dealId, ...visibilityFilter });
+        if (!deal) return res.status(404).json({ success: false, error: 'Deal not found or access denied' });
         const campaign = await marketingService.generateEmailCampaign(deal, audience);
         res.json({ success: true, campaign });
     } catch (error) {
@@ -318,7 +322,8 @@ export const generateEmailCampaign = async (req, res) => {
 
 export const getRecentDeals = async (req, res) => {
     try {
-        const deals = await Deal.find({ stage: 'Open' }).sort({ createdAt: -1 }).limit(5);
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const deals = await Deal.find({ stage: 'Open', ...visibilityFilter }).sort({ createdAt: -1 }).limit(5);
         res.json({ success: true, data: deals });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -375,7 +380,7 @@ export const getAudienceCount = async (req, res) => {
             return res.json({ success: true, count: config.tempCount || 0 });
         }
 
-        const recipients = await marketingAudienceService.getAudience(config);
+        const recipients = await marketingAudienceService.getAudience(config, req.user);
         
         res.json({ success: true, count: recipients.length });
     } catch (error) {
@@ -491,10 +496,11 @@ export const sendCampaign = async (req, res) => {
                 return { ...r, name, mobile, email };
             }).filter(r => r.mobile);
         } else if (audienceConfig && audienceConfig.source) {
-            recipients = await marketingAudienceService.getAudience(audienceConfig);
+            recipients = await marketingAudienceService.getAudience(audienceConfig, req.user);
         } else {
+            const visibilityFilter = await getVisibilityFilter(req.user);
             const segmentQuery = segment && segment !== 'all' ? { stage: { $regex: new RegExp(segment, 'i') } } : {};
-            const leads = await Lead.find({ ...segmentQuery, mobile: { $exists: true, $ne: '' } }).limit(1000).lean();
+            const leads = await Lead.find({ ...segmentQuery, ...visibilityFilter, mobile: { $exists: true, $ne: '' } }).limit(1000).lean();
             recipients = leads.map(l => ({
                 id: l._id,
                 name: l.fullName || `${l.firstName || ''} ${l.lastName || ''}`.trim(),
@@ -678,23 +684,24 @@ export const sendManualMatch = async (req, res) => {
         const eSvc = (await import('../services/email.service.js')).default;
         const Activity = mongoose.model('Activity');
 
+        const visibilityFilter = await getVisibilityFilter(req.user);
         const overallResults = [];
 
         // 2. Iterate through cross-product (or usually it's 1-to-N or N-to-1)
         for (const dId of finalDealIds) {
-            // Fetch Property/Deal (Polymorphic)
-            let propertyData = await Inventory.findById(dId).lean();
+            // Fetch Property/Deal (Polymorphic) - Strictly Scoped
+            let propertyData = await Inventory.findOne({ _id: dId, ...visibilityFilter }).lean();
             let isInventory = true;
             if (!propertyData) {
-                propertyData = await Deal.findById(dId).lean();
+                propertyData = await Deal.findOne({ _id: dId, ...visibilityFilter }).lean();
                 isInventory = false;
             }
             if (!propertyData) continue;
 
-            const mockInv = isInventory ? propertyData : (propertyData.inventoryId ? await Inventory.findById(propertyData.inventoryId).lean() : null);
+            const mockInv = isInventory ? propertyData : (propertyData.inventoryId ? await Inventory.findOne({ _id: propertyData.inventoryId, ...visibilityFilter }).lean() : null);
 
             for (const lId of finalLeadIds) {
-                const lead = await Lead.findById(lId).lean();
+                const lead = await Lead.findOne({ _id: lId, ...visibilityFilter }).lean();
                 if (!lead) continue;
 
                 console.log(`[ManualDispatch] Processing Match: Prop:${dId} -> Lead:${lId}`);

@@ -512,7 +512,7 @@ const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, o
     );
 };
 
-const RolesList = ({ onNewRole, roles, onDeleteRole, currentUser }) => {
+const RolesList = ({ onNewRole, roles, onDeleteRole, onEditRole, currentUser }) => {
     // Determine if current user is admin
     let roleName = currentUser?.role?.name;
     if (!roleName && typeof currentUser?.role === 'string' && roles) {
@@ -550,6 +550,31 @@ const RolesList = ({ onNewRole, roles, onDeleteRole, currentUser }) => {
                                 <td style={{ padding: '16px', fontWeight: 700, color: '#1e293b' }}>{role.name}</td>
                                 <td style={{ padding: '16px', color: '#64748b' }}>{role.description}</td>
                                 <td style={{ padding: '16px', textAlign: 'center', fontWeight: 700, color: '#1e293b' }}>
+                                    {isAdmin && !role.isSystemRole && (
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                                onEditRole(role);
+                                            }}
+                                            style={{
+                                                border: 'none',
+                                                background: 'transparent',
+                                                color: 'var(--primary-color)',
+                                                cursor: 'pointer',
+                                                padding: '8px',
+                                                borderRadius: '4px',
+                                                transition: 'background 0.2s',
+                                                marginRight: '8px'
+                                            }}
+                                            onMouseOver={e => e.currentTarget.style.background = '#f0f9ff'}
+                                            onMouseOut={e => e.currentTarget.style.background = 'transparent'}
+                                            title="Edit Role"
+                                        >
+                                            <i className="fas fa-edit"></i>
+                                        </button>
+                                    )}
                                     {isAdmin && !role.isSystemRole && (
                                         <button
                                             type="button"
@@ -697,6 +722,7 @@ const SettingsPage = () => {
     const [userToInactivate, setUserToInactivate] = useState(null);
     const [managerContext, setManagerContext] = useState({ name: '', id: '' });
     const [editingUser, setEditingUser] = useState(null);
+    const [editingRole, setEditingRole] = useState(null);
     const [editingTeam, setEditingTeam] = useState(null);
     const [notification, setNotification] = useState({ show: false, message: '', type: 'success' });
     const [isSyncing, setIsSyncing] = useState(false);
@@ -775,8 +801,14 @@ const SettingsPage = () => {
     const handleSaveRole = async () => {
         // Modal already handles API call
         refreshData();
-        showToast('Role saved successfully');
+        showToast(editingRole ? 'Role updated successfully' : 'Role saved successfully');
         setIsCreateRoleModalOpen(false);
+        setEditingRole(null);
+    };
+
+    const handleEditRole = (role) => {
+        setEditingRole(role);
+        setIsCreateRoleModalOpen(true);
     };
 
     const handleSaveTeam = () => {
@@ -1076,7 +1108,16 @@ const SettingsPage = () => {
                                 currentUser={currentUser}
                                 roles={roles}
                             />}
-                            {subTab === 'roles' && <RolesList onNewRole={() => setIsCreateRoleModalOpen(true)} roles={roles} onDeleteRole={handleDeleteRole} currentUser={currentUser} />}
+                            {subTab === 'roles' && <RolesList 
+                                onNewRole={() => {
+                                    setEditingRole(null);
+                                    setIsCreateRoleModalOpen(true);
+                                }} 
+                                roles={roles} 
+                                onDeleteRole={handleDeleteRole}
+                                onEditRole={handleEditRole}
+                                currentUser={currentUser} 
+                            />}
                         </>
                     ) : activeTab === 'sales-goals' ? (
                         <SalesGoalsSettingsPage />
@@ -1189,8 +1230,13 @@ const SettingsPage = () => {
 
             <CreateRoleModal
                 isOpen={isCreateRoleModalOpen}
-                onClose={() => setIsCreateRoleModalOpen(false)}
+                onClose={() => {
+                    setIsCreateRoleModalOpen(false);
+                    setEditingRole(null);
+                }}
                 onSave={handleSaveRole}
+                isEdit={!!editingRole}
+                roleData={editingRole}
             />
 
             <CreateTeamModal

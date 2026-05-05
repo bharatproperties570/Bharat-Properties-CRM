@@ -36,6 +36,7 @@ const CompanySchema = new mongoose.Schema({
     teams: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team', index: true }],
     team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', index: true },
     owner: { type: mongoose.Schema.Types.Mixed, ref: 'User' },
+    department: { type: String, index: true }, // Explicit branch/regional isolation
     visibleTo: { type: String, default: "Everyone" },
     addresses: {
         registeredOffice: AddressSchema,

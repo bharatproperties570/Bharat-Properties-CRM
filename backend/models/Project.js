@@ -34,6 +34,7 @@ const ProjectSchema = new mongoose.Schema({
     assign: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true }],
     teams: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team', index: true }],
     team: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team' }],
+    department: { type: String, index: true }, // Explicit branch/regional isolation
     visibleTo: String,
     
     // Website Integration

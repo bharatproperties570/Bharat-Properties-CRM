@@ -825,6 +825,14 @@ export const addInventory = async (req, res) => {
         }
 
         const data = sanitizePayload({ ...req.body });
+        
+        // 🔒 Enterprise Isolation: Auto-tag with creator's department and teams
+        if (req.user) {
+            if (req.user.department && !data.department) data.department = req.user.department;
+            if (req.user.teams && req.user.teams.length > 0 && (!data.teams || data.teams.length === 0)) {
+                data.teams = req.user.teams.map(t => t._id || t);
+            }
+        }
 
         // Resolve Reference Fields to prevent CastErrors
         if (data.category !== undefined) data.category = await resolveLookup('Category', data.category, false);
@@ -966,7 +974,8 @@ export const updateInventory = async (req, res) => {
             delete data.interactions;
         }
 
-        const inventory = await Inventory.findByIdAndUpdate(req.params.id, data, {
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const inventory = await Inventory.findOneAndUpdate({ _id: req.params.id, ...visibilityFilter }, data, {
             new: true,
             runValidators: false, // Mixed-type fields (status, category) cast via pre-hook, not validators
         }).populate([
@@ -1020,7 +1029,8 @@ export const updateInventory = async (req, res) => {
 
 export const deleteInventory = async (req, res) => {
     try {
-        const inventory = await Inventory.findByIdAndDelete(req.params.id);
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const inventory = await Inventory.findOneAndDelete({ _id: req.params.id, ...visibilityFilter });
 
         if (!inventory) {
             return res.status(404).json({ success: false, error: "Inventory item not found" });

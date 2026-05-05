@@ -39,6 +39,7 @@ const ContactSchema = new mongoose.Schema({
         team: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team' }],
         visibleTo: { type: String, enum: ['Everyone', 'Team', 'Private'], default: 'Everyone' }
     },
+    department: { type: String, index: true }, // Explicit branch/regional isolation
     visibleTo: { type: String, default: "Everyone" },
 
 

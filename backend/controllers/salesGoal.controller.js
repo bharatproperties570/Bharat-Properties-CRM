@@ -1,5 +1,6 @@
 import SalesGoal from '../models/SalesGoal.js';
 import User from '../models/User.js';
+import { getVisibilityFilter } from '../utils/visibility.js';
 
 // @desc    Get sales goals for current user or team members
 // @route   GET /api/sales-goals
@@ -11,14 +12,16 @@ export const getSalesGoals = async (req, res) => {
 
         // Populate user to get role name accurately
         const user = await User.findById(req.user.id).populate('role');
-        const isAdmin = user?.role?.name === 'admin';
-
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        
         const query = {
             month: currentMonth,
-            year: currentYear
+            year: currentYear,
+            ...visibilityFilter
         };
 
         if (!isAdmin) {
+            // Further restrict if not admin
             query.user = req.user.id;
         }
 
@@ -37,6 +40,7 @@ export const setSalesGoal = async (req, res) => {
         const { userId, month, year, revenueGoal, dealsGoal, siteVisitsGoal, period } = req.body;
 
         const targetUserId = userId || req.user.id;
+        const targetUser = await User.findById(targetUserId).lean();
         
         const goal = await SalesGoal.findOneAndUpdate(
             { user: targetUserId, month, year },
@@ -44,7 +48,8 @@ export const setSalesGoal = async (req, res) => {
                 revenueGoal, 
                 dealsGoal, 
                 siteVisitsGoal, 
-                period: period || 'monthly'
+                period: period || 'monthly',
+                department: targetUser?.department // Ensure department is tagged
             },
             { new: true, upsert: true }
         );
@@ -59,7 +64,8 @@ export const setSalesGoal = async (req, res) => {
 // @route   GET /api/sales-goals/users
 export const getSalesUsers = async (req, res) => {
     try {
-        const users = await User.find({ isActive: true }).select('fullName avatar role').populate('role', 'name');
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const users = await User.find({ isActive: true, ...visibilityFilter }).select('fullName avatar role').populate('role', 'name');
         res.json({ success: true, data: users });
     } catch (error) {
         console.error('Get sales users error:', error);

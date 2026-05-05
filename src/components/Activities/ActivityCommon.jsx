@@ -34,9 +34,12 @@ export const FormLabel = ({ children, required, style }) => (
     </label>
 );
 
-export const FormInput = ({ hasError, ...props }) => (
+import React from 'react';
+
+export const FormInput = React.forwardRef(({ hasError, ...props }, ref) => (
     <input
         {...props}
+        ref={ref}
         style={{
             width: '100%',
             padding: '10px 12px',
@@ -50,7 +53,7 @@ export const FormInput = ({ hasError, ...props }) => (
             ...props.style
         }}
     />
-);
+));
 
 export const FormSelect = ({ hasError, children, ...props }) => (
     <div style={{ position: 'relative' }}>

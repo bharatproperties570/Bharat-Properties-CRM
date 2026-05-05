@@ -26,6 +26,8 @@ const SectionSchema = new mongoose.Schema({
 const FeedbackFormSchema = new mongoose.Schema({
     name: { type: String, required: true },
     slug: { type: String, required: true, unique: true, index: true },
+    department: { type: String, index: true }, 
+    teams: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team', index: true }],
     isActive: { type: Boolean, default: true },
     description: { type: String },
     sections: [SectionSchema],

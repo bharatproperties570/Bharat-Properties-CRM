@@ -9,32 +9,19 @@ const CallActivitySection = ({ formData, handleChange, errors, activityMasterFie
         <ActivityCard background="#f0f9ff" borderColor="#bae6fd">
             <SectionTitle icon="fas fa-phone-alt" color="#0369a1">Call Details</SectionTitle>
             
-            <div style={{ display: 'flex', gap: '16px', marginBottom: '16px' }}>
-                <div style={{ flex: 1 }}>
-                    <FormLabel>Call Purpose</FormLabel>
+            {isCompleted && (
+                <div style={{ marginBottom: '16px' }}>
+                    <FormLabel required>Direction</FormLabel>
                     <FormSelect
-                        name="purpose"
-                        value={formData.purpose}
+                        name="direction"
+                        value={formData.direction}
                         onChange={handleChange}
                     >
-                        <option value="">Select Purpose</option>
-                        {(callAct?.purposes || []).map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
+                        <option value="Incoming Call">Incoming</option>
+                        <option value="Outgoing Call">Outgoing</option>
                     </FormSelect>
                 </div>
-                {isCompleted && (
-                    <div style={{ flex: 1 }}>
-                        <FormLabel required>Direction</FormLabel>
-                        <FormSelect
-                            name="direction"
-                            value={formData.direction}
-                            onChange={handleChange}
-                        >
-                            <option value="Incoming Call">Incoming</option>
-                            <option value="Outgoing Call">Outgoing</option>
-                        </FormSelect>
-                    </div>
-                )}
-            </div>
+            )}
 
             {isCompleted && (
                 <div style={{ animation: 'fadeIn 0.3s ease-out' }}>

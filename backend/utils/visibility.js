@@ -30,23 +30,21 @@ export const getVisibilityFilter = async (user) => {
 
     const roleName = user.role?.name?.toLowerCase() || '';
     const userEmail = user.email?.toLowerCase() || '';
+    const dataScope = user.dataScope?.toLowerCase() || '';
 
     // 1. Intelligent Scope Resolution:
-    //    If dataScope is not set, Admins default to 'all', others to 'assigned'.
-    // 🛡️ [SENIOR FAIL-SAFE] Primary Owner/Admin Bypass
-    // Ensure the system owner never gets locked out due to hydration/role issues
-    const isSuperAdmin = 
+    // 🛡️ [SENIOR FAIL-SAFE] Primary System Owner Emergency Bypass
+    // This is ONLY for the root owners, not general admins.
+    const isSystemOwner = 
         userEmail === 'bharatproperties570@gmail.com' || 
-        userEmail === 'shreykeshwar@gmail.com' ||
-        roleName.includes('admin') || 
-        roleName.includes('owner');
+        userEmail === 'shreykeshwar@gmail.com';
 
-    if (isSuperAdmin) {
-        console.log(`[VISIBLE_AUDIT] ✅ ADMIN/OWNER BYPASS GRANTED for: ${user.email}`);
+    if (isSystemOwner || dataScope === 'all') {
+        console.log(`[VISIBLE_AUDIT] ✅ GLOBAL BYPASS GRANTED for: ${user.email} (Scope: ${dataScope || 'Owner'})`);
         return {};
     }
 
-    const effectiveScope = user.dataScope || (isSuperAdmin ? 'all' : 'assigned');
+    const effectiveScope = dataScope || 'assigned';
 
     // 2. Validate ObjectId
     const userId = user?._id || user?.id;
@@ -108,6 +106,7 @@ export const getVisibilityFilter = async (user) => {
         finalFilter = {
             $or: [
                 ...baseFilter.$or,
+                { department: user.department }, // Direct branch check
                 { teams: { $in: deptTeamIds } },
                 { team: { $in: deptTeamIds } },
                 { 'assignment.team': { $in: deptTeamIds } },

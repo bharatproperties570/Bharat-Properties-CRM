@@ -4,13 +4,16 @@ import Contact from '../models/Contact.js';
 import Deal from '../models/Deal.js';
 import Inventory from '../models/Inventory.js';
 import { normalizePhone } from '../utils/normalization.js';
+import { getVisibilityFilter } from '../utils/visibility.js';
 
 class MarketingAudienceService {
     /**
      * Fetch unified audience segments from CRM data with smart deduplication.
      * @param {Object} config - { source: 'lead'|'contact'|'deal'|'inventory', filters: {} }
+     * @param {Object} user - The requesting user (for regional isolation)
      */
-    async getAudience(config) {
+    async getAudience(config, user) {
+        const visibilityFilter = user ? await getVisibilityFilter(user) : {};
         const source = (config.source || '').toLowerCase();
         const filters = config.filters || {};
         let rawRecipients = [];
@@ -20,7 +23,7 @@ class MarketingAudienceService {
         try {
             switch (source) {
                 case 'lead': {
-                    const query = this._buildLeadQuery(filters);
+                    const query = { ...this._buildLeadQuery(filters), ...visibilityFilter };
                     rawRecipients = await Lead.find(query)
                         .select('mobile email firstName lastName fullName project projectName stage status assignment updatedAt')
                         .populate('project', 'name')
@@ -32,7 +35,7 @@ class MarketingAudienceService {
                 }
 
                 case 'contact': {
-                    const query = this._buildContactQuery(filters);
+                    const query = { ...this._buildContactQuery(filters), ...visibilityFilter };
                     rawRecipients = await Contact.find(query)
                         .select('name surname phones emails tags updatedAt')
                         .sort({ updatedAt: -1 })
@@ -41,7 +44,7 @@ class MarketingAudienceService {
                 }
 
                 case 'deal': {
-                    const query = this._buildDealQuery(filters);
+                    const query = { ...this._buildDealQuery(filters), ...visibilityFilter };
                     rawRecipients = await Deal.find(query)
                         .select('projectName unitNo stage owner associatedContact updatedAt')
                         .populate('owner associatedContact')
@@ -51,7 +54,7 @@ class MarketingAudienceService {
                 }
 
                 case 'inventory': {
-                    const query = await this._buildInventoryQuery(filters);
+                    const query = { ...(await this._buildInventoryQuery(filters)), ...visibilityFilter };
                     rawRecipients = await Inventory.find(query)
                         .select('projectName unitNo unitNumber sector block owners associates updatedAt')
                         .populate({

@@ -22,6 +22,8 @@ const BookingSchema = new mongoose.Schema({
     salesAgent: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     channelPartner: { type: mongoose.Schema.Types.ObjectId, ref: 'Contact' },
     buyerSide: { type: String }, // e.g., 'Internal', 'External'
+    department: { type: String, index: true }, // Explicit branch/regional isolation
+    teams: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team', index: true }],
 
     // Commissions
     sellerBrokeragePercent: { type: Number, default: 0 },

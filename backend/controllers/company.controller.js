@@ -196,8 +196,9 @@ export const getCompanies = async (req, res, next) => {
 
 export const getCompany = async (req, res, next) => {
     try {
-        const company = await Company.findById(req.params.id).populate(populateFields);
-        if (!company) return res.status(404).json({ success: false, error: "Company not found" });
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const company = await Company.findOne({ _id: req.params.id, ...visibilityFilter }).populate(populateFields);
+        if (!company) return res.status(404).json({ success: false, error: "Company not found or access denied" });
         res.json({ success: true, data: company });
     } catch (error) {
         next(error);
@@ -210,6 +211,13 @@ export const addCompany = async (req, res, next) => {
         if (error) return res.status(400).json({ success: false, error: error.details[0].message });
 
         const data = { ...req.body };
+        // 🔒 Enterprise Isolation: Auto-tag with creator's department and teams
+        if (req.user) {
+            if (req.user.department && !data.department) data.department = req.user.department;
+            if (req.user.teams && req.user.teams.length > 0 && (!data.teams || data.teams.length === 0)) {
+                data.teams = req.user.teams.map(t => t._id || t);
+            }
+        }
         await resolveAllReferenceFields(data);
 
         const sanitized = sanitizeData(data);
@@ -229,8 +237,9 @@ export const updateCompany = async (req, res, next) => {
         await resolveAllReferenceFields(data);
 
         const sanitized = sanitizeData(data);
-        const company = await Company.findByIdAndUpdate(req.params.id, sanitized, { new: true });
-        if (!company) return res.status(404).json({ success: false, error: "Company not found" });
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const company = await Company.findOneAndUpdate({ _id: req.params.id, ...visibilityFilter }, sanitized, { new: true });
+        if (!company) return res.status(404).json({ success: false, error: "Company not found or access denied" });
         res.json({ success: true, data: company });
     } catch (error) {
         next(error);
@@ -239,8 +248,9 @@ export const updateCompany = async (req, res, next) => {
 
 export const deleteCompany = async (req, res, next) => {
     try {
-        const company = await Company.findByIdAndDelete(req.params.id);
-        if (!company) return res.status(404).json({ success: false, error: "Company not found" });
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const company = await Company.findOneAndDelete({ _id: req.params.id, ...visibilityFilter });
+        if (!company) return res.status(404).json({ success: false, error: "Company not found or access denied" });
         res.json({ success: true, message: "Company deleted successfully" });
     } catch (error) {
         next(error);

@@ -42,6 +42,7 @@ const ActivitySchema = new mongoose.Schema({
 
     tags: [{ type: String }],
     isStarred: { type: Boolean, default: false },
+    department: { type: String, index: true }, // Explicit branch/regional isolation
     teams: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team' }],
     googleEventId: { type: String, index: true },
 
