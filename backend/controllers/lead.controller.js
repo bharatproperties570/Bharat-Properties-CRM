@@ -401,8 +401,8 @@ export const getLeads = async (req, res, next) => {
             }
         }
         
-        // --- 💤 DORMANT EXCLUSION (Hide by default unless showDormant is true) ---
-        if (showDormant !== "true" && !req.query.stage) {
+        // --- 💤 DORMANT EXCLUSION (Hide by default unless showDormant is true OR searching) ---
+        if (showDormant !== "true" && !req.query.stage && !search) {
             const dormantLookups = await Lookup.find({ 
                 lookup_value: { $regex: /^Dormant$/i } 
             }).select('_id').lean();
