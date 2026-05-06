@@ -71,7 +71,7 @@ export const DEFAULT_STAGE_RULES = [
         activityType: 'Call',
         purpose: 'Introduction', // Will match 'Introduction / First Contact' via .includes
         outcome: 'Connected',
-        reason: 'Interested',
+        reason: '*', // Relaxed to match even if reason is empty
         newStage: 'Prospect',
         requiredForms: ['Requirement Form'],
         priority: 10,
@@ -389,6 +389,16 @@ export const DEFAULT_STAGE_RULES = [
         active: true
     },
     {
+        id: 'sv_conducted_fallback',
+        activityType: 'Site Visit',
+        purpose: '*',
+        outcome: 'Conducted',
+        reason: '*',
+        newStage: 'Opportunity',
+        priority: 10,
+        active: true
+    },
+    {
         id: 'sv_not_interested_price',
         activityType: 'Site Visit',
         purpose: 'Property Tour',
@@ -641,13 +651,15 @@ export const resolveTransition = async (activityType, outcome, reason = '', purp
         
         // Reason match
         const resMatch = ruleResNorm === '*' || !rule.reason || ruleResNorm === '' ||
-                         ruleResNorm === resNorm || (resNorm && resNorm.includes(ruleResNorm));
-
+                         resNorm === ruleResNorm || (resNorm && resNorm.includes(ruleResNorm)) ||
+                         (resNorm === '' && ruleResNorm !== '*'); // Allow empty reason to match if not explicitly '*' (controversial but safer for UX)
+        
         if (actMatch && purpMatch && outMatch && resMatch) {
             return { matched: true, rule };
         }
     }
 
+    console.log(`[StageEngine] ❌ No match found for: Act=${actNorm}, Purp=${purpNorm}, Out=${outNorm}, Res=${resNorm}`);
     return { matched: false, rule: null };
 };
 
