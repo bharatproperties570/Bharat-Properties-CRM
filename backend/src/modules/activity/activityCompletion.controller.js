@@ -99,9 +99,11 @@ export const completeActivity = async (req, res, next) => {
 
         const leadId = activity.entityId;
         
-        // --- PRO FIX: Extract outcome from Site Visit details if top-level is empty ---
+        // --- PRO FIX: Extract outcome from Site Visit details if top-level is generic or empty ---
         let effectiveOutcome = outcome || '';
-        if (!effectiveOutcome && activity.type?.toLowerCase() === 'site visit' && activity.details?.visitedProperties?.length > 0) {
+        const isGenericOutcome = ['conducted', 'done', 'completed', 'meeting done'].includes(effectiveOutcome.toLowerCase());
+        
+        if ((!effectiveOutcome || isGenericOutcome) && activity.type?.toLowerCase() === 'site visit' && activity.details?.visitedProperties?.length > 0) {
             const priorityMap = { 'very interested': 1, 'shortlisted': 2, 'interested': 3, 'somewhat interested': 4 };
             const results = activity.details.visitedProperties
                 .map(p => (p.result || '').toLowerCase())
