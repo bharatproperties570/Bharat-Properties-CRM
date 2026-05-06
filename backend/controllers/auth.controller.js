@@ -91,6 +91,10 @@ export const refresh = async (req, res) => {
 
         console.log(`[Auth] Token verified for user: ${decoded.id}`);
 
+        if (!decoded.id || !decoded.role) {
+            throw new Error("Invalid token payload: Missing user ID or role");
+        }
+
         const newAccessToken = jwt.sign({ id: decoded.id, role: decoded.role }, process.env.JWT_SECRET, { expiresIn: "24h" });
         const newRefreshToken = jwt.sign({ id: decoded.id, role: decoded.role }, process.env.JWT_SECRET, { expiresIn: "30d" });
 
