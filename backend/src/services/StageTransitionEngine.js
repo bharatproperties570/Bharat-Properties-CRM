@@ -69,7 +69,7 @@ export const DEFAULT_STAGE_RULES = [
     {
         id: 'call_intro_interested',
         activityType: 'Call',
-        purpose: 'Introduction / First Contact',
+        purpose: 'Introduction', // Will match 'Introduction / First Contact' via .includes
         outcome: 'Connected',
         reason: 'Interested',
         newStage: 'Prospect',
@@ -243,7 +243,7 @@ export const DEFAULT_STAGE_RULES = [
     {
         id: 'meeting_presentation_interested',
         activityType: 'Meeting',
-        purpose: 'Product Presentation',
+        purpose: '*', // Meetings should trigger stage changes regardless of specific agenda label
         outcome: 'Meeting Done',
         reason: 'Interested',
         newStage: 'Qualified',
@@ -358,7 +358,7 @@ export const DEFAULT_STAGE_RULES = [
     {
         id: 'sv_interested',
         activityType: 'Site Visit',
-        purpose: 'Property Tour',
+        purpose: '*', // Site visits are high intent; trigger Opportunity regardless of purpose label
         outcome: 'Interested',
         reason: '*',
         newStage: 'Opportunity',
@@ -369,7 +369,7 @@ export const DEFAULT_STAGE_RULES = [
     {
         id: 'sv_very_interested',
         activityType: 'Site Visit',
-        purpose: 'Property Tour',
+        purpose: '*',
         outcome: 'Very Interested',
         reason: '*',
         newStage: 'Negotiation',
@@ -380,7 +380,7 @@ export const DEFAULT_STAGE_RULES = [
     {
         id: 'sv_shortlisted',
         activityType: 'Site Visit',
-        purpose: 'Property Tour',
+        purpose: '*',
         outcome: 'Shortlisted',
         reason: '*',
         newStage: 'Opportunity',
@@ -615,7 +615,7 @@ export const resolveTransition = async (activityType, outcome, reason = '', purp
         .filter(r => (r.isActive !== false && r.active !== false))
         .sort((a, b) => (b.priority || 0) - (a.priority || 0));
 
-    const normalize = str => (str || '').toString().toLowerCase().trim().replace(/\s+/g, ' ');
+    const normalize = str => (str || '').toString().toLowerCase().trim().replace(/[-_/]/g, ' ').replace(/\s+/g, ' ');
     const actNorm = normalize(activityType);
     const outNorm = normalize(outcome);
     const resNorm = normalize(reason);
