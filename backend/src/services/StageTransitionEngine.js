@@ -71,7 +71,7 @@ export const DEFAULT_STAGE_RULES = [
         activityType: 'Call',
         purpose: 'Introduction', // Will match 'Introduction / First Contact' via .includes
         outcome: 'Connected',
-        reason: '*', // Relaxed to match even if reason is empty
+        reason: 'Interested',
         newStage: 'Prospect',
         requiredForms: ['Requirement Form'],
         priority: 10,
@@ -358,7 +358,18 @@ export const DEFAULT_STAGE_RULES = [
     {
         id: 'sv_interested',
         activityType: 'Site Visit',
-        purpose: '*', // Site visits are high intent; trigger Opportunity regardless of purpose label
+        purpose: 'Site Visit', 
+        outcome: 'Interested',
+        reason: '*',
+        newStage: 'Opportunity',
+        requiredForms: ['Requirement Form', 'Site Visit Form'],
+        priority: 25,
+        active: true
+    },
+    {
+        id: 'sv_interested_alt',
+        activityType: 'Site Visit',
+        purpose: 'Property Tour', 
         outcome: 'Interested',
         reason: '*',
         newStage: 'Opportunity',
@@ -369,7 +380,18 @@ export const DEFAULT_STAGE_RULES = [
     {
         id: 'sv_very_interested',
         activityType: 'Site Visit',
-        purpose: '*',
+        purpose: 'Site Visit',
+        outcome: 'Very Interested',
+        reason: '*',
+        newStage: 'Negotiation',
+        requiredForms: ['Requirement Form', 'Site Visit Form', 'Quotation Form'],
+        priority: 25,
+        active: true
+    },
+    {
+        id: 'sv_very_interested_alt',
+        activityType: 'Site Visit',
+        purpose: 'Property Tour',
         outcome: 'Very Interested',
         reason: '*',
         newStage: 'Negotiation',
@@ -386,16 +408,6 @@ export const DEFAULT_STAGE_RULES = [
         newStage: 'Opportunity',
         requiredForms: ['Requirement Form', 'Site Visit Form'],
         priority: 25,
-        active: true
-    },
-    {
-        id: 'sv_conducted_fallback',
-        activityType: 'Site Visit',
-        purpose: '*',
-        outcome: 'Conducted',
-        reason: '*',
-        newStage: 'Opportunity',
-        priority: 10,
         active: true
     },
     {
@@ -651,8 +663,7 @@ export const resolveTransition = async (activityType, outcome, reason = '', purp
         
         // Reason match
         const resMatch = ruleResNorm === '*' || !rule.reason || ruleResNorm === '' ||
-                         resNorm === ruleResNorm || (resNorm && resNorm.includes(ruleResNorm)) ||
-                         (resNorm === '' && ruleResNorm !== '*'); // Allow empty reason to match if not explicitly '*' (controversial but safer for UX)
+                         resNorm === ruleResNorm || (resNorm && resNorm.includes(ruleResNorm));
         
         if (actMatch && purpMatch && outMatch && resMatch) {
             return { matched: true, rule };
