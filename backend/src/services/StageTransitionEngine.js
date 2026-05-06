@@ -37,6 +37,27 @@ const escapeRegExp = (string) => {
     return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 };
 
+// ━━ ENTERPRISE FORM MAPPING ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const FORM_FIELD_MAPPING = {
+    'Requirement Form': ['requirement', 'budget', 'location', 'project'],
+    'Meetings Form': ['notes', 'description'],
+    'Quotation Form': ['budget', 'notes'],
+    'Offer Form': ['budget', 'notes'],
+    'Site Visit Form': [] // Handled dynamically based on activity completion
+};
+
+const getNextActionSuggestion = (targetStage) => {
+    const suggestions = {
+        'Prospect': 'Schedule an initial discovery call to understand detailed requirements.',
+        'Qualified': 'Share brochures and project details for the shortlisted properties.',
+        'Opportunity': 'Plan a detailed site visit or meeting to finalize preferences.',
+        'Negotiation': 'Draft the final quotation and offer letter. Address any pricing concerns.',
+        'Booked': 'Initiate document collection and verify payment status for initial booking.',
+        'Closed Won': 'Onboard the client and transition to the CRM Post-Sales module.'
+    };
+    return suggestions[targetStage] || 'Schedule a follow-up activity to keep the momentum going.';
+};
+
 // ─── DEFAULT RULES (seed data — admin can override via settings page) ─────────
 export const DEFAULT_STAGE_RULES = [
 
@@ -541,16 +562,33 @@ export const DEFAULT_STAGE_RULES = [
 // ────────────────────────────────────────────────────────────────────────────
 let _rulesCache = null;
 let _rulesCacheAt = 0;
-const RULES_TTL_MS = 60 * 1000;
+const RULES_TTL_MS = 5 * 1000; // 5 seconds for rapid updates
 
 export const loadTransitionRules = async () => {
     const now = Date.now();
     if (_rulesCache && (now - _rulesCacheAt) < RULES_TTL_MS) return _rulesCache;
 
     try {
-        const setting = await SystemSetting.findOne({ key: 'stage_transition_rules' }).lean();
-        _rulesCache = setting?.value?.rules || DEFAULT_STAGE_RULES;
-    } catch {
+        const [transitionSetting, mappingSetting] = await Promise.all([
+            SystemSetting.findOne({ key: 'stage_transition_rules' }).lean(),
+            SystemSetting.findOne({ key: 'stageMappingRules' }).lean()
+        ]);
+
+        let rules = transitionSetting?.value?.rules || [];
+        
+        // Merge in mapping rules (old/revival rules) after normalizing them
+        if (mappingSetting?.value && Array.isArray(mappingSetting.value)) {
+            const mapped = mappingSetting.value.map(r => ({
+                ...r,
+                newStage: r.newStage || r.stage, // Normalize 'stage' -> 'newStage'
+                active: r.isActive !== undefined ? r.isActive : (r.active !== undefined ? r.active : true)
+            }));
+            rules = [...rules, ...mapped];
+        }
+
+        _rulesCache = rules.length > 0 ? rules : DEFAULT_STAGE_RULES;
+    } catch (err) {
+        console.error('[StageTransitionEngine] Load rules error:', err.message);
         _rulesCache = DEFAULT_STAGE_RULES;
     }
     _rulesCacheAt = now;
@@ -574,10 +612,10 @@ export const invalidateRulesCache = () => {
 export const resolveTransition = async (activityType, outcome, reason = '', purpose = '') => {
     const rules = await loadTransitionRules();
     const activeRules = rules
-        .filter(r => r.active !== false)
-        .sort((a, b) => (b.priority || 0) - (a.priority || 0)); // highest priority first
+        .filter(r => (r.isActive !== false && r.active !== false))
+        .sort((a, b) => (b.priority || 0) - (a.priority || 0));
 
-    const normalize = str => (str || '').toString().toLowerCase().trim();
+    const normalize = str => (str || '').toString().toLowerCase().trim().replace(/\s+/g, ' ');
     const actNorm = normalize(activityType);
     const outNorm = normalize(outcome);
     const resNorm = normalize(reason);
@@ -589,16 +627,21 @@ export const resolveTransition = async (activityType, outcome, reason = '', purp
         const ruleOutNorm = normalize(rule.outcome);
         const ruleResNorm = normalize(rule.reason);
 
+        // Standard Match: Exact or wildcard
         const actMatch = ruleActNorm === '*' || ruleActNorm === actNorm;
+        
         // Purpose match: '*' = any, '' = any (old rules without purpose), exact match
         const purpMatch = !rule.purpose || rulePurpNorm === '*' || rulePurpNorm === '' ||
-                          rulePurpNorm === purpNorm || purpNorm.includes(rulePurpNorm);
-        const outMatch = ruleOutNorm === '*' || ruleOutNorm === outNorm ||
-                         outNorm.includes(ruleOutNorm) || ruleOutNorm.includes(outNorm) ||
-                         (ruleOutNorm === 'not connected' && (outNorm.includes('no answer') || outNorm.includes('busy') || outNorm.includes('missed') || outNorm.includes('no-answer')));
-        // Reason: specific rules (non-*) take priority because we sort by priority desc
+                          rulePurpNorm === purpNorm || (purpNorm && purpNorm.includes(rulePurpNorm));
+        
+        // Outcome match: MUST NOT be an empty string unless the rule specifically allows it
+        const outMatch = ruleOutNorm === '*' || 
+                         (outNorm !== '' && (ruleOutNorm === outNorm || outNorm.includes(ruleOutNorm) || ruleOutNorm.includes(outNorm))) ||
+                         (ruleOutNorm === 'not connected' && outNorm !== '' && (outNorm.includes('no answer') || outNorm.includes('busy') || outNorm.includes('missed') || outNorm.includes('no-answer')));
+        
+        // Reason match
         const resMatch = ruleResNorm === '*' || !rule.reason || ruleResNorm === '' ||
-                         ruleResNorm === resNorm || resNorm.includes(ruleResNorm);
+                         ruleResNorm === resNorm || (resNorm && resNorm.includes(ruleResNorm));
 
         if (actMatch && purpMatch && outMatch && resMatch) {
             return { matched: true, rule };
@@ -718,6 +761,7 @@ export const executeTransition = async (leadId, newStageName, options = {}) => {
         }
     }
 
+    console.log(`[StageEngine] Executing transition for Lead ${leadId}: ${prevStageName} -> ${newStageName}`);
     await Lead.findByIdAndUpdate(leadId, updatePayload);
 
     // Audit log
@@ -759,11 +803,42 @@ export const executeTransition = async (leadId, newStageName, options = {}) => {
  * @returns {Promise<Object>} transition result
  */
 export const evaluateAndTransition = async (leadId, activityType, outcome, reason, stageFormData = {}, context = {}) => {
+    // 🚀 STABILITY FIX: Always invalidate in-memory cache for real-time rule accuracy
+    invalidateRulesCache();
+    
+    let finalOutcome = outcome;
     const purpose = context.purpose || '';
+
+    // 🌟 SITE VISIT INTELLIGENCE: Extract outcome from visitedProperties if top-level is missing
+    if (!finalOutcome && activityType?.toLowerCase() === 'site visit' && context.activityId) {
+        try {
+            const Activity = (await import('../../models/Activity.js')).default || (await import('../../models/Activity.js'));
+            const activity = await Activity.findById(context.activityId).lean();
+            if (activity?.details?.visitedProperties?.length > 0) {
+                console.log(`[StageEngine] Extracting outcome from ${activity.details.visitedProperties.length} visited properties...`);
+                // Priority order for outcomes
+                const priority = { 'very interested': 1, 'shortlisted': 2, 'interested': 3, 'somewhat interested': 4 };
+                const results = activity.details.visitedProperties
+                    .map(p => (p.result || '').toLowerCase())
+                    .filter(r => r)
+                    .sort((a, b) => (priority[a] || 99) - (priority[b] || 99));
+                
+                if (results.length > 0) {
+                    finalOutcome = results[0];
+                    console.log(`[StageEngine] Auto-extracted Site Visit outcome: ${finalOutcome}`);
+                }
+            }
+        } catch (err) {
+            console.error('[StageEngine] Site Visit outcome extraction failed:', err.message);
+        }
+    }
+
     // Step 1: Find matching rule (now also matches on purpose)
-    const { matched, rule } = await resolveTransition(activityType, outcome, reason, purpose);
+    console.log(`[StageEngine] Resolving transition for Type: ${activityType}, Purpose: ${purpose}, Outcome: ${finalOutcome}`);
+    const { matched, rule } = await resolveTransition(activityType, finalOutcome, reason, purpose);
 
     if (!matched) {
+        console.log(`[StageEngine] ℹ️ No matching rule for ${activityType}/${finalOutcome}`);
         return {
             stageChanged: false,
             reason: 'No matching transition rule found',
@@ -771,6 +846,8 @@ export const evaluateAndTransition = async (leadId, activityType, outcome, reaso
             missingFields: []
         };
     }
+
+    console.log(`[StageEngine] 🎯 Matched Rule: ${rule.id} (New Stage: ${rule.newStage})`);
 
     // Normalize requiredForms — supports old rules using requiredFields for field names
     const requiredForms = Array.isArray(rule.requiredForms)
@@ -796,11 +873,48 @@ export const evaluateAndTransition = async (leadId, activityType, outcome, reaso
         }
     }
 
-    // Step 3: Check required forms have been provided by frontend
+    // Step 3: Check required forms (Database-driven verification)
     if (requiredForms.length > 0) {
-        const completedForms = context.completedForms || [];
-        const missingForms = requiredForms.filter(f => !completedForms.includes(f));
+        const lead = await Lead.findById(leadId).lean();
+        const missingForms = [];
+
+        for (const formName of requiredForms) {
+            // Case 1: Site Visit Form is satisfied if we are currently completing a Site Visit
+            if (formName === 'Site Visit Form' && activityType?.toLowerCase() === 'site visit') {
+                continue;
+            }
+
+            // Case 2: Check mapping if fields exist on lead
+            const mappedFields = FORM_FIELD_MAPPING[formName];
+            if (mappedFields && mappedFields.length > 0) {
+                const hasData = mappedFields.some(field => {
+                    const val = lead[field];
+                    return val !== undefined && val !== null && val !== '' && !(Array.isArray(val) && val.length === 0);
+                });
+                
+                if (hasData) continue; // Form is effectively filled
+            }
+
+            // Case 3: Check if it was just provided in this context
+            const completedInContext = (context.completedForms || []).includes(formName);
+            if (completedInContext) continue;
+
+            missingForms.push(formName);
+        }
+
         if (missingForms.length > 0) {
+            // Log notification for missing forms
+            try {
+                const { createNotification } = await import('../../controllers/notification.controller.js');
+                await createNotification(
+                    context.triggeredByUser,
+                    'systemAlerts',
+                    '⚠️ Missing Required Data',
+                    `Stage transition to "${rule.newStage}" blocked. Please fill: ${missingForms.join(', ')}`,
+                    `/leads/${leadId}`
+                );
+            } catch (_) {}
+
             return {
                 stageChanged: false,
                 requiresForm: true,
@@ -808,7 +922,8 @@ export const evaluateAndTransition = async (leadId, activityType, outcome, reaso
                 requiredForms,
                 missingForms,
                 missingFields: [],
-                ruleId: rule.id
+                ruleId: rule.id,
+                notification: `Please fill ${missingForms.join(', ')} to move to ${rule.newStage}`
             };
         }
     }
@@ -824,6 +939,20 @@ export const evaluateAndTransition = async (leadId, activityType, outcome, reaso
         stageFormData
     });
 
+    // Post-Transition: Add AI Intelligence & Notifications
+    const nextAction = getNextActionSuggestion(rule.newStage);
+    
+    try {
+        const { createNotification } = await import('../../controllers/notification.controller.js');
+        await createNotification(
+            context.triggeredByUser,
+            'stageChanges',
+            '🚀 Stage Transition Successful',
+            `Lead moved to "${rule.newStage}". AI Suggestion: ${nextAction}`,
+            `/leads/${leadId}`
+        );
+    } catch (_) {}
+
     return {
         stageChanged: result.success && !result.skipped,
         skipped: result.skipped || false,
@@ -832,7 +961,9 @@ export const evaluateAndTransition = async (leadId, activityType, outcome, reaso
         requiredForms,
         missingForms: [],
         missingFields: [],
-        ruleId: rule.id
+        ruleId: rule.id,
+        aiSuggestion: nextAction,
+        playbookLink: `/playbook/${rule.newStage.toLowerCase()}`
     };
 };
 

@@ -32,6 +32,7 @@ const AddNoteModal = ({ isOpen, onClose, entityId, entityType, onNoteAdded }) =>
 
             if (response.data.success) {
                 toast.success("Note added successfully");
+                window.dispatchEvent(new CustomEvent('note-added', { detail: { entityId, entityType } }));
                 if (onNoteAdded) onNoteAdded();
                 onClose();
             } else {

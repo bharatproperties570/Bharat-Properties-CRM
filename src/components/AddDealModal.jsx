@@ -550,8 +550,10 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
 
             if (deal) {
                 fireEvent('deal_updated', savedData, { entityType: 'deals', previousEntity: deal });
+                window.dispatchEvent(new CustomEvent('deal-updated', { detail: { dealId: savedData._id } }));
             } else {
                 fireEvent('deal_created', savedData, { entityType: 'deals' });
+                window.dispatchEvent(new CustomEvent('deal-updated', { detail: { dealId: savedData._id } }));
 
                 // Enroll linked contacts into sequences
                 if (formData.owner.phone) {

@@ -350,6 +350,14 @@ const SendMessageModal = ({
                 // Fire Triggers
                 fireEvent('message_sent', data, { entityType: 'communication' });
 
+                // Dispatch Global Sync Event
+                window.dispatchEvent(new CustomEvent('activity-completed', {
+                    detail: { 
+                        entityId: recipients[0]?.id || recipients[0]?._id,
+                        type: channel
+                    }
+                }));
+
                 onClose();
             } else {
                 throw new Error(res?.error || "Failed to send message: Success flag false");

@@ -532,9 +532,12 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
 
             if (property) {
                 fireEvent('inventory_updated', savedData, { entityType: 'inventory', previousEntity: property });
+                window.dispatchEvent(new CustomEvent('inventory-updated', { detail: { inventoryId: savedData._id } }));
             } else {
                 fireEvent('inventory_created', savedData, { entityType: 'inventory' });
                 fireEvent('inventory_matching_requested', savedData, { entityType: 'inventory', recommendation_depth: 'high' });
+                window.dispatchEvent(new CustomEvent('inventory-updated', { detail: { inventoryId: savedData._id } }));
+                
                 if (formData.owners && formData.owners.length > 0) {
                     formData.owners.forEach(owner => evaluateAndEnroll(owner, 'contacts'));
                 }

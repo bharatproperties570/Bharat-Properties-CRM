@@ -113,6 +113,10 @@ export const useStageEngine = () => {
             stageMappingRules || [],
             activityMasterFields || {}
         );
+        if (!newStage) {
+            console.log('[StageEngine] No stage change computed for this activity. Skipping update.');
+            return { stage: opts.currentStage || null, success: true, blocked: false, requiredForm: null };
+        }
 
         // ── Step 2: Stability Lock — prevent false regressions ─────────────────
         const { currentStage, activitiesInStage = 0, daysInStage = 0 } = opts;

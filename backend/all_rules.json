@@ -1,0 +1,74 @@
+[
+  {
+    "id": "call_intro_interested",
+    "activityType": "Call",
+    "purpose": "Introduction / First Contact",
+    "outcome": "Connected",
+    "reason": "Interested",
+    "newStage": "Prospect",
+    "requiredForms": [
+      "Requirement Form"
+    ],
+    "priority": 10,
+    "active": true,
+    "description": "Call Intro -> Connected -> Interested -> Prospect"
+  },
+  {
+    "id": "call_intro_not_interested",
+    "activityType": "Call",
+    "purpose": "Introduction / First Contact",
+    "outcome": "Not Interested",
+    "reason": "*",
+    "newStage": "Dormant",
+    "requiredForms": [],
+    "priority": 11,
+    "active": true,
+    "description": "Call Intro -> Not Interested -> Dormant"
+  },
+  {
+    "id": "meeting_presentation_interested",
+    "activityType": "Meeting",
+    "purpose": "Product Presentation",
+    "outcome": "Meeting Done",
+    "reason": "Interested",
+    "newStage": "Qualified",
+    "requiredForms": [
+      "Requirement Form",
+      "Meetings Form"
+    ],
+    "priority": 20,
+    "active": true,
+    "description": "Meeting Done -> Interested -> Qualified"
+  },
+  {
+    "id": "sv_very_interested_neg",
+    "activityType": "Site Visit",
+    "purpose": "Property Tour",
+    "outcome": "Very Interested",
+    "reason": "*",
+    "newStage": "Negotiation",
+    "requiredForms": [
+      "Requirement Form",
+      "Site Visit Form",
+      "Quotation Form"
+    ],
+    "priority": 25,
+    "active": true,
+    "description": "Site Visit -> Very Interested -> Negotiation"
+  },
+  {
+    "id": "any_booking_done",
+    "activityType": "*",
+    "purpose": "*",
+    "outcome": "Booking Done",
+    "reason": "*",
+    "newStage": "Booked",
+    "requiredForms": [
+      "Quotation Form",
+      "Offer Form"
+    ],
+    "priority": 50,
+    "active": true,
+    "description": "Any Activity -> Booking Done -> Booked"
+  }
+]

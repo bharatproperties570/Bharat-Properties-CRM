@@ -392,9 +392,10 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
   }, [currentPage, recordsPerPage, debouncedSearchTerm, sortConfig]);
 
   useEffect(() => {
-    const handleRefresh = () => fetchContacts();
-    window.addEventListener('contact-updated', handleRefresh);
-    return () => window.removeEventListener('contact-updated', handleRefresh);
+    const handleSync = () => fetchContacts();
+    const events = ['activity-completed', 'lead-updated', 'contact-updated', 'deal-updated', 'inventory-updated', 'note-added'];
+    events.forEach(evt => window.addEventListener(evt, handleSync));
+    return () => events.forEach(evt => window.removeEventListener(evt, handleSync));
   }, [fetchContacts]);
 
   useEffect(() => { fetchContacts(); }, [fetchContacts]);

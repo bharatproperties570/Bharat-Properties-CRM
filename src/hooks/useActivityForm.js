@@ -336,6 +336,11 @@ export const useActivityForm = (isOpen, onClose, onSave, initialData) => {
             if (formData.status === 'Completed') {
                 fireEvent('activity_completed', backendData, { entityType: 'activities' });
                 
+                // Unified Live Sync
+                window.dispatchEvent(new CustomEvent('activity-completed', { 
+                    detail: { entityId: backendData.entityId, entityType: backendData.entityType } 
+                }));
+
                 const entityId = backendData.entityId;
                 const entityType = (backendData.entityType || '').toLowerCase();
                 if (entityId && (entityType === 'lead' || entityType === 'leads')) {
@@ -345,6 +350,10 @@ export const useActivityForm = (isOpen, onClose, onSave, initialData) => {
                         const result = await triggerStageUpdate(entityId, backendData.type, purpose, outcome);
                         if (result.stage) {
                             showStageToast(`✅ Stage auto-updated → ${result.stage}`);
+                            
+                            // Trigger Lead Sync since stage changed
+                            window.dispatchEvent(new CustomEvent('lead-updated', { detail: { leadId: entityId } }));
+
                             if (result.requiredForm && result.requiredForm !== 'None') {
                                 setTimeout(() => {
                                     triggerRequiredForm(result.requiredForm, entityId, {
@@ -359,6 +368,11 @@ export const useActivityForm = (isOpen, onClose, onSave, initialData) => {
                         console.warn('[StageEngine] update after activity save failed:', err);
                     }
                 }
+            } else {
+                // If not completed but still created, dispatch creation event for lists
+                window.dispatchEvent(new CustomEvent('activity-created', { 
+                    detail: { entityId: backendData.entityId, entityType: backendData.entityType } 
+                }));
             }
 
             onClose();

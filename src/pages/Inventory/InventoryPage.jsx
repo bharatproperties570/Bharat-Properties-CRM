@@ -129,6 +129,13 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
     }, [setStatusFilter, setFilters, setSearchTerm, setCurrentPage]);
 
     useEffect(() => {
+        const handleSync = () => refresh();
+        const events = ['activity-completed', 'lead-updated', 'contact-updated', 'deal-updated', 'inventory-updated', 'note-added'];
+        events.forEach(evt => window.addEventListener(evt, handleSync));
+        return () => events.forEach(evt => window.removeEventListener(evt, handleSync));
+    }, [refresh]);
+
+    useEffect(() => {
         const handleReset = () => handleShowAll();
         window.addEventListener('inventory-reset', handleReset);
         return () => window.removeEventListener('inventory-reset', handleReset);

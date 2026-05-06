@@ -98,17 +98,33 @@ export const completeActivity = async (req, res, next) => {
         }
 
         const leadId = activity.entityId;
+        
+        // --- PRO FIX: Extract outcome from Site Visit details if top-level is empty ---
+        let effectiveOutcome = outcome || '';
+        if (!effectiveOutcome && activity.type?.toLowerCase() === 'site visit' && activity.details?.visitedProperties?.length > 0) {
+            const priorityMap = { 'very interested': 1, 'shortlisted': 2, 'interested': 3, 'somewhat interested': 4 };
+            const results = activity.details.visitedProperties
+                .map(p => (p.result || '').toLowerCase())
+                .filter(r => r)
+                .sort((a, b) => (priorityMap[a] || 99) - (priorityMap[b] || 99));
+            
+            if (results.length > 0) {
+                effectiveOutcome = results[0];
+                console.log(`[ActivityCompletion] Auto-detected effective outcome for transition: ${effectiveOutcome}`);
+            }
+        }
 
         // 3. Evaluate stage transition
         const transitionResult = await evaluateAndTransition(
             leadId,
             activity.type,
-            outcome,
+            effectiveOutcome,
             outcomeReason || '',
             stageFormData,
             {
                 activityId: activity._id,
-                triggeredByUser: req.user?._id || req.user?.id || null
+                triggeredByUser: req.user?._id || req.user?.id || null,
+                purpose: activity.details?.purpose || ''
             }
         );
 
@@ -190,7 +206,8 @@ export const completeActivityWithForm = async (req, res, next) => {
             stageFormData,
             {
                 activityId: activity._id,
-                triggeredByUser: req.user?._id || req.user?.id || null
+                triggeredByUser: req.user?._id || req.user?.id || null,
+                purpose: activity.details?.purpose || ''
             }
         );
 

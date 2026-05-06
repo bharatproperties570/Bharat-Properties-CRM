@@ -127,18 +127,18 @@ export const computeStage = (activityType, purpose, outcome, stageMappingRules =
     const purpLower = (purpose || '').toLowerCase();
     const outLower = (outcome || '').toLowerCase();
 
-    let computedStage = 'Incoming';
+    let computedStage = null; // No fallback — stay in current stage if no rule matches
     let requiredForms = []; // ← array (was single string)
 
     // 1. Check explicit override rules (ordered by priority ascending)
     const sortedRules = [...stageMappingRules]
         .filter(r => r.isActive)
-        .sort((a, b) => (a.priority || 99) - (b.priority || 99));
+        .sort((a, b) => (b.priority || 0) - (a.priority || 0)); // Highest priority first (matching backend)
 
     for (const rule of sortedRules) {
-        const typeMatch = !rule.activityType || rule.activityType.toLowerCase() === actLower;
-        const purpMatch = !rule.purpose || rule.purpose.toLowerCase() === purpLower;
-        const outcMatch = !rule.outcome || rule.outcome.toLowerCase() === outLower;
+        const typeMatch = !rule.activityType || rule.activityType === '*' || rule.activityType.toLowerCase() === actLower;
+        const purpMatch = !rule.purpose || rule.purpose === '*' || rule.purpose.toLowerCase() === purpLower;
+        const outcMatch = !rule.outcome || rule.outcome === '*' || rule.outcome.toLowerCase() === outLower;
         if (typeMatch && purpMatch && outcMatch) {
             computedStage = rule.stage;
             // Support both old single requiredForm and new requiredForms[]
@@ -167,7 +167,7 @@ export const computeStage = (activityType, purpose, outcome, stageMappingRules =
     }
 
     // 3. Fallback
-    return { stage: computedStage, requiredForms: [] };
+    return { stage: null, requiredForms: [] };
 };
 
 /**

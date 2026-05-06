@@ -88,16 +88,10 @@ function DealsPage({ onNavigate, onAddActivity }) {
 
     // ── STAGE ENGINE SYNC ──────────────────────────────────────────
     useEffect(() => {
-        const handleActivitySync = () => setRefreshTrigger(prev => prev + 1);
-        const handleDealUpdate = () => setRefreshTrigger(prev => prev + 1);
-
-        window.addEventListener('activity-completed', handleActivitySync);
-        window.addEventListener('deal-updated', handleDealUpdate);
-
-        return () => {
-            window.removeEventListener('activity-completed', handleActivitySync);
-            window.removeEventListener('deal-updated', handleDealUpdate);
-        };
+        const handleSync = () => setRefreshTrigger(prev => prev + 1);
+        const events = ['activity-completed', 'lead-updated', 'contact-updated', 'deal-updated', 'inventory-updated', 'note-added'];
+        events.forEach(evt => window.addEventListener(evt, handleSync));
+        return () => events.forEach(evt => window.removeEventListener(evt, handleSync));
     }, []);
     // ────────────────────────────────────────────────────────────────
     const [dealScores, setDealScores] = useState({}); // { dealId: { score, color, label } } from stage engine

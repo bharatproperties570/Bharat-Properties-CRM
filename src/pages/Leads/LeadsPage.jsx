@@ -46,22 +46,22 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
 
     // ── STAGE ENGINE SYNC ──────────────────────────────────────────
     useEffect(() => {
-        const handleActivitySync = (e) => {
-            console.log('[LeadsPage] Activity sync event received:', e?.detail);
+        const handleSync = () => {
             setRefreshTrigger(prev => prev + 1);
         };
 
-        const handleLeadUpdate = () => {
-            console.log('[LeadsPage] Lead update event received');
-            setRefreshTrigger(prev => prev + 1);
-        };
+        const events = [
+            'activity-completed',
+            'lead-updated',
+            'contact-updated',
+            'deal-updated',
+            'inventory-updated',
+            'note-added'
+        ];
 
-        window.addEventListener('activity-completed', handleActivitySync);
-        window.addEventListener('lead-updated', handleLeadUpdate);
-
+        events.forEach(evt => window.addEventListener(evt, handleSync));
         return () => {
-            window.removeEventListener('activity-completed', handleActivitySync);
-            window.removeEventListener('lead-updated', handleLeadUpdate);
+            events.forEach(evt => window.removeEventListener(evt, handleSync));
         };
     }, []);
     // ────────────────────────────────────────────────────────────────

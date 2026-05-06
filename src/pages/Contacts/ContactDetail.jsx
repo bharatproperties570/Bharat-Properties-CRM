@@ -398,19 +398,32 @@ const ContactDetail = ({ contactId, onBack }) => {
         fetchData();
 
         // ── LIVE REFRESH LISTENER ───────────────────────────────────────────
-        // Triggered by ActivityOutcomeModal after stage updates
+        // Triggered by various modals after data changes
         const handleRefresh = (e) => {
-            const { entityId } = e.detail;
-            if (entityId === contactId) {
-                console.info('[ContactDetail] Activity completed event caught. Refreshing live stage...');
-                fetchData();
+            const { entityId, type } = e.detail || {};
+            
+            // If it's a specific entity update, check if it matches current page
+            if (entityId && entityId !== contactId) return;
+
+            console.info(`[ContactDetail] ${e.type} event caught. Refreshing data...`);
+            fetchData();
+            if (recordType === 'lead') {
                 fetchLiveScore(contactId);
             }
         };
 
-        window.addEventListener('activity-completed', handleRefresh);
-        return () => window.removeEventListener('activity-completed', handleRefresh);
-    }, [contactId, fetchData, fetchLiveScore]);
+        const syncEvents = [
+            'activity-completed', 
+            'lead-updated', 
+            'contact-updated', 
+            'deal-updated', 
+            'inventory-updated',
+            'note-added'
+        ];
+
+        syncEvents.forEach(evt => window.addEventListener(evt, handleRefresh));
+        return () => syncEvents.forEach(evt => window.removeEventListener(evt, handleRefresh));
+    }, [contactId, fetchData, fetchLiveScore, recordType]);
 
     const toggleSection = (section) => {
         setExpandedSections(prev =>
