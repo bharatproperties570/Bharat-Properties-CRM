@@ -652,11 +652,12 @@ export const resolveTransition = async (activityType, outcome, reason = '', purp
         // Standard Match: Exact or wildcard
         const actMatch = ruleActNorm === '*' || ruleActNorm === actNorm;
         
-        // Purpose match: '*' = any, '' = any (old rules without purpose), exact match
+        // Purpose match
         const purpMatch = !rule.purpose || rulePurpNorm === '*' || rulePurpNorm === '' ||
-                          rulePurpNorm === purpNorm || (purpNorm && purpNorm.includes(rulePurpNorm));
+                          rulePurpNorm === purpNorm || (purpNorm && purpNorm.includes(rulePurpNorm)) ||
+                          (purpNorm && rulePurpNorm.includes(purpNorm));
         
-        // Outcome match: MUST NOT be an empty string unless the rule specifically allows it
+        // Outcome match
         const outMatch = ruleOutNorm === '*' || 
                          (outNorm !== '' && (ruleOutNorm === outNorm || outNorm.includes(ruleOutNorm) || ruleOutNorm.includes(outNorm))) ||
                          (ruleOutNorm === 'not connected' && outNorm !== '' && (outNorm.includes('no answer') || outNorm.includes('busy') || outNorm.includes('missed') || outNorm.includes('no-answer')));
@@ -665,12 +666,15 @@ export const resolveTransition = async (activityType, outcome, reason = '', purp
         const resMatch = ruleResNorm === '*' || !rule.reason || ruleResNorm === '' ||
                          resNorm === ruleResNorm || (resNorm && resNorm.includes(ruleResNorm));
         
-        if (actMatch && purpMatch && outMatch && resMatch) {
+        const isMatch = actMatch && purpMatch && outMatch && resMatch;
+        console.log(`[StageEngine] Rule ${rule.id || 'unnamed'}: ${isMatch ? '✅ MATCH' : '❌ FAIL'} | Details: Act=${actMatch}, Purp=${purpMatch}, Out=${outMatch}, Res=${resMatch}`);
+
+        if (isMatch) {
             return { matched: true, rule };
         }
     }
 
-    console.log(`[StageEngine] ❌ No match found for: Act=${actNorm}, Purp=${purpNorm}, Out=${outNorm}, Res=${resNorm}`);
+    console.log(`[StageEngine] ❌ Final: No match for Act=${actNorm}, Purp=${purpNorm}, Out=${outNorm}, Res=${resNorm}`);
     return { matched: false, rule: null };
 };
 
