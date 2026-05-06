@@ -232,6 +232,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                 setRecordsPerPage={setRecordsPerPage}
                                 currentPage={currentPage}
                                 totalPages={totalPages}
+                                setCurrentPage={setCurrentPage}
                                 goToPreviousPage={() => setCurrentPage(p => Math.max(1, p - 1))}
                                 goToNextPage={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                                 loading={loading}

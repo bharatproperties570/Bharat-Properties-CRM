@@ -478,10 +478,16 @@ function ProjectsPage({ onNavigate }) {
                                                                     <button 
                                                                         className={`d-flex align-items-center gap-3`} 
                                                                         style={{ width: '100%', border: 'none', textAlign: 'left', borderRadius: '10px', padding: '10px 15px', fontSize: '0.85rem', fontWeight: sortConfig.label === opt.label ? 700 : 500, color: sortConfig.label === opt.label ? '#fff' : '#1e293b', background: sortConfig.label === opt.label ? 'var(--primary-color)' : 'transparent', cursor: 'pointer', marginBottom: '2px', transition: 'all 0.2s' }}
-                                                                        onClick={() => { setSortConfig(opt); setIsSortOpen(false); }}
+                                                                        onClick={() => {
+                                                                            console.log(`[ProjectSort] Changing sort to: ${opt.label} (${opt.by})`);
+                                                                            setSortConfig(opt);
+                                                                            setIsSortOpen(false);
+                                                                            setCurrentPage(1);
+                                                                        }}
                                                                     >
                                                                         <i className={`fas ${opt.icon}`} style={{ width: '18px', opacity: sortConfig.label === opt.label ? 1 : 0.6 }}></i>
                                                                         {opt.label}
+                                                                        {sortConfig.label === opt.label && <i className="fas fa-check ms-auto" style={{ fontSize: '0.7rem' }}></i>}
                                                                     </button>
                                                                 </li>
                                                             ))}

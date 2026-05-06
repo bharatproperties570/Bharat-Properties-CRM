@@ -769,6 +769,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                                                         transition: 'all 0.2s'
                                                                     }}
                                                                     onClick={() => {
+                                                                        console.log(`[DealSort] Changing sort to: ${opt.label} (${opt.by})`);
                                                                         setSortConfig(opt);
                                                                         setIsSortOpen(false);
                                                                         setCurrentPage(1);
@@ -776,6 +777,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                                                 >
                                                                     <i className={`fas ${opt.icon}`} style={{ width: '18px', opacity: sortConfig.label === opt.label ? 1 : 0.6 }}></i>
                                                                     {opt.label}
+                                                                    {sortConfig.label === opt.label && <i className="fas fa-check ms-auto" style={{ fontSize: '0.7rem' }}></i>}
                                                                 </button>
                                                             </li>
                                                         ))}

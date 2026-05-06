@@ -11,6 +11,7 @@ const InventoryToolbar = ({
     setRecordsPerPage,
     currentPage,
     totalPages,
+    setCurrentPage,
     goToPreviousPage,
     goToNextPage,
     loading,
@@ -217,12 +218,15 @@ const InventoryToolbar = ({
                                                                 transition: 'all 0.2s'
                                                             }}
                                                             onClick={() => {
+                                                                console.log(`[InventorySort] Changing sort to: ${opt.label} (${opt.by})`);
                                                                 setSortConfig(opt);
                                                                 setIsSortOpen(false);
+                                                                if (setCurrentPage) setCurrentPage(1);
                                                             }}
                                                         >
                                                             <i className={`fas ${opt.icon}`} style={{ width: '18px', opacity: sortConfig.label === opt.label ? 1 : 0.6 }}></i>
                                                             {opt.label}
+                                                            {sortConfig.label === opt.label && <i className="fas fa-check ms-auto" style={{ fontSize: '0.7rem' }}></i>}
                                                         </button>
                                                     </li>
                                                 ))}

@@ -713,6 +713,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                     transition: 'all 0.2s'
                                   }}
                                   onClick={() => {
+                                    console.log(`[ContactSort] Changing sort to: ${opt.label} (${opt.by})`);
                                     setSortConfig(opt);
                                     setIsSortOpen(false);
                                     setCurrentPage(1);
@@ -720,6 +721,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                 >
                                   <i className={`fas ${opt.icon}`} style={{ width: '18px', opacity: sortConfig.label === opt.label ? 1 : 0.6 }}></i>
                                   {opt.label}
+                                  {sortConfig.label === opt.label && <i className="fas fa-check ms-auto" style={{ fontSize: '0.7rem' }}></i>}
                                 </button>
                               </li>
                             ))}
