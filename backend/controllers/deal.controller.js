@@ -476,9 +476,12 @@ export const sanitizeDeal = async (req, res) => {
             location: displayLocation,
             images: deal.documents?.filter(d => d.url?.match(/\.(jpg|jpeg|png|webp)$/i)).map(d => d.url) || [],
             features: [
-                `${deal.size || ''} ${deal.sizeUnit || 'Sq.Ft'}`,
-                deal.unitType,
-                deal.block ? `Block ${deal.block}` : null
+                `${deal.size || inv.size || ''} ${deal.sizeUnit || inv.sizeUnit || 'Sq.Ft'}`,
+                deal.unitType || (await resolveValue(inv.unitType)),
+                deal.block ? `Block ${deal.block}` : (inv.block ? `Block ${inv.block}` : null),
+                unitSpecSource.orientation ? `Facing ${unitSpecSource.orientation}` : null,
+                unitSpecSource.facing ? `Facing ${unitSpecSource.facing}` : null,
+                unitSpecSource.roadWidth ? `${unitSpecSource.roadWidth} Road` : null
             ].filter(Boolean),
             detailedSections,
             isReady: true,

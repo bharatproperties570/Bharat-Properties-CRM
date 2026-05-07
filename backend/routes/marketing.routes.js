@@ -24,7 +24,8 @@ import {
     getSmsTemplates,
     syncSmsTemplates,
     broadcastToBrokerGroup,
-    getBNAAnalytics
+    getBNAAnalytics,
+    getVariableRegistry
 } from '../controllers/marketing.controller.js';
 import multer from 'multer';
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }); // 5MB limit
@@ -77,6 +78,7 @@ console.log('[MarketingRoutes] Mapping /broadcast to:', typeof broadcastToHub);
 router.post('/broadcast',      broadcastToHub);
 router.post('/broadcast/bna',  broadcastToBrokerGroup);
 router.get('/broadcast/analytics/:dealId', getBNAAnalytics);
+router.get('/whatsapp/variable-registry', getVariableRegistry);
 router.post('/import-audience', upload.single('file'), importAudience);
 
 // ── LinkedIn Integration ──────────────────────────────────────────────────────

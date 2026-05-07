@@ -1408,3 +1408,13 @@ export const getBNAAnalytics = async (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 };
+
+export const getVariableRegistry = async (req, res) => {
+    try {
+        const SystemSetting = mongoose.model('SystemSetting');
+        const setting = await SystemSetting.findOne({ key: 'messaging_variable_registry' }).lean();
+        res.json({ success: true, data: setting?.value || { "1": "customer_name", "2": "property_list_default" } });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
