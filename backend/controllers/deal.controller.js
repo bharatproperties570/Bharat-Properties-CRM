@@ -413,36 +413,50 @@ export const sanitizeDeal = async (req, res) => {
         const projName = deal.projectName || (await resolveValue(proj.name)) || proj.name || "Prime Project";
         const displayLocation = await resolveValue(deal.location) || await resolveValue(inv.address?.locality) || await resolveValue(inv.address?.location) || deal.location || "Sector 4, Kurukshetra";
 
-        // 🧠 SENIOR PROFESSIONAL: Detailed Section Processing
-        // We pull these from both Deal and Inventory, then filter empty fields.
-        const unitSpec = deal.unitSpecification || inv.unitSpecification || {};
-        const locIntel = deal.locationIntelligence || inv.locationIntelligence || {};
+        // 🧠 SENIOR PROFESSIONAL: Comprehensive Spec Extraction
+        // We aggregate standard fields and custom specs from both Deal and Inventory
+        const unitSpecSource = {
+            category: await resolveValue(deal.category || inv.category),
+            subCategory: await resolveValue(deal.subCategory || inv.subCategory),
+            unitType: await resolveValue(deal.unitType || inv.unitType),
+            direction: await resolveValue(deal.direction || deal.orientation || inv.direction || inv.orientation),
+            facing: await resolveValue(deal.facing || inv.facing),
+            roadWidth: deal.roadWidth || inv.roadWidth,
+            ownership: deal.ownership || inv.ownership,
+            sizeLabel: deal.sizeLabel || inv.sizeLabel || (inv.sizeConfig ? await resolveValue(inv.sizeConfig) : null),
+            width: deal.width || deal.frontage || inv.width || inv.frontage,
+            length: deal.length || deal.depth || inv.length || inv.depth,
+            ...(deal.unitSpecification || inv.unitSpecification || {})
+        };
+
+        const locIntelSource = {
+            sector: inv.sector || (await resolveValue(inv.address?.locality)),
+            city: await resolveValue(inv.address?.city),
+            landmark: inv.address?.landmark,
+            ...(deal.locationIntelligence || inv.locationIntelligence || {})
+        };
+
         const builtup = deal.builtupDetails || inv.builtupDetails || [];
 
         const formatSection = async (title, obj) => {
             if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
-            
-            // 🧠 PRIVACY BLACKLIST: Explicitly remove sensitive identifiers
             const blacklist = ['_id', 'unitNo', 'unitNumber', 'hNo', 'houseNo', 'plotNo', 'owner', 'contact', 'mobile', 'phone', 'ownerContact'];
-            
-            const entries = Object.entries(obj);
             const resolvedLines = [];
 
-            for (const [k, v] of entries) {
+            for (const [k, v] of Object.entries(obj)) {
                 if (blacklist.includes(k)) continue;
                 const resolvedVal = await resolveValue(v);
-                if (resolvedVal === undefined || resolvedVal === null || resolvedVal === '' || resolvedVal === false) continue;
+                if (resolvedVal === undefined || resolvedVal === null || resolvedVal === '' || resolvedVal === false || resolvedVal === '-') continue;
                 
                 const label = k.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()).trim();
                 resolvedLines.push(`${label}: ${resolvedVal}`);
             }
-
             return resolvedLines.length > 0 ? { title, lines: resolvedLines } : null;
         };
 
         const detailedSections = [
-            await formatSection("Unit Specification", unitSpec),
-            await formatSection("Location Intelligence", locIntel),
+            await formatSection("Unit Specification", unitSpecSource),
+            await formatSection("Location Intelligence", locIntelSource),
             builtup.length > 0 ? { 
                 title: "Built-up Details", 
                 lines: await Promise.all(builtup.map(async b => {
@@ -465,7 +479,7 @@ export const sanitizeDeal = async (req, res) => {
                 deal.unitType,
                 deal.block ? `Block ${deal.block}` : null
             ].filter(Boolean),
-            detailedSections, // 🧠 Resolved and filtered sections
+            detailedSections,
             isReady: true,
             lastSanitizedAt: new Date()
         };
