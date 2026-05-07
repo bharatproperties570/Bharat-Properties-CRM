@@ -403,12 +403,10 @@ const processMarketingJob = async (job) => {
         } catch (err) {
             await job.log(`❌ ${platform} Post Failed: ${err.message}`);
             throw err; // Rethrow to let BullMQ handle retries
-        }
-    }
-
     // ─── BNA-BROADCAST: Broker network broadcast ──────────────────────────────
     if (name === 'bna-broadcast') {
-        const { dealId, channels, recipients, meta, shareableId, performedBy } = data;
+        const { dealId, recipients, channels, meta, templateId, language, shareableId, performedBy } = data;
+        let sent = 0, failed = 0;
         await job.log(`Starting BNA Broadcast for Deal ${dealId} to ${recipients.length} brokers`);
 
         const { default: Activity } = await import('../../models/Activity.js');
@@ -480,7 +478,20 @@ const processMarketingJob = async (job) => {
             // For now, we attempt sendMessage but with clear error logging.
             if (channels.includes('whatsapp') && recipient.mobile) {
                 try {
-                    const waRes = await waService.sendMessage(recipient.mobile, waMessage);
+                    let waRes;
+                    if (templateId) {
+                        const params = [
+                            meta.title,
+                            `${meta.location} | ${meta.features?.join(', ')}`,
+                            meta.price,
+                            `https://crm.bharatproperties.in/share/${shareableId}`
+                        ];
+                        waRes = await waService.sendTemplate(recipient.mobile, templateId, language || 'en_US', [
+                            { type: 'body', parameters: params.map(p => ({ type: 'text', text: p })) }
+                        ]);
+                    } else {
+                        waRes = await waService.sendMessage(recipient.mobile, waMessage);
+                    }
                     results.push({ channel: 'whatsapp', status: waRes.success ? 'success' : 'failed', error: waRes.error });
                 } catch (e) { results.push({ channel: 'whatsapp', status: 'failed', error: e.message }); }
             }

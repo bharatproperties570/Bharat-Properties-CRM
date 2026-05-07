@@ -864,7 +864,8 @@ export const publishMarketingContent = async (req, res) => {
 
 export const broadcastToBrokerGroup = async (req, res) => {
     try {
-        const { dealId, groupIds, channels = ['whatsapp'] } = req.body;
+        const { dealId, groupIds, channels = ['whatsapp'], templateId, language } = req.body;
+        console.log(`[BNA] Dispatching to groups: ${groupIds} (Template: ${templateId || 'NONE'})`);
         
         if (!dealId || !groupIds || groupIds.length === 0) {
             return res.status(400).json({ success: false, error: 'Deal ID and Company Groups are required' });
@@ -878,8 +879,6 @@ export const broadcastToBrokerGroup = async (req, res) => {
         if (!deal || !deal.broadcastMetadata?.isReady) {
             return res.status(400).json({ success: false, error: 'Deal not found or not sanitized for broadcast.' });
         }
-
-        const meta = deal.broadcastMetadata;
 
         // 2. Fetch Targeted Audience (Brokers in selected groups)
         const companies = await Company.find({
@@ -913,11 +912,13 @@ export const broadcastToBrokerGroup = async (req, res) => {
         const { isRedisOnline } = await import('../src/config/redis.js');
 
         const jobData = {
-            name: `BNA Broadcast: ${meta.title}`,
+            name: `BNA Broadcast: ${deal.broadcastMetadata.title}`,
             dealId,
             channels,
             recipients,
-            meta,
+            meta: deal.broadcastMetadata,
+            templateId,
+            language,
             shareableId: deal.shareableId,
             performedBy: req.user?.firstName || 'System'
         };
@@ -952,7 +953,7 @@ export const broadcastToBrokerGroup = async (req, res) => {
  * Direct dispatch for BNA broadcasts when queue is unavailable
  */
 async function _dispatchBNADirectly(data) {
-    const { dealId, channels, recipients, meta, shareableId, performedBy } = data;
+    const { dealId, channels, recipients, meta, templateId, language, shareableId, performedBy } = data;
     const waService = (await import('../services/WhatsAppService.js')).default;
     const eSvc = (await import('../services/email.service.js')).default;
     const Activity = mongoose.model('Activity');
@@ -1014,9 +1015,21 @@ async function _dispatchBNADirectly(data) {
         
         if (channels.includes('whatsapp') && recipient.mobile) {
             try {
-                // Attempt Template first for BNA (if logic exists in Service)
-                const waRes = await waService.sendMessage(recipient.mobile, waMessage);
-                results.push({ channel: 'whatsapp', status: waRes.success ? 'success' : 'failed' });
+                if (templateId) {
+                    const params = [
+                        meta.title,
+                        `${meta.location} | ${meta.features?.join(', ')}`,
+                        meta.price,
+                        `https://crm.bharatproperties.in/share/${shareableId}`
+                    ];
+                    const waRes = await waService.sendTemplate(recipient.mobile, templateId, language || 'en_US', [
+                        { type: 'body', parameters: params.map(p => ({ type: 'text', text: p })) }
+                    ]);
+                    results.push({ channel: 'whatsapp', status: waRes.success ? 'success' : 'failed' });
+                } else {
+                    const waRes = await waService.sendMessage(recipient.mobile, waMessage);
+                    results.push({ channel: 'whatsapp', status: waRes.success ? 'success' : 'failed' });
+                }
             } catch (e) { results.push({ channel: 'whatsapp', status: 'failed', error: e.message }); }
         }
 
