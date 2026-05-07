@@ -12,21 +12,24 @@ function MarketingTab({ dealId, deal, onRefresh }) {
     const [sending, setSending] = useState(false);
     const [templates, setTemplates] = useState([]);
     const [selectedTemplate, setSelectedTemplate] = useState(null);
+    const [registry, setRegistry] = useState({});
 
     useEffect(() => {
         const fetchData = async () => {
             try {
                 setLoading(true);
-                const [groupsRes, templatesRes, analyticsRes] = await Promise.all([
+                const [groupsRes, templatesRes, analyticsRes, registryRes] = await Promise.all([
                     api.get('/company-groups'),
                     api.get('/marketing/whatsapp/templates'),
-                    api.get(`/marketing/broadcast/analytics/${dealId}`)
+                    api.get(`/marketing/broadcast/analytics/${dealId}`),
+                    api.get('/marketing/whatsapp/variable-registry').catch(() => ({ data: { success: true, data: { "1": "customer_name", "2": "property_list_default" } } }))
                 ]);
                 setGroups(groupsRes.data.data || []);
                 // Only APPROVED templates
                 const approved = (templatesRes.data.templates || []).filter(t => t.status === 'APPROVED');
                 setTemplates(approved);
                 if (analyticsRes.data?.success) setAnalytics(analyticsRes.data.data);
+                setRegistry(registryRes.data?.data || {});
             } catch (err) {
                 console.error("Failed to fetch broadcast data", err);
             } finally {
@@ -90,29 +93,44 @@ function MarketingTab({ dealId, deal, onRefresh }) {
 
     const meta = deal?.broadcastMetadata;
 
-    // 🧠 Build live preview from selected template + deal metadata
+    // 🧠 Build live preview from selected template + deal metadata using Registry
     const templatePreview = useMemo(() => {
         if (!selectedTemplate || !meta) return null;
         const body = selectedTemplate.components?.find(c => c.type === 'BODY');
         if (!body) return null;
 
-        // Map variables: {{1}}=broker name (will be filled per broker), rest from deal
-        const varMap = {
-            '1': '[Broker Name]',       // Per-broker, shown as placeholder
-            '2': meta.title || '',
-            '3': meta.location || '',
-            '4': meta.features?.[0] || (meta.detailedSections?.[0]?.lines?.[0] || ''),
-            '5': (meta.price || '').replace('₹ ', '').replace('₹', ''),
-            '6': meta.description || '',
-            '7': '8700000000',           // Company phone placeholder
+        // Simulate resolution logic
+        const resolveSource = (source) => {
+            switch(source) {
+                case 'customer_name': return '[Broker Company Name]';
+                case 'property_list_default':
+                case 'matchListDefault':
+                    return `1️⃣ 🏢 ${meta.title || 'Project'} | 📐 ${meta.features?.[0] || 'Size'} | 💰 ${meta.price || 'Price'}`;
+                case 'property_list_detailed':
+                case 'matchListDetailed':
+                    return `1️⃣ 🏢 ${meta.title}\n📍 ${meta.location}\n💰 ${meta.price}\n📐 ${meta.features?.[0]}\n📝 ${meta.description}`;
+                case 'projectName': return meta.title || '';
+                case 'location': return meta.location || '';
+                case 'price': return meta.price || '';
+                case 'description': return meta.description || '';
+                case 'agentMobile': return '87000 00000';
+                default: return `[${source}]`;
+            }
         };
 
         let preview = body.text;
-        Object.entries(varMap).forEach(([k, v]) => {
-            preview = preview.replace(new RegExp(`{{${k}}}`, 'g'), v || `[var${k}]`);
+        const varMatches = preview.match(/{{(\d+)}}/g) || [];
+        
+        varMatches.forEach(m => {
+            const idx = m.replace(/[{}]/g, '');
+            const config = registry[idx];
+            const source = typeof config === 'object' ? config.source : config;
+            const value = resolveSource(source);
+            preview = preview.replace(m, value);
         });
+
         return preview;
-    }, [selectedTemplate, meta]);
+    }, [selectedTemplate, meta, registry]);
 
     if (loading) {
         return (

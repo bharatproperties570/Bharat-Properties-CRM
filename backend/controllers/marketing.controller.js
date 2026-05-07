@@ -964,40 +964,38 @@ async function _dispatchBNADirectly(data) {
     let templateComponents = null;
 
     if (templateId) {
-        // Fetch actual template definition to count variables
-        const waServiceDynamic = (await import('../services/WhatsAppService.js')).default;
-        const allTemplates = await waServiceDynamic.getTemplates();
-        const templateDef = allTemplates.find(t => t.name === templateId);
+        try {
+            const waServiceDynamic = (await import('../services/WhatsAppService.js')).default;
+            const VariableResolutionService = (await import('../services/VariableResolutionService.js')).default;
+            const SystemSetting = mongoose.model('SystemSetting');
 
-        if (templateDef) {
-            const bodyComp = templateDef.components?.find(c => c.type === 'BODY');
-            if (bodyComp) {
-                const varMatches = bodyComp.text.match(/{{(\d+)}}/g) || [];
-                const varCount = varMatches.length;
+            // 1. Fetch Template Definition & Global Registry
+            const [allTemplates, registrySetting] = await Promise.all([
+                waServiceDynamic.getTemplates(),
+                SystemSetting.findOne({ key: 'messaging_variable_registry' }).lean()
+            ]);
 
-                // Build variable pool from deal metadata
-                const varPool = [
-                    meta.title || '',
-                    meta.location || '',
-                    meta.features?.[0] || (meta.detailedSections?.[0]?.lines?.[0] || ''),
-                    (meta.price || '').replace('₹ ', '').replace('₹', ''),
-                    meta.description || '',
-                    'https://bharatproperties.in',
-                    '+91 87000 00000'
-                ];
-                // Note: index 0 ({{1}}) reserved for broker name — filled per recipient below
+            const templateDef = allTemplates.find(t => t.name === templateId);
+            const globalMapping = registrySetting?.value || { "1": "customer_name", "2": "property_list_default" };
 
-                templateComponents = [
-                    {
-                        type: 'body',
-                        parameters: varPool.slice(0, varCount).map(v => ({ type: 'text', text: String(v) }))
-                    }
-                ];
+            if (templateDef) {
+                const bodyComp = templateDef.components?.find(c => c.type === 'BODY');
+                if (bodyComp) {
+                    const varMatches = bodyComp.text.match(/{{(\d+)}}/g) || [];
+                    const varCount = varMatches.length;
 
-                console.log(`[BNA] Template '${templateId}' needs ${varCount} vars. Pool size: ${varPool.length}`);
+                    // 🧠 SENIOR PROFESSIONAL: We build parameters PER RECIPIENT inside the loop
+                    // But we pre-calculate the mapping logic here
+                    templateComponents = {
+                        varCount,
+                        globalMapping,
+                        templateDef
+                    };
+                    console.log(`[BNA] Template '${templateId}' requires ${varCount} variables. Using registry mapping.`);
+                }
             }
-        } else {
-            console.warn(`[BNA] Template '${templateId}' not found in Meta. Sending text fallback.`);
+        } catch (err) {
+            console.error('[BNA/TemplateInit] Error:', err.message);
         }
     }
 
@@ -1043,14 +1041,41 @@ async function _dispatchBNADirectly(data) {
             try {
                 let waRes;
                 if (templateId && templateComponents) {
-                    // 🧠 Inject broker name as {{1}} if template starts with it
-                    const personalizedComponents = JSON.parse(JSON.stringify(templateComponents)); // deep clone
-                    const brokerName = recipient.name || 'Broker';
-                    // Replace first parameter with broker name
-                    if (personalizedComponents[0]?.parameters?.length > 0) {
-                        personalizedComponents[0].parameters[0].text = brokerName;
+                    const VariableResolutionService = (await import('../services/VariableResolutionService.js')).default;
+
+                    // 🧠 ENRICH RECIPIENT: Combine Broker info with Deal info for resolution
+                    const enrichedContext = {
+                        ...recipient,
+                        fullName: recipient.name || 'Broker',
+                        firstName: (recipient.name || 'Broker').split(' ')[0],
+                        // Inject the deal as the ONLY matched property for resolution
+                        matchedProperties: [{
+                            inventoryId: meta.inventoryId,
+                            projectName: meta.title,
+                            sector: meta.location,
+                            price: meta.price,
+                            size: meta.features?.[0] || ''
+                        }]
+                    };
+
+                    // Resolve parameters using the enterprise registry
+                    const resolvedMap = VariableResolutionService.resolveForLeads(
+                        enrichedContext,
+                        templateComponents.globalMapping
+                    );
+
+                    const parameters = [];
+                    for (let i = 1; i <= templateComponents.varCount; i++) {
+                        const val = resolvedMap[String(i)] || '';
+                        parameters.push({ type: 'text', text: String(val) });
                     }
-                    console.log(`[BNA/WA] Sending template '${templateId}' to ${recipient.mobile} (${brokerName})`);
+
+                    const personalizedComponents = [{
+                        type: 'body',
+                        parameters
+                    }];
+
+                    console.log(`[BNA/WA] Dispatching '${templateId}' to ${recipient.mobile} with ${parameters.length} registry-mapped variables.`);
                     waRes = await waService.sendTemplate(recipient.mobile, templateId, language || 'en', personalizedComponents);
                 } else {
                     // Fallback to text
