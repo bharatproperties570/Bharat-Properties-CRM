@@ -4,35 +4,34 @@ import toast from 'react-hot-toast';
 import { formatIndianCurrency } from '../../../utils/numberToWords';
 
 function MarketingTab({ dealId, deal, onRefresh }) {
-    const [loading, setLoading] = useState(false);
+    const [loading, setLoading] = useState(true);
     const [analytics, setAnalytics] = useState(null);
     const [groups, setGroups] = useState([]);
     const [selectedGroups, setSelectedGroups] = useState([]);
     const [channels, setChannels] = useState({ whatsapp: true, email: false });
     const [sending, setSending] = useState(false);
+    const [templates, setTemplates] = useState([]);
+    const [selectedTemplate, setSelectedTemplate] = useState(null);
 
     useEffect(() => {
-        fetchAnalytics();
-        fetchGroups();
+        const fetchData = async () => {
+            try {
+                const [groupsRes, templatesRes, analyticsRes] = await Promise.all([
+                    api.get('/company-groups'),
+                    api.get('/marketing/whatsapp/templates'),
+                    api.get(`/marketing/broadcast/analytics/${dealId}`)
+                ]);
+                setGroups(groupsRes.data.data || []);
+                setTemplates(templatesRes.data.templates || []);
+                if (analyticsRes.data?.success) setAnalytics(analyticsRes.data.data);
+                setLoading(false);
+            } catch (err) {
+                console.error("Failed to fetch broadcast data", err);
+                setLoading(false);
+            }
+        };
+        fetchData();
     }, [dealId]);
-
-    const fetchAnalytics = async () => {
-        try {
-            const res = await api.get(`/marketing/broadcast/analytics/${dealId}`);
-            if (res.data?.success) setAnalytics(res.data.data);
-        } catch (error) {
-            console.error("Analytics fetch error:", error);
-        }
-    };
-
-    const fetchGroups = async () => {
-        try {
-            const res = await api.get('/company-groups');
-            if (res.data?.success) setGroups(res.data.data || []);
-        } catch (error) {
-            console.error("Groups fetch error:", error);
-        }
-    };
 
     const handleSanitize = async () => {
         setLoading(true);
@@ -63,11 +62,12 @@ function MarketingTab({ dealId, deal, onRefresh }) {
             const res = await api.post('/marketing/broadcast/bna', {
                 dealId,
                 groupIds: selectedGroups,
-                channels: selectedChannels
+                channels: selectedChannels,
+                templateId: selectedTemplate?.name,
+                language: selectedTemplate?.language
             });
             if (res.data.success) {
                 toast.success(`Broadcast launched to ${res.data.dispatchCount} brokers!`);
-                fetchAnalytics();
             }
         } catch (error) {
             toast.error("Broadcast failed");
@@ -142,55 +142,79 @@ function MarketingTab({ dealId, deal, onRefresh }) {
                     </h4>
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                        {/* Group Selection */}
-                        <div>
-                            <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', display: 'block', marginBottom: '10px' }}>SELECT BROKER GROUPS</label>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                                {groups.map(g => (
-                                    <button 
-                                        key={g._id}
-                                        onClick={() => {
-                                            if (selectedGroups.includes(g._id)) setSelectedGroups(selectedGroups.filter(id => id !== g._id));
-                                            else setSelectedGroups([...selectedGroups, g._id]);
-                                        }}
-                                        style={{
-                                            padding: '6px 12px',
-                                            borderRadius: '20px',
-                                            fontSize: '0.75rem',
-                                            fontWeight: 700,
-                                            border: '1px solid',
-                                            borderColor: selectedGroups.includes(g._id) ? g.color : '#e2e8f0',
-                                            background: selectedGroups.includes(g._id) ? g.color : '#fff',
-                                            color: selectedGroups.includes(g._id) ? '#fff' : '#475569',
-                                            cursor: 'pointer',
-                                            transition: 'all 0.2s'
-                                        }}
-                                    >
-                                        {g.name}
-                                    </button>
-                                ))}
+                        {/* Channel & Template Selection */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                            <div>
+                                <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', display: 'block', marginBottom: '10px' }}>WHATSAPP TEMPLATE</label>
+                                <select 
+                                    style={{ width: '100%', padding: '12px', borderRadius: '12px', border: '1px solid #e2e8f0', fontSize: '0.85rem', fontWeight: 600, background: '#fff' }}
+                                    value={selectedTemplate?.name || ''}
+                                    onChange={(e) => {
+                                        const t = templates.find(temp => temp.name === e.target.value);
+                                        setSelectedTemplate(t);
+                                    }}
+                                >
+                                    <option value="">-- Choose Approved Template --</option>
+                                    {templates.map(t => (
+                                        <option key={t.name} value={t.name}>{t.name} ({t.language})</option>
+                                    ))}
+                                </select>
+                                <p style={{ margin: '8px 0 0 0', fontSize: '0.65rem', color: '#94a3b8', fontStyle: 'italic' }}>
+                                    <i className="fas fa-info-circle"></i> Meta templates ensure delivery to brokers outside 24h window.
+                                </p>
+                            </div>
+
+                            <div>
+                                <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', display: 'block', marginBottom: '10px' }}>CHANNELS</label>
+                                <div style={{ display: 'flex', gap: '20px' }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                                        <input type="checkbox" checked={channels.whatsapp} onChange={e => setChannels({...channels, whatsapp: e.target.checked})} />
+                                        <i className="fab fa-whatsapp" style={{ color: '#128C7E' }}></i> WhatsApp
+                                    </label>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                                        <input type="checkbox" checked={channels.email} onChange={e => setChannels({...channels, email: e.target.checked})} />
+                                        <i className="fas fa-envelope" style={{ color: '#EF4444' }}></i> Email
+                                    </label>
+                                </div>
                             </div>
                         </div>
 
-                        {/* Channel Selection */}
-                        <div>
-                            <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', display: 'block', marginBottom: '10px' }}>CHANNELS</label>
-                            <div style={{ display: 'flex', gap: '20px' }}>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                                    <input type="checkbox" checked={channels.whatsapp} onChange={e => setChannels({...channels, whatsapp: e.target.checked})} />
-                                    <i className="fab fa-whatsapp" style={{ color: '#128C7E' }}></i> WhatsApp
-                                </label>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                                    <input type="checkbox" checked={channels.email} onChange={e => setChannels({...channels, email: e.target.checked})} />
-                                    <i className="fas fa-envelope" style={{ color: '#EF4444' }}></i> Email
-                                </label>
+                        {/* Group Selection */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                            <div>
+                                <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', display: 'block', marginBottom: '10px' }}>SELECT BROKER GROUPS</label>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                    {groups.map(g => (
+                                        <button 
+                                            key={g._id}
+                                            onClick={() => {
+                                                if (selectedGroups.includes(g._id)) setSelectedGroups(selectedGroups.filter(id => id !== g._id));
+                                                else setSelectedGroups([...selectedGroups, g._id]);
+                                            }}
+                                            style={{
+                                                padding: '6px 12px',
+                                                borderRadius: '20px',
+                                                fontSize: '0.75rem',
+                                                fontWeight: 700,
+                                                border: '1px solid',
+                                                borderColor: selectedGroups.includes(g._id) ? g.color : '#e2e8f0',
+                                                background: selectedGroups.includes(g._id) ? g.color : '#fff',
+                                                color: selectedGroups.includes(g._id) ? '#fff' : '#475569',
+                                                cursor: 'pointer',
+                                                transition: 'all 0.2s'
+                                            }}
+                                        >
+                                            {g.name}
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
                             
                             <button 
                                 className="btn-primary" 
-                                style={{ width: '100%', marginTop: '20px', padding: '12px' }}
+                                style={{ width: '100%', marginTop: 'auto', padding: '15px', borderRadius: '15px', fontWeight: 900 }}
                                 onClick={handleBroadcast}
-                                disabled={sending}
+                                disabled={sending || !selectedTemplate}
                             >
                                 {sending ? <i className="fas fa-spinner fa-spin"></i> : <><i className="fas fa-paper-plane"></i> Launch Broadcast</>}
                             </button>
