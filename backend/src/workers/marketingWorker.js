@@ -406,8 +406,77 @@ const processMarketingJob = async (job) => {
         }
     }
 
-    // ─── BNA-BROADCAST: Broker network broadcast ──────────────────────────────
-    if (name === 'bna-broadcast') {
+/**
+ * 🧠 Enterprise Template Resolver (Worker Context)
+ * Intelligently maps registry variables to Meta components (Body, Buttons, Header)
+ */
+async function resolveMetaComponents(templateId, recipient, meta, registryMapping) {
+    const waService = (await import('../../services/WhatsAppService.js')).default;
+    const { default: VariableResolutionService } = await import('../../services/VariableResolutionService.js');
+    
+    const allTemplates = await waService.getTemplates();
+    const templateDef = allTemplates.find(t => t.name === templateId);
+    if (!templateDef) return [];
+
+    // 1. Resolve all possible variables for this recipient
+    const enrichedContext = {
+        ...recipient,
+        fullName: recipient.name || 'Broker',
+        firstName: (recipient.name || 'Broker').split(' ')[0],
+        matchedProperties: [{
+            inventoryId: meta.inventoryId,
+            projectName: meta.title,
+            sector: meta.location,
+            price: meta.price,
+            size: meta.features?.[0] || ''
+        }]
+    };
+    const resolvedMap = VariableResolutionService.resolveForLeads(enrichedContext, registryMapping);
+
+    // 2. Build Components Sequentially
+    const components = [];
+    let globalVarIndex = 1;
+
+    templateDef.components.forEach(compDef => {
+        if (compDef.type === 'BODY') {
+            const matches = compDef.text.match(/{{(\d+)}}/g) || [];
+            if (matches.length > 0) {
+                const parameters = [];
+                matches.forEach(() => {
+                    const val = resolvedMap[String(globalVarIndex)] || '—';
+                    parameters.push({ type: 'text', text: String(val) });
+                    globalVarIndex++;
+                });
+                components.push({ type: 'body', parameters });
+            }
+        } else if (compDef.type === 'BUTTONS') {
+            compDef.buttons?.forEach((btn, btnIdx) => {
+                if (btn.url && btn.url.includes('{{1}}')) {
+                    const val = resolvedMap[String(globalVarIndex)] || 'token';
+                    components.push({
+                        type: 'button',
+                        sub_type: 'url',
+                        index: btnIdx,
+                        parameters: [{ type: 'text', text: String(val) }]
+                    });
+                    globalVarIndex++;
+                }
+            });
+        } else if (compDef.type === 'HEADER' && compDef.format === 'TEXT' && compDef.text.includes('{{1}}')) {
+            const val = resolvedMap[String(globalVarIndex)] || 'Update';
+            components.push({
+                type: 'header',
+                parameters: [{ type: 'text', text: String(val) }]
+            });
+            globalVarIndex++;
+        }
+    });
+
+    return components;
+}
+
+// ─── BNA-BROADCAST: Broker network broadcast ──────────────────────────────
+if (name === 'bna-broadcast') {
         const { dealId, recipients, channels, meta, templateId, language, shareableId, performedBy } = data;
         let sent = 0, failed = 0;
         await job.log(`Starting BNA Broadcast for Deal ${dealId} to ${recipients.length} brokers`);
@@ -470,31 +539,13 @@ const processMarketingJob = async (job) => {
             </div>
         `;
 
-        // 🧠 PROFESSIONAL: Introspect template and registry OUTSIDE the loop
-        let templateComponents = null;
-        if (templateId) {
-            try {
-                const SystemSetting = mongoose.model('SystemSetting');
-                const [allTemplates, registrySetting] = await Promise.all([
-                    waService.getTemplates(),
-                    SystemSetting.findOne({ key: 'messaging_variable_registry' }).lean()
-                ]);
-                const templateDef = allTemplates.find(t => t.name === templateId);
-                const globalMapping = registrySetting?.value || { "1": "customer_name", "2": "property_list_default" };
-
-                if (templateDef) {
-                    const bodyComp = templateDef.components?.find(c => c.type === 'BODY');
-                    if (bodyComp) {
-                        const varMatches = bodyComp.text.match(/{{(\d+)}}/g) || [];
-                        templateComponents = {
-                            varCount: varMatches.length,
-                            globalMapping,
-                            templateDef
-                        };
-                    }
-                }
-            } catch (err) { await job.log(`Template/Registry Fetch Error: ${err.message}`); }
-        }
+        // 🧠 PROFESSIONAL: Fetch registry once
+        let registryMapping = { "1": "customer_name", "2": "property_list_default" };
+        try {
+            const SystemSetting = mongoose.model('SystemSetting');
+            const setting = await SystemSetting.findOne({ key: 'messaging_variable_registry' }).lean();
+            if (setting?.value) registryMapping = setting.value;
+        } catch (e) { await job.log(`Registry Fetch Warning: ${e.message}`); }
 
         for (let i = 0; i < recipients.length; i++) {
             const recipient = recipients[i];
@@ -503,33 +554,15 @@ const processMarketingJob = async (job) => {
             if (channels.includes('whatsapp') && recipient.mobile) {
                 try {
                     let waRes;
-                    if (templateId && templateComponents) {
-                        const { default: VariableResolutionService } = await import('../../services/VariableResolutionService.js');
+                    if (templateId) {
+                        const personalizedComponents = await resolveMetaComponents(
+                            templateId, 
+                            recipient, 
+                            meta, 
+                            registryMapping
+                        );
                         
-                        // Enrich Context for Resolution
-                        const enrichedContext = {
-                            ...recipient,
-                            fullName: recipient.name || 'Broker',
-                            firstName: (recipient.name || 'Broker').split(' ')[0],
-                            matchedProperties: [{
-                                inventoryId: meta.inventoryId,
-                                projectName: meta.title,
-                                sector: meta.location,
-                                price: meta.price,
-                                size: meta.features?.[0] || ''
-                            }]
-                        };
-
-                        const resolvedMap = VariableResolutionService.resolveForLeads(enrichedContext, templateComponents.globalMapping);
-                        const parameters = [];
-                        for (let j = 1; j <= templateComponents.varCount; j++) {
-                            const val = resolvedMap[String(j)] || '';
-                            parameters.push({ type: 'text', text: String(val) });
-                        }
-
-                        waRes = await waService.sendTemplate(recipient.mobile, templateId, language || 'en', [
-                            { type: 'body', parameters }
-                        ]);
+                        waRes = await waService.sendTemplate(recipient.mobile, templateId, language || 'en', personalizedComponents);
                     } else {
                         waRes = await waService.sendMessage(recipient.mobile, waMessage);
                     }

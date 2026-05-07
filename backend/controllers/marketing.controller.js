@@ -950,6 +950,75 @@ export const broadcastToBrokerGroup = async (req, res) => {
 };
 
 /**
+ * 🧠 Enterprise Template Resolver
+ * Intelligently maps registry variables to Meta components (Body, Buttons, Header)
+ */
+async function resolveMetaComponents(templateId, recipient, meta, registryMapping) {
+    const waService = (await import('../services/WhatsAppService.js')).default;
+    const VariableResolutionService = (await import('../services/VariableResolutionService.js')).default;
+    
+    const allTemplates = await waService.getTemplates();
+    const templateDef = allTemplates.find(t => t.name === templateId);
+    if (!templateDef) return [];
+
+    // 1. Resolve all possible variables for this recipient
+    const enrichedContext = {
+        ...recipient,
+        fullName: recipient.name || 'Broker',
+        firstName: (recipient.name || 'Broker').split(' ')[0],
+        matchedProperties: [{
+            inventoryId: meta.inventoryId,
+            projectName: meta.title,
+            sector: meta.location,
+            price: meta.price,
+            size: meta.features?.[0] || ''
+        }]
+    };
+    const resolvedMap = VariableResolutionService.resolveForLeads(enrichedContext, registryMapping);
+
+    // 2. Build Components Sequentially
+    const components = [];
+    let globalVarIndex = 1;
+
+    templateDef.components.forEach(compDef => {
+        if (compDef.type === 'BODY') {
+            const matches = compDef.text.match(/{{(\d+)}}/g) || [];
+            if (matches.length > 0) {
+                const parameters = [];
+                matches.forEach(() => {
+                    const val = resolvedMap[String(globalVarIndex)] || '—';
+                    parameters.push({ type: 'text', text: String(val) });
+                    globalVarIndex++;
+                });
+                components.push({ type: 'body', parameters });
+            }
+        } else if (compDef.type === 'BUTTONS') {
+            compDef.buttons?.forEach((btn, btnIdx) => {
+                if (btn.url && btn.url.includes('{{1}}')) {
+                    const val = resolvedMap[String(globalVarIndex)] || 'token';
+                    components.push({
+                        type: 'button',
+                        sub_type: 'url',
+                        index: btnIdx,
+                        parameters: [{ type: 'text', text: String(val) }]
+                    });
+                    globalVarIndex++;
+                }
+            });
+        } else if (compDef.type === 'HEADER' && compDef.format === 'TEXT' && compDef.text.includes('{{1}}')) {
+            const val = resolvedMap[String(globalVarIndex)] || 'Update';
+            components.push({
+                type: 'header',
+                parameters: [{ type: 'text', text: String(val) }]
+            });
+            globalVarIndex++;
+        }
+    });
+
+    return components;
+}
+
+/**
  * Direct dispatch for BNA broadcasts when queue is unavailable
  */
 async function _dispatchBNADirectly(data) {
@@ -963,37 +1032,14 @@ async function _dispatchBNADirectly(data) {
     let waMessageText = null;
     let templateComponents = null;
 
+    let templateRegistryData = null;
     if (templateId) {
         try {
-            const waServiceDynamic = (await import('../services/WhatsAppService.js')).default;
-            const VariableResolutionService = (await import('../services/VariableResolutionService.js')).default;
             const SystemSetting = mongoose.model('SystemSetting');
-
-            // 1. Fetch Template Definition & Global Registry
-            const [allTemplates, registrySetting] = await Promise.all([
-                waServiceDynamic.getTemplates(),
-                SystemSetting.findOne({ key: 'messaging_variable_registry' }).lean()
-            ]);
-
-            const templateDef = allTemplates.find(t => t.name === templateId);
-            const globalMapping = registrySetting?.value || { "1": "customer_name", "2": "property_list_default" };
-
-            if (templateDef) {
-                const bodyComp = templateDef.components?.find(c => c.type === 'BODY');
-                if (bodyComp) {
-                    const varMatches = bodyComp.text.match(/{{(\d+)}}/g) || [];
-                    const varCount = varMatches.length;
-
-                    // 🧠 SENIOR PROFESSIONAL: We build parameters PER RECIPIENT inside the loop
-                    // But we pre-calculate the mapping logic here
-                    templateComponents = {
-                        varCount,
-                        globalMapping,
-                        templateDef
-                    };
-                    console.log(`[BNA] Template '${templateId}' requires ${varCount} variables. Using registry mapping.`);
-                }
-            }
+            const registrySetting = await SystemSetting.findOne({ key: 'messaging_variable_registry' }).lean();
+            templateRegistryData = {
+                mapping: registrySetting?.value || { "1": "customer_name", "2": "property_list_default" }
+            };
         } catch (err) {
             console.error('[BNA/TemplateInit] Error:', err.message);
         }
@@ -1040,42 +1086,15 @@ async function _dispatchBNADirectly(data) {
         if (channels.includes('whatsapp') && recipient.mobile) {
             try {
                 let waRes;
-                if (templateId && templateComponents) {
-                    const VariableResolutionService = (await import('../services/VariableResolutionService.js')).default;
-
-                    // 🧠 ENRICH RECIPIENT: Combine Broker info with Deal info for resolution
-                    const enrichedContext = {
-                        ...recipient,
-                        fullName: recipient.name || 'Broker',
-                        firstName: (recipient.name || 'Broker').split(' ')[0],
-                        // Inject the deal as the ONLY matched property for resolution
-                        matchedProperties: [{
-                            inventoryId: meta.inventoryId,
-                            projectName: meta.title,
-                            sector: meta.location,
-                            price: meta.price,
-                            size: meta.features?.[0] || ''
-                        }]
-                    };
-
-                    // Resolve parameters using the enterprise registry
-                    const resolvedMap = VariableResolutionService.resolveForLeads(
-                        enrichedContext,
-                        templateComponents.globalMapping
+                if (templateId && templateRegistryData) {
+                    const personalizedComponents = await resolveMetaComponents(
+                        templateId, 
+                        recipient, 
+                        meta, 
+                        templateRegistryData.mapping
                     );
-
-                    const parameters = [];
-                    for (let i = 1; i <= templateComponents.varCount; i++) {
-                        const val = resolvedMap[String(i)] || '';
-                        parameters.push({ type: 'text', text: String(val) });
-                    }
-
-                    const personalizedComponents = [{
-                        type: 'body',
-                        parameters
-                    }];
-
-                    console.log(`[BNA/WA] Dispatching '${templateId}' to ${recipient.mobile} with ${parameters.length} registry-mapped variables.`);
+                    
+                    console.log(`[BNA/WA] Dispatching '${templateId}' with ${personalizedComponents.length} components.`);
                     waRes = await waService.sendTemplate(recipient.mobile, templateId, language || 'en', personalizedComponents);
                 } else {
                     // Fallback to text
