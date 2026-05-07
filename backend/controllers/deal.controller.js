@@ -404,9 +404,13 @@ export const sanitizeDeal = async (req, res) => {
 
         const formatSection = (title, obj) => {
             if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+            
+            // 🧠 PRIVACY BLACKLIST: Explicitly remove sensitive identifiers
+            const blacklist = ['_id', 'unitNo', 'unitNumber', 'hNo', 'houseNo', 'plotNo', 'owner', 'contact', 'mobile', 'phone', 'ownerContact'];
+            
             const lines = Object.entries(obj)
                 .filter(([k, v]) => {
-                    if (k === '_id') return false;
+                    if (blacklist.includes(k)) return false;
                     if (v === undefined || v === null || v === '' || v === false) return false;
                     if (typeof v === 'object') return false; // Skip nested objects for now
                     return true;
