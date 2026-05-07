@@ -403,6 +403,9 @@ const processMarketingJob = async (job) => {
         } catch (err) {
             await job.log(`❌ ${platform} Post Failed: ${err.message}`);
             throw err; // Rethrow to let BullMQ handle retries
+        }
+    }
+
     // ─── BNA-BROADCAST: Broker network broadcast ──────────────────────────────
     if (name === 'bna-broadcast') {
         const { dealId, recipients, channels, meta, templateId, language, shareableId, performedBy } = data;
@@ -412,8 +415,6 @@ const processMarketingJob = async (job) => {
         const { default: Activity } = await import('../../models/Activity.js');
         const waService = (await import('../../services/WhatsAppService.js')).default;
         const eSvc = (await import('../../services/email.service.js')).default;
-
-        let sent = 0, failed = 0;
 
         // 🧠 Message Construction (Shared across recipients)
         let waMessage = `*🏢 BROKER UPDATE: ${meta.title}*\n\n` +
