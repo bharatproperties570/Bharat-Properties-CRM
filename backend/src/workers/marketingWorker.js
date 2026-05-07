@@ -470,25 +470,65 @@ const processMarketingJob = async (job) => {
             </div>
         `;
 
+        // 🧠 PROFESSIONAL: Introspect template and registry OUTSIDE the loop
+        let templateComponents = null;
+        if (templateId) {
+            try {
+                const SystemSetting = mongoose.model('SystemSetting');
+                const [allTemplates, registrySetting] = await Promise.all([
+                    waService.getTemplates(),
+                    SystemSetting.findOne({ key: 'messaging_variable_registry' }).lean()
+                ]);
+                const templateDef = allTemplates.find(t => t.name === templateId);
+                const globalMapping = registrySetting?.value || { "1": "customer_name", "2": "property_list_default" };
+
+                if (templateDef) {
+                    const bodyComp = templateDef.components?.find(c => c.type === 'BODY');
+                    if (bodyComp) {
+                        const varMatches = bodyComp.text.match(/{{(\d+)}}/g) || [];
+                        templateComponents = {
+                            varCount: varMatches.length,
+                            globalMapping,
+                            templateDef
+                        };
+                    }
+                }
+            } catch (err) { await job.log(`Template/Registry Fetch Error: ${err.message}`); }
+        }
+
         for (let i = 0; i < recipients.length; i++) {
             const recipient = recipients[i];
             const results = [];
             
-            // 🧠 SENIOR PROFESSIONAL: WhatsApp Template Fallback
-            // If it's a first-time message, we should ideally use a template.
-            // For now, we attempt sendMessage but with clear error logging.
             if (channels.includes('whatsapp') && recipient.mobile) {
                 try {
                     let waRes;
-                    if (templateId) {
-                        const params = [
-                            meta.title,
-                            `${meta.location} | ${meta.features?.join(', ')}`,
-                            meta.price,
-                            `https://crm.bharatproperties.in/share/${shareableId}`
-                        ];
-                        waRes = await waService.sendTemplate(recipient.mobile, templateId, language || 'en_US', [
-                            { type: 'body', parameters: params.map(p => ({ type: 'text', text: p })) }
+                    if (templateId && templateComponents) {
+                        const { default: VariableResolutionService } = await import('../../services/VariableResolutionService.js');
+                        
+                        // Enrich Context for Resolution
+                        const enrichedContext = {
+                            ...recipient,
+                            fullName: recipient.name || 'Broker',
+                            firstName: (recipient.name || 'Broker').split(' ')[0],
+                            matchedProperties: [{
+                                inventoryId: meta.inventoryId,
+                                projectName: meta.title,
+                                sector: meta.location,
+                                price: meta.price,
+                                size: meta.features?.[0] || ''
+                            }]
+                        };
+
+                        const resolvedMap = VariableResolutionService.resolveForLeads(enrichedContext, templateComponents.globalMapping);
+                        const parameters = [];
+                        for (let j = 1; j <= templateComponents.varCount; j++) {
+                            const val = resolvedMap[String(j)] || '';
+                            parameters.push({ type: 'text', text: String(val) });
+                        }
+
+                        waRes = await waService.sendTemplate(recipient.mobile, templateId, language || 'en', [
+                            { type: 'body', parameters }
                         ]);
                     } else {
                         waRes = await waService.sendMessage(recipient.mobile, waMessage);
@@ -498,6 +538,7 @@ const processMarketingJob = async (job) => {
             }
 
             if (channels.includes('email') && recipient.email) {
+
                 try {
                     await eSvc.sendEmail(recipient.email, emailSubject, '', emailHtml);
                     results.push({ channel: 'email', status: 'success' });
