@@ -958,24 +958,50 @@ async function _dispatchBNADirectly(data) {
     const eSvc = (await import('../services/email.service.js')).default;
     const Activity = mongoose.model('Activity');
 
-    // 🧠 Message Construction (Shared across recipients)
-    let waMessage = `*🏢 BROKER UPDATE: ${meta.title}*\n\n` +
-        `💰 *Price:* ${meta.price}\n` +
-        `📍 *Location:* ${meta.location}\n` +
-        `📐 *Specs:* ${meta.features?.join(' | ') || 'N/A'}\n\n`;
+    // 🧠 PROFESSIONAL: Introspect template to map variables correctly
+    // Meta error #132000 happens when param count doesn't match template
+    let waMessageText = null;
+    let templateComponents = null;
 
-    if (meta.detailedSections && Array.isArray(meta.detailedSections)) {
-        meta.detailedSections.forEach(sec => {
-            waMessage += `*${sec.title.toUpperCase()}*\n`;
-            sec.lines.forEach(l => { waMessage += `• ${l}\n`; });
-            waMessage += `\n`;
-        });
+    if (templateId) {
+        // Fetch actual template definition to count variables
+        const waServiceDynamic = (await import('../services/WhatsAppService.js')).default;
+        const allTemplates = await waServiceDynamic.getTemplates();
+        const templateDef = allTemplates.find(t => t.name === templateId);
+
+        if (templateDef) {
+            const bodyComp = templateDef.components?.find(c => c.type === 'BODY');
+            if (bodyComp) {
+                const varMatches = bodyComp.text.match(/{{(\d+)}}/g) || [];
+                const varCount = varMatches.length;
+
+                // Build variable pool from deal metadata
+                const varPool = [
+                    meta.title || '',
+                    meta.location || '',
+                    meta.features?.[0] || (meta.detailedSections?.[0]?.lines?.[0] || ''),
+                    (meta.price || '').replace('₹ ', '').replace('₹', ''),
+                    meta.description || '',
+                    'https://bharatproperties.in',
+                    '+91 87000 00000'
+                ];
+                // Note: index 0 ({{1}}) reserved for broker name — filled per recipient below
+
+                templateComponents = [
+                    {
+                        type: 'body',
+                        parameters: varPool.slice(0, varCount).map(v => ({ type: 'text', text: String(v) }))
+                    }
+                ];
+
+                console.log(`[BNA] Template '${templateId}' needs ${varCount} vars. Pool size: ${varPool.length}`);
+            }
+        } else {
+            console.warn(`[BNA] Template '${templateId}' not found in Meta. Sending text fallback.`);
+        }
     }
 
-    waMessage += `📝 *Details:* ${meta.description}\n\n` +
-        `🔗 *Ref:* ${shareableId}\n` +
-        `Contact us for commission split and site visits.`;
-
+    // Fallback text message (when no template selected or template not found)
     const emailSubject = `BROKER DEAL: ${meta.title} - ${meta.location}`;
     
     let detailedHtml = '';
@@ -1012,24 +1038,30 @@ async function _dispatchBNADirectly(data) {
 
     for (const recipient of recipients) {
         const results = [];
-        
+
         if (channels.includes('whatsapp') && recipient.mobile) {
             try {
-                if (templateId) {
-                    const params = [
-                        meta.title,
-                        `${meta.location} | ${meta.features?.join(', ')}`,
-                        meta.price,
-                        `https://crm.bharatproperties.in/share/${shareableId}`
-                    ];
-                    const waRes = await waService.sendTemplate(recipient.mobile, templateId, language || 'en_US', [
-                        { type: 'body', parameters: params.map(p => ({ type: 'text', text: p })) }
-                    ]);
-                    results.push({ channel: 'whatsapp', status: waRes.success ? 'success' : 'failed' });
+                let waRes;
+                if (templateId && templateComponents) {
+                    // 🧠 Inject broker name as {{1}} if template starts with it
+                    const personalizedComponents = JSON.parse(JSON.stringify(templateComponents)); // deep clone
+                    const brokerName = recipient.name || 'Broker';
+                    // Replace first parameter with broker name
+                    if (personalizedComponents[0]?.parameters?.length > 0) {
+                        personalizedComponents[0].parameters[0].text = brokerName;
+                    }
+                    console.log(`[BNA/WA] Sending template '${templateId}' to ${recipient.mobile} (${brokerName})`);
+                    waRes = await waService.sendTemplate(recipient.mobile, templateId, language || 'en', personalizedComponents);
                 } else {
-                    const waRes = await waService.sendMessage(recipient.mobile, waMessage);
-                    results.push({ channel: 'whatsapp', status: waRes.success ? 'success' : 'failed' });
+                    // Fallback to text
+                    const text = `🏢 *BNA ALERT: ${meta.title}*\n\n` +
+                        `Hi ${recipient.name},\n\n` +
+                        `💰 *Price:* ${meta.price}\n📍 *Location:* ${meta.location}\n` +
+                        `📐 *Specs:* ${meta.features?.join(' | ') || 'N/A'}\n\n` +
+                        `🔗 Ref: ${shareableId}`;
+                    waRes = await waService.sendMessage(recipient.mobile, text);
                 }
+                results.push({ channel: 'whatsapp', status: waRes.success ? 'success' : 'failed', error: waRes.error });
             } catch (e) { results.push({ channel: 'whatsapp', status: 'failed', error: e.message }); }
         }
 
@@ -1281,13 +1313,21 @@ export async function _dispatchDirectly(data) {
 
 export const getBNAAnalytics = async (req, res) => {
     try {
+        // 🧠 Fix: Match both string and ObjectId forms of dealId
         const { dealId } = req.params;
         const visibilityFilter = await getVisibilityFilter(req.user);
         const Activity = mongoose.model('Activity');
+        const dealObjId = mongoose.Types.ObjectId.isValid(dealId)
+            ? new mongoose.Types.ObjectId(dealId)
+            : null;
+
+        const idQuery = dealObjId
+            ? { $or: [{ 'details.dealId': dealId }, { 'details.dealId': dealObjId }] }
+            : { 'details.dealId': dealId };
 
         // Fetch all marketing activities for this deal
         const activities = await Activity.find({
-            'details.dealId': dealId,
+            ...idQuery,
             type: 'Marketing',
             ...visibilityFilter
         }).lean();
