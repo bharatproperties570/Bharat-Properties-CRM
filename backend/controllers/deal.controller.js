@@ -391,10 +391,27 @@ export const sanitizeDeal = async (req, res) => {
             else formattedPrice = `₹ ${price.toLocaleString('en-IN')}`;
         }
 
-        // 3. Assemble Metadata
-        const catName = deal.category?.lookup_value || "Property";
-        const intentName = deal.intent?.lookup_value || "Deal";
-        const projName = deal.projectName || proj.name || "Prime Project";
+        // 🧠 SENIOR PROFESSIONAL: Robust Lookup Resolver
+        const resolveValue = async (val) => {
+            if (!val) return null;
+            if (typeof val === 'object') {
+                if (val.lookup_value) return val.lookup_value;
+                if (val.name) return val.name;
+                if (val.fullName) return val.fullName;
+                return null;
+            }
+            if (mongoose.Types.ObjectId.isValid(val)) {
+                const lookup = await Lookup.findById(val).select('lookup_value').lean();
+                return lookup?.lookup_value || null;
+            }
+            return val;
+        };
+
+        // Resolve core fields
+        const catName = await resolveValue(deal.category) || "Property";
+        const intentName = await resolveValue(deal.intent) || "Deal";
+        const projName = deal.projectName || (await resolveValue(proj.name)) || proj.name || "Prime Project";
+        const displayLocation = await resolveValue(deal.location) || await resolveValue(inv.address?.locality) || await resolveValue(inv.address?.location) || deal.location || "Sector 4, Kurukshetra";
 
         // 🧠 SENIOR PROFESSIONAL: Detailed Section Processing
         // We pull these from both Deal and Inventory, then filter empty fields.
@@ -402,44 +419,53 @@ export const sanitizeDeal = async (req, res) => {
         const locIntel = deal.locationIntelligence || inv.locationIntelligence || {};
         const builtup = deal.builtupDetails || inv.builtupDetails || [];
 
-        const formatSection = (title, obj) => {
+        const formatSection = async (title, obj) => {
             if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
             
             // 🧠 PRIVACY BLACKLIST: Explicitly remove sensitive identifiers
             const blacklist = ['_id', 'unitNo', 'unitNumber', 'hNo', 'houseNo', 'plotNo', 'owner', 'contact', 'mobile', 'phone', 'ownerContact'];
             
-            const lines = Object.entries(obj)
-                .filter(([k, v]) => {
-                    if (blacklist.includes(k)) return false;
-                    if (v === undefined || v === null || v === '' || v === false) return false;
-                    if (typeof v === 'object') return false; // Skip nested objects for now
-                    return true;
-                })
-                .map(([k, v]) => `${k.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()).trim()}: ${v}`);
-            return lines.length > 0 ? { title, lines } : null;
+            const entries = Object.entries(obj);
+            const resolvedLines = [];
+
+            for (const [k, v] of entries) {
+                if (blacklist.includes(k)) continue;
+                const resolvedVal = await resolveValue(v);
+                if (resolvedVal === undefined || resolvedVal === null || resolvedVal === '' || resolvedVal === false) continue;
+                
+                const label = k.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()).trim();
+                resolvedLines.push(`${label}: ${resolvedVal}`);
+            }
+
+            return resolvedLines.length > 0 ? { title, lines: resolvedLines } : null;
         };
 
         const detailedSections = [
-            formatSection("Unit Specification", unitSpec),
-            formatSection("Location Intelligence", locIntel),
+            await formatSection("Unit Specification", unitSpec),
+            await formatSection("Location Intelligence", locIntel),
             builtup.length > 0 ? { 
                 title: "Built-up Details", 
-                lines: builtup.map(b => `${b.floor || 'Floor'}: ${b.totalArea || b.area || ''} ${b.unit || 'Sq.Ft'}`) 
+                lines: await Promise.all(builtup.map(async b => {
+                    const floor = b.floor || 'Floor';
+                    const area = b.totalArea || b.area || '';
+                    const unit = b.unit || 'Sq.Ft';
+                    return `${floor}: ${area} ${unit}`;
+                }))
             } : null
         ].filter(Boolean);
         
         deal.broadcastMetadata = {
             title: `${projName} | ${deal.unitType || catName} for ${intentName}`,
-            description: deal.remarks || `Excellent ${deal.unitType || ''} ${catName} available in ${deal.location || 'Prime Location'}. High potential for ${intentName}.`,
+            description: deal.remarks || `Excellent ${deal.unitType || ''} ${catName} available in ${displayLocation}. High potential for ${intentName}.`,
             price: formattedPrice,
-            location: deal.location || inv.address?.locality || "Sector 4, Kurukshetra",
+            location: displayLocation,
             images: deal.documents?.filter(d => d.url?.match(/\.(jpg|jpeg|png|webp)$/i)).map(d => d.url) || [],
             features: [
                 `${deal.size || ''} ${deal.sizeUnit || 'Sq.Ft'}`,
                 deal.unitType,
                 deal.block ? `Block ${deal.block}` : null
             ].filter(Boolean),
-            detailedSections, // 🧠 New detailed matter
+            detailedSections, // 🧠 Resolved and filtered sections
             isReady: true,
             lastSanitizedAt: new Date()
         };
