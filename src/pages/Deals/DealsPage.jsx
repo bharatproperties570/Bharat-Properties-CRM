@@ -476,21 +476,18 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                         >
                                             <i className="fas fa-calendar-plus"></i> Activity
                                         </button>
-                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: '#6b7280', background: '#f1f5f9', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '6px 12px' }} title="Stage is auto-computed from activities">
-                                            <i className="fas fa-lock" style={{ fontSize: '0.6rem', color: '#94a3b8' }} /> Auto-Stage
-                                        </span>
                                         <button
                                             className="action-btn"
                                             title="Call Owner"
                                             onClick={() => {
-                                                const selectedDeal = deals.find(d => d.id === selectedIds[0]);
+                                                const selectedDeal = deals.find(d => d.id === selectedIds[0] || d._id === selectedIds[0]);
                                                 if (selectedDeal && selectedDeal.owner) {
                                                     startCall({
                                                         name: selectedDeal.owner.name,
                                                         mobile: selectedDeal.owner.phone
                                                     }, {
                                                         purpose: 'Deal Update',
-                                                        entityId: selectedDeal.id,
+                                                        entityId: selectedDeal.id || selectedDeal._id,
                                                         entityType: 'deal'
                                                     });
                                                 }
@@ -499,35 +496,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                             <i className="fas fa-phone-alt" style={{ transform: 'scaleX(-1) rotate(5deg)' }}></i> Call
                                         </button>
                                         <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px' }}></div>
-                                        <button className="action-btn" title="View Quote" onClick={handleQuoteClick}><i className="fas fa-file-invoice-dollar"></i> Quote</button>
-                                        <button
-                                            className="action-btn"
-                                            title="Edit Deal"
-                                            style={{ background: '#fffbeb', color: '#b45309', borderColor: '#fef3c7' }}
-                                            onClick={() => {
-                                                const deal = getSelectedDeal();
-                                                if (deal) {
-                                                    setEditingDeal(deal);
-                                                    setIsAddModalOpen(true);
-                                                }
-                                            }}
-                                        >
-                                            <i className="fas fa-edit"></i> Edit
-                                        </button>
-
-                                        <button
-                                            className="action-btn"
-                                            title="Quote"
-                                            onClick={() => {
-                                                const deal = getSelectedDeal();
-                                                if (deal) {
-                                                    setEditingDeal(deal);
-                                                    setIsQuoteModalOpen(true);
-                                                }
-                                            }}
-                                        >
-                                            <i className="fas fa-file-invoice"></i> Quote
-                                        </button>
+                                        <button className="action-btn" title="View/Edit Quote" onClick={handleQuoteClick}><i className="fas fa-file-invoice-dollar"></i> Quote</button>
 
                                         <button
                                             className="action-btn"

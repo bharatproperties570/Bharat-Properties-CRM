@@ -165,3 +165,4 @@ test-ai.js
 
 dump.rdb
 .expo/
+*.pem

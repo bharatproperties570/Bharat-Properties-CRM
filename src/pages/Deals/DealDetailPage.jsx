@@ -40,6 +40,7 @@ import DealAnalysis from '../../components/DealDetail/DealAnalysis';
 import LandedCostSheet from '../../components/DealDetail/DealCostSheet';
 import { MediaViewerModal } from '../../components/DealDetail/DealCommon';
 import SocialPostModal from '../../components/SocialPostModal';
+import MarketingTab from './components/MarketingTab';
 
 const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     const { user } = useUserContext();
@@ -70,6 +71,7 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     const [isOwnerModalOpen, setIsOwnerModalOpen] = useState(false);
     const [isMarkingLost, setIsMarkingLost] = useState(false);
     const [isSocialModalOpen, setIsSocialModalOpen] = useState(false);
+    const [activeCenterTab, setActiveCenterTab] = useState('activities'); // 'activities' or 'marketing'
 
     const [activityInitialData, setActivityInitialData] = useState(null);
     const [selectedContactsForMail, setSelectedContactsForMail] = useState([]);
@@ -515,39 +517,79 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                         flexDirection: 'column',
                         minHeight: '100%'
                     }}>
-                        <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', background: '#fff', display: 'flex', alignItems: 'center', gap: '8px', borderTopLeftRadius: '16px', borderTopRightRadius: '16px' }}>
-                            <i className="fas fa-bolt" style={{ color: '#4f46e5' }}></i>
-                            <span style={{ fontSize: '0.75rem', fontWeight: 900, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Interaction Intelligence</span>
+                        <div style={{ padding: '0 20px', borderBottom: '1px solid #f1f5f9', background: '#fff', display: 'flex', alignItems: 'center', gap: '24px', borderTopLeftRadius: '16px', borderTopRightRadius: '16px' }}>
+                            <button 
+                                onClick={() => setActiveCenterTab('activities')}
+                                style={{ 
+                                    padding: '16px 0', 
+                                    fontSize: '0.75rem', 
+                                    fontWeight: 900, 
+                                    color: activeCenterTab === 'activities' ? '#4f46e5' : '#64748b', 
+                                    textTransform: 'uppercase', 
+                                    letterSpacing: '0.5px',
+                                    borderBottom: activeCenterTab === 'activities' ? '2px solid #4f46e5' : 'none',
+                                    background: 'none',
+                                    border: 'none',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                <i className="fas fa-bolt" style={{ marginRight: '8px' }}></i> Activities
+                            </button>
+                            <button 
+                                onClick={() => setActiveCenterTab('marketing')}
+                                style={{ 
+                                    padding: '16px 0', 
+                                    fontSize: '0.75rem', 
+                                    fontWeight: 900, 
+                                    color: activeCenterTab === 'marketing' ? '#4f46e5' : '#64748b', 
+                                    textTransform: 'uppercase', 
+                                    letterSpacing: '0.5px',
+                                    borderBottom: activeCenterTab === 'marketing' ? '2px solid #4f46e5' : 'none',
+                                    background: 'none',
+                                    border: 'none',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                <i className="fas fa-bullhorn" style={{ marginRight: '8px' }}></i> Marketing & BNA
+                            </button>
                         </div>
-                        <div style={{ padding: '20px', flex: 1 }}>
-                            {(() => {
-                                const relatedEntities = [{ type: 'Deal', id: dealId }];
-                                if (deal.contactId?._id || deal.contactId) {
-                                    relatedEntities.push({ type: 'Contact', id: deal.contactId?._id || deal.contactId });
-                                }
-                                if (inventory) {
-                                    relatedEntities.push({ type: 'Inventory', id: inventory._id || inventory.id });
-                                    if (inventory.owners && Array.isArray(inventory.owners)) {
-                                        inventory.owners.forEach(o => { if (o._id || o.id) relatedEntities.push({ type: 'Contact', id: o._id || o.id }); });
+                        <div style={{ padding: '20px', flex: 1, overflowY: 'auto' }}>
+                            {activeCenterTab === 'activities' ? (
+                                (() => {
+                                    const relatedEntities = [{ type: 'Deal', id: dealId }];
+                                    if (deal.contactId?._id || deal.contactId) {
+                                        relatedEntities.push({ type: 'Contact', id: deal.contactId?._id || deal.contactId });
                                     }
-                                    if (inventory.associates && Array.isArray(inventory.associates)) {
-                                        inventory.associates.forEach(a => {
-                                            const cId = a.contact?._id || a.contact?.id || a.id;
-                                            if (cId) relatedEntities.push({ type: 'Contact', id: cId });
-                                        });
+                                    if (inventory) {
+                                        relatedEntities.push({ type: 'Inventory', id: inventory._id || inventory.id });
+                                        if (inventory.owners && Array.isArray(inventory.owners)) {
+                                            inventory.owners.forEach(o => { if (o._id || o.id) relatedEntities.push({ type: 'Contact', id: o._id || o.id }); });
+                                        }
+                                        if (inventory.associates && Array.isArray(inventory.associates)) {
+                                            inventory.associates.forEach(a => {
+                                                const cId = a.contact?._id || a.contact?.id || a.id;
+                                                if (cId) relatedEntities.push({ type: 'Contact', id: cId });
+                                            });
+                                        }
                                     }
-                                }
 
-                                return (
-                                    <UnifiedActivitySection 
-                                        entityId={dealId} 
-                                        entityType="Deal" 
-                                        entityData={deal}
-                                        onActivitySaved={fetchDealDetails}
-                                        relatedEntities={relatedEntities}
-                                    />
-                                );
-                            })()}
+                                    return (
+                                        <UnifiedActivitySection 
+                                            entityId={dealId} 
+                                            entityType="Deal" 
+                                            entityData={deal}
+                                            onActivitySaved={fetchDealDetails}
+                                            relatedEntities={relatedEntities}
+                                        />
+                                    );
+                                })()
+                            ) : (
+                                <MarketingTab 
+                                    dealId={dealId} 
+                                    deal={deal} 
+                                    onRefresh={fetchDealDetails} 
+                                />
+                            )}
                         </div>
                     </div>
                 </div>

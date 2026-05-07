@@ -15,6 +15,7 @@ import Project from '../models/Project.js';
 import Lead  from '../models/Lead.js';
 import Inventory from '../models/Inventory.js';
 import MarketingContent from '../models/MarketingContent.js';
+import Activity from '../models/Activity.js';
 import NurtureBot from '../services/NurtureBot.js';
 import marketingAudienceService from '../services/MarketingAudienceService.js';
 import { normalizePhone } from '../utils/normalization.js';
@@ -113,14 +114,15 @@ export const getCampaignRuns = async (req, res) => {
             const cName = details.campaignName || act.subject?.split(': ')[1] || 'Direct Broadcast';
             
             // Professional Batching: Grouping by jobId or strict 10-minute time window
-            const timeWindow = Math.floor(act.createdAt.getTime() / (10 * 60 * 1000)); 
+            const actDate = act.createdAt instanceof Date ? act.createdAt : new Date(act.createdAt);
+            const timeWindow = Math.floor(actDate.getTime() / (10 * 60 * 1000)); 
             const batchKey = details.jobId || `batch_${cName}_${timeWindow}`;
             
             if (!campaignGroups[batchKey]) {
                 campaignGroups[batchKey] = {
                     id: batchKey,
                     name: cName,
-                    date: act.createdAt,
+                    date: actDate,
                     sent: 0,
                     delivered: 0,
                     read: 0,
@@ -860,6 +862,134 @@ export const publishMarketingContent = async (req, res) => {
     }
 };
 
+export const broadcastToBrokerGroup = async (req, res) => {
+    try {
+        const { dealId, groupIds, channels = ['whatsapp'] } = req.body;
+        
+        if (!dealId || !groupIds || groupIds.length === 0) {
+            return res.status(400).json({ success: false, error: 'Deal ID and Company Groups are required' });
+        }
+
+        const Company = mongoose.model('Company');
+        const visibilityFilter = await getVisibilityFilter(req.user);
+
+        // 1. Fetch Deal Metadata (Sanitized)
+        const deal = await Deal.findOne({ _id: dealId, ...visibilityFilter }).lean();
+        if (!deal || !deal.broadcastMetadata?.isReady) {
+            return res.status(400).json({ success: false, error: 'Deal not found or not sanitized for broadcast.' });
+        }
+
+        const meta = deal.broadcastMetadata;
+
+        // 2. Fetch Targeted Audience (Brokers in selected groups)
+        const companies = await Company.find({
+            groups: { $in: groupIds },
+            ...visibilityFilter
+        }).lean();
+
+        if (companies.length === 0) {
+            return res.status(404).json({ success: false, error: 'No brokers found in the selected groups.' });
+        }
+
+        const recipients = companies.map(c => {
+            const phone = c.phones?.[0]?.phoneNumber || '';
+            const email = c.emails?.[0]?.address || '';
+            return {
+                id: c._id,
+                name: c.name,
+                mobile: normalizePhone(phone),
+                email: email,
+                isVerified: c.isVerifiedBroker
+            };
+        }).filter(r => r.mobile || r.email);
+
+        if (recipients.length === 0) {
+            return res.status(404).json({ success: false, error: 'No brokers with valid contact information found.' });
+        }
+
+        // 3. Assemble Professional Message Template
+        const waMessage = `*🏢 BROKER UPDATE: ${meta.title}*\n\n` +
+            `💰 *Price:* ${meta.price}\n` +
+            `📍 *Location:* ${meta.location}\n` +
+            `📐 *Specs:* ${meta.features.join(' | ')}\n\n` +
+            `📝 *Details:* ${meta.description}\n\n` +
+            `🔗 *Ref:* ${deal.shareableId}\n` +
+            `Contact us for commission split and site visits.`;
+
+        const emailSubject = `BROKER DEAL: ${meta.title} - ${meta.location}`;
+        const emailHtml = `
+            <div style="font-family: sans-serif; max-width: 600px; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
+                <div style="background: #6366f1; padding: 20px; color: #fff;">
+                    <h2 style="margin: 0;">${meta.title}</h2>
+                </div>
+                <div style="padding: 20px; color: #1e293b;">
+                    <p style="font-size: 18px; font-weight: 800; color: #6366f1;">${meta.price}</p>
+                    <p><strong>Location:</strong> ${meta.location}</p>
+                    <p><strong>Specs:</strong> ${meta.features.join(' | ')}</p>
+                    <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 20px 0;"/>
+                    <p>${meta.description}</p>
+                    <div style="background: #f8fafc; padding: 12px; border-radius: 8px; margin-top: 20px;">
+                        <p style="margin: 0; font-size: 12px; color: #64748b; font-weight: 800;">REFERENCE CODE</p>
+                        <p style="margin: 4px 0 0 0; font-size: 16px; font-weight: 800; color: #1e293b;">${deal.shareableId}</p>
+                    </div>
+                    <p style="margin-top: 24px; font-size: 12px; color: #64748b; font-style: italic;">Reply to this email for commission structure and site visit bookings.</p>
+                </div>
+            </div>
+        `;
+
+        // 4. Dispatch using existing infrastructure
+        const waService = (await import('../services/WhatsAppService.js')).default;
+        const eSvc = (await import('../services/email.service.js')).default;
+        const Activity = mongoose.model('Activity');
+
+        const dispatchResults = [];
+
+        for (const recipient of recipients) {
+            const results = [];
+            
+            if (channels.includes('whatsapp') && recipient.mobile) {
+                try {
+                    const waRes = await waService.sendMessage(recipient.mobile, waMessage);
+                    results.push({ channel: 'whatsapp', status: waRes.success ? 'success' : 'failed' });
+                } catch (e) { results.push({ channel: 'whatsapp', status: 'failed', error: e.message }); }
+            }
+
+            if (channels.includes('email') && recipient.email) {
+                try {
+                    await eSvc.sendEmail(recipient.email, emailSubject, '', emailHtml);
+                    results.push({ channel: 'email', status: 'success' });
+                } catch (e) { results.push({ channel: 'email', status: 'failed', error: e.message }); }
+            }
+
+            // Log Activity for Broker/Company
+            await Activity.create({
+                type: 'Marketing',
+                subject: `BNA Broadcast: ${meta.title}`,
+                entityType: 'Company',
+                entityId: recipient.id,
+                dueDate: new Date(),
+                status: 'Completed',
+                description: `Dispatched sanitized deal details via ${results.filter(r => r.status === 'success').map(r => r.channel).join(', ')}`,
+                details: { results, dealId, shareableId: deal.shareableId },
+                performedBy: req.user?.firstName || 'System',
+                assignedTo: req.user?._id
+            });
+
+            dispatchResults.push({ company: recipient.name, results });
+        }
+
+        res.json({ 
+            success: true, 
+            message: `Broadcast successfully sent to ${recipients.length} brokers.`,
+            dispatchCount: recipients.length
+        });
+
+    } catch (error) {
+        console.error('[BNA_BROADCAST_ERROR]', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
 export const broadcastToHub = async (req, res) => {
     try {
         const { id, type, platforms, privacy } = req.body;
@@ -1078,4 +1208,50 @@ export async function _dispatchDirectly(data) {
     }
 
     console.log(`[DirectDispatch] ✅ Finished delivery for ${name}`);
+};
+
+export const getBNAAnalytics = async (req, res) => {
+    try {
+        const { dealId } = req.params;
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const Activity = mongoose.model('Activity');
+
+        // Fetch all marketing activities for this deal
+        const activities = await Activity.find({
+            'details.dealId': dealId,
+            type: 'Marketing',
+            ...visibilityFilter
+        }).lean();
+
+        const stats = {
+            total: activities.length,
+            sent: 0,
+            delivered: 0,
+            read: 0,
+            failed: 0,
+            channels: { whatsapp: 0, email: 0, sms: 0 }
+        };
+
+        activities.forEach(act => {
+            const status = (act.status || '').toLowerCase();
+            const results = act.details?.results || [];
+
+            // Aggregate overall status
+            if (['sent', 'completed'].includes(status)) stats.sent++;
+            if (status === 'delivered') stats.delivered++;
+            if (status === 'read') stats.read++;
+            if (['failed', 'error'].includes(status)) stats.failed++;
+
+            // Aggregate channels
+            results.forEach(r => {
+                if (stats.channels[r.channel] !== undefined) {
+                    stats.channels[r.channel]++;
+                }
+            });
+        });
+
+        res.json({ success: true, data: stats });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
 };

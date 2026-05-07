@@ -191,6 +191,19 @@ const DealSchema = new mongoose.Schema({
         metaDescription: String
     },
 
+    // Broker Networking (BNA Phase 2)
+    shareableId: { type: String, unique: true, sparse: true }, // Short ID like BP-4521
+    broadcastMetadata: {
+        title: String,
+        description: String,
+        price: String, // Can be "Price on Request" or formatted
+        location: String,
+        images: [String],
+        features: [String],
+        isReady: { type: Boolean, default: false },
+        lastSanitizedAt: Date
+    },
+
     remarks: String,
     date: { type: Date, default: Date.now },
     isVisible: { type: Boolean, default: true },

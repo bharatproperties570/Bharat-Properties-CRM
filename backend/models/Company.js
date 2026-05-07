@@ -76,7 +76,12 @@ const CompanySchema = new mongoose.Schema({
     commissionAgreementStatus: { type: String, default: 'Not Started' },
     isPreferredPartner: { type: Boolean, default: false },
     creditLimit: { type: Number, default: 0 },
-    outstandingAmount: { type: Number, default: 0 }
+    outstandingAmount: { type: Number, default: 0 },
+
+    // Broker Networking (BNA Phase 1)
+    groups: [{ type: mongoose.Schema.Types.ObjectId, ref: 'CompanyGroup', index: true }],
+    isVerifiedBroker: { type: Boolean, default: false },
+    brokerNotes: String
 }, { timestamps: true });
 
 // Middleware to recursively convert empty strings to null

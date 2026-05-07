@@ -92,7 +92,7 @@ export const refresh = async (req, res) => {
         console.log(`[Auth] Token verified for user: ${decoded.id}`);
 
         if (!decoded.id || !decoded.role) {
-            throw new Error("Invalid token payload: Missing user ID or role");
+            return res.status(403).json({ success: false, message: "Invalid token payload: Missing user ID or role" });
         }
 
         const newAccessToken = jwt.sign({ id: decoded.id, role: decoded.role }, process.env.JWT_SECRET, { expiresIn: "24h" });
@@ -116,7 +116,7 @@ export const refresh = async (req, res) => {
 
     } catch (error) {
         console.error(`[Auth_REFRESH_ERROR] ${error.message}`);
-        if (error.name === 'TokenExpiredError' || error.name === 'JsonWebTokenError') {
+        if (error.name === 'TokenExpiredError' || error.name === 'JsonWebTokenError' || error.message.includes('payload')) {
             return res.status(403).json({ success: false, message: "Refresh token expired or invalid" });
         }
         res.status(500).json({ success: false, error: error.message });

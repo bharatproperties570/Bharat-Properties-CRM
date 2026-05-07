@@ -7,6 +7,8 @@ import AssignContactModal from '../../components/AssignContactModal';
 import ManageTagsModal from '../../components/ManageTagsModal';
 import { api } from '../../utils/api';
 import toast from 'react-hot-toast';
+import ManageGroupsModal from './components/ManageGroupsModal';
+import AssignGroupModal from './components/AssignGroupModal';
 
 function CompanyPage({ onEdit, onNavigate }) {
     const [selectedIds, setSelectedIds] = useState([]);
@@ -23,6 +25,8 @@ function CompanyPage({ onEdit, onNavigate }) {
     // Modal States
     const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
     const [isTagModalOpen, setIsTagModalOpen] = useState(false);
+    const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
+    const [isAssignGroupModalOpen, setIsAssignGroupModalOpen] = useState(false);
 
     // API Data States
     const [companies, setCompanies] = useState([]);
@@ -243,6 +247,14 @@ function CompanyPage({ onEdit, onNavigate }) {
                         </button>
                         <button
                             className="btn-outline"
+                            onClick={() => setIsGroupModalOpen(true)}
+                            title="Manage Broker Groups"
+                            style={{ borderColor: 'var(--primary-color)', color: 'var(--primary-color)' }}
+                        >
+                            <i className="fas fa-layer-group"></i> Manage Groups
+                        </button>
+                        <button
+                            className="btn-outline"
                             onClick={() => setIsFilterPanelOpen(true)}
                             style={{ position: 'relative' }}
                         >
@@ -307,6 +319,14 @@ function CompanyPage({ onEdit, onNavigate }) {
                                     onClick={() => setIsTagModalOpen(true)}
                                 >
                                     <i className="fas fa-tag"></i> Tag
+                                </button>
+                                <button
+                                    className="action-btn"
+                                    title="Assign to Group"
+                                    onClick={() => setIsAssignGroupModalOpen(true)}
+                                    style={{ color: '#6366f1', borderColor: '#6366f1', background: '#f5f3ff' }}
+                                >
+                                    <i className="fas fa-folder-plus"></i> Assign Group
                                 </button>
                                 <div style={{ marginLeft: 'auto' }}>
                                     <PermissionGate module="companies" action="delete">
@@ -514,8 +534,8 @@ function CompanyPage({ onEdit, onNavigate }) {
                             zIndex: 100,
                             borderBottom: '2px solid #e2e8f0',
                             display: 'grid',
-                            gridTemplateColumns: '40px 2fr 1.5fr 1fr 1.25fr 1fr 1fr',
-                            padding: '12px 2rem',
+                            gridTemplateColumns: '40px 1.8fr 1.2fr 80px 1fr 1fr 0.8fr 1fr',
+                            padding: '12px 1rem',
                             fontSize: '0.75rem',
                             fontWeight: 800,
                             letterSpacing: '0.5px'
@@ -537,6 +557,7 @@ function CompanyPage({ onEdit, onNavigate }) {
                             <div>ADDRESS</div>
                             <div>EMPLOYEES</div>
                             <div>CATEGORY</div>
+                             <div>GROUP</div>
                              <div>SOURCE</div>
                              <div>Assignment</div>
                         </div>
@@ -551,8 +572,8 @@ function CompanyPage({ onEdit, onNavigate }) {
                                     className="list-item"
                                     style={{
                                          display: 'grid',
-                                        gridTemplateColumns: '40px 2fr 1.5fr 1fr 1.25fr 1fr 1fr',
-                                        padding: '16px 2rem',
+                                        gridTemplateColumns: '40px 1.8fr 1.2fr 80px 1fr 1fr 0.8fr 1fr',
+                                        padding: '12px 1rem',
                                         borderBottom: '1px solid #f1f5f9',
                                         alignItems: 'center',
                                         background: isSelected(company._id) ? '#f0f9ff' : '#fff',
@@ -629,6 +650,28 @@ function CompanyPage({ onEdit, onNavigate }) {
                                             <div style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: '1px' }}>
                                                 {renderValue(company.companyType)}
                                             </div>
+                                        )}
+                                    </div>
+
+                                    {/* Group */}
+                                    <div>
+                                        {company.groups && company.groups.length > 0 ? (
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                                                {company.groups.map(g => (
+                                                    <span key={g._id} style={{
+                                                        padding: '2px 8px',
+                                                        borderRadius: '10px',
+                                                        fontSize: '0.6rem',
+                                                        fontWeight: 800,
+                                                        background: g.color || '#6366f1',
+                                                        color: '#fff'
+                                                    }}>
+                                                        {g.name}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <span style={{ fontSize: '0.65rem', color: '#cbd5e1' }}>No Group</span>
                                         )}
                                     </div>
 
@@ -844,6 +887,18 @@ function CompanyPage({ onEdit, onNavigate }) {
                 onClose={() => setIsTagModalOpen(false)}
                 selectedContacts={selectedCompanies}
                 onUpdateTags={handleUpdateTags}
+            />
+
+            <ManageGroupsModal 
+                isOpen={isGroupModalOpen}
+                onClose={() => setIsGroupModalOpen(false)}
+            />
+
+            <AssignGroupModal 
+                isOpen={isAssignGroupModalOpen}
+                onClose={() => setIsAssignGroupModalOpen(false)}
+                selectedCompanies={selectedCompanies}
+                onComplete={fetchData}
             />
         </section>
     );

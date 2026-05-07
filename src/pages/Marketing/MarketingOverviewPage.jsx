@@ -60,6 +60,8 @@ const PAGE_META = {
   designer: { title: 'Designer Studio', subtitle: 'Visual Prompt Lab' },
   techstack: { title: 'Tech Stack', subtitle: 'Enterprise Infrastructure' },
   portals: { title: 'Property Portals', subtitle: 'Marketplace Integration' },
+  reports: { title: 'Reports & Performance', subtitle: 'Deep-dive campaign analytics' },
+  bna: { title: 'Broker Network Hub', subtitle: 'BNA — Cross-platform broker orchestration' },
 };
 
 const OMNI_CHANNELS_BASE = [
@@ -1529,6 +1531,7 @@ export default function MarketingOverviewPage() {
         <div className="sidebar-section">
           <div className="sidebar-section-label">Campaigns</div>
           <SidebarItem id="campaign" label="Campaign Engine" icon={Megaphone} />
+          <SidebarItem id="bna" label="Broker Network (BNA)" icon={Zap} badge="Active" isLive />
           <SidebarItem id="leads" label="CRM Leads" icon={Home} badge={apiDataLoaded ? (realLeads.length || leads.length) : (stats.hot > 0 ? `${stats.hot}🔥` : '🏠')} />
           <SidebarItem id="portals" label="Property Portals" icon={Globe} badge="5" />
         </div>
@@ -1559,8 +1562,8 @@ export default function MarketingOverviewPage() {
           <button className="hamburger" onClick={() => setSidebarOpen(true)} aria-label="Open sidebar">☰</button>
           
           <div className="topbar-left">
-            <h1 className="page-title">{PAGE_META[activePage].title}</h1>
-            <div className="page-sub">{PAGE_META[activePage].subtitle}</div>
+            <h1 className="page-title">{(PAGE_META[activePage] || PAGE_META['overview']).title}</h1>
+            <div className="page-sub">{(PAGE_META[activePage] || PAGE_META['overview']).subtitle}</div>
           </div>
 
           <div className="search-wrap-outer">
@@ -2085,7 +2088,7 @@ export default function MarketingOverviewPage() {
                           <div className="cal-posts-list">
                             {dayPosts.map(p => (
                               <div key={p.id} className={`cal-post-item ${p.type}`} onClick={(e) => { e.stopPropagation(); setEditingPost(p); setActiveCalDate(p.date); setShowPostModal(true); }}>
-                                {p.title}
+                                {p?.title || 'Untitled Post'}
                               </div>
                             ))}
                           </div>
@@ -2631,6 +2634,105 @@ export default function MarketingOverviewPage() {
             </div>
           )}
 
+          {/* ════ BNA HUB (Broker Network Accelerator) ════ */}
+          {activePage === 'bna' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              <div className="perf-kpi-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+                <div className="kpi-card">
+                  <div className="kpi-label">TOTAL BROKERS</div>
+                  <div className="kpi-val">842</div>
+                  <div className="kpi-sub blue">Network Active</div>
+                </div>
+                <div className="kpi-card">
+                  <div className="kpi-label">BROADCASTS</div>
+                  <div className="kpi-val">{campaignRuns.length || 12}</div>
+                  <div className="kpi-sub green">Last 30 Days</div>
+                </div>
+                <div className="kpi-card">
+                  <div className="kpi-label">ENGAGEMENT</div>
+                  <div className="kpi-val">68%</div>
+                  <div className="kpi-sub gold">Avg. Read Rate</div>
+                </div>
+                <div className="kpi-card">
+                  <div className="kpi-label">NETWORK YIELD</div>
+                  <div className="kpi-val">14</div>
+                  <div className="kpi-sub blue">Deals via BNA</div>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '1.25rem' }}>
+                <div className="card glass-card">
+                  <div className="card-header">
+                    <div className="card-title text-serif">🚀 Live BNA Broadcast Monitor</div>
+                    <button className="tact-btn primary sm" onClick={() => window.location.href='/deals'}>Launch New Blast</button>
+                  </div>
+                  <div className="card-body" style={{ padding: '0 1.25rem 1.25rem' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      {campaignRuns.slice(0, 5).map((run, i) => (
+                        <div key={i} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)', borderRadius: '10px', padding: '12px 14px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                            <div style={{ fontWeight: 800, fontSize: '13px', color: 'var(--text)' }}>{run.name}</div>
+                            <div style={{ fontSize: '10px', color: 'var(--green)', fontWeight: 800 }}>ACTIVE BROADCAST</div>
+                          </div>
+                          <div style={{ display: 'flex', gap: '20px' }}>
+                            <div>
+                              <div style={{ fontSize: '9px', color: 'var(--text3)' }}>REACH</div>
+                              <div style={{ fontSize: '12px', fontWeight: 900 }}>{run.sent}</div>
+                            </div>
+                            <div>
+                              <div style={{ fontSize: '9px', color: 'var(--text3)' }}>DELIVERED</div>
+                              <div style={{ fontSize: '12px', fontWeight: 900, color: 'var(--green)' }}>{run.delivered}</div>
+                            </div>
+                            <div>
+                              <div style={{ fontSize: '9px', color: 'var(--text3)' }}>READ</div>
+                              <div style={{ fontSize: '12px', fontWeight: 900, color: 'var(--blue)' }}>{run.read}</div>
+                            </div>
+                            <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
+                              <div style={{ fontSize: '9px', color: 'var(--text3)' }}>SUCCESS RATE</div>
+                              <div style={{ fontSize: '12px', fontWeight: 900 }}>{Math.round((run.delivered/run.sent)*100) || 0}%</div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="card glass-card">
+                  <div className="card-header">
+                    <div className="card-title text-serif">👥 Group Distribution</div>
+                  </div>
+                  <div className="card-body">
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                      {[
+                        { n: 'VVIP Brokers', c: 142, color: '#6366F1' },
+                        { n: 'Direct Associates', c: 284, color: '#10B981' },
+                        { n: 'Local Agents', c: 312, color: '#F59E0B' },
+                        { n: 'Investors Club', c: 104, color: '#EF4444' }
+                      ].map((g, i) => (
+                        <div key={i}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '4px' }}>
+                            <span style={{ fontWeight: 700, color: 'var(--text)' }}>{g.n}</span>
+                            <span style={{ color: 'var(--text3)' }}>{g.c} members</span>
+                          </div>
+                          <div style={{ height: '6px', background: 'rgba(255,255,255,0.05)', borderRadius: '3px' }}>
+                            <div style={{ width: `${(g.c/842)*100}%`, height: '100%', background: g.color, borderRadius: '3px' }}></div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ marginTop: '20px', padding: '12px', background: 'rgba(201,146,26,0.1)', border: '1px dashed var(--gold)', borderRadius: '8px' }}>
+                      <div style={{ fontSize: '11px', fontWeight: 800, color: 'var(--gold)', marginBottom: '4px' }}>💡 AI PRO-TIP</div>
+                      <div style={{ fontSize: '10px', color: 'var(--text2)', lineHeight: 1.5 }}>
+                        Brokers in the "VVIP" group have a 4.2x higher response rate on WhatsApp than email. Prioritize direct WA broadcasts for hot inventory.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* ════ CAMPAIGN ENGINE (Consolidated Pipeline & Reports) ════ */}
 
           {/* ════ CAMPAIGN ENGINE ════ */}
@@ -2853,7 +2955,7 @@ export default function MarketingOverviewPage() {
                 <div className="card" style={{ marginTop: '1.25rem' }}>
                   <div className="card-header">
                     <div className="card-title text-serif">📋 Recent Activity — Last 3 Blasts</div>
-                    <button className="tact-btn" style={{ marginLeft: 'auto', fontSize: '10px' }} onClick={() => setActivePage('reports')}>View All Reports</button>
+                    <button className="tact-btn" style={{ marginLeft: 'auto', fontSize: '10px' }} onClick={() => setActivePage('analytics')}>View All Reports</button>
                   </div>
                   <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                     {campaignRuns.slice(0, 3).map((h, i) => (

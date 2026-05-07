@@ -363,6 +363,63 @@ const syncInventoryStatus = async (deal) => {
     await Inventory.findByIdAndUpdate(deal.inventoryId, { status: targetStatus });
 };
 
+export const sanitizeDeal = async (req, res) => {
+    try {
+        const deal = await Deal.findById(req.params.id)
+            .populate('inventoryId')
+            .populate('projectId')
+            .populate('category')
+            .populate('intent');
+
+        if (!deal) return res.status(404).json({ success: false, message: "Deal not found" });
+
+        const inv = deal.inventoryId || {};
+        const proj = deal.projectId || {};
+
+        // 1. Generate Shareable ID if missing
+        if (!deal.shareableId) {
+            const shortId = Math.random().toString(36).substring(2, 7).toUpperCase();
+            deal.shareableId = `BP-${shortId}`;
+        }
+
+        // 2. Format Price
+        let formattedPrice = "Price on Request";
+        const price = deal.price || deal.quotePrice;
+        if (price) {
+            if (price >= 10000000) formattedPrice = `₹ ${(price / 10000000).toFixed(2)} Cr`;
+            else if (price >= 100000) formattedPrice = `₹ ${(price / 100000).toFixed(2)} Lac`;
+            else formattedPrice = `₹ ${price.toLocaleString('en-IN')}`;
+        }
+
+        // 3. Assemble Metadata
+        const catName = deal.category?.lookup_value || "Property";
+        const intentName = deal.intent?.lookup_value || "Deal";
+        const projName = deal.projectName || proj.name || "Prime Project";
+        
+        deal.broadcastMetadata = {
+            title: `${projName} | ${deal.unitType || catName} for ${intentName}`,
+            description: deal.remarks || `Excellent ${deal.unitType || ''} ${catName} available in ${deal.location || 'Prime Location'}. High potential for ${intentName}.`,
+            price: formattedPrice,
+            location: deal.location || inv.address?.locality || "Sector 50, Gurgaon",
+            images: deal.documents?.filter(d => d.url?.match(/\.(jpg|jpeg|png|webp)$/i)).map(d => d.url) || [],
+            features: [
+                `${deal.size || ''} ${deal.sizeUnit || 'Sq.Ft'}`,
+                deal.unitType,
+                deal.block ? `Block ${deal.block}` : null
+            ].filter(Boolean),
+            isReady: true,
+            lastSanitizedAt: new Date()
+        };
+
+        await deal.save();
+        res.json({ success: true, data: deal.broadcastMetadata, shareableId: deal.shareableId });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+
+
 export const getDeals = async (req, res) => {
     try {
         const { 
