@@ -111,10 +111,23 @@ function MarketingTab({ dealId, deal, onRefresh }) {
                         <div style={{ marginTop: '8px' }}>
                             <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0f172a' }}>{meta.title}</div>
                             <div style={{ fontSize: '0.75rem', color: '#475569', marginTop: '4px' }}>{meta.description}</div>
-                            <div style={{ display: 'flex', gap: '15px', marginTop: '8px' }}>
+                            
+                            <div style={{ display: 'flex', gap: '15px', marginTop: '8px', paddingBottom: '10px', borderBottom: '1px solid #f1f5f9' }}>
                                 <div style={{ fontSize: '0.75rem', color: '#64748b' }}><i className="fas fa-tag"></i> {meta.price}</div>
                                 <div style={{ fontSize: '0.75rem', color: '#64748b' }}><i className="fas fa-map-marker-alt"></i> {meta.location}</div>
                             </div>
+
+                            {/* 🧠 SENIOR PROFESSIONAL: New Detailed Sections Preview */}
+                            {meta.detailedSections && meta.detailedSections.map((sec, idx) => (
+                                <div key={idx} style={{ marginTop: '10px' }}>
+                                    <div style={{ fontSize: '0.65rem', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>{sec.title}</div>
+                                    <ul style={{ margin: 0, paddingLeft: '14px', fontSize: '0.7rem', color: '#475569' }}>
+                                        {sec.lines.map((line, lidx) => (
+                                            <li key={lidx} style={{ marginBottom: '2px' }}>{line}</li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            ))}
                         </div>
                     </div>
                 )}
