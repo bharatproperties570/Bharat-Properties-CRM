@@ -123,21 +123,30 @@ const processMarketingJob = async (job) => {
                             let indices = [];
                             if (matches) {
                                 // Extract indices from text
-                                indices = [...new Set(matches.map(m => m.replace(/[{}]/g, '')))]
-                                    .sort((a, b) => parseInt(a) - parseInt(b));
+                                const found = [...new Set(matches.map(m => m.replace(/[{}]/g, '')))]
+                                    .map(i => parseInt(i));
+                                
+                                // 🧠 SENIOR PROFESSIONAL: Gap-Free Sequential Indices
+                                // Meta requires parameters in order. If 1 and 3 are present, 2 must also be sent.
+                                const max = found.length > 0 ? Math.max(...found) : 0;
+                                for (let i = 1; i <= max; i++) indices.push(String(i));
                             } else if (type === 'body' && waMapping) {
                                 // 🧠 ENTERPRISE FIX: If no text is provided but it's a BODY component,
-                                // use all numeric keys from waMapping as indices.
-                                indices = Object.keys(waMapping)
+                                // use all numeric keys from waMapping as indices, filling gaps.
+                                const keys = Object.keys(waMapping)
                                     .filter(k => /^\d+$/.test(k))
-                                    .sort((a, b) => parseInt(a) - parseInt(b));
+                                    .map(k => parseInt(k));
+                                
+                                const max = keys.length > 0 ? Math.max(...keys) : 0;
+                                for (let i = 1; i <= max; i++) indices.push(String(i));
                             }
 
                             if (indices.length > 0) {
                                 const parameters = indices.map(idx => {
                                     const val = recipientParams[idx];
-                                    // Fallback to avoid "Required parameter is missing" rejections by Meta
-                                    const cleanedVal = (val === undefined || val === null || String(val) === 'undefined' || String(val).trim() === '') 
+                                    // 🧠 SENIOR PROFESSIONAL: Safe Fallback
+                                    // We use a zero-width space or em-dash to ensure the parameter is "present" for Meta
+                                    const cleanedVal = (val === undefined || val === null || String(val).trim() === '' || String(val) === 'undefined') 
                                         ? '—' 
                                         : String(val);
                                     
@@ -397,8 +406,125 @@ const processMarketingJob = async (job) => {
         }
     }
 
+    // ─── BNA-BROADCAST: Broker network broadcast ──────────────────────────────
+    if (name === 'bna-broadcast') {
+        const { dealId, channels, recipients, meta, shareableId, performedBy } = data;
+        await job.log(`Starting BNA Broadcast for Deal ${dealId} to ${recipients.length} brokers`);
+
+        const { default: Activity } = await import('../../models/Activity.js');
+        const waService = (await import('../../services/WhatsAppService.js')).default;
+        const eSvc = (await import('../../services/email.service.js')).default;
+
+        let sent = 0, failed = 0;
+
+        // 🧠 Message Construction (Shared across recipients)
+        let waMessage = `*🏢 BROKER UPDATE: ${meta.title}*\n\n` +
+            `💰 *Price:* ${meta.price}\n` +
+            `📍 *Location:* ${meta.location}\n` +
+            `📐 *Specs:* ${meta.features?.join(' | ') || 'N/A'}\n\n`;
+
+        // 🧠 Dynamic Detail Sections (Filtered for empty values)
+        if (meta.detailedSections && Array.isArray(meta.detailedSections)) {
+            meta.detailedSections.forEach(sec => {
+                waMessage += `*${sec.title.toUpperCase()}*\n`;
+                sec.lines.forEach(l => { waMessage += `• ${l}\n`; });
+                waMessage += `\n`;
+            });
+        }
+
+        waMessage += `📝 *Details:* ${meta.description}\n\n` +
+            `🔗 *Ref:* ${shareableId}\n` +
+            `Contact us for commission split and site visits.`;
+
+        const emailSubject = `BROKER DEAL: ${meta.title} - ${meta.location}`;
+        
+        let detailedHtml = '';
+        if (meta.detailedSections && Array.isArray(meta.detailedSections)) {
+            detailedHtml = meta.detailedSections.map(sec => `
+                <div style="margin-top: 20px;">
+                    <p style="font-size: 12px; font-weight: 800; color: #64748b; margin-bottom: 8px; text-transform: uppercase;">${sec.title}</p>
+                    <ul style="margin: 0; padding-left: 18px; color: #475569; font-size: 14px;">
+                        ${sec.lines.map(l => `<li style="margin-bottom: 4px;">${l}</li>`).join('')}
+                    </ul>
+                </div>
+            `).join('');
+        }
+
+        const emailHtml = `
+            <div style="font-family: sans-serif; max-width: 600px; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; color: #1e293b;">
+                <div style="background: #6366f1; padding: 20px; color: #fff;">
+                    <h2 style="margin: 0;">${meta.title}</h2>
+                </div>
+                <div style="padding: 20px;">
+                    <p style="font-size: 18px; font-weight: 800; color: #6366f1;">${meta.price}</p>
+                    <p><strong>Location:</strong> ${meta.location}</p>
+                    <p><strong>Specs:</strong> ${meta.features?.join(' | ') || 'N/A'}</p>
+                    ${detailedHtml}
+                    <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 20px 0;"/>
+                    <p>${meta.description}</p>
+                    <div style="background: #f8fafc; padding: 12px; border-radius: 8px; margin-top: 20px;">
+                        <p style="margin: 0; font-size: 12px; color: #64748b; font-weight: 800;">REFERENCE CODE</p>
+                        <p style="margin: 4px 0 0 0; font-size: 16px; font-weight: 800; color: #1e293b;">${shareableId}</p>
+                    </div>
+                    <p style="margin-top: 24px; font-size: 12px; color: #64748b; font-style: italic;">Reply for commission structure and site visit bookings.</p>
+                </div>
+            </div>
+        `;
+
+        for (let i = 0; i < recipients.length; i++) {
+            const recipient = recipients[i];
+            const results = [];
+            
+            // 🧠 SENIOR PROFESSIONAL: WhatsApp Template Fallback
+            // If it's a first-time message, we should ideally use a template.
+            // For now, we attempt sendMessage but with clear error logging.
+            if (channels.includes('whatsapp') && recipient.mobile) {
+                try {
+                    const waRes = await waService.sendMessage(recipient.mobile, waMessage);
+                    results.push({ channel: 'whatsapp', status: waRes.success ? 'success' : 'failed', error: waRes.error });
+                } catch (e) { results.push({ channel: 'whatsapp', status: 'failed', error: e.message }); }
+            }
+
+            if (channels.includes('email') && recipient.email) {
+                try {
+                    await eSvc.sendEmail(recipient.email, emailSubject, '', emailHtml);
+                    results.push({ channel: 'email', status: 'success' });
+                } catch (e) { results.push({ channel: 'email', status: 'failed', error: e.message }); }
+            }
+
+            const success = results.some(r => r.status === 'success');
+            if (success) sent++; else failed++;
+
+            // Log Activity
+            try {
+                await Activity.create({
+                    type: 'Marketing',
+                    subject: `BNA Broadcast: ${meta.title}`,
+                    entityType: 'Company',
+                    entityId: mongoose.Types.ObjectId.isValid(recipient.id) ? recipient.id : null,
+                    status: success ? 'Sent' : 'Failed',
+                    description: success 
+                        ? `Sent via ${results.filter(r => r.status === 'success').map(r => r.channel).join(', ')}`
+                        : `Failed: ${results.map(r => r.error).filter(Boolean).join(' | ')}`,
+                    details: { results, dealId, shareableId, jobId: job.id },
+                    performedBy: performedBy,
+                    dueDate: new Date()
+                });
+            } catch (actErr) {
+                await job.log(`Activity Log Warning for ${recipient.name}: ${actErr.message}`);
+            }
+
+            await job.updateProgress(Math.round(((i + 1) / recipients.length) * 100));
+            await new Promise(r => setTimeout(r, channels.includes('whatsapp') ? 300 : 100));
+        }
+
+        await job.log(`BNA Broadcast Complete: ${sent} sent, ${failed} failed`);
+        return { sent, failed, completedAt: new Date().toISOString() };
+    }
+
     throw new Error(`Unknown marketing job type: ${name}`);
 };
+
 
 // ── Worker Instance ────────────────────────────────────────────────────────────
 

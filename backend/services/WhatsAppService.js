@@ -1,5 +1,16 @@
 import axios from 'axios';
+import axiosRetry from 'axios-retry';
 import mongoose from 'mongoose';
+
+// 🧠 SENIOR PROFESSIONAL: Resilience Layer
+// Configure automated retries for transient failures (Network, 5xx, 429)
+axiosRetry(axios, { 
+    retries: 3, 
+    retryDelay: axiosRetry.exponentialDelay,
+    retryCondition: (error) => {
+        return axiosRetry.isNetworkOrIdempotentRequestError(error) || error.response?.status === 429;
+    }
+});
 
 const META_GRAPH_BASE = 'https://graph.facebook.com/v19.0';
 
@@ -137,9 +148,17 @@ class WhatsAppService {
         } catch (err) {
             const detail = err.response?.data?.error?.message || err.message;
             const metaError = err.response?.data?.error;
-            console.error(`[WhatsApp/Meta] ❌ ERROR: Failed to send ${type} to ${toNumber}:`, detail);
+            const code = metaError?.code;
+
+            // 🧠 OBSERVABILITY: Professional error categorization
+            let professionalError = `Meta API Error: ${detail}`;
+            if (code === 131030) professionalError = "Customer Service Window Closed: User has not interacted in 24h. You MUST use a template.";
+            if (code === 131008) professionalError = "Template Parameter Mismatch: Please check your variable mapping indices.";
+            if (code === 100) professionalError = "Invalid Token or Phone ID: Check Meta Configuration in Settings.";
+
+            console.error(`[WhatsApp/Meta] ❌ ERROR [${code || '??'}]: Failed to send ${type} to ${toNumber}:`, detail);
             if (metaError) console.error(`[WhatsApp/Meta] Meta API Detail:`, JSON.stringify(metaError, null, 2));
-            return { success: false, error: detail, provider: 'meta' };
+            return { success: false, error: professionalError, provider: 'meta', raw: metaError };
         }
     }
 

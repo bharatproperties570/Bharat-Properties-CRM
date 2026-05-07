@@ -395,18 +395,47 @@ export const sanitizeDeal = async (req, res) => {
         const catName = deal.category?.lookup_value || "Property";
         const intentName = deal.intent?.lookup_value || "Deal";
         const projName = deal.projectName || proj.name || "Prime Project";
+
+        // 🧠 SENIOR PROFESSIONAL: Detailed Section Processing
+        // We pull these from both Deal and Inventory, then filter empty fields.
+        const unitSpec = deal.unitSpecification || inv.unitSpecification || {};
+        const locIntel = deal.locationIntelligence || inv.locationIntelligence || {};
+        const builtup = deal.builtupDetails || inv.builtupDetails || [];
+
+        const formatSection = (title, obj) => {
+            if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+            const lines = Object.entries(obj)
+                .filter(([k, v]) => {
+                    if (k === '_id') return false;
+                    if (v === undefined || v === null || v === '' || v === false) return false;
+                    if (typeof v === 'object') return false; // Skip nested objects for now
+                    return true;
+                })
+                .map(([k, v]) => `${k.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()).trim()}: ${v}`);
+            return lines.length > 0 ? { title, lines } : null;
+        };
+
+        const detailedSections = [
+            formatSection("Unit Specification", unitSpec),
+            formatSection("Location Intelligence", locIntel),
+            builtup.length > 0 ? { 
+                title: "Built-up Details", 
+                lines: builtup.map(b => `${b.floor || 'Floor'}: ${b.totalArea || b.area || ''} ${b.unit || 'Sq.Ft'}`) 
+            } : null
+        ].filter(Boolean);
         
         deal.broadcastMetadata = {
             title: `${projName} | ${deal.unitType || catName} for ${intentName}`,
             description: deal.remarks || `Excellent ${deal.unitType || ''} ${catName} available in ${deal.location || 'Prime Location'}. High potential for ${intentName}.`,
             price: formattedPrice,
-            location: deal.location || inv.address?.locality || "Sector 50, Gurgaon",
+            location: deal.location || inv.address?.locality || "Sector 4, Kurukshetra",
             images: deal.documents?.filter(d => d.url?.match(/\.(jpg|jpeg|png|webp)$/i)).map(d => d.url) || [],
             features: [
                 `${deal.size || ''} ${deal.sizeUnit || 'Sq.Ft'}`,
                 deal.unitType,
                 deal.block ? `Block ${deal.block}` : null
             ].filter(Boolean),
+            detailedSections, // 🧠 New detailed matter
             isReady: true,
             lastSanitizedAt: new Date()
         };

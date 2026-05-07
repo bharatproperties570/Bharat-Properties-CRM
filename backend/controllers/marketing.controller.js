@@ -899,7 +899,8 @@ export const broadcastToBrokerGroup = async (req, res) => {
                 name: c.name,
                 mobile: normalizePhone(phone),
                 email: email,
-                isVerified: c.isVerifiedBroker
+                isVerified: c.isVerifiedBroker,
+                context: { originalType: 'Company' }
             };
         }).filter(r => r.mobile || r.email);
 
@@ -907,80 +908,37 @@ export const broadcastToBrokerGroup = async (req, res) => {
             return res.status(404).json({ success: false, error: 'No brokers with valid contact information found.' });
         }
 
-        // 3. Assemble Professional Message Template
-        const waMessage = `*🏢 BROKER UPDATE: ${meta.title}*\n\n` +
-            `💰 *Price:* ${meta.price}\n` +
-            `📍 *Location:* ${meta.location}\n` +
-            `📐 *Specs:* ${meta.features.join(' | ')}\n\n` +
-            `📝 *Details:* ${meta.description}\n\n` +
-            `🔗 *Ref:* ${deal.shareableId}\n` +
-            `Contact us for commission split and site visits.`;
+        // 3. Queue the Broadcast for Async Processing (Senior Professional Pattern)
+        const queue = await getMarketingQueue();
+        const { isRedisOnline } = await import('../src/config/redis.js');
 
-        const emailSubject = `BROKER DEAL: ${meta.title} - ${meta.location}`;
-        const emailHtml = `
-            <div style="font-family: sans-serif; max-width: 600px; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
-                <div style="background: #6366f1; padding: 20px; color: #fff;">
-                    <h2 style="margin: 0;">${meta.title}</h2>
-                </div>
-                <div style="padding: 20px; color: #1e293b;">
-                    <p style="font-size: 18px; font-weight: 800; color: #6366f1;">${meta.price}</p>
-                    <p><strong>Location:</strong> ${meta.location}</p>
-                    <p><strong>Specs:</strong> ${meta.features.join(' | ')}</p>
-                    <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 20px 0;"/>
-                    <p>${meta.description}</p>
-                    <div style="background: #f8fafc; padding: 12px; border-radius: 8px; margin-top: 20px;">
-                        <p style="margin: 0; font-size: 12px; color: #64748b; font-weight: 800;">REFERENCE CODE</p>
-                        <p style="margin: 4px 0 0 0; font-size: 16px; font-weight: 800; color: #1e293b;">${deal.shareableId}</p>
-                    </div>
-                    <p style="margin-top: 24px; font-size: 12px; color: #64748b; font-style: italic;">Reply to this email for commission structure and site visit bookings.</p>
-                </div>
-            </div>
-        `;
+        const jobData = {
+            name: `BNA Broadcast: ${meta.title}`,
+            dealId,
+            channels,
+            recipients,
+            meta,
+            shareableId: deal.shareableId,
+            performedBy: req.user?.firstName || 'System'
+        };
 
-        // 4. Dispatch using existing infrastructure
-        const waService = (await import('../services/WhatsAppService.js')).default;
-        const eSvc = (await import('../services/email.service.js')).default;
-        const Activity = mongoose.model('Activity');
-
-        const dispatchResults = [];
-
-        for (const recipient of recipients) {
-            const results = [];
-            
-            if (channels.includes('whatsapp') && recipient.mobile) {
-                try {
-                    const waRes = await waService.sendMessage(recipient.mobile, waMessage);
-                    results.push({ channel: 'whatsapp', status: waRes.success ? 'success' : 'failed' });
-                } catch (e) { results.push({ channel: 'whatsapp', status: 'failed', error: e.message }); }
-            }
-
-            if (channels.includes('email') && recipient.email) {
-                try {
-                    await eSvc.sendEmail(recipient.email, emailSubject, '', emailHtml);
-                    results.push({ channel: 'email', status: 'success' });
-                } catch (e) { results.push({ channel: 'email', status: 'failed', error: e.message }); }
-            }
-
-            // Log Activity for Broker/Company
-            await Activity.create({
-                type: 'Marketing',
-                subject: `BNA Broadcast: ${meta.title}`,
-                entityType: 'Company',
-                entityId: recipient.id,
-                dueDate: new Date(),
-                status: 'Completed',
-                description: `Dispatched sanitized deal details via ${results.filter(r => r.status === 'success').map(r => r.channel).join(', ')}`,
-                details: { results, dealId, shareableId: deal.shareableId },
-                performedBy: req.user?.firstName || 'System',
-                assignedTo: req.user?._id
+        if (queue && isRedisOnline) {
+            const job = await queue.add('bna-broadcast', jobData, { removeOnComplete: true });
+            return res.json({ 
+                success: true, 
+                message: `Broadcast queued for ${recipients.length} brokers.`,
+                jobId: job.id,
+                dispatchCount: recipients.length
             });
-
-            dispatchResults.push({ company: recipient.name, results });
         }
+
+        // 🧠 FALLBACK: If Redis is offline, dispatch directly in background
+        console.warn('[BNA_BROADCAST] Redis Offline - Fallback to Direct Background Dispatch');
+        _dispatchBNADirectly(jobData).catch(err => console.error('[BNA_BROADCAST_DIRECT_ERROR]', err));
 
         res.json({ 
             success: true, 
-            message: `Broadcast successfully sent to ${recipients.length} brokers.`,
+            message: `Broadcast started for ${recipients.length} brokers (Direct Mode).`,
             dispatchCount: recipients.length
         });
 
@@ -989,6 +947,104 @@ export const broadcastToBrokerGroup = async (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 };
+
+/**
+ * Direct dispatch for BNA broadcasts when queue is unavailable
+ */
+async function _dispatchBNADirectly(data) {
+    const { dealId, channels, recipients, meta, shareableId, performedBy } = data;
+    const waService = (await import('../services/WhatsAppService.js')).default;
+    const eSvc = (await import('../services/email.service.js')).default;
+    const Activity = mongoose.model('Activity');
+
+    // 🧠 Message Construction (Shared across recipients)
+    let waMessage = `*🏢 BROKER UPDATE: ${meta.title}*\n\n` +
+        `💰 *Price:* ${meta.price}\n` +
+        `📍 *Location:* ${meta.location}\n` +
+        `📐 *Specs:* ${meta.features?.join(' | ') || 'N/A'}\n\n`;
+
+    if (meta.detailedSections && Array.isArray(meta.detailedSections)) {
+        meta.detailedSections.forEach(sec => {
+            waMessage += `*${sec.title.toUpperCase()}*\n`;
+            sec.lines.forEach(l => { waMessage += `• ${l}\n`; });
+            waMessage += `\n`;
+        });
+    }
+
+    waMessage += `📝 *Details:* ${meta.description}\n\n` +
+        `🔗 *Ref:* ${shareableId}\n` +
+        `Contact us for commission split and site visits.`;
+
+    const emailSubject = `BROKER DEAL: ${meta.title} - ${meta.location}`;
+    
+    let detailedHtml = '';
+    if (meta.detailedSections && Array.isArray(meta.detailedSections)) {
+        detailedHtml = meta.detailedSections.map(sec => `
+            <div style="margin-top: 20px;">
+                <p style="font-size: 12px; font-weight: 800; color: #64748b; margin-bottom: 8px; text-transform: uppercase;">${sec.title}</p>
+                <ul style="margin: 0; padding-left: 18px; color: #475569; font-size: 14px;">
+                    ${sec.lines.map(l => `<li style="margin-bottom: 4px;">${l}</li>`).join('')}
+                </ul>
+            </div>
+        `).join('');
+    }
+
+    const emailHtml = `
+        <div style="font-family: sans-serif; max-width: 600px; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; color: #1e293b;">
+            <div style="background: #6366f1; padding: 20px; color: #fff;">
+                <h2 style="margin: 0;">${meta.title}</h2>
+            </div>
+            <div style="padding: 20px;">
+                <p style="font-size: 18px; font-weight: 800; color: #6366f1;">${meta.price}</p>
+                <p><strong>Location:</strong> ${meta.location}</p>
+                <p><strong>Specs:</strong> ${meta.features?.join(' | ') || 'N/A'}</p>
+                ${detailedHtml}
+                <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 20px 0;"/>
+                <p>${meta.description}</p>
+                <div style="background: #f8fafc; padding: 12px; border-radius: 8px; margin-top: 20px;">
+                    <p style="margin: 0; font-size: 12px; color: #64748b; font-weight: 800;">REFERENCE CODE</p>
+                    <p style="margin: 4px 0 0 0; font-size: 16px; font-weight: 800; color: #1e293b;">${shareableId}</p>
+                </div>
+            </div>
+        </div>
+    `;
+
+    for (const recipient of recipients) {
+        const results = [];
+        
+        if (channels.includes('whatsapp') && recipient.mobile) {
+            try {
+                // Attempt Template first for BNA (if logic exists in Service)
+                const waRes = await waService.sendMessage(recipient.mobile, waMessage);
+                results.push({ channel: 'whatsapp', status: waRes.success ? 'success' : 'failed' });
+            } catch (e) { results.push({ channel: 'whatsapp', status: 'failed', error: e.message }); }
+        }
+
+        if (channels.includes('email') && recipient.email) {
+            try {
+                await eSvc.sendEmail(recipient.email, emailSubject, '', emailHtml);
+                results.push({ channel: 'email', status: 'success' });
+            } catch (e) { results.push({ channel: 'email', status: 'failed', error: e.message }); }
+        }
+
+        // Log Activity
+        await Activity.create({
+            type: 'Marketing',
+            subject: `BNA Broadcast: ${meta.title}`,
+            entityType: 'Company',
+            entityId: recipient.id,
+            status: 'Completed',
+            description: `Dispatched sanitized deal details via ${results.filter(r => r.status === 'success').map(r => r.channel).join(', ')}`,
+            details: { results, dealId, shareableId, direct: true },
+            performedBy: performedBy,
+            dueDate: new Date()
+        });
+
+        // Small delay to avoid rate limiting
+        await new Promise(r => setTimeout(r, 300));
+    }
+}
+
 
 export const broadcastToHub = async (req, res) => {
     try {
