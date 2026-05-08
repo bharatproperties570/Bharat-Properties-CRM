@@ -491,7 +491,8 @@ export const sanitizeDeal = async (req, res) => {
         await deal.save();
         res.json({ success: true, data: deal.broadcastMetadata, shareableId: deal.shareableId });
     } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
+        console.error("[ERROR] sanitizeDeal failed:", error);
+        res.status(500).json({ success: false, error: error.message || "Internal server error during sanitization" });
     }
 };
 

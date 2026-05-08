@@ -46,7 +46,8 @@ function MarketingTab({ dealId, deal, onRefresh }) {
             toast.success("Broadcast metadata updated!");
             onRefresh();
         } catch (error) {
-            toast.error("Failed to prepare deal for broadcast");
+            const errMsg = error.response?.data?.error || error.response?.data?.message || "Failed to prepare deal for broadcast";
+            toast.error(errMsg);
         } finally {
             setSanitizing(false);
         }

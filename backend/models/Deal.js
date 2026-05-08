@@ -285,9 +285,13 @@ DealSchema.pre("save", function (next) {
 
     // Resolve lookups for Mixed fields to prevent CastErrors during population
     const resolveHooks = async () => {
-        this.category = await resolveLookup('Category', this.category);
-        this.subCategory = await resolveLookup('SubCategory', this.subCategory);
-        this.intent = await resolveLookup('Intent', this.intent);
+        try {
+            this.category = await resolveLookup('Category', this.category);
+            this.subCategory = await resolveLookup('SubCategory', this.subCategory);
+            this.intent = await resolveLookup('Intent', this.intent);
+        } catch (err) {
+            console.error("Lookup resolution error:", err);
+        }
     };
 
     resolveHooks().then(() => next()).catch(next);
