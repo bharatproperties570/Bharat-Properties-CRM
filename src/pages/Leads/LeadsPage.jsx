@@ -294,22 +294,28 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                         matched: lead.matched || 0,
                         lastActivityDate: lead.lastActivityAt || lead.updatedAt,
                         activities: lead.activities || [],
-                        stage: lead.stage || "New",
+                        stage: lead.stage,
+                        stageLabel: lead.stage?.lookup_value || lead.stage || "New",
                         status: lead.status,
+                        statusLabel: lead.status?.lookup_value || lead.status || "New",
                         statusFallback: (typeof lead.status === 'object' && lead.status) ? lead.status : { label: "New", class: "new" },
 
                         // ===== REQUIREMENT =====
+                        requirement: lead.requirement?._id || lead.requirement,
+                        requirementLabel: lead.requirement?.lookup_value || lead.requirement || "Any",
                         reqDisplay: {
-                            intent: lead.requirement,
+                            intent: lead.requirement?.lookup_value || lead.requirement || "Any",
                             category: lead.propertyType,
-                            subCategory: lead.subRequirement || lead.subType,
+                            subCategory: (lead.subRequirement?.lookup_value || lead.subRequirement) || (lead.subType?.lookup_value || lead.subType),
+                            unitType: Array.isArray(lead.unitType) ? lead.unitType.map(u => u.lookup_value || u).join(", ") : (lead.unitType?.lookup_value || lead.unitType || ""),
                             size: `${lead.areaMin || ""}${lead.areaMin && lead.areaMax ? "-" : ""}${lead.areaMax || ""} ${lead.areaMetric || ""}`.trim(),
                         },
 
-                        budget: lead.budget,
-                        budgetDisplay: lead.budgetMin || lead.budgetMax
+                        budget: lead.budget?._id || lead.budget,
+                        budgetLabel: lead.budget?.lookup_value || lead.budget,
+                        budgetDisplay: (lead.budgetMin || lead.budgetMax)
                             ? `₹${Number(lead.budgetMin || 0).toLocaleString()} - ₹${Number(lead.budgetMax || 0).toLocaleString()}`
-                            : "—",
+                            : (lead.budget?.lookup_value || lead.budget || "—"),
 
                         location: lead.location,
                         locationLines: {
@@ -332,7 +338,8 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                             lead.locCity
                         ].filter(Boolean).map(s => String(s)).join(", "),
 
-                        source: lead.source,
+                        source: lead.source?._id || lead.source,
+                        sourceLabel: lead.source?.lookup_value || lead.source || "Direct",
                         sourceFallback: contact.source || "Direct",
                         owner: getUserName(lead.assignment?.assignedTo || lead.owner),
                         rawOwner: lead.assignment?.assignedTo || lead.owner || null,
@@ -352,7 +359,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                         intentTags: lead.intent_tags || [],
                         aiIntentSummary: lead.ai_intent_summary || '',
                         aiClosingProbability: lead.ai_closing_probability || 0,
-                        contactDetails: lead.contactDetails // Added to track existing contact and prevent duplicates on edit
+                        contactDetails: lead.contactDetails 
                     };
                 });
 
@@ -1350,7 +1357,7 @@ const LeadItem = React.memo(function LeadItem({
     if (!lead) return null;
 
     // Logic to split Intent (Buy/Rent) from Property Type (Residential Plot etc)
-    const intent = renderValue(getLookupValue('Requirement', lead.reqDisplay?.intent), null) || 'Any';
+    const intent = lead.reqDisplay?.intent || 'Any';
     const category = Array.isArray(lead.reqDisplay?.category)
         ? lead.reqDisplay.category.map(s => typeof s === 'object' ? (s.name || s.lookup_value) : (getLookupValue('Category', s) || s)).filter(Boolean).join(', ')
         : (typeof lead.reqDisplay?.category === 'object' ? (lead.reqDisplay.category.name || lead.reqDisplay.category.lookup_value) : (renderValue(getLookupValue('Category', lead.reqDisplay?.category), null) || lead.reqDisplay?.category || ''));
@@ -1527,12 +1534,12 @@ const LeadItem = React.memo(function LeadItem({
                         {fullPropertyType || "Any Property"}
                     </div>
                     <div style={{ fontWeight: 900, color: '#059669', fontSize: '0.9rem' }}>
-                        {renderValue(getLookupValue('Budget', lead.budget), null) || lead.budgetDisplay}
+                        {lead.budgetDisplay}
                     </div>
-                    {lead.reqDisplay?.size && (
-                        <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700, marginTop: '2px' }}>
-                            <i className="fas fa-ruler-combined" style={{ marginRight: '4px', fontSize: '0.6rem' }}></i>
-                            {lead.reqDisplay.size}
+                    {lead.reqDisplay?.unitType && (
+                        <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 800, marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <i className="fas fa-bed" style={{ color: '#94a3b8' }}></i>
+                            {lead.reqDisplay.unitType}
                         </div>
                     )}
                 </div>
@@ -1566,7 +1573,7 @@ const LeadItem = React.memo(function LeadItem({
                     <span
                         className={`status-badge ${(String(renderValue(getLookupValue('Status', lead.status), null) || (typeof lead.statusFallback === 'object' ? lead.statusFallback.class : 'new') || 'new')).toLowerCase()}`}
                     >
-                        {renderValue(getLookupValue('Status', lead.status), null) || (typeof lead.statusFallback === 'object' ? lead.statusFallback.label : lead.statusFallback)}
+                        {lead.statusLabel || (typeof lead.statusFallback === 'object' ? lead.statusFallback.label : lead.statusFallback)}
                     </span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                         {(() => {
@@ -1852,10 +1859,13 @@ const LeadCard = React.memo(function LeadCard({
                         return [cat, sub].filter(Boolean).join(" - ") || "Any Property";
                     })()}
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginTop: '4px', color: '#64748b' }}>
-                    <span>{renderValue(lead.reqDisplay?.size, 'Std. Size')}</span>
-                    <span style={{ fontWeight: 700, color: '#059669' }}>
-                        {renderValue(getLookupValue('Budget', lead.budget), null) || lead.budgetDisplay}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem', marginTop: '6px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.7rem', color: '#64748b', fontWeight: 800 }}>
+                         <i className="fas fa-bed" style={{ color: '#94a3b8' }}></i>
+                         {lead.reqDisplay?.unitType || 'Any Size'}
+                    </div>
+                    <span style={{ fontWeight: 800, color: '#059669', fontSize: '0.85rem' }}>
+                        {lead.budgetDisplay}
                     </span>
                 </div>
             </div>

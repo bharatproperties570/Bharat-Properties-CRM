@@ -249,11 +249,13 @@ const leadPopulateFields = [
 const leadListPopulateFields = [
     { path: 'requirement', select: 'lookup_value' },
     { path: 'subRequirement', select: 'lookup_value' },
+    { path: 'budget', select: 'lookup_value' },
     { path: 'location', select: 'lookup_value' },
     { path: 'source', select: 'lookup_value' },
     { path: 'stage', select: 'lookup_value' },
     { path: 'propertyType', select: 'lookup_value' },
     { path: 'subType', select: 'lookup_value' },
+    { path: 'unitType', select: 'lookup_value' },
     { path: 'project', select: 'name' },
     { path: 'owner', select: 'fullName email name' },
     { path: 'assignment.assignedTo', select: 'fullName name email' },
