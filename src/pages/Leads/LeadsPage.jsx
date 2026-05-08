@@ -307,7 +307,9 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                             intent: lead.requirement?.lookup_value || lead.requirement || "Any",
                             category: lead.propertyType,
                             subCategory: (lead.subRequirement?.lookup_value || lead.subRequirement) || (lead.subType?.lookup_value || lead.subType),
-                            unitType: Array.isArray(lead.unitType) ? lead.unitType.map(u => u.lookup_value || u).join(", ") : (lead.unitType?.lookup_value || lead.unitType || ""),
+                            unitType: Array.isArray(lead.unitType) 
+                                ? lead.unitType.map(u => typeof u === 'object' ? (u.lookup_value || u.name) : (getLookupValue('UnitType', u) || u)).filter(Boolean).join(", ") 
+                                : (typeof lead.unitType === 'object' ? (lead.unitType?.lookup_value || lead.unitType?.name) : (getLookupValue('UnitType', lead.unitType) || lead.unitType || "")),
                             size: `${lead.areaMin || ""}${lead.areaMin && lead.areaMax ? "-" : ""}${lead.areaMax || ""} ${lead.areaMetric || ""}`.trim(),
                         },
 
