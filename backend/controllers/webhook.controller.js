@@ -367,6 +367,7 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                 );
 
                 // 3.1 Create formal Activity Log
+                const activityDept = lead?.department || contact?.department || null;
                 await Activity.create({
                     type: 'WhatsApp',
                     subject: `Inbound WhatsApp: ${messageText.substring(0, 40)}${messageText.length > 40 ? '...' : ''}`,
@@ -376,6 +377,7 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                     performedBy: 'WhatsApp User',
                     dueDate: new Date(),
                     description: messageText,
+                    department: activityDept,
                     details: {
                         direction: 'incoming',
                         platform: 'whatsapp',

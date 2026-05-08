@@ -37,7 +37,7 @@ const CHANNELS = [
     { id: 'WhatsApp', label: 'WhatsApp',  icon: '💬', color: '#22c55e' },
     { id: 'SMS',      label: 'SMS',       icon: '📱', color: '#f59e0b' },
     { id: 'Email',    label: 'Email',     icon: '📧', color: '#0ea5e9' },
-    { id: 'Calls',    label: 'Voice',     icon: '📞', color: '#ec4899' },
+    { id: 'Voice',    label: 'Voice',     icon: '📞', color: '#ec4899' },
 ];
 const OUTCOME_COLOR = { Read:'#059669', Sent:'#0284c7', Delivered:'#0284c7', Failed:'#ef4444', Received:'#059669' };
 
@@ -132,7 +132,7 @@ export default function CommunicationPage() {
                     const pl = (act.platform||act.details?.platform||'').toLowerCase();
 
                     if (!act.via) {
-                        if (t==='call'||t==='calls')                          via = 'Calls';
+                        if (t==='call'||t==='calls'||t==='voice')            via = 'Voice';
                         else if (pl==='whatsapp'||t==='whatsapp')             via = 'WhatsApp';
                         else if (pl==='rcs')                                  via = 'RCS';
                         else if (t==='email' || pl==='email')                 via = 'Email';

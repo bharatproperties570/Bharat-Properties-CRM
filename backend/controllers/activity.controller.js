@@ -949,10 +949,13 @@ export const syncMobileCalls = async (req, res) => {
                 teams: match ? (match.entity.teams || match.entity.assignment?.team || []) : []
             };
             
-            // 🚀 [SENIOR FIX] Ensure teams and assignedTo are ALWAYS set for visibility
+            // 🚀 [SENIOR FIX] Ensure teams, department and assignedTo are ALWAYS set for visibility
             if ((!activityData.teams || activityData.teams.length === 0) && req.user) {
                 // If user belongs to teams, assign this activity to those teams so it's visible in their scope
                 activityData.teams = Array.isArray(req.user.teams) ? req.user.teams : (req.user.team ? [req.user.team] : []);
+            }
+            if (!activityData.department && req.user?.department) {
+                activityData.department = req.user.department;
             }
             if (!activityData.assignedTo && req.user) {
                 activityData.assignedTo = req.user._id || req.user.id;
@@ -1159,11 +1162,19 @@ export const getMessagingActivities = async (req, res) => {
 
         const visibilityFilter = await getVisibilityFilter(req.user);
 
+        // 🌟 Omnichannel Expansion: Include all unassigned items for the shared pool
+        const messagingQuery = {
+            $or: [
+                { ...visibilityFilter },
+                { 
+                    assignedTo: { $exists: false }, 
+                    type: { $in: ['WhatsApp', 'whatsapp', 'Call', 'call', 'Email', 'email', 'SMS', 'sms', 'Voice', 'voice'] }
+                }
+            ]
+        };
+
         // 1. Fetch Messaging & Voice Activities (Increased horizon for better grouping)
-        const activities = await Activity.find({
-            ...visibilityFilter,
-            type: { $in: ['Messaging', 'messaging', 'WhatsApp', 'whatsapp', 'Call', 'call', 'Email', 'email', 'SMS', 'sms', 'RCS', 'rcs'] }
-        })
+        const activities = await Activity.find(messagingQuery)
         .sort({ createdAt: -1 })
         .limit(1000) // Fetch enough for effective grouping
         .lean();
@@ -1223,15 +1234,17 @@ export const getMessagingActivities = async (req, res) => {
         // 5. Group by Identifier (Phone or Email)
         const conversationsMap = new Map();
 
-        const addToConversation = (identifier, item, timestamp) => {
+        const addToConversation = (identifier, via, item, timestamp) => {
             if (!identifier) return;
-            const existing = conversationsMap.get(identifier);
+            const key = `${identifier}_${via}`;
+            const existing = conversationsMap.get(key);
             
             if (!existing) {
-                conversationsMap.set(identifier, {
+                conversationsMap.set(key, {
                     ...item,
                     timestamp: new Date(timestamp),
                     identifier,
+                    via,
                     thread: [...(item.thread || [])]
                 });
             } else {
@@ -1248,10 +1261,11 @@ export const getMessagingActivities = async (req, res) => {
                 }).sort((a, b) => new Date(a.time) - new Date(b.time));
 
                 if (new Date(timestamp) > new Date(existing.timestamp)) {
-                    conversationsMap.set(identifier, {
+                    conversationsMap.set(key, {
                         ...item,
                         timestamp: new Date(timestamp),
                         identifier,
+                        via,
                         thread: uniqueThread
                     });
                 } else {
@@ -1282,9 +1296,15 @@ export const getMessagingActivities = async (req, res) => {
                 }
                 if (!pName) pName = identifier;
 
-                const isCall = a.type?.toLowerCase() === 'call';
-                const isEmail = a.type?.toLowerCase() === 'email';
-                const via = isCall ? 'Calls' : (isEmail ? 'Email' : (a.details?.platform?.toLowerCase() === 'whatsapp' || a.type?.toLowerCase() === 'whatsapp' ? 'WhatsApp' : 'SMS'));
+                const isCall = (a.type || "").toLowerCase() === 'call' || (a.type || "").toLowerCase() === 'voice';
+                const isEmail = (a.type || "").toLowerCase() === 'email';
+                const isWhatsApp = (a.type || "").toLowerCase() === 'whatsapp' || a.details?.platform?.toLowerCase() === 'whatsapp';
+                const isSMS = (a.type || "").toLowerCase() === 'sms' || (a.type || "").toLowerCase() === 'messaging';
+
+                // 🚀 Only process messaging types
+                if (!isCall && !isEmail && !isWhatsApp && !isSMS) continue;
+
+                const via = isCall ? 'Voice' : (isEmail ? 'Email' : (isWhatsApp ? 'WhatsApp' : 'SMS'));
 
                 const item = {
                     _id: a._id,
@@ -1298,27 +1318,28 @@ export const getMessagingActivities = async (req, res) => {
                     actor: a.performedBy || 'System',
                     isMatched: a.details?.isMatched ?? !!(a.entityId && a.entityType !== 'Unknown'),
                     details: a.details,
-                    platform: a.details?.platform || (isCall ? 'Mobile' : (isEmail ? 'Direct' : (a.type?.toLowerCase() === 'whatsapp' ? 'WhatsApp' : 'Direct'))),
+                    platform: a.details?.platform || (isCall ? 'Mobile' : (isEmail ? 'Direct' : (isWhatsApp ? 'WhatsApp' : 'Direct'))),
                     phoneNumber: phone,
                     email: email,
                     phone: phone,
                     participant: pName,
                     outcome: a.details?.status || a.outcome || a.status || 'Delivered',
                     date: a.createdAt,
-                    thread: matchingConv ? (matchingConv.messages || []).map(m => ({
+                    // 🚀 [FIX] Thread should only include bot messages if the CHANNEL is WhatsApp
+                    thread: (isWhatsApp && matchingConv) ? (matchingConv.messages || []).map(m => ({
                         sender: m.role === 'user' ? 'customer' : (m.role === 'assistant' ? 'ai' : 'agent'),
                         text: m.content,
                         time: m.timestamp,
                         metadata: m.metadata
                     })) : [{
                         sender: (a.details?.direction === 'Incoming' || a.details?.direction === 'incoming') ? 'customer' : 'agent',
-                        text: a.description,
+                        text: a.description || a.subject || (isCall ? 'Call Log' : 'Message'),
                         time: a.createdAt,
                         metadata: a.details?.attachment ? { attachment: a.details.attachment } : null
                     }]
                 };
 
-                addToConversation(identifier, item, a.createdAt);
+                addToConversation(identifier, via, item, a.createdAt);
             } catch (err) { console.error("[MessagingHub] Activity Map Error:", err.message); }
         }
 
@@ -1351,7 +1372,7 @@ export const getMessagingActivities = async (req, res) => {
                         time: log.sentAt
                     }]
                 };
-                addToConversation(identifier, item, log.sentAt);
+                addToConversation(identifier, 'SMS', item, log.sentAt);
             } catch (err) { console.error("[MessagingHub] SmsLog Map Error:", err.message); }
         }
 
@@ -1392,7 +1413,7 @@ export const getMessagingActivities = async (req, res) => {
                         metadata: m.metadata
                     }))
                 };
-                addToConversation(identifier, item, c.updatedAt);
+                addToConversation(identifier, 'WhatsApp', item, c.updatedAt);
             } catch (err) { console.error("[MessagingHub] Conversation Map Error:", err.message); }
         }
 
