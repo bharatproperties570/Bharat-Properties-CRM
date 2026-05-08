@@ -29,10 +29,10 @@ const resolveLookupLocal = async (type, value) => {
 const InventorySchema = new mongoose.Schema({
 
     // Basic Info
-    category: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup', index: true },
-    subCategory: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup', index: true },
-    unitType: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup', index: true },
-    sizeConfig: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup', index: true },
+    category: { type: mongoose.Schema.Types.Mixed, index: true },
+    subCategory: { type: mongoose.Schema.Types.Mixed, index: true },
+    unitType: { type: mongoose.Schema.Types.Mixed, index: true },
+    sizeConfig: { type: mongoose.Schema.Types.Mixed, index: true },
     project: String,
     projectId: { type: mongoose.Schema.Types.ObjectId, ref: 'Project', index: true },
 
@@ -42,8 +42,8 @@ const InventorySchema = new mongoose.Schema({
     unitNo: { type: String },
 
     // Status & Intent
-    intent: [{ type: mongoose.Schema.Types.Mixed, ref: 'Lookup', index: true }], // For Sale, For Rent, etc.
-    status: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup', index: true }, // Available, Sold, etc.
+    intent: [{ type: mongoose.Schema.Types.Mixed, index: true }], // For Sale, For Rent, etc.
+    status: { type: mongoose.Schema.Types.Mixed, index: true }, // Available, Sold, etc.
 
     // Construction Details
     occupationDate: Date,
@@ -132,15 +132,15 @@ const InventorySchema = new mongoose.Schema({
     address: {
         hNo: String,
         street: String,
-        locality: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
-        location: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
-        area: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+        locality: { type: mongoose.Schema.Types.Mixed },
+        location: { type: mongoose.Schema.Types.Mixed },
+        area: { type: mongoose.Schema.Types.Mixed },
         landmark: String,
-        city: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
-        tehsil: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
-        postOffice: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
-        state: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
-        pincode: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+        city: { type: mongoose.Schema.Types.Mixed },
+        tehsil: { type: mongoose.Schema.Types.Mixed },
+        postOffice: { type: mongoose.Schema.Types.Mixed },
+        state: { type: mongoose.Schema.Types.Mixed },
+        pincode: { type: mongoose.Schema.Types.Mixed },
         country: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup', default: 'India' }
     },
 

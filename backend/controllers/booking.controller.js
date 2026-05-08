@@ -230,9 +230,13 @@ export const closeBooking = async (req, res) => {
         if (booking.dealId) {
             const Deal = mongoose.model('Deal');
             await Deal.findByIdAndUpdate(booking.dealId, { 
-                stage: 'Closed Won',
+                stage: 'Closed',
                 status: 'Won',
-                isVisible: false 
+                closingDetails: {
+                    isClosed: true,
+                    closingDate: booking.updatedAt,
+                    remarks: `Post-Sale Registry confirmed.`
+                }
             });
         }
 

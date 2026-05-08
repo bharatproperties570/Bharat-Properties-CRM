@@ -109,6 +109,9 @@ function DealsPage({ onNavigate, onAddActivity }) {
                 search: debouncedSearchTerm,
                 sortBy: sortConfig.by,
                 sortOrder: sortConfig.order,
+                ...Object.fromEntries(
+                    Object.entries(filters).filter(([_, v]) => v != null && v !== '' && (!Array.isArray(v) || v.length > 0))
+                )
             });
 
             const response = await api.get(`deals?${queryParams.toString()}`);
@@ -135,7 +138,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
         } finally {
             setLoading(false);
         }
-    }, [currentPage, recordsPerPage, debouncedSearchTerm, sortConfig]);
+    }, [currentPage, recordsPerPage, debouncedSearchTerm, sortConfig, filters]);
 
     const handleSaveUploads = async (mediaData) => {
         try {
@@ -1112,16 +1115,36 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
     
     const s = dealScores[deal._id];
     const scoreVal = s ? s.score : (deal.dealProbability || 0);
-    const scoreColor = s ? s.color : '#94a3b8';
+    
+    // Fallback color mapping based on Enterprise Score Bands
+    const getFallbackColor = (score) => {
+        if (score >= 80) return '#ef4444'; // Super Hot
+        if (score >= 60) return '#f59e0b'; // Hot
+        if (score >= 30) return '#3b82f6'; // Active
+        return '#94a3b8'; // Cold
+    };
+    
+    const scoreColor = s ? s.color : getFallbackColor(scoreVal);
     const scoreLabel = s ? s.label : '';
 
+    const isBooked = deal.stage === 'Booked';
+    const isWon = deal.stage === 'Closed' && deal.status === 'Won';
+    const isClosed = deal.stage === 'Closed';
+    
+    let rowBackground = '#fff';
+    if (isBooked) rowBackground = '#fee2e2'; // Light Red
+    if (isWon) rowBackground = '#fce7f3'; // Light Pink
+    
+    const isNonActionable = isBooked || isClosed;
+
     return (
-        <div className="list-item deals-list-grid" style={{ padding: '18px 1.5rem', borderBottom: '1px solid #e2e8f0', transition: 'all 0.2s ease', background: '#fff', marginBottom: '2px' }}>
+        <div className={`list-item deals-list-grid ${isNonActionable ? 'non-actionable-row' : ''}`} style={{ padding: '18px 1.5rem', borderBottom: '1px solid #e2e8f0', transition: 'all 0.2s ease', background: rowBackground, marginBottom: '2px', opacity: isNonActionable ? 0.8 : 1, pointerEvents: isNonActionable ? 'none' : 'auto' }}>
             <input
                 type="checkbox"
                 className="item-check"
                 checked={selected}
                 onChange={() => onSelect(deal._id)}
+                style={{ pointerEvents: 'auto' }} // Allow selection even if row is non-actionable
             />
 
             {/* Col 1: Score */}

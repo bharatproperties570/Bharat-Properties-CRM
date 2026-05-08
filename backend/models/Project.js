@@ -9,8 +9,8 @@ const ProjectSchema = new mongoose.Schema({
     secondaryDeveloper: String,
     reraNumber: String,
     description: String,
-    category: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' }],
-    subCategory: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' }],
+    category: [{ type: mongoose.Schema.Types.Mixed }],
+    subCategory: [{ type: mongoose.Schema.Types.Mixed }],
 
     // Project Stats
     landArea: String,
@@ -18,15 +18,15 @@ const ProjectSchema = new mongoose.Schema({
     totalBlocks: String,
     totalFloors: String,
     totalUnits: String,
-    status: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
+    status: { type: mongoose.Schema.Types.Mixed },
 
     // Dates
     launchDate: Date,
     expectedCompletionDate: Date,
     possessionDate: Date,
 
-    parkingType: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
-    unitType: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
+    parkingType: { type: mongoose.Schema.Types.Mixed },
+    unitType: { type: mongoose.Schema.Types.Mixed },
     approvedBank: String,
 
     // System Details
@@ -71,8 +71,8 @@ const ProjectSchema = new mongoose.Schema({
     // Documents & Media
     projectDocuments: [{
         documentName: String,
-        documentCategory: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
-        documentType: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+        documentCategory: { type: mongoose.Schema.Types.Mixed },
+        documentType: { type: mongoose.Schema.Types.Mixed },
         approvalAuthority: String,
         registrationNo: String,
         documentNumber: String,

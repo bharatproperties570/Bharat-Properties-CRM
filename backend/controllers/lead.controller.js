@@ -197,19 +197,6 @@ const resolveAllReferenceFields = async (doc) => {
 const leadPopulateFields = [
     { path: 'requirement', select: 'lookup_value' },
     { path: 'subRequirement', select: 'lookup_value' },
-    { path: 'budget', select: 'lookup_value' },
-    { path: 'location', select: 'lookup_value' },
-    { path: 'source', select: 'lookup_value' },
-    { path: 'subSource', select: 'lookup_value' },
-    { path: 'campaign', select: 'lookup_value' },
-    { path: 'status', select: 'lookup_value' },
-    { path: 'stage', select: 'lookup_value' },
-    { path: 'propertyType', select: 'lookup_value' },
-    { path: 'subType', select: 'lookup_value' },
-    { path: 'unitType', select: 'lookup_value' },
-    { path: 'facing', select: 'lookup_value' },
-    { path: 'roadWidth', select: 'lookup_value' },
-    { path: 'direction', select: 'lookup_value' },
     { path: 'project', select: 'name' },
     { path: 'owner', select: 'fullName email name' },
     {
@@ -247,15 +234,6 @@ const leadPopulateFields = [
 
 // 🏎️ SENIOR OPTIMIZATION: Lean population for summary list view
 const leadListPopulateFields = [
-    { path: 'requirement', select: 'lookup_value' },
-    { path: 'subRequirement', select: 'lookup_value' },
-    { path: 'budget', select: 'lookup_value' },
-    { path: 'location', select: 'lookup_value' },
-    { path: 'source', select: 'lookup_value' },
-    { path: 'stage', select: 'lookup_value' },
-    { path: 'propertyType', select: 'lookup_value' },
-    { path: 'subType', select: 'lookup_value' },
-    { path: 'unitType', select: 'lookup_value' },
     { path: 'project', select: 'name' },
     { path: 'owner', select: 'fullName email name' },
     { path: 'assignment.assignedTo', select: 'fullName name email' },
@@ -601,14 +579,29 @@ export const getLeads = async (req, res, next) => {
                 }
             });
 
-            // ─── PERFORMANCE FIX: Pre-fetch all unique lookup IDs in one batch query ──
-            // Replaces ~50 per-lead Lookup.findById() calls with a single query
+            // O(1) lookup collection
             const uniqueLookupIds = new Set();
+            const mixedFields = ['requirement', 'subRequirement', 'budget', 'location', 'source', 'status', 'stage', 'subSource', 'campaign', 'salutation'];
+            const arrayMixedFields = ['propertyType', 'subType', 'unitType', 'facing', 'roadWidth', 'direction'];
+
             results.records.forEach(lead => {
                 const leadObj = lead.toObject ? lead.toObject() : lead;
+                
+                mixedFields.forEach(f => {
+                    const val = leadObj[f];
+                    if (val && mongoose.Types.ObjectId.isValid(val)) uniqueLookupIds.add(val.toString());
+                });
+
+                arrayMixedFields.forEach(f => {
+                    if (Array.isArray(leadObj[f])) {
+                        leadObj[f].forEach(v => {
+                            if (v && mongoose.Types.ObjectId.isValid(v)) uniqueLookupIds.add(v.toString());
+                        });
+                    }
+                });
+
                 const titleId = leadObj.contactDetails?.title?._id || leadObj.contactDetails?.title;
                 if (titleId && mongoose.Types.ObjectId.isValid(titleId)) uniqueLookupIds.add(titleId.toString());
-                if (leadObj.salutation && mongoose.Types.ObjectId.isValid(leadObj.salutation)) uniqueLookupIds.add(leadObj.salutation.toString());
             });
 
             // Single batch DB query for all needed lookups
@@ -623,24 +616,49 @@ export const getLeads = async (req, res, next) => {
                 const latest = leadActs[0];
                 const leadObj = lead.toObject ? lead.toObject() : lead;
 
+                // 🏗️ Hydrate All Mixed Fields (Batch Optimized)
+                mixedFields.forEach(f => {
+                    const val = leadObj[f];
+                    if (val && mongoose.Types.ObjectId.isValid(val)) {
+                        const resolved = lookupValueMap.get(val.toString());
+                        if (resolved) leadObj[f] = { _id: val, lookup_value: resolved };
+                    } else if (val && typeof val === 'string' && !mongoose.Types.ObjectId.isValid(val)) {
+                        leadObj[f] = { lookup_value: val };
+                    }
+                });
+
+                arrayMixedFields.forEach(f => {
+                    if (Array.isArray(leadObj[f])) {
+                        leadObj[f] = leadObj[f].map(v => {
+                            if (v && mongoose.Types.ObjectId.isValid(v)) {
+                                const resolved = lookupValueMap.get(v.toString());
+                                return resolved ? { _id: v, lookup_value: resolved } : v;
+                            } else if (v && typeof v === 'string' && !mongoose.Types.ObjectId.isValid(v)) {
+                                return { lookup_value: v };
+                            }
+                            return v;
+                        });
+                    }
+                });
+
                 // O(1) lookup from pre-fetched map — no DB call
                 if (leadObj.contactDetails && leadObj.contactDetails.title) {
                     const titleId = (leadObj.contactDetails.title._id || leadObj.contactDetails.title)?.toString();
                     if (titleId && lookupValueMap.has(titleId)) {
                         const titleValue = lookupValueMap.get(titleId);
                         leadObj.contactDetails.titleValue = titleValue;
-                        if (leadObj.salutation === titleId || !leadObj.salutation) {
-                            leadObj.salutation = titleValue;
+                        if (leadObj.salutation?._id === titleId || leadObj.salutation === titleId || !leadObj.salutation) {
+                            leadObj.salutation = { _id: titleId, lookup_value: titleValue };
                         }
                     } else if (typeof leadObj.contactDetails.title === 'string' && !mongoose.Types.ObjectId.isValid(leadObj.contactDetails.title)) {
                         leadObj.contactDetails.titleValue = leadObj.contactDetails.title;
                     }
                 }
 
-                // O(1) salutation resolution from pre-fetched map
+                // Hydrate Salutation if it was just a string/ID
                 if (leadObj.salutation && mongoose.Types.ObjectId.isValid(leadObj.salutation)) {
                     const resolved = lookupValueMap.get(leadObj.salutation.toString());
-                    if (resolved) leadObj.salutation = resolved;
+                    if (resolved) leadObj.salutation = { _id: leadObj.salutation, lookup_value: resolved };
                 }
 
                 return {
@@ -939,31 +957,7 @@ export const getLeadById = async (req, res, next) => {
         const leadPopulateReduced = [
             { path: 'project', select: 'name' },
             { path: 'owner', select: 'fullName email name' },
-            {
-                path: 'contactDetails',
-                populate: [
-                    { path: 'title', select: 'lookup_value' },
-                    { path: 'source', select: 'lookup_value' },
-                    { path: 'personalAddress.location', select: 'lookup_value' },
-                    { path: 'personalAddress.pincode', select: 'lookup_value' },
-                    { path: 'correspondenceAddress.city', select: 'lookup_value' },
-                    { path: 'correspondenceAddress.state', select: 'lookup_value' },
-                    { path: 'correspondenceAddress.country', select: 'lookup_value' },
-                    { path: 'correspondenceAddress.location', select: 'lookup_value' },
-                    { path: 'correspondenceAddress.pincode', select: 'lookup_value' },
-                    { path: 'correspondenceAddress.tehsil', select: 'lookup_value' },
-                    { path: 'professionCategory', select: 'lookup_value' },
-                    { path: 'professionSubCategory', select: 'lookup_value' },
-                    { path: 'designation', select: 'lookup_value' },
-                    { path: 'subSource', select: 'lookup_value' },
-                    { path: 'campaign', select: 'lookup_value' },
-                    { path: 'educations.education', select: 'lookup_value' },
-                    { path: 'educations.degree', select: 'lookup_value' },
-                    { path: 'loans.loanType', select: 'lookup_value' },
-                    { path: 'loans.bank', select: 'lookup_value' },
-                    { path: 'incomes.incomeType', select: 'lookup_value' }
-                ]
-            },
+            { path: 'contactDetails' },
             { path: 'assignment.assignedTo', select: 'fullName email name' },
             { path: 'assignment.team', select: 'name' },
             { path: 'teams', select: 'name' }
@@ -1031,6 +1025,38 @@ export const getLeadById = async (req, res, next) => {
                     return v;
                 }));
             }
+        }
+
+        // --- CONTACT DETAILS HYDRATION ---
+        if (leadData.contactDetails) {
+            const c = leadData.contactDetails;
+            const cMixedFields = [
+                { field: 'title', type: 'Title' },
+                { field: 'professionCategory', type: 'ProfessionCategory' },
+                { field: 'designation', type: 'Designation' },
+                { field: 'source', type: 'Source' },
+                { field: 'subSource', type: 'SubSource' },
+                { field: 'campaign', type: 'Campaign' }
+            ];
+            const cAddrFields = ['country', 'state', 'city', 'tehsil', 'postOffice', 'pincode', 'location'];
+
+            for (const { field, type } of cMixedFields) {
+                const val = c[field];
+                if (val && mongoose.Types.ObjectId.isValid(val)) {
+                    const lookup = await Lookup.findById(val).lean();
+                    if (lookup) c[field] = lookup;
+                }
+            }
+            ['personalAddress', 'correspondenceAddress'].forEach(addr => {
+                if (c[addr]) {
+                    cAddrFields.forEach(async f => {
+                        if (c[addr][f] && mongoose.Types.ObjectId.isValid(c[addr][f])) {
+                            const lookup = await Lookup.findById(c[addr][f]).lean();
+                            if (lookup) c[addr][f] = lookup;
+                        }
+                    });
+                }
+            });
         }
 
         // Attach Recent Activities and Interaction Counts

@@ -72,30 +72,8 @@ const populateFields = [
         select: "name phones emails title"
     },
     { path: "projectId" },
-    { path: "category" },
-    { path: "subCategory" },
-    { path: "status" },
-    { path: "unitType" },
-    { path: "facing" },
-    { path: "direction" },
-    { path: "orientation" },
-    { path: "sizeConfig" },
-    { path: "sizeType" }, // Added for Configuration parity
-    { path: "roadWidth" },
-    { path: "intent" },
     { path: "team", select: "name" },
     { path: "assignedTo", select: "fullName name team" },
-    { path: "address.city" },
-    { path: "address.tehsil" },
-    { path: "address.state" },
-    { path: "address.locality" },
-    { path: "address.area" },
-    { path: "address.location" },
-    { path: "address.country" },
-    { path: "address.postOffice" },
-    { path: "address.pincode" },
-    { path: "builtupType" },
-    { path: "team", select: "name" },
     { path: "teams", select: "name" }
 ];
 
@@ -343,25 +321,9 @@ export const getInventory = async (req, res) => {
             { path: "owners", select: "name phones" },
             { path: "associates.contact", select: "name phones" },
             { path: "projectId" },
-            { path: "category" },
-            { path: "subCategory" },
-            { path: "status" },
-            { path: "unitType" },
-            { path: "facing" },
-            { path: "direction" },
-            { path: "orientation" },
-            { path: "sizeConfig" },
-            { path: "roadWidth" },
             { path: "team", select: "name" },
             { path: "teams", select: "name" },
-            { path: "assignedTo", select: "fullName" },
-            { path: "address.city" },
-            { path: "address.tehsil" },
-            { path: "address.state" },
-            { path: "address.locality" },
-            { path: "address.area" },
-            { path: "address.location" },
-            { path: "builtupType" }
+            { path: "assignedTo", select: "fullName" }
         ];
 
         const [activeStatusDocs, inactiveStatusDocs] = await Promise.all([
@@ -485,106 +447,83 @@ export const getInventory = async (req, res) => {
         const inventoryIds = results.records.map(item => item._id);
         const deals = await Deal.find({ inventoryId: { $in: inventoryIds } }).select('inventoryId').lean();
         const dealInventoryIds = new Set(deals.map(d => d.inventoryId?.toString()).filter(Boolean));
+        const uniqueLookupIds = new Set();
+        const categoricalFields = ['category', 'subCategory', 'status', 'unitType', 'facing', 'direction', 'orientation', 'sizeConfig', 'roadWidth', 'builtupType'];
+        const uniqueUserIds = new Set();
+        const uniqueTeamIds = new Set();
+        const uniqueProjectIds = new Set();
 
-        // [ROBUST FALLBACK] Manual population for IDs if paginate populate failed
-        // This happens if ANY record has a bad ObjectId (like "") in the collection
-        results.records = await Promise.all(results.records.map(async (item) => {
-            // results.records are already lean objects from paginate
+        results.records.forEach(item => {
+            const itemObj = item; // results.records are already lean
+            categoricalFields.forEach(f => {
+                const val = itemObj[f];
+                if (val && mongoose.Types.ObjectId.isValid(val)) uniqueLookupIds.add(val.toString());
+                else if (Array.isArray(val)) {
+                    val.forEach(v => { if (v && mongoose.Types.ObjectId.isValid(v)) uniqueLookupIds.add(v.toString()); });
+                }
+            });
+            if (itemObj.assignedTo && mongoose.Types.ObjectId.isValid(itemObj.assignedTo)) uniqueUserIds.add(itemObj.assignedTo.toString());
+            if (itemObj.team && mongoose.Types.ObjectId.isValid(itemObj.team)) uniqueTeamIds.add(itemObj.team.toString());
+            if (Array.isArray(itemObj.teams)) itemObj.teams.forEach(t => { if (t && mongoose.Types.ObjectId.isValid(t)) uniqueTeamIds.add(t.toString()); });
+            if (itemObj.projectId && mongoose.Types.ObjectId.isValid(itemObj.projectId)) uniqueProjectIds.add(itemObj.projectId.toString());
+
+            // Address lookups
+            if (itemObj.address) {
+                const addrFields = ['city', 'state', 'locality', 'area', 'location', 'pincode', 'tehsil', 'postOffice'];
+                addrFields.forEach(f => {
+                    const val = itemObj.address[f];
+                    if (val && mongoose.Types.ObjectId.isValid(val)) uniqueLookupIds.add(val.toString());
+                });
+            }
+        });
+
+        const [lookups, users, teams, projects] = await Promise.all([
+            uniqueLookupIds.size > 0 ? Lookup.find({ _id: { $in: [...uniqueLookupIds] } }).select('lookup_value lookup_type').lean() : [],
+            uniqueUserIds.size > 0 ? User.find({ _id: { $in: [...uniqueUserIds] } }).select('fullName name username').lean() : [],
+            uniqueTeamIds.size > 0 ? Team.find({ _id: { $in: [...uniqueTeamIds] } }).select('name').lean() : [],
+            uniqueProjectIds.size > 0 ? Project.find({ _id: { $in: [...uniqueProjectIds] } }).select('name').lean() : []
+        ]);
+
+        const lookupMap = new Map(lookups.map(l => [l._id.toString(), l]));
+        const userMap = new Map(users.map(u => [u._id.toString(), u]));
+        const teamMap = new Map(teams.map(t => [t._id.toString(), t]));
+        const projectMap = new Map(projects.map(p => [p._id.toString(), p]));
+
+        results.records = results.records.map((item) => {
             const itemObj = { ...item };
             
-            // Helper to check if a field is a valid ID that needs hydration
-            const needsHydration = (val) => {
-                if (!val) return false;
-                // If it's already a populated object with display fields, it doesn't need hydration
-                if (typeof val === 'object' && (val.lookup_value || val.name || val.fullName || val.title)) return false;
-                
-                // Check for valid ObjectId (string or object)
-                return mongoose.Types.ObjectId.isValid(val);
-            };
-
-            // 1. Top level lookup fields (Categorical)
-            const lookupFields = [
-                { field: 'category', type: 'Category' },
-                { field: 'subCategory', type: 'SubCategory' },
-                { field: 'status', type: 'Status' },
-                { field: 'unitType', type: 'UnitType' },
-                { field: 'facing', type: 'Facing' },
-                { field: 'direction', type: 'Direction' },
-                { field: 'orientation', type: 'Orientation' },
-                { field: 'sizeConfig', type: 'Size' },
-                { field: 'roadWidth', type: 'RoadWidth' },
-                { field: 'builtupType', type: 'BuiltupType' }
-            ];
-
-            for (const { field } of lookupFields) {
-                if (needsHydration(itemObj[field])) {
-                    try {
-                        const lookup = await Lookup.findById(itemObj[field]).select('lookup_value lookup_type').lean();
-                        if (lookup) itemObj[field] = lookup;
-                    } catch (e) { /* ignore */ }
+            // Hydrate Categorical
+            categoricalFields.forEach(f => {
+                const val = itemObj[f];
+                if (val && mongoose.Types.ObjectId.isValid(val)) {
+                    itemObj[f] = lookupMap.get(val.toString()) || val;
+                } else if (Array.isArray(val)) {
+                    itemObj[f] = val.map(v => (v && mongoose.Types.ObjectId.isValid(v)) ? (lookupMap.get(v.toString()) || v) : v);
                 }
-            }
+            });
 
-            // 2. Relational Fields (Teams, Users, Projects)
-            if (needsHydration(itemObj.team)) {
-                try {
-                    const teamDoc = await Team.findById(itemObj.team).select('name').lean();
-                    if (teamDoc) itemObj.team = teamDoc;
-                } catch (e) { /* ignore */ }
-            }
-            
-            // Also handle 'teams' array
-            if (Array.isArray(itemObj.teams) && itemObj.teams.length > 0) {
-                itemObj.teams = await Promise.all(itemObj.teams.map(async (t) => {
-                    if (needsHydration(t)) {
-                        const teamDoc = await Team.findById(t).select('name').lean();
-                        return teamDoc || t;
+            // Hydrate Address
+            if (itemObj.address) {
+                const addrFields = ['city', 'state', 'locality', 'area', 'location', 'pincode', 'tehsil', 'postOffice'];
+                addrFields.forEach(f => {
+                    const val = itemObj.address[f];
+                    if (val && mongoose.Types.ObjectId.isValid(val)) {
+                        itemObj.address[f] = lookupMap.get(val.toString()) || val;
                     }
-                    return t;
-                }));
+                });
             }
 
-            if (needsHydration(itemObj.assignedTo)) {
-                try {
-                    const userDoc = await User.findById(itemObj.assignedTo).select('fullName name username').lean();
-                    if (userDoc) itemObj.assignedTo = userDoc;
-                } catch (e) { /* ignore */ }
-            }
-
-            if (needsHydration(itemObj.projectId)) {
-                try {
-                    const projectDoc = await Project.findById(itemObj.projectId).select('name').lean();
-                    if (projectDoc) itemObj.projectId = projectDoc;
-                } catch (e) { /* ignore */ }
-            }
-
-            // 3. Address lookup fields
-            if (itemObj.address && typeof itemObj.address === 'object') {
-                const addrFields = [
-                    { field: 'city', type: 'City' },
-                    { field: 'location', type: 'Area' },
-                    { field: 'locality', type: 'Area' },
-                    { field: 'area', type: 'Area' },
-                    { field: 'state', type: 'State' },
-                    { field: 'country', type: 'Country' },
-                    { field: 'tehsil', type: 'Area' },
-                    { field: 'postOffice', type: 'Area' }
-                ];
-                for (const { field } of addrFields) {
-                    if (needsHydration(itemObj.address[field])) {
-                        try {
-                            const lookup = await Lookup.findById(itemObj.address[field]).select('lookup_value lookup_type').lean();
-                            if (lookup) itemObj.address[field] = lookup;
-                        } catch (e) { /* ignore */ }
-                    }
-                }
-            }
+            // Hydrate Relational
+            if (itemObj.assignedTo && mongoose.Types.ObjectId.isValid(itemObj.assignedTo)) itemObj.assignedTo = userMap.get(itemObj.assignedTo.toString()) || itemObj.assignedTo;
+            if (itemObj.team && mongoose.Types.ObjectId.isValid(itemObj.team)) itemObj.team = teamMap.get(itemObj.team.toString()) || itemObj.team;
+            if (Array.isArray(itemObj.teams)) itemObj.teams = itemObj.teams.map(t => (t && mongoose.Types.ObjectId.isValid(t)) ? (teamMap.get(t.toString()) || t) : t);
+            if (itemObj.projectId && mongoose.Types.ObjectId.isValid(itemObj.projectId)) itemObj.projectId = projectMap.get(itemObj.projectId.toString()) || itemObj.projectId;
 
             return {
                 ...itemObj,
-                hasDeal: dealInventoryIds.has(item._id?.toString())
+                hasDeal: dealInventoryIds.has(itemObj._id.toString())
             };
-        }));
+        });
 
         res.status(200).json({
             success: true,
@@ -982,16 +921,6 @@ export const updateInventory = async (req, res) => {
             { path: "owners", select: "name phones" },
             { path: "associates.contact", select: "name phones" },
             { path: "projectId" },
-            { path: "category" },
-            { path: "subCategory" },
-            { path: "status" },
-            { path: "unitType" },
-            { path: "facing" },
-            { path: "direction" },
-            { path: "orientation" },
-            { path: "sizeConfig" },
-            { path: "roadWidth" },
-            { path: "builtupType" },
             { path: "assignedTo", select: "fullName" },
             { path: "history.author", select: "fullName name" }
         ]);

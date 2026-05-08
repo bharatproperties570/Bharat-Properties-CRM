@@ -1,5 +1,5 @@
 import express from "express";
-import { getDeals, matchDeals, getDealById, addDeal, updateDeal, deleteDeal, bulkDeleteDeals, importDeals, closeDeal, getUniqueBlocks, sanitizeDeal } from "../controllers/deal.controller.js";
+import { getDeals, matchDeals, getDealById, addDeal, updateDeal, deleteDeal, bulkDeleteDeals, importDeals, closeDeal, getUniqueBlocks, sanitizeDeal, addOffer } from "../controllers/deal.controller.js";
 import { authenticate } from "../src/middlewares/auth.middleware.js";
 import { validateBusinessRules } from "../src/middlewares/businessRule.middleware.js";
 
@@ -19,6 +19,7 @@ router.put("/:id", validateBusinessRules('deals'), updateDeal);
 router.patch("/:id", validateBusinessRules('deals'), updateDeal);
 router.post("/:id/close", closeDeal);
 router.post("/:id/sanitize", sanitizeDeal);
+router.post("/:id/offers", addOffer);
 router.delete("/:id", deleteDeal);
 
 export default router;

@@ -373,12 +373,11 @@ export const PropertyConfigProvider = ({ children }) => {
 
     const [dealScoringRules, setDealScoringRules] = useSystemSetting('dealScoringRules', {
         stageWeights: {
-            open: { label: 'Open', points: 10 },
-            quote: { label: 'Quote', points: 20 },
-            negotiation: { label: 'Negotiation', points: 35 },
-            booked: { label: 'Booked', points: 50 },
-            closedWon: { label: 'Closed Won', points: 100 },
-            closedLost: { label: 'Closed Lost', points: 0 }
+            open: { label: 'Open', points: 20 },
+            quote: { label: 'Quote', points: 40 },
+            negotiation: { label: 'Negotiation', points: 60 },
+            booked: { label: 'Booked', points: 80 },
+            closed: { label: 'Closed', points: 100 }
         },
         activityRecency: {
             last24h: { label: 'Activity in last 24h', points: 15 },

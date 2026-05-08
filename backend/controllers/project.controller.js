@@ -5,13 +5,8 @@ import { getVisibilityFilter } from "../utils/visibility.js";
 const projectPopulateFields = [
     { path: 'owner', select: 'fullName email name' },
     { path: 'assign', select: 'fullName email name' },
-    { path: 'team', select: 'name lookup_value' },
-    { path: 'teams', select: 'name lookup_value' },
-    { path: 'category' },
-    { path: 'subCategory' },
-    { path: 'status' },
-    { path: 'parkingType' },
-    { path: 'unitType' }
+    { path: 'team', select: 'name' },
+    { path: 'teams', select: 'name' }
 ];
 
 import { paginate } from "../utils/pagination.js";
@@ -52,9 +47,36 @@ export const getProjects = async (req, res) => {
             projectPopulateFields
         );
 
+        // --- MANUAL HYDRATION (Mixed Fields) ---
+        const records = await Promise.all(results.records.map(async (record) => {
+            const project = record.toObject ? record.toObject() : record;
+            const fieldsToHydrate = ['status', 'parkingType', 'unitType'];
+            const arrayFields = ['category', 'subCategory'];
+            const Lookup = mongoose.model('Lookup');
+
+            for (const f of fieldsToHydrate) {
+                if (project[f] && mongoose.Types.ObjectId.isValid(project[f])) {
+                    const lookup = await Lookup.findById(project[f]).select('lookup_value').lean();
+                    if (lookup) project[f] = lookup;
+                }
+            }
+            for (const f of arrayFields) {
+                if (Array.isArray(project[f])) {
+                    project[f] = await Promise.all(project[f].map(async (val) => {
+                        if (val && mongoose.Types.ObjectId.isValid(val)) {
+                            const lookup = await Lookup.findById(val).select('lookup_value').lean();
+                            return lookup || val;
+                        }
+                        return val;
+                    }));
+                }
+            }
+            return project;
+        }));
+
         res.json({ 
             success: true, 
-            data: results.records, 
+            data: records, 
             totalCount: results.totalCount,
             totalPages: results.totalPages,
             currentPage: results.currentPage
@@ -78,7 +100,32 @@ export const getProjectById = async (req, res) => {
         }).populate(projectPopulateFields).lean();
 
         if (!project) return res.status(404).json({ success: false, error: "Project not found or access denied" });
-        res.json({ success: true, data: project });
+
+        // --- MANUAL HYDRATION (Mixed Fields) ---
+        const projectObj = project;
+        const fieldsToHydrate = ['status', 'parkingType', 'unitType'];
+        const arrayFields = ['category', 'subCategory'];
+        const Lookup = mongoose.model('Lookup');
+
+        for (const f of fieldsToHydrate) {
+            if (projectObj[f] && mongoose.Types.ObjectId.isValid(projectObj[f])) {
+                const lookup = await Lookup.findById(projectObj[f]).select('lookup_value').lean();
+                if (lookup) projectObj[f] = lookup;
+            }
+        }
+        for (const f of arrayFields) {
+            if (Array.isArray(projectObj[f])) {
+                projectObj[f] = await Promise.all(projectObj[f].map(async (val) => {
+                    if (val && mongoose.Types.ObjectId.isValid(val)) {
+                        const lookup = await Lookup.findById(val).select('lookup_value').lean();
+                        return lookup || val;
+                    }
+                    return val;
+                }));
+            }
+        }
+
+        res.json({ success: true, data: projectObj });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }

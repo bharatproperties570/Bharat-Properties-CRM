@@ -30,10 +30,10 @@ const DealSchema = new mongoose.Schema({
     unitNo: String,
     unitType: String,
     propertyType: String,
-    category: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
-    subCategory: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+    category: { type: mongoose.Schema.Types.Mixed },
+    subCategory: { type: mongoose.Schema.Types.Mixed },
     location: String,
-    intent: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+    intent: { type: mongoose.Schema.Types.Mixed },
 
     // Size & Specs
     size: mongoose.Schema.Types.Mixed,
@@ -57,10 +57,12 @@ const DealSchema = new mongoose.Schema({
     inventoryId: { type: mongoose.Schema.Types.ObjectId, ref: 'Inventory' },
     stage: {
         type: String,
-        enum: ['Open', 'Quote', 'Negotiation', 'Booked', 'Closed', 'Cancelled', 'Closed Won', 'Closed Lost', 'Stalled'],
+        enum: ['Open', 'Quote', 'Negotiation', 'Booked', 'Closed', 'Cancelled', 'Closed Won', 'Closed Lost', 'Stalled'], // Kept old ones for backward compatibility
         default: 'Open'
     },
-    status: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
+    status: { type: mongoose.Schema.Types.Mixed }, // Sub-stage, e.g. Won, Lost, On Hold, Cancelled
+    isQualified: { type: Boolean, default: null }, // Tag for Intake Engine
+    tags: [{ type: String }],
     dealProbability: { type: Number, default: 50 },
     dealScore: { type: Number, default: 0, min: 0, max: 100 },
 
@@ -128,7 +130,7 @@ const DealSchema = new mongoose.Schema({
         uploadedAt: { type: Date, default: Date.now }
     }],
 
-    status: { type: String, default: 'Open' },
+    // status is defined above
 
 
     dealType: { type: String, default: 'Registry case' },

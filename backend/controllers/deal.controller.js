@@ -132,8 +132,9 @@ export const matchDeals = async (req, res) => {
             .lean();
 
         // Manual Robust Population for Lookups to prevent CastError
+        const lookupTypes = ['Category', 'Intent', 'SubCategory', 'Status', 'PropertyType', 'UnitType', 'Locality', 'Area', 'Location', 'Size', 'City', 'State'];
         const allLookups = await Lookup.find({ 
-            lookup_type: { $in: ['Category', 'Intent', 'SubCategory', 'Status', 'Facing', 'Direction'] } 
+            lookup_type: { $in: lookupTypes } 
         }).lean();
         const lookupMap = new Map(allLookups.map(l => [String(l._id), l]));
         const lookupValueMap = new Map(allLookups.map(l => [String(l.lookup_value).toLowerCase(), l]));
@@ -174,6 +175,9 @@ export const matchDeals = async (req, res) => {
                 enrichWithLookup(deal, 'category');
                 enrichWithLookup(deal, 'intent');
                 enrichWithLookup(deal, 'subCategory');
+                enrichWithLookup(deal, 'propertyType');
+                enrichWithLookup(deal, 'location');
+                enrichWithLookup(deal, 'unitType');
                 return deal;
             })
             .filter(deal => {
@@ -367,11 +371,26 @@ export const sanitizeDeal = async (req, res) => {
     try {
         const deal = await Deal.findById(req.params.id)
             .populate('inventoryId')
-            .populate('projectId')
-            .populate('category')
-            .populate('intent');
+            .populate('projectId');
 
         if (!deal) return res.status(404).json({ success: false, message: "Deal not found" });
+
+        // Manual Enrichment for category/intent to prevent CastError if they are strings
+        const enrichField = async (field, type) => {
+            const val = deal[field];
+            if (!val) return;
+            if (mongoose.Types.ObjectId.isValid(val)) {
+                const lookup = await Lookup.findById(val).select('lookup_value').lean();
+                if (lookup) deal[field] = lookup;
+            } else if (typeof val === 'string') {
+                const lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: new RegExp(`^${escapeRegExp(val)}$`, 'i') } }).lean();
+                deal[field] = lookup || { _id: null, lookup_value: val };
+            }
+        };
+
+        await enrichField('category', 'Category');
+        await enrichField('intent', 'Intent');
+        await enrichField('subCategory', 'SubCategory');
 
         const inv = deal.inventoryId || {};
         const proj = deal.projectId || {};
@@ -427,7 +446,8 @@ export const sanitizeDeal = async (req, res) => {
             sizeLabel: deal.sizeLabel || inv.sizeLabel || (inv.sizeConfig ? await resolveValue(inv.sizeConfig) : null),
             width: deal.width || deal.frontage || inv.width || inv.frontage,
             length: deal.length || deal.depth || inv.length || inv.depth,
-            ...(deal.unitSpecification || inv.unitSpecification || {})
+            ...((deal.unitSpecification?.toObject ? deal.unitSpecification.toObject() : deal.unitSpecification) || {}),
+            ...((inv.unitSpecification?.toObject ? inv.unitSpecification.toObject() : inv.unitSpecification) || {})
         };
 
         const locIntelSource = {
@@ -541,12 +561,20 @@ export const getDeals = async (req, res) => {
         const { 
             direction, facing, roadWidth, block, range, location: queryLocation, 
             minPrice, maxPrice, dealType, transactionType, source,
-            intent: queryIntent, stage: queryStage, unitType: queryUnitType
+            intent: queryIntent, stage: queryStage, unitType: queryUnitType,
+            projectName: queryProjectName, project: queryProject,
+            sizeType, minSize, maxSize
         } = req.query;
 
         if (category) query.category = await resolveMultiFilter('Category', category);
         if (subCategory) query.subCategory = await resolveMultiFilter('SubCategory', subCategory);
         if (status) query.status = await resolveMultiFilter('Status', status);
+
+        // Project & Name Filters
+        const finalProjectName = queryProjectName || queryProject;
+        if (finalProjectName) {
+            query.projectName = { $regex: new RegExp(`^${escapeRegExp(finalProjectName)}$`, 'i') };
+        }
         
         // Orientation Filters (Joined via Inventory)
         if (direction || facing || roadWidth) {
@@ -575,6 +603,14 @@ export const getDeals = async (req, res) => {
         if (queryUnitType) {
             const unitTypes = Array.isArray(queryUnitType) ? queryUnitType : queryUnitType.split(',').filter(Boolean);
             if (unitTypes.length > 0) query.unitType = { $in: unitTypes };
+        }
+
+        // Size & Type Filters
+        if (sizeType) query.sizeLabel = await resolveMultiFilter('Size', sizeType);
+        if (minSize || maxSize) {
+            query.size = {};
+            if (minSize) query.size.$gte = parseFloat(minSize);
+            if (maxSize) query.size.$lte = parseFloat(maxSize);
         }
 
         // Budget & Detail Filters
@@ -777,8 +813,9 @@ export const getDeals = async (req, res) => {
         }
 
         // --- [ENTERPRISE HARDENING]: Live Multi-Source Sync & Manual Lookup Resolution ---
+        const lookupTypes = ['Category', 'Intent', 'SubCategory', 'Status', 'PropertyType', 'UnitType', 'Locality', 'Area', 'Location', 'Size', 'City', 'State'];
         const allLookups = await Lookup.find({ 
-            lookup_type: { $in: ['Category', 'Intent', 'SubCategory', 'Status'] } 
+            lookup_type: { $in: lookupTypes } 
         }).lean();
         const lookupMap = new Map(allLookups.map(l => [String(l._id), l]));
         const lookupValueMap = new Map(allLookups.map(l => [String(l.lookup_value).toLowerCase(), l]));
@@ -796,16 +833,10 @@ export const getDeals = async (req, res) => {
         const enrichedRecords = results.records.map((deal) => {
             const dealObj = deal.toObject ? deal.toObject() : deal;
             
-            // Manual Resolve Lookups to prevent CastErrors
-            enrichWithLookup(dealObj, 'category');
-            enrichWithLookup(dealObj, 'intent');
-            enrichWithLookup(dealObj, 'subCategory');
-            enrichWithLookup(dealObj, 'status');
-
+            // Live enrichment from inventory Map (O(1))
             const invId = dealObj.inventoryId?._id || dealObj.inventoryId;
             const inventory = inventoryMap.get(String(invId));
 
-            // Favor Live Inventory Data if available
             if (inventory) {
                 if (inventory.owners?.[0]) dealObj.owner = inventory.owners[0];
                 if (inventory.associates?.[0]?.contact) dealObj.associatedContact = inventory.associates[0].contact;
@@ -815,9 +846,11 @@ export const getDeals = async (req, res) => {
                 dealObj.block = inventory.block || dealObj.block;
                 dealObj.unitNo = inventory.unitNo || inventory.unitNumber || dealObj.unitNo;
                 dealObj.location = inventory.location || inventory.address?.locality || dealObj.location;
+                dealObj.propertyType = inventory.propertyType || dealObj.propertyType;
+                dealObj.unitType = inventory.unitType || dealObj.unitType;
+                dealObj.category = inventory.category || dealObj.category;
+                dealObj.subCategory = inventory.subCategory || dealObj.subCategory;
                 
-                // Add Size Metadata (Handle both camelCase and snake_case for legacy data parity)
-                // We map these to the root for flat access and the nested object for standard helper access
                 const size = inventory.size || dealObj.size;
                 const sizeUnit = inventory.sizeUnit || inventory.size_unit || inventory.unit || dealObj.sizeUnit;
                 const sizeLabel = inventory.sizeLabel || inventory.size_label || inventory.unitSpecification?.sizeLabel || dealObj.sizeLabel;
@@ -830,14 +863,36 @@ export const getDeals = async (req, res) => {
                 dealObj.sizeConfig = sizeConfig;
                 dealObj.unitSpecification = unitSpec;
                 
-                // Ensure the nested object also has them (redundancy for robust frontend helper)
                 if (typeof dealObj.inventoryId === 'object' && dealObj.inventoryId !== null) {
-                    dealObj.inventoryId.sizeLabel = sizeLabel;
-                    dealObj.inventoryId.sizeConfig = sizeConfig;
-                    dealObj.inventoryId.size = size;
-                    dealObj.inventoryId.sizeUnit = sizeUnit;
-                    dealObj.inventoryId.unitSpecification = unitSpec;
+                    const inv = dealObj.inventoryId;
+                    inv.projectName = inventory.projectName || inv.projectName;
+                    inv.unitNo = inventory.unitNo || inventory.unitNumber || inv.unitNo;
+                    inv.location = inventory.location || inventory.address?.locality || inv.location;
+                    inv.category = inventory.category || inv.category;
+                    inv.propertyType = inventory.propertyType || inv.propertyType;
+                    inv.unitType = inventory.unitType || inv.unitType;
+                    inv.sizeLabel = sizeLabel;
+                    inv.sizeConfig = sizeConfig;
+                    inv.size = size;
+                    inv.sizeUnit = sizeUnit;
+                    inv.unitSpecification = unitSpec;
                 }
+            }
+
+            // Perform manual lookup resolution for categorical fields (Handles ObjectIds and Strings)
+            enrichWithLookup(dealObj, 'category');
+            enrichWithLookup(dealObj, 'subCategory');
+            enrichWithLookup(dealObj, 'propertyType');
+            enrichWithLookup(dealObj, 'intent');
+            enrichWithLookup(dealObj, 'status');
+            enrichWithLookup(dealObj, 'location');
+            enrichWithLookup(dealObj, 'unitType');
+
+            if (dealObj.inventoryId && typeof dealObj.inventoryId === 'object') {
+                enrichWithLookup(dealObj.inventoryId, 'location');
+                enrichWithLookup(dealObj.inventoryId, 'category');
+                enrichWithLookup(dealObj.inventoryId, 'propertyType');
+                enrichWithLookup(dealObj.inventoryId, 'unitType');
             }
             
             const ownerId = dealObj.owner?._id || dealObj.owner;
@@ -888,21 +943,26 @@ export const getDealById = async (req, res) => {
 
         // Manual Enrichment for Mixed fields that might be strings (preventing CastErrors)
         const enrichWithLookup = async (doc) => {
-            const fields = ['category', 'subCategory', 'intent', 'status'];
+            const fields = ['category', 'subCategory', 'intent', 'status', 'propertyType', 'location', 'unitType'];
             for (const field of fields) {
                 const val = doc[field];
-                if (val && typeof val === 'string' && !mongoose.Types.ObjectId.isValid(val)) {
+                if (!val) continue;
+
+                if (typeof val === 'string' && !mongoose.Types.ObjectId.isValid(val)) {
                     // It's a raw string, find or create the lookup
-                    const lookupType = field === 'category' ? 'Category' : 
-                                     field === 'subCategory' ? 'SubCategory' :
-                                     field === 'intent' ? 'Intent' : 'Status';
+                    const lookupTypeMap = {
+                        category: 'Category', subCategory: 'SubCategory', intent: 'Intent', 
+                        status: 'Status', propertyType: 'PropertyType', location: 'Locality', unitType: 'UnitType'
+                    };
+                    const lookupType = lookupTypeMap[field] || 'Location';
                     const lookupId = await resolveLookup(lookupType, val);
                     const lookup = await Lookup.findById(lookupId).lean();
                     doc[field] = lookup || { _id: lookupId, lookup_value: val };
-                } else if (val && (mongoose.Types.ObjectId.isValid(val) || (typeof val === 'object' && val._id))) {
+                } else if (mongoose.Types.ObjectId.isValid(val) || (typeof val === 'object' && val._id)) {
                     // It's an ID or already an object, attempt to populate if not already
+                    const targetId = val._id || val;
                     if (!val.lookup_value) {
-                        const lookup = await Lookup.findById(val).lean();
+                        const lookup = await Lookup.findById(targetId).lean();
                         if (lookup) doc[field] = lookup;
                     }
                 }
@@ -927,6 +987,11 @@ export const getDealById = async (req, res) => {
                 dealObj.projectName = inventory.projectName || dealObj.projectName;
                 dealObj.block = inventory.block || dealObj.block;
                 dealObj.unitNo = inventory.unitNo || inventory.unitNumber || dealObj.unitNo;
+                dealObj.location = inventory.location || inventory.address?.locality || dealObj.location;
+                dealObj.propertyType = inventory.propertyType || dealObj.propertyType;
+                dealObj.unitType = inventory.unitType || dealObj.unitType;
+                dealObj.category = inventory.category || dealObj.category;
+                dealObj.subCategory = inventory.subCategory || dealObj.subCategory;
 
                 // Add Size Metadata
                 dealObj.size = inventory.size || dealObj.size;
@@ -937,11 +1002,18 @@ export const getDealById = async (req, res) => {
                 
                 // Redundancy for nested object
                 if (typeof dealObj.inventoryId === 'object' && dealObj.inventoryId !== null) {
-                    dealObj.inventoryId.sizeLabel = inventory.sizeLabel || inventory.size_label || inventory.unitSpecification?.sizeLabel || dealObj.inventoryId.sizeLabel;
-                    dealObj.inventoryId.sizeConfig = inventory.sizeConfig || inventory.size_config || inventory.unitSpecification?.sizeConfig || dealObj.inventoryId.sizeConfig;
-                    dealObj.inventoryId.size = inventory.size || dealObj.inventoryId.size;
-                    dealObj.inventoryId.sizeUnit = inventory.sizeUnit || inventory.unit || dealObj.inventoryId.sizeUnit;
-                    dealObj.inventoryId.unitSpecification = inventory.unitSpecification || dealObj.inventoryId.unitSpecification;
+                    const inv = dealObj.inventoryId;
+                    inv.projectName = inventory.projectName || inv.projectName;
+                    inv.unitNo = inventory.unitNo || inventory.unitNumber || inv.unitNo;
+                    inv.location = inventory.location || inventory.address?.locality || inv.location;
+                    inv.category = inventory.category || inv.category;
+                    inv.propertyType = inventory.propertyType || inv.propertyType;
+                    inv.unitType = inventory.unitType || inv.unitType;
+                    inv.sizeLabel = inventory.sizeLabel || inventory.size_label || inventory.unitSpecification?.sizeLabel || inv.sizeLabel;
+                    inv.sizeConfig = inventory.sizeConfig || inventory.size_config || inventory.unitSpecification?.sizeConfig || inv.sizeConfig;
+                    inv.size = inventory.size || inv.size;
+                    inv.sizeUnit = inventory.sizeUnit || inventory.unit || inv.sizeUnit;
+                    inv.unitSpecification = inventory.unitSpecification || inv.unitSpecification;
                 }
             }
         }
@@ -1066,6 +1138,9 @@ export const addDeal = async (req, res) => {
                 if (!sanitizedData.projectName) sanitizedData.projectName = inventory.projectName;
                 if (!sanitizedData.unitNo) sanitizedData.unitNo = inventory.unitNo;
                 if (!sanitizedData.location) sanitizedData.location = inventory.location || inventory.address?.locality;
+                if (!sanitizedData.category) sanitizedData.category = inventory.category;
+                if (!sanitizedData.propertyType) sanitizedData.propertyType = inventory.propertyType;
+                if (!sanitizedData.unitType) sanitizedData.unitType = inventory.unitType;
             }
         }
 
@@ -1330,6 +1405,10 @@ export const updateDeal = async (req, res) => {
                     // Snapshot metadata labels
                     if (!sanitizedData.projectName) sanitizedData.projectName = inventory.projectName;
                     if (!sanitizedData.unitNo) sanitizedData.unitNo = inventory.unitNo;
+                    if (!sanitizedData.location) sanitizedData.location = inventory.location || inventory.address?.locality;
+                    if (!sanitizedData.category) sanitizedData.category = inventory.category;
+                    if (!sanitizedData.propertyType) sanitizedData.propertyType = inventory.propertyType;
+                    if (!sanitizedData.unitType) sanitizedData.unitType = inventory.unitType;
                 }
             }
         }
@@ -1581,5 +1660,23 @@ export const getUniqueBlocks = async (req, res) => {
     } catch (error) {
         console.error("[GET_BLOCKS_ERROR_DEAL]", error);
         res.status(500).json({ success: false, error: "Internal server error" });
+    }
+};
+
+export const addOffer = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const offerData = req.body;
+        
+        const deal = await Deal.findById(id);
+        if (!deal) return res.status(404).json({ success: false, error: "Deal not found" });
+
+        deal.offerHistory = deal.offerHistory || [];
+        deal.offerHistory.push(offerData);
+
+        await deal.save();
+        res.json({ success: true, message: "Offer added successfully", data: deal });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
     }
 };

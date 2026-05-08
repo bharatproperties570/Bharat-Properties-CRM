@@ -366,7 +366,7 @@ export const getStageDensity = async (req, res) => {
                 { $sort: { count: -1 } }
             ]);
             densityStats = dealDensity;
-            STAGE_ORDER = ['Open', 'Quote', 'Negotiation', 'Stalled', 'Booked', 'Closed', 'Closed Won', 'Closed Lost', 'Cancelled'];
+            STAGE_ORDER = ['Open', 'Quote', 'Negotiation', 'Booked', 'Closed', 'Stalled', 'Dormant'];
         } else {
             const leadDensity = await Lead.aggregate([
                 {
@@ -568,11 +568,10 @@ export const getDealHealth = async (req, res) => {
             createdAt: { $gte: activityCutoff }
         }).select('type status details completedAt createdAt updatedAt').lean();
 
-        // Stage score
+        // Stage score (Aligned with 5-stage Enterprise Pipeline)
         const STAGE_SCORES = {
-            'New': 5, 'Open': 10, 'Prospect': 15, 'Qualified': 30, 'Quote': 35,
-            'Opportunity': 50, 'Negotiation': 65, 'Booked': 80,
-            'Closed Won': 100, 'Closed': 100, 'Closed Lost': 0, 'Stalled': 20
+            'Open': 10, 'Quote': 30, 'Negotiation': 65, 'Booked': 85,
+            'Closed': 100, 'Closed Lost': 0, 'Stalled': 20, 'Dormant': 0
         };
         const stageScore = STAGE_SCORES[deal.stage] || 10;
 
@@ -684,8 +683,8 @@ export const getLeadScores = async (req, res) => {
 
         // Fallback weights if multipliers are missing (scaled to 100)
         const STAGE_WEIGHTS = {
-            'New': 10, 'Prospect': 20, 'Qualified': 40, 'Opportunity': 55,
-            'Negotiation': 70, 'Booked': 85, 'Closed Won': 100, 'Closed Lost': 5, 'Stalled': 15
+            'Open': 10, 'Quote': 30, 'Negotiation': 65, 'Booked': 85,
+            'Closed': 100, 'Stalled': 15, 'Dormant': 0
         };
 
         // Professional Fix: Helper to find purpose config robustly
@@ -861,30 +860,62 @@ export const getDealScores = async (req, res) => {
     try {
         const SystemSetting = mongoose.model('SystemSetting');
         const dealRulesSetting = await SystemSetting.findOne({ key: 'dealScoringRules' }).lean();
-        const dealRules = dealRulesSetting?.value || {};
         
-        // Structure from ScoringSettingsPage.jsx
-        const stageWeights = dealRules.stageWeights || {};
-        const activityRules = dealRules.activityRecency || {};
-        const historyRules = dealRules.historyDepth || {};
+        // --- SENIOR PROFESSIONAL DEFAULTS (Sync with PropertyConfigContext) ---
+        const DEFAULT_RULES = {
+            stageWeights: {
+                open: { label: 'Open', points: 20 },
+                quote: { label: 'Quote', points: 40 },
+                negotiation: { label: 'Negotiation', points: 60 },
+                booked: { label: 'Booked', points: 80 },
+                closed: { label: 'Closed', points: 100 }
+            },
+            activityRecency: {
+                last24h: { points: 15 },
+                last3d: { points: 10 },
+                last7d: { points: 5 },
+                noActivity7d: { points: -10 },
+                hotThresholdDays: 1,
+                warmThresholdDays: 3,
+                coldThresholdDays: 7
+            },
+            historyDepth: {
+                interactions5Plus: { points: 10 },
+                interactions10Plus: { points: 20 },
+                meetingsDone: { points: 15 },
+                interactionsSomeThreshold: 5,
+                interactionsManyThreshold: 10
+            }
+        };
+
+        const dealRules = dealRulesSetting?.value || DEFAULT_RULES;
+        
+        // Deep merge weights to handle partial configs
+        const stageWeights = { ...DEFAULT_RULES.stageWeights, ...(dealRules.stageWeights || {}) };
+        const activityRules = { ...DEFAULT_RULES.activityRecency, ...(dealRules.activityRecency || {}) };
+        const historyRules = { ...DEFAULT_RULES.historyDepth, ...(dealRules.historyDepth || {}) };
 
         const getDealStageWeight = (stage) => {
-            const key = (stage || 'Open').toLowerCase().replace(/\s+/g, '');
-            // Try to find matching key in stageWeights
-            const foundKey = Object.keys(stageWeights).find(k => k.toLowerCase().replace(/\s+/g, '') === key);
-            if (foundKey) return stageWeights[foundKey]?.points || 20;
+            const rawStage = String(stage || 'Open');
+            const key = rawStage.toLowerCase().replace(/\s+/g, '');
             
-            // Fallback to legacy defaults
-            const FALLBACK = {
-                'open': 20, 'quote': 35, 'opportunity': 45, 'negotiation': 60,
-                'booked': 85, 'closedwon': 100, 'closed': 90,
-                'closedlost': 5, 'stalled': 15
-            };
-            return FALLBACK[key] || 20;
+            // Try matching by normalized key
+            const foundKey = Object.keys(stageWeights).find(k => k.toLowerCase().replace(/\s+/g, '') === key);
+            if (foundKey) {
+                const weight = stageWeights[foundKey];
+                return (typeof weight === 'object' ? weight.points : weight) || 20;
+            }
+            
+            return 20; // Absolute fallback
         };
 
         // Support ?dealId= filter (for detail page)
-        let dealQuery = { status: 'Open' };
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        let dealQuery = { 
+            ...visibilityFilter,
+            stage: { $nin: ['Closed', 'Cancelled', 'Closed Won', 'Closed Lost'] } 
+        };
+        
         if (req.query.dealId && mongoose.Types.ObjectId.isValid(req.query.dealId)) {
             dealQuery._id = req.query.dealId;
         }
@@ -893,31 +924,55 @@ export const getDealScores = async (req, res) => {
             .select('_id stage history lastActivityAt createdAt')
             .lean();
             
+        const dealIds = deals.map(d => d._id);
+        const activityStats = await Activity.aggregate([
+            { $match: { 
+                entityId: { $in: dealIds }, 
+                entityType: { $regex: /deal/i }, 
+                status: { $regex: /completed/i } 
+            } },
+            { $group: {
+                _id: "$entityId",
+                total: { $sum: 1 },
+                meetings: { $sum: { $cond: [{ $in: ["$type", ["Meeting", "Site Visit", "Meeting Scheduled"]] }, 1, 0] } }
+            }}
+        ]);
+        const activityStatsMap = new Map(activityStats.map(s => [s._id.toString(), s]));
+            
         const scores = {};
         const now = new Date();
 
+        // Recency thresholds (Default: 1, 3, 7 days)
+        const thresholds = {
+            hot: activityRules.hotThresholdDays || 1,
+            warm: activityRules.warmThresholdDays || 3,
+            cold: activityRules.coldThresholdDays || 7,
+            manyInteractions: historyRules.interactionsManyThreshold || 10,
+            someInteractions: historyRules.interactionsSomeThreshold || 5
+        };
+
         deals.forEach(deal => {
             const stageWeight = getDealStageWeight(deal.stage);
+            const stats = activityStatsMap.get(deal._id.toString()) || { total: 0, meetings: 0 };
             
             // 1. Activity Momentum (ActivityRecency)
             let activityBonus = 0;
             const lastActivity = deal.lastActivityAt ? new Date(deal.lastActivityAt) : new Date(deal.createdAt);
             const daysSinceActivity = (now - lastActivity) / (1000 * 60 * 60 * 24);
 
-            if (daysSinceActivity < 1) activityBonus = activityRules.last24h?.points || 15;
-            else if (daysSinceActivity < 3) activityBonus = activityRules.last3d?.points || 10;
-            else if (daysSinceActivity < 7) activityBonus = activityRules.last7d?.points || 5;
-            else if (daysSinceActivity > 7) activityBonus = activityRules.noActivity7d?.points || -10;
+            if (daysSinceActivity < thresholds.hot) activityBonus = activityRules.last24h?.points || 15;
+            else if (daysSinceActivity < thresholds.warm) activityBonus = activityRules.last3d?.points || 10;
+            else if (daysSinceActivity < thresholds.cold) activityBonus = activityRules.last7d?.points || 5;
+            else if (daysSinceActivity >= thresholds.cold) activityBonus = activityRules.noActivity7d?.points || -10;
 
-            // 2. History Depth
+            // 2. History Depth (Functional Interaction Tracking)
             let historyBonus = 0;
-            const interactionCount = (deal.history || []).length;
-            if (interactionCount >= 10) historyBonus = historyRules.interactions10Plus?.points || 20;
-            else if (interactionCount >= 5) historyBonus = historyRules.interactions5Plus?.points || 10;
+            const interactionCount = stats.total;
+            if (interactionCount >= thresholds.manyInteractions) historyBonus = historyRules.interactions10Plus?.points || 20;
+            else if (interactionCount >= thresholds.someInteractions) historyBonus = historyRules.interactions5Plus?.points || 10;
             
-            // Check for meetings in history
-            const hasMeeting = (deal.history || []).some(h => (h.type || '').toLowerCase().includes('meeting') || (h.action || '').toLowerCase().includes('meeting'));
-            if (hasMeeting) historyBonus += (historyRules.meetingsDone?.points || 15);
+            // Check for meetings
+            if (stats.meetings > 0) historyBonus += (historyRules.meetingsDone?.points || 15);
 
             const score = Math.min(100, Math.max(0, stageWeight + activityBonus + historyBonus));
             

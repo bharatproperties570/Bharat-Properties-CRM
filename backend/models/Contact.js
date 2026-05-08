@@ -2,11 +2,11 @@ import mongoose from "mongoose";
 import { normalizePhone } from "../utils/normalization.js";
 
 const ContactSchema = new mongoose.Schema({
-    title: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
+    title: { type: mongoose.Schema.Types.Mixed },
     name: { type: String, required: true },
     surname: { type: String },
     fatherName: { type: String },
-    countryCode: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
+    countryCode: { type: mongoose.Schema.Types.Mixed },
     phones: [{
         number: String,
         type: { type: String, default: "Personal" }
@@ -20,16 +20,16 @@ const ContactSchema = new mongoose.Schema({
     description: { type: String },
 
     // Professional Details
-    professionCategory: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
-    professionSubCategory: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
-    designation: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
+    professionCategory: { type: mongoose.Schema.Types.Mixed },
+    professionSubCategory: { type: mongoose.Schema.Types.Mixed },
+    designation: { type: mongoose.Schema.Types.Mixed },
     company: { type: String },
     workOffice: { type: String },
 
     // System Details
-    source: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
-    subSource: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
-    campaign: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
+    source: { type: mongoose.Schema.Types.Mixed },
+    subSource: { type: mongoose.Schema.Types.Mixed },
+    campaign: { type: mongoose.Schema.Types.Mixed },
     teams: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team', index: true }],
     team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', index: true }, // Keep for compatibility
     assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
@@ -47,13 +47,13 @@ const ContactSchema = new mongoose.Schema({
     personalAddress: {
         hNo: String,
         street: String,
-        country: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
-        state: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
-        city: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
-        tehsil: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
-        postOffice: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
-        pincode: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
-        location: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
+        country: { type: mongoose.Schema.Types.Mixed },
+        state: { type: mongoose.Schema.Types.Mixed },
+        city: { type: mongoose.Schema.Types.Mixed },
+        tehsil: { type: mongoose.Schema.Types.Mixed },
+        postOffice: { type: mongoose.Schema.Types.Mixed },
+        pincode: { type: mongoose.Schema.Types.Mixed },
+        location: { type: mongoose.Schema.Types.Mixed },
         area: String
     },
 
@@ -61,20 +61,20 @@ const ContactSchema = new mongoose.Schema({
     correspondenceAddress: {
         hNo: String,
         street: String,
-        country: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
-        state: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
-        city: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
-        tehsil: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
-        postOffice: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
-        pincode: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
-        location: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
+        country: { type: mongoose.Schema.Types.Mixed },
+        state: { type: mongoose.Schema.Types.Mixed },
+        city: { type: mongoose.Schema.Types.Mixed },
+        tehsil: { type: mongoose.Schema.Types.Mixed },
+        postOffice: { type: mongoose.Schema.Types.Mixed },
+        pincode: { type: mongoose.Schema.Types.Mixed },
+        location: { type: mongoose.Schema.Types.Mixed },
         area: String
     },
 
     // Standard CRM fields
-    requirement: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
-    budget: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
-    location: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
+    requirement: { type: mongoose.Schema.Types.Mixed },
+    budget: { type: mongoose.Schema.Types.Mixed },
+    location: { type: mongoose.Schema.Types.Mixed },
 
     // Other Details
     gender: { type: String },
@@ -107,9 +107,9 @@ const ContactSchema = new mongoose.Schema({
 
     documents: [{
         // standardized: documentCategory, documentType, documentName
-        documentCategory: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
-        documentType: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' }, // Type (e.g. Aadhar)
-        documentName: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' }, // Historical/Name representation
+        documentCategory: { type: mongoose.Schema.Types.Mixed },
+        documentType: { type: mongoose.Schema.Types.Mixed }, // Type (e.g. Aadhar)
+        documentName: { type: mongoose.Schema.Types.Mixed }, // Historical/Name representation
 
         documentNo: String,
         documentNumber: String,

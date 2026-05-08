@@ -15,14 +15,11 @@
 
 // ─── STAGE PIPELINE ───────────────────────────────────────────────────────────
 export const STAGE_PIPELINE = [
-    { id: 'new', label: 'Incoming', color: '#94a3b8', icon: 'fa-star', probability: 5 },
-    { id: 'prospect', label: 'Prospect', color: '#3b82f6', icon: 'fa-user', probability: 10 },
-    { id: 'qualified', label: 'Qualified', color: '#8b5cf6', icon: 'fa-check-circle', probability: 25 },
-    { id: 'opportunity', label: 'Opportunity', color: '#f59e0b', icon: 'fa-fire', probability: 40 },
+    { id: 'open', label: 'Open', color: '#3b82f6', icon: 'fa-folder-open', probability: 10 },
+    { id: 'quote', label: 'Quote', color: '#8b5cf6', icon: 'fa-file-invoice', probability: 30 },
     { id: 'negotiation', label: 'Negotiation', color: '#f97316', icon: 'fa-comments-dollar', probability: 65 },
     { id: 'booked', label: 'Booked', color: '#10b981', icon: 'fa-calendar-check', probability: 85 },
-    { id: 'closed_won', label: 'Closed Won', color: '#059669', icon: 'fa-trophy', probability: 100 },
-    { id: 'closed_lost', label: 'Closed Lost', color: '#ef4444', icon: 'fa-times-circle', probability: 0 },
+    { id: 'closed', label: 'Closed', color: '#059669', icon: 'fa-lock', probability: 100 },
     { id: 'stalled', label: 'Stalled', color: '#78716c', icon: 'fa-pause-circle', probability: 15 },
     { id: 'dormant', label: 'Dormant', color: '#64748b', icon: 'fa-moon', probability: 0 },
 ];
@@ -45,21 +42,20 @@ export const getStageProbability = (stageName) => {
  * Prevents false regressions (e.g., a re-intro call moving Negotiation → Prospect).
  */
 export const STAGE_STABILITY_CONFIG = {
+    Quote: { minActivities: 1, minDays: 0, label: 'Quote requires 1 activity before downgrade' },
     Negotiation: { minActivities: 1, minDays: 0, label: 'Negotiation requires 1 activity before downgrade' },
-    Opportunity: { minActivities: 1, minDays: 0, label: 'Opportunity requires 1 activity before downgrade' },
-    Qualified: { minActivities: 1, minDays: 0, label: 'Qualified requires 1 activity before downgrade' },
     Booked: { minActivities: 2, minDays: 1, label: 'Booked requires 2 activities + 1 day before downgrade' },
-    'Closed Won': { minActivities: 999, minDays: 999, label: 'Closed Won cannot be downgraded automatically' },
+    Closed: { minActivities: 999, minDays: 999, label: 'Closed deals cannot be downgraded automatically' },
 };
 
 // Stage priority order (higher index = more advanced stage)
 // 'Stalled' sits between Negotiation and Booked — it is a sideways/terminal state.
 // 'Closed Lost' is the lowest terminal. Moving FROM Stalled TO active stages is recovery (always allowed).
-const STAGE_ORDER = ['Closed Lost', 'Dormant', 'Incoming', 'Prospect', 'Qualified', 'Opportunity', 'Negotiation', 'Stalled', 'Booked', 'Closed Won'];
+const STAGE_ORDER = ['Dormant', 'Open', 'Quote', 'Negotiation', 'Stalled', 'Booked', 'Closed'];
 
 /** Returns true for terminal/sideways states that cannot be further downgraded. */
 export const isTerminalStage = (stageName) =>
-    stageName === 'Stalled' || stageName === 'Closed Lost' || stageName === 'Closed Won' || stageName === 'Dormant';
+    stageName === 'Stalled' || stageName === 'Closed' || stageName === 'Dormant';
 
 const getStageRank = (stageName) => {
     const idx = STAGE_ORDER.indexOf(stageName);

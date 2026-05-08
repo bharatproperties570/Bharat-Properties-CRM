@@ -43,11 +43,19 @@ export const renderValue = (val, emptyValue = '-', prefix = '') => {
     
     if (result === null || result === undefined || result === '') return emptyValue;
     
-    // FINAL SAFETY: Never return a plain object or a raw MongoDB ID to React
+    // FINAL SAFETY: Handle plain objects and MongoDB IDs
     if (typeof result === 'object' || (typeof result === 'string' && /^[0-9a-fA-F]{24}$/.test(result))) {
         try {
             const str = String(result);
-            return (str !== '[object Object]' && !/^[0-9a-fA-F]{24}$/.test(str)) ? str : emptyValue;
+            if (str === '[object Object]') return emptyValue;
+            
+            // If it's a 24-char hex string (ObjectId) and we reached here, 
+            // it means no better value was found. We show a truncated version 
+            // for debugging/visibility instead of just hiding it with '-'
+            if (/^[0-9a-fA-F]{24}$/.test(str)) {
+                return str.substring(0, 8) + '...'; 
+            }
+            return str;
         } catch (e) {
             return emptyValue;
         }

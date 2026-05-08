@@ -108,7 +108,11 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
             };
             const response = await api.post(`deals/${dealId}/offers`, offerData);
             if (response.data && response.data.success) {
-                toast.success("Offer added successfully");
+                await api.put(`deals/${dealId}`, { 
+                    stage: 'Negotiation',
+                    triggeredBy: 'manual_pipeline_override'
+                });
+                toast.success("Offer added & Deal moved to Negotiation stage");
                 fetchDealDetails();
             }
         } catch (error) {
@@ -312,6 +316,19 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     }, [dealId]);
 
     const handleStageChange = async (newStage) => {
+        if (newStage === 'Quote') {
+            setIsQuoteModalOpen(true);
+            return;
+        }
+        if (newStage === 'Negotiation') {
+            setIsOfferModalOpen(true);
+            return;
+        }
+        if (newStage === 'Booked') {
+            setIsBookingModalOpen(true);
+            return;
+        }
+
         try {
             const res = await api.put(`deals/${dealId}`, { 
                 stage: newStage,

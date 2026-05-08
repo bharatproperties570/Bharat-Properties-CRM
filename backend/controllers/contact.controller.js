@@ -13,43 +13,11 @@ import { googleSyncQueue } from "../src/queues/queueManager.js";
 import { getVisibilityFilter } from "../utils/visibility.js";
 
 const populateFields = [
-    { path: 'title', select: 'lookup_value' },
-    { path: 'countryCode', select: 'lookup_value' },
-    { path: 'professionCategory', select: 'lookup_value' },
-    { path: 'professionSubCategory', select: 'lookup_value' },
-    { path: 'designation', select: 'lookup_value' },
-    { path: 'source', select: 'lookup_value' },
-    { path: 'subSource', select: 'lookup_value' },
-    { path: 'campaign', select: 'lookup_value' },
     { path: 'owner', select: 'fullName email name' },
     { path: 'team', select: 'name' },
     { path: 'teams', select: 'name' },
     { path: 'assignment.assignedTo', select: 'fullName email name' },
-    { path: 'assignment.team', select: 'name' },
-    { path: 'personalAddress.country', select: 'lookup_value' },
-    { path: 'personalAddress.state', select: 'lookup_value' },
-    { path: 'personalAddress.city', select: 'lookup_value' },
-    { path: 'personalAddress.tehsil', select: 'lookup_value' },
-    { path: 'personalAddress.postOffice', select: 'lookup_value' },
-    { path: 'personalAddress.location', select: 'lookup_value' },
-    { path: 'correspondenceAddress.country', select: 'lookup_value' },
-    { path: 'correspondenceAddress.state', select: 'lookup_value' },
-    { path: 'correspondenceAddress.city', select: 'lookup_value' },
-    { path: 'correspondenceAddress.tehsil', select: 'lookup_value' },
-    { path: 'correspondenceAddress.postOffice', select: 'lookup_value' },
-    { path: 'correspondenceAddress.location', select: 'lookup_value' },
-    { path: 'requirement', select: 'lookup_value' },
-    { path: 'budget', select: 'lookup_value' },
-    { path: 'location', select: 'lookup_value' },
-    { path: 'educations.education', select: 'lookup_value' },
-    { path: 'educations.degree', select: 'lookup_value' },
-    { path: 'loans.loanType', select: 'lookup_value' },
-    { path: 'loans.bank', select: 'lookup_value' },
-    { path: 'socialMedia.platform', select: 'lookup_value' },
-    { path: 'incomes.incomeType', select: 'lookup_value' },
-    { path: 'documents.documentCategory', select: 'lookup_value' },
-    { path: 'documents.documentType', select: 'lookup_value' },
-    { path: 'documents.documentName', select: 'lookup_value' }
+    { path: 'assignment.team', select: 'name' }
 ];
 
 export const getContacts = async (req, res, next) => {
@@ -151,12 +119,44 @@ export const getContacts = async (req, res, next) => {
                 }
             });
 
+            // ─── BATCH LOOKUP HYDRATION (Senior Performance Optimization) ───
+            const uniqueLookupIds = new Set();
+            const mixedFields = ['title', 'countryCode', 'professionCategory', 'professionSubCategory', 'designation', 'source', 'subSource', 'campaign', 'requirement', 'budget', 'location'];
+            const addressFields = ['country', 'state', 'city', 'tehsil', 'postOffice', 'pincode', 'location'];
+            
+            results.records.forEach(contact => {
+                const c = contact.toObject ? contact.toObject() : contact;
+                mixedFields.forEach(f => { if (c[f] && mongoose.Types.ObjectId.isValid(c[f])) uniqueLookupIds.add(c[f].toString()); });
+                ['personalAddress', 'correspondenceAddress'].forEach(addr => {
+                    if (c[addr]) addressFields.forEach(f => { if (c[addr][f] && mongoose.Types.ObjectId.isValid(c[addr][f])) uniqueLookupIds.add(c[addr][f].toString()); });
+                });
+                if (Array.isArray(c.educations)) c.educations.forEach(e => { if (e.education && mongoose.Types.ObjectId.isValid(e.education)) uniqueLookupIds.add(e.education.toString()); if (e.degree && mongoose.Types.ObjectId.isValid(e.degree)) uniqueLookupIds.add(e.degree.toString()); });
+                if (Array.isArray(c.loans)) c.loans.forEach(l => { if (l.loanType && mongoose.Types.ObjectId.isValid(l.loanType)) uniqueLookupIds.add(l.loanType.toString()); if (l.bank && mongoose.Types.ObjectId.isValid(l.bank)) uniqueLookupIds.add(l.bank.toString()); });
+                if (Array.isArray(c.incomes)) c.incomes.forEach(i => { if (i.incomeType && mongoose.Types.ObjectId.isValid(i.incomeType)) uniqueLookupIds.add(i.incomeType.toString()); });
+                if (Array.isArray(c.documents)) c.documents.forEach(d => { if (d.documentCategory && mongoose.Types.ObjectId.isValid(d.documentCategory)) uniqueLookupIds.add(d.documentCategory.toString()); if (d.documentType && mongoose.Types.ObjectId.isValid(d.documentType)) uniqueLookupIds.add(d.documentType.toString()); if (d.documentName && mongoose.Types.ObjectId.isValid(d.documentName)) uniqueLookupIds.add(d.documentName.toString()); });
+            });
+
+            const batchLookups = uniqueLookupIds.size > 0 ? await Lookup.find({ _id: { $in: [...uniqueLookupIds] } }).select('lookup_value').lean() : [];
+            const lookupValueMap = new Map(batchLookups.map(l => [l._id.toString(), l.lookup_value]));
+
             results.records = results.records.map(contact => {
                 const contactId = contact._id.toString();
                 const contactActs = activityGroup.get(contactId) || [];
                 const latest = contactActs[0];
+                const c = contact.toObject ? contact.toObject() : contact;
+
+                // Hydrate
+                mixedFields.forEach(f => { if (c[f] && mongoose.Types.ObjectId.isValid(c[f])) { const r = lookupValueMap.get(c[f].toString()); if (r) c[f] = { _id: c[f], lookup_value: r }; } });
+                ['personalAddress', 'correspondenceAddress'].forEach(addr => {
+                    if (c[addr]) addressFields.forEach(f => { if (c[addr][f] && mongoose.Types.ObjectId.isValid(c[addr][f])) { const r = lookupValueMap.get(c[addr][f].toString()); if (r) c[addr][f] = { _id: c[addr][f], lookup_value: r }; } });
+                });
+                if (Array.isArray(c.educations)) c.educations.forEach(e => { if (e.education && mongoose.Types.ObjectId.isValid(e.education)) { const r = lookupValueMap.get(e.education.toString()); if (r) e.education = { _id: e.education, lookup_value: r }; } if (e.degree && mongoose.Types.ObjectId.isValid(e.degree)) { const r = lookupValueMap.get(e.degree.toString()); if (r) e.degree = { _id: e.degree, lookup_value: r }; } });
+                if (Array.isArray(c.loans)) c.loans.forEach(l => { if (l.loanType && mongoose.Types.ObjectId.isValid(l.loanType)) { const r = lookupValueMap.get(l.loanType.toString()); if (r) l.loanType = { _id: l.loanType, lookup_value: r }; } if (l.bank && mongoose.Types.ObjectId.isValid(l.bank)) { const r = lookupValueMap.get(l.bank.toString()); if (r) l.bank = { _id: l.bank, lookup_value: r }; } });
+                if (Array.isArray(c.incomes)) c.incomes.forEach(i => { if (i.incomeType && mongoose.Types.ObjectId.isValid(i.incomeType)) { const r = lookupValueMap.get(i.incomeType.toString()); if (r) i.incomeType = { _id: i.incomeType, lookup_value: r }; } });
+                if (Array.isArray(c.documents)) c.documents.forEach(d => { if (d.documentCategory && mongoose.Types.ObjectId.isValid(d.documentCategory)) { const r = lookupValueMap.get(d.documentCategory.toString()); if (r) d.documentCategory = { _id: d.documentCategory, lookup_value: r }; } if (d.documentType && mongoose.Types.ObjectId.isValid(d.documentType)) { const r = lookupValueMap.get(d.documentType.toString()); if (r) d.documentType = { _id: d.documentType, lookup_value: r }; } if (d.documentName && mongoose.Types.ObjectId.isValid(d.documentName)) { const r = lookupValueMap.get(d.documentName.toString()); if (r) d.documentName = { _id: d.documentName, lookup_value: r }; } });
+
                 return {
-                    ...contact,
+                    ...c,
                     activities: contactActs,
                     interactionCounts: countsMap.get(contactId) || { call: 0, siteVisit: 0, meeting: 0, email: 0, sms: 0, whatsapp: 0 },
                     activity: latest ? latest.subject : "None",

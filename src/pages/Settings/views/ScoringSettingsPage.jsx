@@ -10,11 +10,45 @@ const ScoringSettingsPage = () => {
         sourceQualityScores, updateSourceQualityScores,
         inventoryFitScores, updateInventoryFitScores,
         stageMultipliers, updateStageMultipliers,
-        dealScoringRules, updateDealScoringRules,
+        dealScoringRules: rawDealRules, updateDealScoringRules,
         scoreBands, updateScoreBands,
         scoringConfig, updateScoringConfig,
         agingRules, updateAgingRule
     } = usePropertyConfig();
+
+    // --- SENIOR PROFESSIONAL DEFAULTS (Ensures UI is never empty) ---
+    const DEAL_DEFAULTS = {
+        stageWeights: {
+            open: { label: 'Open', points: 20 },
+            quote: { label: 'Quote', points: 40 },
+            negotiation: { label: 'Negotiation', points: 60 },
+            booked: { label: 'Booked', points: 80 },
+            closed: { label: 'Closed', points: 100 }
+        },
+        activityRecency: {
+            last24h: { label: 'Activity in last 24h', points: 15 },
+            last3d: { label: 'Activity in last 3 days', points: 10 },
+            last7d: { label: 'Activity in last 7 days', points: 5 },
+            noActivity7d: { label: 'No activity > 7 days', points: -10 },
+            hotThresholdDays: 1,
+            warmThresholdDays: 3,
+            coldThresholdDays: 7
+        },
+        historyDepth: {
+            interactions5Plus: { label: '5+ Interactions', points: 10 },
+            interactions10Plus: { label: '10+ Interactions', points: 20 },
+            meetingsDone: { label: 'Meeting Conducted', points: 15 },
+            interactionsSomeThreshold: 5,
+            interactionsManyThreshold: 10
+        }
+    };
+
+    // Deep Merge Defaults with DB Data
+    const dealScoringRules = {
+        stageWeights: { ...DEAL_DEFAULTS.stageWeights, ...(rawDealRules?.stageWeights || {}) },
+        activityRecency: { ...DEAL_DEFAULTS.activityRecency, ...(rawDealRules?.activityRecency || {}) },
+        historyDepth: { ...DEAL_DEFAULTS.historyDepth, ...(rawDealRules?.historyDepth || {}) }
+    };
 
     const [notification, setNotification] = useState({ show: false, message: '', type: 'success' });
     const [activeTab, setActiveTab] = useState('lead'); // 'lead', 'deal', 'bands', 'ai'
@@ -37,11 +71,23 @@ const ScoringSettingsPage = () => {
 
     // Deal Scoring Handlers
     const handleDealRuleChange = (section, key, value) => {
-        updateDealScoringRules(section, { [key]: { ...dealScoringRules[section][key], points: parseInt(value) || 0 } });
+        if (!dealScoringRules || !section) return;
+        
+        const sectionData = dealScoringRules[section] || {};
+        const existing = sectionData[key];
+        const val = parseInt(value) || 0;
+        
+        if (existing && typeof existing === 'object' && ('points' in existing || 'label' in existing)) {
+            updateDealScoringRules(section, { [key]: { ...existing, points: val } });
+        } else {
+            // Direct value (like hotThresholdDays)
+            updateDealScoringRules(section, { [key]: val });
+        }
     };
 
     // Score Band Handlers
     const handleBandChange = (key, field, value) => {
+        if (!scoreBands || !scoreBands[key]) return;
         updateScoreBands({ [key]: { ...scoreBands[key], [field]: parseInt(value) || 0 } });
     };
 
@@ -352,23 +398,45 @@ const ScoringSettingsPage = () => {
                         <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
                             <SectionHeader title="A. Base Stage Allocation" subtitle="Deal Progression" icon="fa-tasks" color="#3b82f6" />
                             <div style={{ padding: '20px' }}>
-                                {dealScoringRules?.stageWeights && Object.entries(dealScoringRules.stageWeights).map(([key, data]) => (
-                                    <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', paddingBottom: '12px', borderBottom: '1px dashed #f1f5f9' }}>
-                                        <span style={{ fontSize: '0.9rem', color: '#1e293b', fontWeight: 500 }}>{data.label || key}</span>
-                                        <PointsInput value={data.points} onChange={(e) => handleDealRuleChange('stageWeights', key, e.target.value)} />
+                                {Object.entries(dealScoringRules?.stageWeights || {}).length > 0 ? (
+                                    Object.entries(dealScoringRules.stageWeights).map(([key, data]) => (
+                                        <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', paddingBottom: '12px', borderBottom: '1px dashed #f1f5f9' }}>
+                                            <span style={{ fontSize: '0.9rem', color: '#1e293b', fontWeight: 500 }}>{data?.label || key}</span>
+                                            <PointsInput value={data?.points || 0} onChange={(e) => handleDealRuleChange('stageWeights', key, e.target.value)} />
+                                        </div>
+                                    ))
+                                ) : (
+                                    <div style={{ textAlign: 'center', color: '#94a3b8', padding: '20px', fontSize: '0.85rem' }}>
+                                        No stages configured. Please check System Settings.
                                     </div>
-                                ))}
+                                )}
                             </div>
                         </div>
 
                         {/* B. Momentum / Recency */}
                         <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-                            <SectionHeader title="B. Activity Momentum" subtitle="Recency Bonuses" icon="fa-bolt" color="#f59e0b" />
+                            <SectionHeader title="B. Activity Momentum" subtitle="Recency & Ageing Thresholds" icon="fa-bolt" color="#f59e0b" />
                             <div style={{ padding: '20px' }}>
-                                {dealScoringRules?.activityRecency && Object.entries(dealScoringRules.activityRecency).map(([key, data]) => (
+                                {/* Threshold Configuration */}
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', marginBottom: '20px', padding: '12px', background: '#fffbeb', borderRadius: '8px', border: '1px solid #fcd34d' }}>
+                                    <div>
+                                        <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#92400e', display: 'block', marginBottom: '4px' }}>Hot (Days)</label>
+                                        <input type="number" value={dealScoringRules?.activityRecency?.hotThresholdDays || 1} onChange={(e) => handleDealRuleChange('activityRecency', 'hotThresholdDays', e.target.value)} style={{ width: '100%', padding: '4px', borderRadius: '4px', border: '1px solid #fcd34d', textAlign: 'center', fontSize: '0.85rem' }} />
+                                    </div>
+                                    <div>
+                                        <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#92400e', display: 'block', marginBottom: '4px' }}>Warm (Days)</label>
+                                        <input type="number" value={dealScoringRules?.activityRecency?.warmThresholdDays || 3} onChange={(e) => handleDealRuleChange('activityRecency', 'warmThresholdDays', e.target.value)} style={{ width: '100%', padding: '4px', borderRadius: '4px', border: '1px solid #fcd34d', textAlign: 'center', fontSize: '0.85rem' }} />
+                                    </div>
+                                    <div>
+                                        <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#92400e', display: 'block', marginBottom: '4px' }}>Cold (Days)</label>
+                                        <input type="number" value={dealScoringRules?.activityRecency?.coldThresholdDays || 7} onChange={(e) => handleDealRuleChange('activityRecency', 'coldThresholdDays', e.target.value)} style={{ width: '100%', padding: '4px', borderRadius: '4px', border: '1px solid #fcd34d', textAlign: 'center', fontSize: '0.85rem' }} />
+                                    </div>
+                                </div>
+
+                                {Object.entries(dealScoringRules?.activityRecency || {}).filter(([k]) => k.includes('last') || k.includes('noActivity')).map(([key, data]) => (
                                     <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', paddingBottom: '12px', borderBottom: '1px dashed #f1f5f9' }}>
-                                        <span style={{ fontSize: '0.9rem', color: '#1e293b', fontWeight: 500 }}>{data.label || key}</span>
-                                        <PointsInput value={data.points} onChange={(e) => handleDealRuleChange('activityRecency', key, e.target.value)} />
+                                        <span style={{ fontSize: '0.9rem', color: '#1e293b', fontWeight: 500 }}>{data?.label || key}</span>
+                                        <PointsInput value={data?.points || 0} onChange={(e) => handleDealRuleChange('activityRecency', key, e.target.value)} />
                                     </div>
                                 ))}
                             </div>
@@ -376,12 +444,24 @@ const ScoringSettingsPage = () => {
 
                         {/* C. History / Interactions */}
                         <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-                            <SectionHeader title="C. History Depth" subtitle="Past Interactions" icon="fa-history" color="#8b5cf6" />
+                            <SectionHeader title="C. History Depth" subtitle="Interaction Thresholds" icon="fa-history" color="#8b5cf6" />
                             <div style={{ padding: '20px' }}>
-                                {dealScoringRules?.historyDepth && Object.entries(dealScoringRules.historyDepth).map(([key, data]) => (
+                                {/* Threshold Configuration */}
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px', padding: '12px', background: '#f5f3ff', borderRadius: '8px', border: '1px solid #ede9fe' }}>
+                                    <div>
+                                        <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#5b21b6', display: 'block', marginBottom: '4px' }}>Some Interactions (Min)</label>
+                                        <input type="number" value={dealScoringRules?.historyDepth?.interactionsSomeThreshold || 5} onChange={(e) => handleDealRuleChange('historyDepth', 'interactionsSomeThreshold', e.target.value)} style={{ width: '100%', padding: '4px', borderRadius: '4px', border: '1px solid #ddd6fe', textAlign: 'center', fontSize: '0.85rem' }} />
+                                    </div>
+                                    <div>
+                                        <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#5b21b6', display: 'block', marginBottom: '4px' }}>Many Interactions (Min)</label>
+                                        <input type="number" value={dealScoringRules?.historyDepth?.interactionsManyThreshold || 10} onChange={(e) => handleDealRuleChange('historyDepth', 'interactionsManyThreshold', e.target.value)} style={{ width: '100%', padding: '4px', borderRadius: '4px', border: '1px solid #ddd6fe', textAlign: 'center', fontSize: '0.85rem' }} />
+                                    </div>
+                                </div>
+
+                                {Object.entries(dealScoringRules?.historyDepth || {}).filter(([k]) => k.includes('Plus') || k.includes('Done')).map(([key, data]) => (
                                     <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', paddingBottom: '12px', borderBottom: '1px dashed #f1f5f9' }}>
-                                        <span style={{ fontSize: '0.9rem', color: '#1e293b', fontWeight: 500 }}>{data.label || key}</span>
-                                        <PointsInput value={data.points} onChange={(e) => handleDealRuleChange('historyDepth', key, e.target.value)} />
+                                        <span style={{ fontSize: '0.9rem', color: '#1e293b', fontWeight: 500 }}>{data?.label || key}</span>
+                                        <PointsInput value={data?.points || 0} onChange={(e) => handleDealRuleChange('historyDepth', key, e.target.value)} />
                                     </div>
                                 ))}
                             </div>
