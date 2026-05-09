@@ -1481,6 +1481,14 @@ export const importInventory = async (req, res) => {
         const newCount = bulkResult.upsertedCount || 0;
         const updatedCount = bulkResult.modifiedCount || 0;
 
+        // GENERATE SUCCESS LOGS FOR ENTERPRISE AUDIT REPORT
+        const successLogs = restructuredData.map(item => ({
+            unitNo: item.unitNo,
+            project: item.projectName,
+            block: item.block,
+            status: 'Processed' // Since bulkWrite doesn't map counts back to specific items easily
+        }));
+
         console.log(`[IMPORT] Bulk write complete. New: ${newCount}, Updated: ${updatedCount}`);
 
         res.status(200).json({
@@ -1490,7 +1498,8 @@ export const importInventory = async (req, res) => {
             newCount,
             updatedCount,
             errorCount: errors.length,
-            errors
+            errors,
+            successLogs // ENTERPRISE AUDIT DATA
         });
     } catch (error) {
         console.error("Inventory Import Fatal Error:", error);

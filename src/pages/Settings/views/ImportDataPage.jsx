@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { MODULE_CONFIG, parseCSV, generateErrorReportCSV, downloadFile } from '../../../utils/dataManagementUtils';
+import { MODULE_CONFIG, parseCSV, generateErrorReportCSV, generateSuccessReportCSV, downloadFile } from '../../../utils/dataManagementUtils';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import toast from 'react-hot-toast';
 import { api } from '../../../utils/api';
@@ -14,6 +14,8 @@ const ImportDataPage = () => {
     const [importing, setImporting] = useState(false);
     const [progress, setProgress] = useState(0);
     const [importErrors, setImportErrors] = useState([]);
+    const [importSuccessLogs, setImportSuccessLogs] = useState([]);
+    const [activeReportTab, setActiveReportTab] = useState('success'); // 'success' or 'error'
     const [importStats, setImportStats] = useState({ success: 0, failed: 0 });
     const [checkingDuplicates, setCheckingDuplicates] = useState(false);
     const [duplicates, setDuplicates] = useState([]);
@@ -224,6 +226,7 @@ const ImportDataPage = () => {
         setImporting(true);
         setProgress(0);
         setImportErrors([]);
+        setImportSuccessLogs([]);
         setImportStats({ success: 0, failed: 0, newCount: 0, updatedCount: 0 });
 
         try {
@@ -251,6 +254,7 @@ const ImportDataPage = () => {
             let totalNewCount = 0;
             let totalUpdatedCount = 0;
             let aggregatedErrors = [];
+            let aggregatedSuccess = [];
 
             // Determine endpoint
             let endpoint = `/${module}/import`;
@@ -284,6 +288,7 @@ const ImportDataPage = () => {
                     totalNewCount += (newCount || 0);
                     totalUpdatedCount += (updatedCount || 0);
                     if (errors) aggregatedErrors = [...aggregatedErrors, ...errors];
+                    if (response.data.successLogs) aggregatedSuccess = [...aggregatedSuccess, ...response.data.successLogs];
 
                     // Update live progress
                     const currentProgress = Math.min(Math.round(((i + chunk.length) / totalRecords) * 100), 100);
@@ -303,6 +308,8 @@ const ImportDataPage = () => {
                 updatedCount: totalUpdatedCount
             });
             setImportErrors(aggregatedErrors);
+            setImportSuccessLogs(aggregatedSuccess);
+            setActiveReportTab(aggregatedErrors.length > 0 ? 'error' : 'success');
             
             if (module === 'sizes') refreshSizes();
             
@@ -718,10 +725,84 @@ const ImportDataPage = () => {
                             {importStats.failed > 0 && <span> <strong>{importStats.failed}</strong> records could not be imported.</span>}
                         </p>
 
-                        {importErrors.length > 0 && (
+                        <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', borderBottom: '1px solid #e2e8f0' }}>
+                            <button 
+                                onClick={() => setActiveReportTab('success')}
+                                style={{
+                                    padding: '10px 20px', border: 'none', background: 'none',
+                                    borderBottom: activeReportTab === 'success' ? '2px solid #16a34a' : 'none',
+                                    color: activeReportTab === 'success' ? '#16a34a' : '#64748b',
+                                    fontWeight: 700, cursor: 'pointer', fontSize: '0.9rem'
+                                }}
+                            >
+                                <i className="fas fa-check-circle" style={{ marginRight: '8px' }}></i> Success Audit ({importSuccessLogs.length})
+                            </button>
+                            <button 
+                                onClick={() => setActiveReportTab('error')}
+                                style={{
+                                    padding: '10px 20px', border: 'none', background: 'none',
+                                    borderBottom: activeReportTab === 'error' ? '2px solid #dc2626' : 'none',
+                                    color: activeReportTab === 'error' ? '#dc2626' : '#64748b',
+                                    fontWeight: 700, cursor: 'pointer', fontSize: '0.9rem'
+                                }}
+                            >
+                                <i className="fas fa-times-circle" style={{ marginRight: '8px' }}></i> Failure Report ({importErrors.length})
+                            </button>
+                        </div>
+
+                        {activeReportTab === 'success' && (
                             <div style={{ marginBottom: '32px', textAlign: 'left' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                    <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b' }}>Error Report</h3>
+                                    <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b' }}>Import Audit Trail</h3>
+                                    <button
+                                        onClick={() => {
+                                            const csv = generateSuccessReportCSV(importSuccessLogs);
+                                            downloadFile(csv, `import_success_${module}_${Date.now()}.csv`);
+                                        }}
+                                        style={{
+                                            background: '#fff', border: '1px solid #e2e8f0', color: '#16a34a',
+                                            padding: '6px 12px', borderRadius: '6px', fontSize: '0.8rem',
+                                            fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+                                        }}
+                                    >
+                                        <i className="fas fa-file-excel"></i> Download Audit CSV
+                                    </button>
+                                </div>
+                                <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
+                                    <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                                            <thead style={{ background: '#f8fafc', position: 'sticky', top: 0 }}>
+                                                <tr>
+                                                    <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>Identifier</th>
+                                                    <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>Project</th>
+                                                    <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>Block</th>
+                                                    <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>Status</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {importSuccessLogs.length === 0 ? (
+                                                    <tr><td colSpan="4" style={{ padding: '24px', textAlign: 'center', color: '#94a3b8' }}>No records processed in this batch.</td></tr>
+                                                ) : importSuccessLogs.map((log, idx) => (
+                                                    <tr key={idx} style={{ borderBottom: idx === importSuccessLogs.length - 1 ? 'none' : '1px solid #f1f5f9' }}>
+                                                        <td style={{ padding: '12px', color: '#1e293b', fontWeight: 600 }}>{log.unitNo || 'N/A'}</td>
+                                                        <td style={{ padding: '12px', color: '#475569' }}>{log.project || 'N/A'}</td>
+                                                        <td style={{ padding: '12px', color: '#475569' }}>{log.block || 'N/A'}</td>
+                                                        <td style={{ padding: '12px' }}>
+                                                            <span style={{ padding: '2px 8px', borderRadius: '4px', background: '#dcfce7', color: '#16a34a', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase' }}>{log.status}</span>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {activeReportTab === 'error' && (
+                            <div style={{ marginBottom: '32px', textAlign: 'left' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                    <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b' }}>Failure Details</h3>
                                     <button
                                         onClick={() => {
                                             const csv = generateErrorReportCSV(importErrors);
@@ -747,7 +828,9 @@ const ImportDataPage = () => {
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                {importErrors.map((err, idx) => (
+                                                {importErrors.length === 0 ? (
+                                                    <tr><td colSpan="3" style={{ padding: '24px', textAlign: 'center', color: '#94a3b8' }}>No errors found. All records processed successfully.</td></tr>
+                                                ) : importErrors.map((err, idx) => (
                                                     <tr key={idx} style={{ borderBottom: idx === importErrors.length - 1 ? 'none' : '1px solid #f1f5f9' }}>
                                                         <td style={{ padding: '12px', color: '#64748b', fontWeight: 500 }}>{err.row}</td>
                                                         <td style={{ padding: '12px', color: '#1e293b', fontWeight: 600 }}>{err.name}</td>
@@ -758,9 +841,11 @@ const ImportDataPage = () => {
                                         </table>
                                     </div>
                                 </div>
-                                <p style={{ marginTop: '12px', fontSize: '0.8rem', color: '#64748b', textAlign: 'center' }}>
-                                    Tip: Fix these rows in your CSV file and try uploading them again.
-                                </p>
+                                {importErrors.length > 0 && (
+                                    <p style={{ marginTop: '12px', fontSize: '0.8rem', color: '#64748b', textAlign: 'center' }}>
+                                        Tip: Fix these rows in your CSV file and try uploading them again.
+                                    </p>
+                                )}
                             </div>
                         )}
 
@@ -773,6 +858,7 @@ const ImportDataPage = () => {
                                     setMapping({});
                                     setDuplicates([]);
                                     setImportErrors([]);
+                                    setImportSuccessLogs([]);
                                     setImportStats({ success: 0, failed: 0 });
                                 }}
                                 className="btn-outline"

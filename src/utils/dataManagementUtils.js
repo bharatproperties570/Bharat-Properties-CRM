@@ -528,3 +528,21 @@ export const generateErrorReportCSV = (errors) => {
 
     return csvRows.join('\n');
 };
+export const generateSuccessReportCSV = (logs) => {
+    if (!logs || !logs.length) return '';
+
+    const headers = ['Unit No / Identifier', 'Project', 'Block', 'Status'];
+    const csvRows = [headers.join(',')];
+
+    logs.forEach(log => {
+        const values = [
+            `"${(log.unitNo || log.identifier || 'N/A').replace(/"/g, '""')}"`,
+            `"${(log.project || 'N/A').replace(/"/g, '""')}"`,
+            `"${(log.block || 'N/A').replace(/"/g, '""')}"`,
+            `"${(log.status || 'Processed').replace(/"/g, '""')}"`
+        ];
+        csvRows.push(values.join(','));
+    });
+
+    return csvRows.join('\n');
+};
