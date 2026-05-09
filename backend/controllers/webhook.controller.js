@@ -457,6 +457,138 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
     }
 };
 
+// ── POST /api/webhooks/website-chat ─────────────────────────────────────────
+// Incoming Live AI Message Processing from Public Website Widget
+export const websiteLiveBotWebhook = async (req, res) => {
+    try {
+        const { sessionId, message, name, mobile, email } = req.body;
+
+        if (!sessionId || !message) {
+            return res.status(400).json({ success: false, message: 'sessionId and message are required' });
+        }
+
+        let lead = null;
+        let contact = null;
+        let entityType = 'Anonymous';
+        let entityId = null;
+
+        // If user provided a mobile number, process through Intake Engine
+        if (mobile) {
+            const normalizedMobile = normalizePhone(mobile);
+            const intakeEngine = (await import('../src/utils/intakeEngine.js')).default;
+            const intakeResult = await intakeEngine.processIntake({
+                mobile: normalizedMobile,
+                name: name || 'Website Visitor',
+                email: email,
+                message: message,
+                source: 'Website Chatbot'
+            });
+
+            if (intakeResult.type === 'LEAD') {
+                lead = intakeResult.data;
+                entityType = 'Lead';
+                entityId = lead._id;
+            } else if (intakeResult.type === 'DEAL' || intakeResult.type === 'INVENTORY') {
+                contact = await Contact.findOne({ 'phones.number': normalizedMobile });
+                entityType = contact ? 'Contact' : 'Anonymous';
+                entityId = contact?._id || null;
+            } else if (intakeResult.type === 'CONTACT') {
+                contact = intakeResult.data;
+                entityType = 'Contact';
+                entityId = contact._id;
+            }
+        }
+
+        // Find or create Conversation
+        let conversation = await Conversation.findOne({ 
+            $or: [
+                { 'metadata.sessionId': sessionId },
+                ...(mobile ? [{ phoneNumber: normalizePhone(mobile), channel: 'website_chat' }] : [])
+            ],
+            status: 'active' 
+        });
+
+        if (!conversation) {
+            conversation = await Conversation.create({
+                lead: lead?._id || null,
+                contact: contact?._id || null,
+                channel: 'website_chat',
+                phoneNumber: mobile ? normalizePhone(mobile) : null,
+                status: 'active',
+                messages: [],
+                metadata: { sessionId, isMatched: !!(lead || contact) }
+            });
+        }
+
+        // Add User Message
+        conversation.messages.push({ role: 'user', content: message });
+        await conversation.save();
+
+        // Formal Activity Log (Only if identity is known)
+        if (entityId) {
+            const activityDept = lead?.department || contact?.department || null;
+            await Activity.create({
+                type: 'Website Chat',
+                subject: `Website Chat: ${message.substring(0, 40)}${message.length > 40 ? '...' : ''}`,
+                entityId: entityId,
+                entityType: entityType,
+                status: 'Completed',
+                performedBy: name || 'Website Visitor',
+                dueDate: new Date(),
+                description: message,
+                department: activityDept,
+                details: {
+                    direction: 'incoming',
+                    platform: 'website',
+                    sessionId: sessionId,
+                    conversationId: conversation._id
+                }
+            }).catch(err => console.error('[Website Bot] Failed to create Activity:', err.message));
+        }
+
+        // Context Setup for AI
+        const chatHistoryContext = conversation.messages.map(m => `${m.role}: ${m.content}`).join('\n');
+        
+        const aiContext = {
+            chatHistory: chatHistoryContext,
+            lead: lead ? {
+                id: lead._id,
+                firstName: lead.firstName,
+                lastName: lead.lastName,
+                mobile: lead.mobile,
+                status: lead.status,
+                intentIndex: lead.intent_index,
+                description: lead.description,
+                customFields: lead.customFields
+            } : null,
+            entityType: entityType,
+            intakeResult: mobile ? { type: entityType, data: lead || contact } : null
+        };
+
+        // Generate AI Response using the dynamically configured `website_live_chat` useCase
+        const aiResult = await generateBotResponse(message, aiContext, { useCase: 'website_live_chat' });
+
+        if (aiResult.success && aiResult.reply) {
+            conversation.messages.push({ role: 'assistant', content: aiResult.reply });
+            await conversation.save();
+
+            // If it's a known lead and the bot replied, boost intent slightly
+            if (lead) {
+                lead.intent_index = Math.min(100, (lead.intent_index || 40) + 2);
+                await lead.save();
+            }
+
+            return res.status(200).json({ success: true, reply: aiResult.reply, sessionId });
+        } else {
+            return res.status(500).json({ success: false, message: 'AI generation failed: ' + (aiResult.error || 'Unknown error') });
+        }
+
+    } catch (error) {
+        console.error('[WebhookController] websiteLiveBotWebhook error:', error);
+        return res.status(500).json({ success: false, message: 'Internal server error' });
+    }
+};
+
 // ── POST /api/webhooks/campaign/launch ──────────────────────────────────────
 // Manual trigger: launch a campaign for an existing deal
 export const launchCampaignManual = async (req, res) => {

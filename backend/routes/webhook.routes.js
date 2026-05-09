@@ -8,6 +8,7 @@ import {
     whatsAppReplyWebhook,
     whatsAppLiveBotWebhook,
     whatsAppLiveBotVerify,
+    websiteLiveBotWebhook,
     launchCampaignManual,
     exotelCallback,
 } from '../controllers/webhook.controller.js';
@@ -19,6 +20,7 @@ router.post('/lead',             captureLeadWebhook);        // Lead capture fro
 router.post('/whatsapp-reply',   whatsAppReplyWebhook);      // Gupshup reply callback
 router.get('/whatsapp-live-bot',  whatsAppLiveBotVerify);    // Live AI WhatsApp Meta Webhook Verification
 router.post('/whatsapp-live-bot', whatsAppLiveBotWebhook);   // Live AI WhatsApp Meta Incoming Messages
+router.post('/website-chat',     websiteLiveBotWebhook);     // Public Website Live Chat API
 router.post('/exotel-callback',  exotelCallback);            // Exotel call status callback
 
 // ── Internal endpoint (called from Marketing Suite UI, auth applied globally) ──

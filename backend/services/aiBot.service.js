@@ -20,13 +20,14 @@ const getAiCredentials = async () => {
 
 // --- Core Reasoner ---
 
-export const generateBotResponse = async (message, context = {}) => {
+export const generateBotResponse = async (message, context = {}, options = {}) => {
     try {
-        // Find the active AI Agent designated for WhatsApp Automation
-        const agent = await AiAgent.findOne({ useCases: 'whatsapp_live', isActive: true });
+        const targetUseCase = options.useCase || 'whatsapp_live';
+        // Find the active AI Agent designated for the target use case
+        const agent = await AiAgent.findOne({ useCases: targetUseCase, isActive: true });
         
         if (!agent) {
-            console.warn("No active AI Agent found for 'whatsapp_live' use case.");
+            console.warn(`No active AI Agent found for '${targetUseCase}' use case.`);
             return { success: false, error: 'AI Agent Off' };
         }
 

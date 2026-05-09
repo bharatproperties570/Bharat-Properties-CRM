@@ -65,7 +65,7 @@ export const getAvailableAiIntegrations = async (req, res) => {
 
         if (providers.length === 0) providers.push('openai');
 
-        const channels = ['marketing_campaigns', 'social_media', 'lead_qualification', 'whatsapp_live', 'sms_automation', 'email_drip', 'voice_calls'];
+        const channels = ['marketing_campaigns', 'social_media', 'lead_qualification', 'whatsapp_live', 'website_live_chat', 'sms_automation', 'email_drip', 'voice_calls'];
 
         res.json({
             success: true,

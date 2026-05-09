@@ -23,6 +23,7 @@ import PublicDealForm from './pages/Public/PublicDealForm';
 import PublicFeedbackForm from './pages/Public/PublicFeedbackForm';
 import CaptureFormPage from './pages/Public/CaptureFormPage';
 import CallModal from './components/CallModal'; // Import CallModal
+import PublicChatWidget from './components/PublicChatWidget';
 
 // Helper Wrapper to connect Context to Modal
 const CallModalWrapper = () => {
@@ -193,34 +194,46 @@ const AppContent = () => {
 
     if (currentView === 'public-lead-form') {
         return (
-            <Suspense fallback={<div style={{ textAlign: 'center', padding: '100px' }}>Loading...</div>}>
-                <PublicLeadForm slug={window.location.pathname.split('/').pop()} />
-            </Suspense>
+            <>
+                <Suspense fallback={<div style={{ textAlign: 'center', padding: '100px' }}>Loading...</div>}>
+                    <PublicLeadForm slug={window.location.pathname.split('/').pop()} />
+                </Suspense>
+                <PublicChatWidget />
+            </>
         );
     }
 
     if (currentView === 'public-feedback-form') {
         return (
-            <Suspense fallback={<div style={{ textAlign: 'center', padding: '100px' }}>Loading...</div>}>
-                <PublicFeedbackForm slug={window.location.pathname.split('/').pop()} />
-            </Suspense>
+            <>
+                <Suspense fallback={<div style={{ textAlign: 'center', padding: '100px' }}>Loading...</div>}>
+                    <PublicFeedbackForm slug={window.location.pathname.split('/').pop()} />
+                </Suspense>
+                <PublicChatWidget />
+            </>
         );
     }
 
     if (currentView === 'public-deal-form') {
         return (
-            <Suspense fallback={<div style={{ textAlign: 'center', padding: '100px' }}>Loading...</div>}>
-                <PublicDealForm slug={window.location.pathname.split('/').pop()} />
-            </Suspense>
+            <>
+                <Suspense fallback={<div style={{ textAlign: 'center', padding: '100px' }}>Loading...</div>}>
+                    <PublicDealForm slug={window.location.pathname.split('/').pop()} />
+                </Suspense>
+                <PublicChatWidget />
+            </>
         );
     }
 
     if (currentView === 'deal-capture') {
         const slug = window.location.pathname.split('/').pop() || 'professional-deal-capture';
         return (
-            <Suspense fallback={<div style={{ textAlign: 'center', padding: '100px' }}>Loading...</div>}>
-                <CaptureFormPage slug={slug} />
-            </Suspense>
+            <>
+                <Suspense fallback={<div style={{ textAlign: 'center', padding: '100px' }}>Loading...</div>}>
+                    <CaptureFormPage slug={slug} />
+                </Suspense>
+                <PublicChatWidget />
+            </>
         );
     }
 

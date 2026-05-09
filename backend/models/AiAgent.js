@@ -19,7 +19,7 @@ const aiAgentSchema = new mongoose.Schema({
     },
     useCases: [{
         type: String,
-        enum: ['whatsapp_live', 'sms_automation', 'voice_calls', 'marketing_campaigns', 'email_drip', 'social_media', 'lead_qualification']
+        enum: ['whatsapp_live', 'website_live_chat', 'sms_automation', 'voice_calls', 'marketing_campaigns', 'email_drip', 'social_media', 'lead_qualification']
     }],
     memoryAccess: [{
         type: String,

@@ -6,6 +6,7 @@ import { Bot, Plus, Edit2, Trash2, Database, MessageSquare, Zap, Activity } from
 const ROLES = ['Sales', 'Support', 'Marketing', 'Analysis', 'General'];
 const USE_CASES = [
     { id: 'whatsapp_live', label: 'WhatsApp Automation' },
+    { id: 'website_live_chat', label: 'Website Live Chat (Bot)' },
     { id: 'sms_automation', label: 'SMS Campaigns' },
     { id: 'email_drip', label: 'Email Marketing' },
     { id: 'voice_calls', label: 'Voice AI (ElevenLabs)' },
