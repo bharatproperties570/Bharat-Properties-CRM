@@ -687,16 +687,21 @@ export const addLead = async (req, res, next) => {
         console.log("[DEBUG] addLead called with body:", JSON.stringify(req.body, null, 2));
         const data = { ...req.body };
 
-        // 🔒 Enterprise Isolation: Auto-tag with creator's department and teams
+        // 1. Resolve references first so that manual 'team' selection (singular) is moved into 'teams' array
+        await resolveAllReferenceFields(data);
+        console.log("[DEBUG] Data after resolution:", JSON.stringify(data, null, 2));
+
+        // 2. 🔒 Enterprise Isolation: Auto-tag with creator's department and teams ONLY IF MISSING
+        // We do this AFTER resolution so that manual selections are respected.
         if (req.user) {
             if (req.user.department && !data.department) data.department = req.user.department;
+            
+            // Critical Fix: Only auto-assign creator's teams if the resolved data.teams is still empty
             if (req.user.teams && req.user.teams.length > 0 && (!data.teams || data.teams.length === 0)) {
                 data.teams = req.user.teams.map(t => t._id || t);
             }
         }
 
-        await resolveAllReferenceFields(data);
-        console.log("[DEBUG] Data after resolution:", JSON.stringify(data, null, 2));
         const lead = await Lead.create(data);
         console.log("[DEBUG] Lead created successfully:", lead._id);
 
