@@ -157,30 +157,41 @@ export const processIntake = async ({ mobile, name, email, message, source = 'Wh
         return { type: 'INVENTORY', data: inventory };
     }
 
-    // SCENARIO B: Buyer Intent (Lead Creation)
-    if (intent === 'BUYER') {
-        if (!lead && !contact) {
-            const [firstName, ...rest] = (name || 'Unknown').split(' ');
-            lead = await Lead.create({
-                firstName,
-                lastName: rest.join(' ') || 'User',
-                mobile: normalizedMobile,
-                email: email || undefined,
-                source: await resolveLeadLookup('Source', source),
-                status: await resolveLeadLookup('Status', 'New'),
-                description: message,
-                intent_index: 60
-            });
+    // SCENARIO B: Identity Resolution & Creation
+    if (!lead && !contact) {
+        // Create NEW Lead for unrecognized identity
+        const nameParts = (name || 'Website Visitor').split(' ');
+        const firstName = nameParts[0] || 'Website';
+        const lastName = nameParts.slice(1).join(' ') || 'Visitor';
 
+        lead = await Lead.create({
+            firstName,
+            lastName,
+            mobile: normalizedMobile,
+            email: email || undefined,
+            source: await resolveLeadLookup('Source', source),
+            status: await resolveLeadLookup('Status', 'New'),
+            description: message,
+            intent_index: intent === 'BUYER' ? 70 : 40
+        });
+
+        // Trigger Enterprise Distribution
+        try {
             const { distributeEntity } = await import('./distributionEngine.js');
-            await distributeEntity(lead, `on${source}Capture`);
-            return { type: 'LEAD', data: lead };
+            const cleanSource = source.replace(/[^a-zA-Z0-9]/g, '');
+            await distributeEntity(lead, `on${cleanSource}Capture`);
+        } catch (distErr) {
+            console.error(`[IntakeEngine] Distribution error:`, distErr.message);
         }
+
+        return { type: 'LEAD', data: lead };
     }
 
-    // SCENARIO C: Unknown or Passive
-    console.log(`[IntakeEngine] ℹ️ Unknown or Passive intent. No auto-creation performed.`);
-    return { type: 'PASSIVE', message: 'No action taken' };
+    // SCENARIO C: Return Existing Identity
+    if (lead) return { type: 'LEAD', data: lead };
+    if (contact) return { type: 'CONTACT', data: contact };
+
+    return { type: 'PASSIVE', message: 'No action required' };
 };
 
 export default { processIntake };

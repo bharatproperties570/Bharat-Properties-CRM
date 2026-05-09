@@ -519,6 +519,13 @@ export const websiteLiveBotWebhook = async (req, res) => {
                 messages: [],
                 metadata: { sessionId, isMatched: !!(lead || contact) }
             });
+        } else if (lead || contact) {
+            // Update existing conversation with newly discovered identity
+            if (lead && !conversation.lead) conversation.lead = lead._id;
+            if (contact && !conversation.contact) conversation.contact = contact._id;
+            if (mobile && !conversation.phoneNumber) conversation.phoneNumber = normalizePhone(mobile);
+            conversation.metadata.isMatched = true;
+            await conversation.save();
         }
 
         // Add User Message
