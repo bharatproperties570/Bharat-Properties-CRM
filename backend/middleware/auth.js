@@ -3,6 +3,7 @@ import User from "../models/User.js";
 import jwt from "jsonwebtoken";
 
 export const protect = async (req, res, next) => {
+    console.log(`[PROTECT_AUDIT] Authenticating request: ${req.method} ${req.url}`);
     let token;
     if (req.headers.authorization && req.headers.authorization.startsWith("Bearer")) {
         token = req.headers.authorization.split(" ")[1];

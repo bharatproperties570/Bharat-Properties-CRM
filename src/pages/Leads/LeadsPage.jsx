@@ -34,6 +34,7 @@ import { useCallback } from 'react';
 import usePermissions, { PermissionGate } from '../../hooks/usePermissions';
 
 function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
+    console.log("[Leads Audit] LeadsPage rendering...");
     const {
         scoringAttributes,
         activityMasterFields,

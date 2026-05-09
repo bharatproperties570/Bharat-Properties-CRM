@@ -4,6 +4,8 @@ import axios from 'axios';
 const isProd = import.meta.env.PROD;
 const STABLE_TUNNEL_URL = 'https://bharat-crm-stable-api.loca.lt/api';
 export const API_BASE_URL = import.meta.env.VITE_API_URL || (isProd ? '/api' : STABLE_TUNNEL_URL);
+console.error('[API_AUDIT] API_BASE_URL:', API_BASE_URL);
+console.error('[API_AUDIT] VITE_API_URL from env:', import.meta.env.VITE_API_URL);
 export const BASE_BACKEND_URL = API_BASE_URL.replace(/\/api$/, '');
 
 // 🚀 Senior Professional: Smart Fallback Logic
@@ -86,9 +88,9 @@ export const api = axios.create({
 });
 
 // Add a request interceptor to inject the token
-api.interceptors.request.use(
-    (config) => {
-        const token = localStorage.getItem('authToken');
+api.interceptors.request.use((config) => {
+    console.log(`[API Request Audit] ${config.method?.toUpperCase()} ${config.url}`, config.params);
+    const token = localStorage.getItem('authToken');
         if (token) {
             config.headers.Authorization = `Bearer ${token}`;
         }

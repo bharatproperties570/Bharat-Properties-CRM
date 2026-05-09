@@ -56,7 +56,8 @@ const AppContent = () => {
             const possibleId = path.split('/').pop();
             if (possibleId !== 'deals' && possibleId !== 'match') return 'deal-detail';
         }
-        if (path === '/deals') return 'deals';
+        if (path === '/contacts') return 'contacts';
+        if (path === '/leads') return 'leads';
         if (path === '/activities') return 'activities';
         if (path === '/projects') return 'projects';
         if (path.startsWith('/projects/')) return 'project-detail';
@@ -163,6 +164,8 @@ const AppContent = () => {
                     }
                 } else if (path === '/contacts') {
                     setCurrentView('contacts');
+                } else if (path === '/leads') {
+                    setCurrentView('leads');
                 } else if (path === '/inventory') {
                     setCurrentView('inventory');
                 } else if (path === '/deal-intake') {

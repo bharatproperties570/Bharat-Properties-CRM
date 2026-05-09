@@ -256,16 +256,14 @@ export const getLeads = async (req, res, next) => {
         const visibilityFilter = await getVisibilityFilter(req.user);
         
         // 🛠️ SENIOR DIAGNOSTIC: Log exact request params for Mobile Debugging
-        if (req.user) {
-            const auditData = {
-                user: req.user.email,
-                role: req.user.role?.name || req.user.role,
-                scope: req.user.dataScope,
-                params: req.query,
-                timestamp: new Date().toISOString()
-            };
-            console.log(`[LEAD_AUDIT] Request: ${JSON.stringify(auditData)}`);
-        }
+        const auditData = {
+            user: req.user?.email,
+            role: req.user?.role?.name || req.user?.role,
+            scope: req.user?.dataScope,
+            params: req.query,
+            timestamp: new Date().toISOString()
+        };
+        console.log(`[LEAD_AUDIT] Request reaching controller: ${JSON.stringify(auditData)}`);
 
         let query = { ...visibilityFilter };
 
@@ -671,6 +669,7 @@ export const getLeads = async (req, res, next) => {
             });
         }
 
+        console.log(`[LEAD_AUDIT] Results fetched. Total: ${results.totalCount}, Records: ${results.records?.length}`);
         res.status(200).json({
             success: true,
             ...results
@@ -964,7 +963,11 @@ export const getLeadById = async (req, res, next) => {
         ];
 
         // Check if ID is a valid MongoDB ObjectId
+        console.log("[LEAD_AUDIT] Step 1: Visibility Filter...");
         const visibilityFilter = await getVisibilityFilter(req.user);
+        console.log("[LEAD_AUDIT] Step 2: Base Query...");
+        let query = { ...visibilityFilter };
+        console.log("[LEAD_AUDIT] Step 3: Filters...");
         let lead;
         if (id.match(/^[0-9a-fA-F]{24}$/)) {
             lead = await Lead.findOne({ _id: id, ...visibilityFilter }).populate(leadPopulateReduced);

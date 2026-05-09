@@ -10,12 +10,6 @@ const escapeRegExp = (string) => {
  * Enterprise Visibility Engine v2 — Hardened
  * Generates robust MongoDB $or filters based on User Data Scope and Team assignments.
  * Scopes: assigned | team | department | all
- *
- * SECURITY RULES:
- * 1. isElevated ONLY fires if dataScope==='all' or the user is the system owner email.
- *    Role names (admin, manager) do NOT bypass scope — they use their configured dataScope.
- * 2. team scope with empty teams logs a WARN and falls through to assigned scope.
- * 3. Every resolution path emits a [VISIBLE_AUDIT] log for production diagnostics.
  */
 export const getVisibilityFilter = async (user) => {
     if (!user) {
@@ -23,45 +17,34 @@ export const getVisibilityFilter = async (user) => {
         return { _id: null };
     }
 
-    // 0. Safety: Detect unhydrated token-only objects
-    if (!user.dataScope && !user.teams && user.id) {
-        console.warn(`[VISIBLE_AUDIT] ⚠️  User ${user.id} is unhydrated (no dataScope/teams). Middleware may be missing.`);
-    }
-
     const roleName = user.role?.name?.toLowerCase() || '';
     const userEmail = user.email?.toLowerCase() || '';
     const dataScope = user.dataScope?.toLowerCase() || '';
 
-    // 1. Intelligent Scope Resolution:
-    // 🛡️ [SENIOR FAIL-SAFE] Primary System Owner Emergency Bypass
-    // This is ONLY for the root owners, not general admins.
+    console.log(`[VISIBLE_AUDIT] Starting for user: ${userEmail} scope: ${dataScope}`);
+
     const isSystemOwner = 
         userEmail === 'bharatproperties570@gmail.com' || 
         userEmail === 'shreykeshwar@gmail.com';
 
     if (isSystemOwner || dataScope === 'all') {
-        console.log(`[VISIBLE_AUDIT] ✅ GLOBAL BYPASS GRANTED for: ${user.email} (Scope: ${dataScope || 'Owner'})`);
+        console.log(`[VISIBLE_AUDIT] ✅ GLOBAL BYPASS GRANTED for: ${userEmail}`);
         return {};
     }
 
     const effectiveScope = dataScope || 'assigned';
-
-    // 2. Validate ObjectId
     const userId = user?._id || user?.id;
     if (!userId || !mongoose.Types.ObjectId.isValid(userId.toString())) {
-        console.warn(`[VISIBLE_AUDIT] ⛔ No valid ObjectId for user. Locking down.`);
         return { _id: null };
     }
     const userObjectId = new mongoose.Types.ObjectId(userId.toString());
 
-    // 3. Resolve team IDs
     const rawTeams = Array.isArray(user.teams) ? user.teams : (user.team ? [user.team] : []);
     const userTeams = rawTeams
         .map(t => (t && typeof t === 'object' && t._id) ? t._id : t)
         .filter(t => t && mongoose.Types.ObjectId.isValid(t.toString()))
         .map(t => new mongoose.Types.ObjectId(t.toString()));
 
-    // --- ENTERPRISE VISIBILITY CORE ---
     const baseFilter = {
         $or: [
             { assignedTo: userObjectId },
@@ -70,8 +53,6 @@ export const getVisibilityFilter = async (user) => {
         ]
     };
 
-    // Scoped Everyone records: If user is in a department, "Everyone" only means "Everyone in my department".
-    // If user has NO department, "Everyone" means truly global.
     const everyoneFilter = {
         $and: [
             { 
@@ -83,22 +64,18 @@ export const getVisibilityFilter = async (user) => {
         ]
     };
 
-    // 4. Combine based on effective scope
     let finalFilter;
     if (effectiveScope === 'department' && user.department) {
-        // Department scope: base + teams in my department
         const TeamModel = mongoose.models.Team || mongoose.model('Team');
         const deptTeams = await TeamModel.find({ department: user.department, isActive: true }).select('_id');
         const deptTeamIds = deptTeams.map(t => t._id);
 
-        // For department users, "Everyone" records are also constrained to their department teams
-        // to prevent regional leakage (Mohali vs Kurukshetra).
         everyoneFilter.$and.push({
             $or: [
                 { teams: { $in: deptTeamIds } },
                 { team: { $in: deptTeamIds } },
                 { 'assignment.team': { $in: deptTeamIds } },
-                { team: { $exists: false } }, // Allow truly orphaned Everyone records? User requested strictness.
+                { team: { $exists: false } },
                 { teams: { $size: 0 } }
             ]
         });
@@ -106,7 +83,7 @@ export const getVisibilityFilter = async (user) => {
         finalFilter = {
             $or: [
                 ...baseFilter.$or,
-                { department: user.department }, // Direct branch check
+                { department: user.department },
                 { teams: { $in: deptTeamIds } },
                 { team: { $in: deptTeamIds } },
                 { 'assignment.team': { $in: deptTeamIds } },
@@ -114,7 +91,6 @@ export const getVisibilityFilter = async (user) => {
             ]
         };
     } else if (effectiveScope === 'team') {
-        // Team scope: base + records in my specific teams
         finalFilter = {
             $or: [
                 ...baseFilter.$or,
@@ -136,7 +112,6 @@ export const getVisibilityFilter = async (user) => {
                         }
                     ]
                 },
-                // Include truly global Everyone records if they aren't tied to any team
                 {
                     $and: [
                         { visibleTo: 'Everyone' },
@@ -146,7 +121,6 @@ export const getVisibilityFilter = async (user) => {
             ]
         };
     } else {
-        // Assigned Scope (Default for non-admins)
         finalFilter = {
             $or: [
                 ...baseFilter.$or,
@@ -159,5 +133,3 @@ export const getVisibilityFilter = async (user) => {
     console.log(`[VISIBLE_AUDIT] Final Filter generated for effective scope: ${effectiveScope}`);
     return finalFilter;
 };
-
-
