@@ -35,12 +35,12 @@ const conversationSchema = new mongoose.Schema({
     },
     channel: {
         type: String,
-        enum: ['whatsapp', 'sms', 'web', 'voice'],
+        enum: ['whatsapp', 'sms', 'web', 'voice', 'website_chat'],
         default: 'whatsapp'
     },
     phoneNumber: {
         type: String,
-        required: true,
+        required: false, // Make optional for anonymous website visitors
         index: true
     },
     status: {
