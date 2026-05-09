@@ -248,7 +248,7 @@ const ImportDataPage = () => {
             });
 
             const totalRecords = transformedData.length;
-            const chunkSize = 50; // Process 50 records at a time for live UI updates
+            const chunkSize = 10; // Reduced for more 'live' progress updates as requested by user
             let totalSuccessCount = 0;
             let totalErrorCount = 0;
             let totalNewCount = 0;
@@ -594,7 +594,7 @@ const ImportDataPage = () => {
                                 <div style={{ height: '8px', width: '100%', background: '#e2e8f0', borderRadius: '4px', overflow: 'hidden', marginBottom: '16px' }}>
                                     <div style={{ height: '100%', width: `${progress}%`, background: 'var(--primary-color)', transition: 'width 0.1s' }}></div>
                                 </div>
-                                <p style={{ color: '#64748b' }}>Processing {Math.round((progress / 100) * fileData.data.length)} of {fileData.data.length} records</p>
+                                <p style={{ color: '#64748b', fontWeight: 600 }}>Processing {Math.round((progress / 100) * fileData.data.length)} of {fileData.data.length} records ({progress}%)</p>
                             </div>
                         ) : (
                             <div>

@@ -1275,7 +1275,7 @@ export const importInventory = async (req, res) => {
             }
 
             try {
-                const rawPincode = item.pincode || item['Pincode'] || item['Pin Code'] || item['PinCode'] || item.zipCode || item.zip || item['Zip Code'] || item['Zip'] || item['Postal Code'] || item['PostalCode'] || item['Loc Zip'] || item.locZip;
+                const rawPincode = item.pinCode || item.pincode || item['Pincode'] || item['Pin Code'] || item['PinCode'] || item.zipCode || item.zip || item['Zip Code'] || item['Zip'] || item['Postal Code'] || item['PostalCode'] || item['Loc Zip'] || item.locZip;
                 const rawLocality = item.locality || item['Locality'] || item.area || item['Area'] || item.location || item['Location'] || item.locArea || item['Loc Area'];
 
                 const result = {

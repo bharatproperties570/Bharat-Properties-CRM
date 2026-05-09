@@ -141,9 +141,9 @@ const InventoryTable = ({
                                         // Robust fallback for raw strings or IDs that didn't resolve
                                         const cleanLocality = (locality && !/^[0-9a-fA-F]{24}$/.test(locality)) ? locality : (item.address?.location?.lookup_value || item.address?.locality?.lookup_value || item.address?.location || item.address?.locality || '');
                                         const cleanCity = (city && !/^[0-9a-fA-F]{24}$/.test(city)) ? city : (item.address?.city?.lookup_value || item.address?.city || '');
-                                        const pincode = item.address?.pincode || '';
+                                        const pincode = getLookupValue('Pincode', item.address?.pincode) || item.address?.pincode || '';
 
-                                        return `${renderValue(cleanLocality)}${cleanCity ? ', ' + renderValue(cleanCity) : ''}${pincode ? ' - ' + renderValue(pincode) : ''}`;
+                                        return `${renderValue(cleanLocality)}${cleanCity ? ', ' + renderValue(cleanCity) : ''}${pincode && pincode !== '-' ? ' - ' + renderValue(pincode) : ''}`;
                                     })()}
                                 </div>
                                 {item.block && (
@@ -159,12 +159,21 @@ const InventoryTable = ({
                                     const orientationLabel = getLookupValue('Orientation', item.orientation);
                                     const facingLabel = getLookupValue('Facing', item.facing);
                                     
-                                    // Robust check: Use lookup label, or raw field if it's already a string, or name property if it's an object
-                                    const val = orientationLabel || facingLabel || 
-                                               (typeof item.orientation === 'string' ? item.orientation : (item.orientation?.lookup_value || item.orientation?.name)) ||
-                                               (typeof item.facing === 'string' ? item.facing : (item.facing?.lookup_value || item.facing?.name));
-
-                                    if (!val || val === '-') return null;
+                                     // Prioritize non-placeholder values
+                                    let val = orientationLabel;
+                                    if (!val || val === '-' || val === 'None') val = facingLabel;
+                                    
+                                    // Fallback to raw values if labels fail
+                                    if (!val || val === '-' || val === 'None') {
+                                        val = (typeof item.orientation === 'string' && item.orientation !== '-') ? item.orientation : 
+                                              (item.orientation?.lookup_value || item.orientation?.name);
+                                    }
+                                    if (!val || val === '-' || val === 'None') {
+                                        val = (typeof item.facing === 'string' && item.facing !== '-') ? item.facing : 
+                                              (item.facing?.lookup_value || item.facing?.name);
+                                    }
+ 
+                                     if (!val || val === '-' || val === 'None') return null;
                                     return (
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem', fontWeight: 800, color: '#1e293b' }}>
                                             <i className="fas fa-compass" style={{ fontSize: '0.9rem', color: '#4f46e5' }}></i>
