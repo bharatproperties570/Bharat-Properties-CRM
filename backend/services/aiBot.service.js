@@ -58,38 +58,68 @@ export const generateBotResponse = async (message, context = {}, options = {}) =
         if (agent.memoryAccess && agent.memoryAccess.length > 0) {
             contextString += `--- ENTERPRISE CRM MEMORY ---\n`;
             
-            // 1. Fetch Associated Deals
-            if (agent.memoryAccess.includes('deals') && context.lead?._id) {
+            // A. Detect Location Search Intent (e.g. "Sector 4", "Sec 4", "Nirwana")
+            // This is a professional extraction logic to ensure we find what the user is asking for
+            const locationMatch = message.match(/(?:sector|sec|project|near|at|in)\s+([a-zA-Z0-9\s]{2,20})/i);
+            const searchKeyword = locationMatch ? locationMatch[1].trim() : null;
+            const searchRegex = searchKeyword ? new RegExp(searchKeyword, 'i') : null;
+
+            if (searchKeyword) {
+                contextString += `USER SEARCH INTENT: Searching for properties in "${searchKeyword}"\n`;
+            }
+
+            // 1. Fetch Associated Deals (Linked to user OR matching location)
+            if (agent.memoryAccess.includes('deals')) {
                 const Deal = (await import('../models/Deal.js')).default;
-                const activeDeals = await Deal.find({ 
+                const dealQuery = {
                     $or: [
-                        { leadId: context.lead._id },
-                        { contact: context.lead.contactId }
+                        ...(context.lead?._id ? [{ leadId: context.lead._id }] : []),
+                        ...(searchRegex ? [{ location: searchRegex }, { projectName: searchRegex }] : [])
                     ]
-                }).limit(3).lean();
+                };
+                
+                const activeDeals = await Deal.find(dealQuery)
+                    .limit(5)
+                    .select('projectName location price stage status') // NO UNIT NUMBERS
+                    .lean();
                 
                 if (activeDeals.length > 0) {
-                    contextString += `ACTIVE DEALS:\n`;
+                    contextString += `ACTIVE OFFERS/DEALS:\n`;
                     activeDeals.forEach(d => {
-                        contextString += `- Deal: ${d.name} | Stage: ${d.stage} | Price: ${d.price || 'N/A'}\n`;
+                        contextString += `- ${d.projectName || 'Deal'} | Location: ${d.location || 'Local'} | Status: ${d.stage} | Price: ${d.price || 'N/A'}\n`;
                     });
                 }
             }
 
-            // 2. Fetch Relevant Inventory (Logic: Matching Lead Location/Requirement)
+            // 2. Fetch Relevant Inventory (Location-targeted or Featured)
             if (agent.memoryAccess.includes('inventory')) {
                 const Inventory = (await import('../models/Inventory.js')).default;
-                // Fetch top 5 available properties to act as the agent's "knowledge base"
-                const featuredInventory = await Inventory.find({ status: 'Available' })
-                    .limit(5)
-                    .select('projectName unitNumber price address status')
+                
+                // Smart Filter: If user asked for a location, search it. Otherwise show featured.
+                const inventoryQuery = { status: 'Available' };
+                if (searchRegex) {
+                    inventoryQuery.$or = [
+                        { projectName: searchRegex },
+                        { sector: searchRegex },
+                        { 'address.area': searchRegex },
+                        { 'address.city': searchRegex },
+                        { 'address.locality': searchRegex }
+                    ];
+                }
+
+                const searchResults = await Inventory.find(inventoryQuery)
+                    .limit(searchRegex ? 10 : 5) 
+                    .select('projectName price address sector status') // NO UNIT NUMBERS
                     .lean();
 
-                if (featuredInventory.length > 0) {
-                    contextString += `AVAILABLE INVENTORY (DATABASE):\n`;
-                    featuredInventory.forEach(inv => {
-                        contextString += `- ${inv.projectName} (Unit ${inv.unitNumber}) | Price: ${inv.price?.value || 'Contact'} | Location: ${inv.address?.city || 'Local'}\n`;
+                if (searchResults.length > 0) {
+                    contextString += `MATCHING AVAILABLE INVENTORY:\n`;
+                    searchResults.forEach(inv => {
+                        const loc = inv.sector || inv.address?.area || inv.address?.city || 'Local';
+                        contextString += `- ${inv.projectName} | Location: ${loc} | Price: ${inv.price?.value || 'Contact'}\n`;
                     });
+                } else if (searchRegex) {
+                    contextString += `SYSTEM NOTE: No exact matches found for "${searchKeyword}" in Inventory. Please ask for more details.\n`;
                 }
             }
             contextString += `\n`;
@@ -97,10 +127,11 @@ export const generateBotResponse = async (message, context = {}, options = {}) =
 
         const userPrompt = `
 ### HIGH-PRIORITY INSTRUCTIONS:
-1. INVENTORY is our master database. If a user provides "Project/Sector Name" and "Unit/Plot Number", DO NOT ask for Size or Location (we already have it).
-2. If a client wants to SELL, follow this sequence: Project/Sector Name -> Unit Number -> Expected Price. Skip everything else.
-3. DEALS are transactions created FROM Inventory.
-4. If a client wants to BUY, refer to the "AVAILABLE INVENTORY" section and offer matching units.
+1. INVENTORY is our master database. Discuss Project/Sector names and Pricing freely.
+2. 🔒 DATA PRIVACY: NEVER share specific Unit Numbers or Plot Numbers (e.g. Unit 45, Plot 12) with the user. Only discuss the general availability in the Sector/Project.
+3. If a client wants to SELL, follow this sequence: Project/Sector Name -> Expected Price. (Do not ask for unit number).
+4. DEALS are transactions created FROM Inventory.
+5. If a client wants to BUY, refer to the "AVAILABLE INVENTORY" section and offer matching projects.
 
 CURRENT CRM CONTEXT:
 ${contextString}
