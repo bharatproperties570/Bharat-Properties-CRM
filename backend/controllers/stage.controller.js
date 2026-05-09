@@ -13,6 +13,7 @@ import Activity from "../models/Activity.js";
 import Lookup from '../models/Lookup.js';
 import AuditLog from '../models/AuditLog.js';
 import mongoose from 'mongoose';
+import { getVisibilityFilter } from "../utils/visibility.js";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
