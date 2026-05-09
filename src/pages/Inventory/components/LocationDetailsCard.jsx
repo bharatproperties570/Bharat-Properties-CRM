@@ -39,7 +39,8 @@ const LocationDetailsCard = ({ inventory, getLookupValue, onUpdateLocation }) =>
         renderValue(getLookupValue('Tehsil', address.tehsil)),
         renderValue(getLookupValue('PostOffice', address.postOffice) || address.postOffice),
         renderValue(getLookupValue('City', address.city)),
-        renderValue(getLookupValue('State', address.state))
+        renderValue(getLookupValue('State', address.state)),
+        renderValue(getLookupValue('Pincode', address.pincode))
     ].filter(p => p && p !== '-');
     
     const fullAddress = fullAddressParts.length > 0 
