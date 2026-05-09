@@ -462,10 +462,9 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
 export const websiteLiveBotWebhook = async (req, res) => {
     try {
         const { sessionId, message, name, mobile, email } = req.body;
+        console.log(`[WEBSITE_CHAT_AUDIT] Incoming from Session: ${sessionId} | Msg: ${message}`);
 
         if (!sessionId || !message) {
-            return res.status(400).json({ success: false, message: 'sessionId and message are required' });
-        }
 
         let lead = null;
         let contact = null;

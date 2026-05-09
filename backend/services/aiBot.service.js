@@ -123,8 +123,8 @@ ${message}
         };
 
     } catch (error) {
-        console.error("AI Service Error:", error.message);
-        return { success: false, error: 'Failed to generate AI response' };
+        console.error("AI Service Error:", error.message, error.stack);
+        return { success: false, error: 'Failed to generate AI response: ' + error.message };
     }
 };
 
