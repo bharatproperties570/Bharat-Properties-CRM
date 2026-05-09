@@ -238,7 +238,8 @@ const leadListPopulateFields = [
     { path: 'owner', select: 'fullName email name' },
     { path: 'assignment.assignedTo', select: 'fullName name email' },
     { path: 'assignment.team', select: 'name' },
-    { path: 'teams', select: 'name' }
+    { path: 'teams', select: 'name' },
+    { path: 'contactDetails' }
 ];
 
 /**

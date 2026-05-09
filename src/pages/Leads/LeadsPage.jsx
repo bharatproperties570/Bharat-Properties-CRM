@@ -253,10 +253,10 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                     const contact = lead.contactDetails || {};
                     const firstName = contact.name || lead.firstName || "";
                     const lastName = contact.surname || lead.lastName || "";
-                    const rawSalutation = contact.title?.lookup_value || contact.title || lead.salutation || "";
+                    const rawSalutation = contact.title?.lookup_value || (typeof contact.title === 'object' ? contact.title?.name : contact.title) || (typeof lead.salutation === 'object' ? lead.salutation?.lookup_value || lead.salutation?.name : lead.salutation) || "";
                     const salutation = (typeof rawSalutation === 'string' && rawSalutation.match(/^[0-9a-fA-F]{24}$/)) 
                         ? (getLookupValue('Title', rawSalutation) || "") 
-                        : (rawSalutation || "").trim();
+                        : String(rawSalutation || "").trim();
                     const name = firstName ? `${salutation} ${firstName} ${lastName}`.trim() : (lead.name || "Unknown");
 
                     // EXPIRY LOGIC

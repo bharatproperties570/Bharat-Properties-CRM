@@ -166,3 +166,4 @@ test-ai.js
 dump.rdb
 .expo/
 *.pem
+backend_log.txt
