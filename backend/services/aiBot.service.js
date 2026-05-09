@@ -59,7 +59,6 @@ export const generateBotResponse = async (message, context = {}, options = {}) =
             contextString += `--- ENTERPRISE CRM MEMORY ---\n`;
             
             // A. Detect Location Search Intent (e.g. "Sector 4", "Sec 4", "Nirwana")
-            // This is a professional extraction logic to ensure we find what the user is asking for
             const locationMatch = message.match(/(?:sector|sec|project|near|at|in)\s+([a-zA-Z0-9\s]{2,20})/i);
             const searchKeyword = locationMatch ? locationMatch[1].trim() : null;
             const searchRegex = searchKeyword ? new RegExp(searchKeyword, 'i') : null;
@@ -68,49 +67,77 @@ export const generateBotResponse = async (message, context = {}, options = {}) =
                 contextString += `USER SEARCH INTENT: Searching for properties in "${searchKeyword}"\n`;
             }
 
-            // 1. Fetch Associated Deals (Linked to user OR matching location)
+            // 1. 🤝 CUSTOMER RELATIONSHIP CONTEXT (Activities & Past Communication)
+            // This satisfies the user's request for "behavioral intelligence"
+            if (agent.memoryAccess.includes('communications') && (context.lead?._id || context.lead?.id)) {
+                const Activity = (await import('../models/Activity.js')).default;
+                const Conversation = (await import('../models/Conversation.js')).default;
+                const leadId = context.lead?._id || context.lead?.id;
+
+                // Fetch recent activities to gauge behavior
+                const recentActivities = await Activity.find({ entityId: leadId }).sort({ createdAt: -1 }).limit(10).lean();
+                
+                // Fetch past conversations (excluding current) to gauge history
+                const pastConvos = await Conversation.find({ 
+                    $or: [{ lead: leadId }, { contact: context.lead.contactId }],
+                    _id: { $ne: context.conversationId } 
+                }).sort({ updatedAt: -1 }).limit(1).lean();
+
+                contextString += `RELATIONSHIP INTELLIGENCE:\n`;
+                
+                if (recentActivities.length > 0) {
+                    const completedSiteVisits = recentActivities.filter(a => a.type === 'Site Visit' && a.status === 'Completed').length;
+                    const missedCalls = recentActivities.filter(a => a.type === 'Call' && a.status === 'Missed').length;
+                    const dealWins = recentActivities.filter(a => a.type === 'Deal' && a.status === 'Closed Won').length;
+                    
+                    contextString += `- Interaction Profile: ${dealWins > 0 ? 'Existing Customer (Has bought before)' : (completedSiteVisits > 0 ? 'Serious Prospect (Attended Site Visits)' : 'New Discovery')}\n`;
+                    contextString += `- Behavioral Note: ${missedCalls > 2 ? 'Client often misses calls. Prefer messaging.' : 'Highly responsive'}\n`;
+                    contextString += `- Latest Engagement: ${recentActivities[0].type} was ${recentActivities[0].status} on ${new Date(recentActivities[0].createdAt).toLocaleDateString()}\n`;
+                }
+
+                if (pastConvos.length > 0) {
+                    const lastMsg = pastConvos[0].messages?.slice(-1)[0];
+                    contextString += `- Historical Snapshot: Last contact was ${new Date(pastConvos[0].updatedAt).toLocaleDateString()}. Previously discussed: "${lastMsg?.content?.substring(0, 60)}..."\n`;
+                }
+                contextString += `\n`;
+            }
+
+            // 2. Fetch Associated Deals (Linked to user OR matching location)
             if (agent.memoryAccess.includes('deals')) {
                 const Deal = (await import('../models/Deal.js')).default;
+                const leadId = context.lead?._id || context.lead?.id;
                 const dealQuery = {
                     $or: [
-                        ...(context.lead?._id ? [{ leadId: context.lead._id }] : []),
+                        ...(leadId ? [{ leadId: leadId }] : []),
                         ...(searchRegex ? [{ location: searchRegex }, { projectName: searchRegex }] : [])
                     ]
                 };
                 
                 const activeDeals = await Deal.find(dealQuery)
                     .limit(5)
-                    .select('projectName location price stage status') // NO UNIT NUMBERS
+                    .select('projectName location price stage status leadId') // NO UNIT NUMBERS
                     .lean();
                 
                 if (activeDeals.length > 0) {
                     contextString += `ACTIVE OFFERS/DEALS:\n`;
                     activeDeals.forEach(d => {
-                        contextString += `- ${d.projectName || 'Deal'} | Location: ${d.location || 'Local'} | Status: ${d.stage} | Price: ${d.price || 'N/A'}\n`;
+                        const isPersonal = String(d.leadId) === String(leadId);
+                        contextString += `- ${d.projectName || 'Deal'} | Location: ${d.location || 'Local'} | Status: ${d.stage} ${isPersonal ? '(CLIENT ALREADY HAS AN ACTIVE TRANSACTION FOR THIS)' : ''}\n`;
                     });
                 }
             }
 
-            // 2. Fetch Relevant Inventory (Location-targeted or Featured)
+            // 3. Fetch Relevant Inventory (Location-targeted or Featured)
             if (agent.memoryAccess.includes('inventory')) {
                 const Inventory = (await import('../models/Inventory.js')).default;
-                
-                // Smart Filter: If user asked for a location, search it. Otherwise show featured.
                 const inventoryQuery = { status: 'Available' };
                 if (searchRegex) {
                     inventoryQuery.$or = [
-                        { projectName: searchRegex },
-                        { sector: searchRegex },
-                        { 'address.area': searchRegex },
-                        { 'address.city': searchRegex },
-                        { 'address.locality': searchRegex }
+                        { projectName: searchRegex }, { sector: searchRegex }, { 'address.area': searchRegex }, { 'address.city': searchRegex }, { 'address.locality': searchRegex }
                     ];
                 }
 
-                const searchResults = await Inventory.find(inventoryQuery)
-                    .limit(searchRegex ? 10 : 5) 
-                    .select('projectName price address sector status') // NO UNIT NUMBERS
-                    .lean();
+                const searchResults = await Inventory.find(inventoryQuery).limit(searchRegex ? 10 : 5).select('projectName price address sector status').lean();
 
                 if (searchResults.length > 0) {
                     contextString += `MATCHING AVAILABLE INVENTORY:\n`;
@@ -119,7 +146,7 @@ export const generateBotResponse = async (message, context = {}, options = {}) =
                         contextString += `- ${inv.projectName} | Location: ${loc} | Price: ${inv.price?.value || 'Contact'}\n`;
                     });
                 } else if (searchRegex) {
-                    contextString += `SYSTEM NOTE: No exact matches found for "${searchKeyword}" in Inventory. Please ask for more details.\n`;
+                    contextString += `SYSTEM NOTE: No exact matches found for "${searchKeyword}" in Inventory.\n`;
                 }
             }
             contextString += `\n`;

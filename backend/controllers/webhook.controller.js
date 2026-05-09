@@ -552,6 +552,7 @@ export const websiteLiveBotWebhook = async (req, res) => {
         
         const aiContext = {
             chatHistory: chatHistoryContext,
+            conversationId: conversation._id,
             lead: lead ? {
                 id: lead._id,
                 firstName: lead.firstName,
