@@ -58,13 +58,28 @@ export const generateBotResponse = async (message, context = {}, options = {}) =
         if (agent.memoryAccess && agent.memoryAccess.length > 0) {
             contextString += `--- ENTERPRISE CRM MEMORY ---\n`;
             
-            // A. Detect Location Search Intent (e.g. "Sector 4", "Sec 4", "Nirwana")
-            const locationMatch = message.match(/(?:sector|sec|project|near|at|in)\s+([a-zA-Z0-9\s]{2,20})/i);
-            const searchKeyword = locationMatch ? locationMatch[1].trim() : null;
+            // A. Advanced Keyword Extraction for Real Estate (Sector 4, Sec-4, Nirwana, etc.)
+            let searchKeyword = null;
+            // Clean common fillers to avoid pollution in search
+            const cleanMsg = message.replace(/\b(dilwa|do|mein|me|hai|tha|ka|ki|ke|available|hai|plots|plot|chahiye|need|want|looking|for)\b/gi, ' ').trim();
+            
+            const locationMatch = message.match(/(?:sector|sec|project|near|at|in|area)\s+([a-zA-Z0-9\-\/\s]{1,15})/i);
+            
+            if (locationMatch) {
+                // Extract just the core identifier (e.g. "4" from "4 mein")
+                searchKeyword = locationMatch[1].trim().split(/\s+/)[0]; 
+            } else {
+                // Fallback: Look for any standalone number or proper noun in the cleaned message
+                const words = cleanMsg.split(/\s+/);
+                const numberWord = words.find(w => /^[0-9]{1,3}[a-zA-Z]?$/.test(w));
+                if (numberWord) searchKeyword = numberWord;
+            }
+
+            console.log(`[AI_BOT_DEBUG] Target Search Keyword: "${searchKeyword}" | Msg: "${message}"`);
             const searchRegex = searchKeyword ? new RegExp(searchKeyword, 'i') : null;
 
             if (searchKeyword) {
-                contextString += `USER SEARCH INTENT: Searching for properties in "${searchKeyword}"\n`;
+                contextString += `USER SEARCH INTENT: Specifically searching for properties related to "${searchKeyword}"\n`;
             }
 
             // 1. 🤝 CUSTOMER RELATIONSHIP CONTEXT (Activities & Past Communication)
@@ -154,8 +169,8 @@ export const generateBotResponse = async (message, context = {}, options = {}) =
 
         const userPrompt = `
 ### HIGH-PRIORITY INSTRUCTIONS:
-1. INVENTORY is our master database. Discuss Project/Sector names and Pricing freely.
-2. 🔒 DATA PRIVACY: NEVER share specific Unit Numbers or Plot Numbers (e.g. Unit 45, Plot 12) with the user. Only discuss the general availability in the Sector/Project.
+1. 🟢 ABSOLUTE TRUTH: The "ENTERPRISE CRM MEMORY" section below is the absolute source of truth. If you see matching properties or deals for the user's requested location (e.g. Sector 4), you MUST acknowledge them. Never say "not available" if a match exists in the memory.
+2. 🔒 DATA PRIVACY: NEVER share specific Unit Numbers or Plot Numbers. Only discuss Project names, Locations, and Prices.
 3. If a client wants to SELL, follow this sequence: Project/Sector Name -> Expected Price. (Do not ask for unit number).
 4. DEALS are transactions created FROM Inventory.
 5. If a client wants to BUY, refer to the "AVAILABLE INVENTORY" section and offer matching projects.
