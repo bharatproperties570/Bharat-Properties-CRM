@@ -23,6 +23,7 @@ class UnifiedAIService {
      * @param {Object} options - { provider, temperature, maxTokens, systemPrompt }
      */
     async generate(prompt, options = {}) {
+        console.log(`[UnifiedAI_AUDIT] Request Received. Options: ${JSON.stringify(options)}`);
         const preferred = options.provider || await this._getPreferredProvider();
         const providers = [preferred, 'openai', 'gemini', 'claude'].filter((v, i, a) => a.indexOf(v) === i);
 
