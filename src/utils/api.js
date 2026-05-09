@@ -2,7 +2,7 @@
 import axios from 'axios';
 
 const isProd = import.meta.env.PROD;
-const STABLE_TUNNEL_URL = 'https://bharat-crm-stable-api.loca.lt/api';
+const STABLE_TUNNEL_URL = 'https://crm-bharat-api-v5.loca.lt/api';
 export const API_BASE_URL = import.meta.env.VITE_API_URL || (isProd ? '/api' : STABLE_TUNNEL_URL);
 console.error('[API_AUDIT] API_BASE_URL:', API_BASE_URL);
 console.error('[API_AUDIT] VITE_API_URL from env:', import.meta.env.VITE_API_URL);
