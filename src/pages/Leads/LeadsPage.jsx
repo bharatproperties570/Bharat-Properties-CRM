@@ -1097,11 +1097,18 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                             console.log(`[Assignment Audit] Assigning lead ${lead._id} to ${assignmentDetails.assignedTo}`);
                             return api.put(`leads/${lead._id}`, {
                                 owner: assignmentDetails.assignedTo,
+                                teams: assignmentDetails.team ? [assignmentDetails.team] : undefined,
                                 assignment: {
                                     assignedTo: assignmentDetails.assignedTo,
-                                    team: assignmentDetails.team,
+                                    team: assignmentDetails.team ? [assignmentDetails.team] : undefined,
+                                    reason: assignmentDetails.reason || 'Manual Reassignment',
+                                    notes: assignmentDetails.notes,
                                     method: 'Manual'
-                                }
+                                },
+                                // Propagation flags for future use
+                                notifyUser: assignmentDetails.notifyUser,
+                                sendEmail: assignmentDetails.sendEmail,
+                                sendWhatsApp: assignmentDetails.sendWhatsApp
                             });
                         });
                         

@@ -39,6 +39,23 @@ const AssignContactModal = ({ isOpen, onClose, selectedContacts = [], onAssign, 
         }
     }, [isOpen]);
 
+    // --- Enterprise Logic: Auto-sync Team when User is selected ---
+    useEffect(() => {
+        if (formData.assignedTo && !selectedTeam) {
+            const user = users.find(u => (u._id || u.id) === formData.assignedTo);
+            if (user) {
+                // If user has teams, pick the first one as default
+                const teamId = (user.teams && user.teams.length > 0) 
+                    ? (user.teams[0]._id || user.teams[0]) 
+                    : (user.team?._id || user.team);
+                
+                if (teamId) {
+                    setSelectedTeam(teamId.toString());
+                }
+            }
+        }
+    }, [formData.assignedTo, users, selectedTeam]);
+
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target;
         setFormData(prev => ({
@@ -50,32 +67,26 @@ const AssignContactModal = ({ isOpen, onClose, selectedContacts = [], onAssign, 
     const handleAssign = () => {
         if (!formData.assignedTo) return; // Validation
 
-        // Mock processing
+        // Enterprise Payload Construction
         const assignmentDetails = {
             ...formData,
-            team: selectedTeam, // Include selected team
-            contacts: selectedContacts.map(c => c.id || c._id || c.name), // Handle both id formats and fallback
+            team: selectedTeam, // Now contains ID
+            contacts: selectedContacts.map(c => c.id || c._id || c.name),
             timestamp: new Date().toISOString()
         };
 
         if (onAssign) onAssign(assignmentDetails);
         onClose();
-
-        // Simple success feedback (could be a toast in real app)
-        // alert(isBulk
-        //     ? `${selectedContacts.length} ${entityName}s assigned successfully!`
-        //     : `${entityName} assigned successfully!`);
     };
 
     if (!isOpen) return null;
 
-    // Filter users list based on selected team
-    // Assuming user objects have a 'team' property or similar, or we just filter by team name if available
-    // If no team property on user, we show all users or try to match by team name
-    // For now, let's assume we just show all users if no team logic exists on user object, 
-    // or filter if user.team matches selectedTeam.
+    // Filter users list based on selected team using ID-based matching
     const filteredUsers = selectedTeam
-        ? users.filter(u => u.team === selectedTeam || u.teamId === selectedTeam || !u.team) // simplistic filter, adjust based on real user model
+        ? users.filter(u => {
+            const userTeams = u.teams || (u.team ? [u.team] : []);
+            return userTeams.some(t => (t._id || t).toString() === selectedTeam);
+        })
         : users;
 
     // --- Styles ---
@@ -192,7 +203,7 @@ const AssignContactModal = ({ isOpen, onClose, selectedContacts = [], onAssign, 
                         >
                             <option value="">All Teams</option>
                             {teams && teams.map(team => (
-                                <option key={team._id || team.id} value={team.name}>
+                                <option key={team._id || team.id} value={team._id || team.id}>
                                     {team.name}
                                 </option>
                             ))}

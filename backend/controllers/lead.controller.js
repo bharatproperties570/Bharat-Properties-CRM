@@ -845,8 +845,13 @@ export const updateLead = async (req, res, next) => {
             const newOwner = updateData.owner || updateData.assignment?.assignedTo || updateData['assignment.assignedTo'];
             const oldOwner = existing.owner || existing.assignment?.assignedTo;
             if (newOwner && String(newOwner) !== String(oldOwner)) {
-                requiresHistoryUpdate = true;
-                historyUpdate.$push = historyUpdate.$push || {};
+                // [ENTERPRISE] Sync Lead Department with new Owner
+                const User = mongoose.model('User');
+                const ownerUser = await User.findById(newOwner).select('department').lean();
+                if (ownerUser?.department) {
+                    updateData.department = ownerUser.department;
+                }
+
                 historyUpdate.$push['assignment.history'] = {
                     assignedTo: newOwner,
                     assignedBy: req.user?.id,
