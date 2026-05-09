@@ -110,9 +110,9 @@ ${message}
 `;
 
         // Dispatch through Unified AI Service...
-        // Passing systemPrompt separately allows better model adherence (system role in OpenAI / systemInstruction in Gemini)
         const reply = await unifiedAIService.generate(userPrompt, { 
             provider: agent.provider,
+            model: agent.modelName, // PASS THE AGENT'S CONFIGURED MODEL
             systemPrompt: agent.systemPrompt
         });
 
