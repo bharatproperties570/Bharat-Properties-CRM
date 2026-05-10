@@ -1215,34 +1215,9 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
                         {renderValue(getLookupValue('Category', deal.category) || getLookupValue('PropertyType', deal.propertyType), 'N/A')}
                         {deal.subCategory ? ` - ${renderValue(getLookupValue('SubCategory', deal.subCategory))}` : ''}
                     </div>
-                    <div style={{ fontSize: '0.68rem', color: '#94a3b8', fontWeight: 600, marginTop: '2px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        {(() => {
-                            // Unified logic from InventoryTable.jsx for consistency
-                            const sizeVal = getLookupValue('Size', deal.sizeConfig) || deal.sizeLabel || deal.unitSpecification?.sizeLabel;
-                            
-                            if (sizeVal && sizeVal !== '-' && sizeVal !== 'N/A') {
-                                return (
-                                    <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#4338ca', background: '#e0e7ff', padding: '2px 6px', borderRadius: '4px' }}>
-                                        {renderValue(sizeVal)}
-                                    </span>
-                                );
-                            }
-
-                            // Fallback to raw size + unit
-                            const rawSize = deal.size;
-                            const sizeUnit = deal.sizeUnit || (typeof deal.size === 'object' ? deal.size?.unit : '');
-                            
-                            if (rawSize && rawSize !== '-') {
-                                return (
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#2563eb', fontWeight: 700 }}>
-                                        <i className="fas fa-expand-arrows-alt" style={{ fontSize: '0.65rem' }}></i>
-                                        {renderValue(rawSize)} {renderValue(sizeUnit)}
-                                    </div>
-                                );
-                            }
-                            
-                            return <span style={{ color: '#cbd5e1' }}>--</span>;
-                        })()}
+                    <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#2563eb', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <i className="fas fa-expand-arrows-alt" style={{ fontSize: '0.65rem' }}></i>
+                        {renderValue(getLookupValue('Size', deal.sizeConfig)) || renderValue(deal.sizeLabel) || `${renderValue(deal.size)} ${renderValue(deal.sizeUnit) || (typeof deal.size === 'object' ? renderValue(deal.size?.unit) : '')}`}
                     </div>
                 </div>
             </div>

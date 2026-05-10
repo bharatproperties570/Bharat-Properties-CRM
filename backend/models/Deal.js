@@ -38,6 +38,8 @@ const DealSchema = new mongoose.Schema({
     // Size & Specs
     size: mongoose.Schema.Types.Mixed,
     sizeUnit: String,
+    sizeConfig: { type: mongoose.Schema.Types.Mixed, index: true },
+    sizeLabel: String,
     corner: String,
 
     // Pricing
@@ -340,6 +342,7 @@ DealSchema.pre('findOneAndUpdate', async function (next) {
         if (setUpdate.category) setUpdate.category = await resolveLookup('Category', setUpdate.category);
         if (setUpdate.subCategory) setUpdate.subCategory = await resolveLookup('SubCategory', setUpdate.subCategory);
         if (setUpdate.intent) setUpdate.intent = await resolveLookup('Intent', setUpdate.intent);
+        if (setUpdate.sizeConfig) setUpdate.sizeConfig = await resolveLookup('Size', setUpdate.sizeConfig);
     };
 
     resolveAndUpdate().then(() => next()).catch(next);

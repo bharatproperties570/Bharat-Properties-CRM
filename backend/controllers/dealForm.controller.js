@@ -128,6 +128,15 @@ export const submitDealForm = async (req, res) => {
 
         if (inventory) {
             dealData.inventoryId = inventory._id;
+            // 🧠 SENIOR PROFESSIONAL: Mirror Inventory Metadata for consistent rendering
+            dealData.sizeConfig = inventory.sizeConfig;
+            dealData.sizeLabel = inventory.sizeLabel;
+            dealData.size = inventory.size;
+            dealData.sizeUnit = inventory.sizeUnit;
+            dealData.category = inventory.category;
+            dealData.subCategory = inventory.subCategory;
+            dealData.unitType = inventory.unitType;
+            dealData.propertyType = inventory.propertyType;
         }
 
         // 2. Handle Contact Creation/Linking
