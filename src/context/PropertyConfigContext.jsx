@@ -1131,8 +1131,15 @@ export const PropertyConfigProvider = ({ children }) => {
                 if (id) map.set(id.toString(), p.name || p.projectName || p.title);
             });
         }
+        // 3. Add all sizes (Specialized Lookup Category)
+        if (Array.isArray(sizes)) {
+            sizes.forEach(s => {
+                const id = s._id || s.id;
+                if (id) map.set(id.toString(), s.name || s.lookup_value);
+            });
+        }
         return map;
-    }, [lookups, projects]);
+    }, [lookups, projects, sizes]);
 
     const typeValueMap = React.useMemo(() => {
         const map = new Map(); // Map<normalizedType, Map<standardizedValue, id>>

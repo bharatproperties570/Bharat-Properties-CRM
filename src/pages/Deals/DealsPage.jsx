@@ -1218,7 +1218,10 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
                         <i className="fas fa-expand-arrows-alt" style={{ fontSize: '0.65rem' }}></i>
                         {(() => {
                             const sizeFromLookup = getLookupValue('Size', deal.sizeConfig);
-                            if (sizeFromLookup && sizeFromLookup !== '-') return renderValue(sizeFromLookup);
+                            // Ensure we don't show an ID as a fallback if lookup failed to find a label
+                            const isId = (val) => typeof val === 'string' && /^[0-9a-fA-F]{24}$/.test(val);
+                            
+                            if (sizeFromLookup && sizeFromLookup !== '-' && !isId(sizeFromLookup)) return renderValue(sizeFromLookup);
                             if (deal.sizeLabel) return renderValue(deal.sizeLabel);
                             if (deal.size) return `${renderValue(deal.size)} ${renderValue(deal.sizeUnit)}`;
                             return 'N/A';

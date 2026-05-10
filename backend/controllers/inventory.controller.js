@@ -592,7 +592,8 @@ export const getInventoryById = async (req, res) => {
             { field: 'orientation', type: 'Orientation' },
             { field: 'intent', type: 'Intent' },
             { field: 'builtupType', type: 'BuiltupType' },
-            { field: 'roadWidth', type: 'RoadWidth' }
+            { field: 'roadWidth', type: 'RoadWidth' },
+            { field: 'sizeConfig', type: 'Size' }
         ];
 
         for (const { field, type } of mixedFields) {
