@@ -512,17 +512,20 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                         <>
                             <DealTechnicalSpecs 
                                 deal={deal} 
+                                inventory={inventory}
                                 getLookupValue={getLookupValue}
                                 getStrictLookupValue={(field, val) => getLookupValue(field, val)}
                             />
 
                             <DealGeography 
                                 deal={deal} 
+                                inventory={inventory}
                                 getLookupValue={getLookupValue} 
                             />
 
                             <DealBuiltupDetails 
                                 deal={deal} 
+                                inventory={inventory}
                                 getLookupValue={getLookupValue} 
                             />
                         </>

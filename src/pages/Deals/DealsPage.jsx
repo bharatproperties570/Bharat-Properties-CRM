@@ -809,7 +809,6 @@ function DealsPage({ onNavigate, onAddActivity }) {
                     </div>
 
 
-
                     {/* Active Filters Chips */}
                     <ActiveFiltersChips
                         filters={filters}
@@ -1217,7 +1216,13 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
                     </div>
                     <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#2563eb', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <i className="fas fa-expand-arrows-alt" style={{ fontSize: '0.65rem' }}></i>
-                        {renderValue(getLookupValue('Size', deal.sizeConfig)) || renderValue(deal.sizeLabel) || `${renderValue(deal.size)} ${renderValue(deal.sizeUnit) || (typeof deal.size === 'object' ? renderValue(deal.size?.unit) : '')}`}
+                        {(() => {
+                            const sizeFromLookup = getLookupValue('Size', deal.sizeConfig);
+                            if (sizeFromLookup && sizeFromLookup !== '-') return renderValue(sizeFromLookup);
+                            if (deal.sizeLabel) return renderValue(deal.sizeLabel);
+                            if (deal.size) return `${renderValue(deal.size)} ${renderValue(deal.sizeUnit)}`;
+                            return 'N/A';
+                        })()}
                     </div>
                 </div>
             </div>
