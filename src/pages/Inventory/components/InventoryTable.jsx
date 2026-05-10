@@ -112,6 +112,10 @@ const InventoryTable = ({
                                         <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#1e293b', lineHeight: 1.1 }}>
                                             {renderValue(getLookupValue('Category', item.category))} | {renderValue(getLookupValue('SubCategory', item.subCategory))}
                                         </div>
+                                        <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#2563eb', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <i className="fas fa-expand-arrows-alt" style={{ fontSize: '0.65rem' }}></i>
+                                            {renderValue(getLookupValue('Size', item.sizeConfig)) || renderValue(item.sizeLabel) || `${renderValue(item.size)} ${renderValue(item.sizeUnit) || (typeof item.size === 'object' ? renderValue(item.size?.unit) : '')}`}
+                                        </div>
                                     </div>
                                 </div>
 
@@ -136,24 +140,49 @@ const InventoryTable = ({
                                                 const city = getLookupValue('City', item.address?.city);
                                                 const cleanLocality = (locality && !/^[0-9a-fA-F]{24}$/.test(locality)) ? locality : (item.address?.location?.lookup_value || item.address?.locality?.lookup_value || item.address?.location || item.address?.locality || '');
                                                 const cleanCity = (city && !/^[0-9a-fA-F]{24}$/.test(city)) ? city : (item.address?.city?.lookup_value || item.address?.city || '');
-                                                return `${renderValue(cleanLocality)}${cleanCity ? ', ' + renderValue(cleanCity) : ''}`;
+                                                const pincode = getLookupValue('Pincode', item.address?.pincode) || item.address?.pincode || '';
+                                                return `${renderValue(cleanLocality)}${cleanCity ? ', ' + renderValue(cleanCity) : ''}${pincode && pincode !== '-' ? ' - ' + renderValue(pincode) : ''}`;
                                             })()}
                                         </span>
                                     </div>
+                                    {item.block && (
+                                        <div style={{ marginTop: '4px' }}>
+                                            <span style={{ fontSize: '0.58rem', padding: '2px 8px', background: '#f1f5f9', color: '#475569', fontWeight: 800, borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                                                BLOCK: {renderValue(item.block)}
+                                            </span>
+                                        </div>
+                                    )}
                                 </div>
 
                                 {/* Col 4: Orientation */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                                     {(() => {
                                         const orientationLabel = getLookupValue('Orientation', item.orientation);
                                         const facingLabel = getLookupValue('Facing', item.facing);
                                         let val = orientationLabel;
                                         if (!val || val === '-' || val === 'None') val = facingLabel;
+                                        
+                                        // Fallback to raw values if labels fail
+                                        if (!val || val === '-' || val === 'None') {
+                                            val = (typeof item.orientation === 'string' && item.orientation !== '-') ? item.orientation : 
+                                                  (item.orientation?.lookup_value || item.orientation?.name);
+                                        }
+
                                         if (!val || val === '-' || val === 'None') return null;
                                         return (
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem', fontWeight: 800, color: '#1e293b' }}>
                                                 <i className="fas fa-compass" style={{ fontSize: '0.85rem', color: '#4f46e5' }}></i>
                                                 {renderValue(val)}
+                                            </div>
+                                        );
+                                    })()}
+                                    {(() => {
+                                        const dir = getLookupValue('Direction', item.direction);
+                                        if (!dir) return null;
+                                        return (
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.72rem', color: '#64748b', fontWeight: 700 }}>
+                                                <i className="fas fa-location-arrow" style={{ fontSize: '0.75rem', color: '#94a3b8' }}></i>
+                                                {renderValue(dir)}
                                             </div>
                                         );
                                     })()}
