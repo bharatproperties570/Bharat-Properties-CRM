@@ -2797,7 +2797,7 @@ body {
 /* Inventory Module Optimized Grid (Split Version) */
 .inventory-list-grid {
     display: grid;
-    grid-template-columns: 40px minmax(160px, 1.1fr) minmax(220px, 1.3fr) minmax(140px, 0.7fr) minmax(150px, 0.8fr) minmax(140px, 0.8fr) 280px minmax(150px, 1fr) 120px;
+    grid-template-columns: 40px minmax(160px, 1.1fr) minmax(200px, 1.1fr) minmax(180px, 0.9fr) minmax(150px, 0.8fr) minmax(140px, 0.8fr) 280px minmax(150px, 1fr) 120px;
     gap: 1.5rem;
     width: 100%;
 }
