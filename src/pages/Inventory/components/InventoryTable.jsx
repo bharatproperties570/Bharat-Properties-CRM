@@ -154,49 +154,51 @@ const InventoryTable = ({
                                     )}
                                 </div>
 
-                                {/* Col 4: Orientation & Features */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-                                        {(() => {
-                                            const orientationLabel = getLookupValue('Orientation', item.orientation);
-                                            const facingLabel = getLookupValue('Facing', item.facing);
-                                            let val = orientationLabel;
-                                            if (!val || val === '-' || val === 'None') val = facingLabel;
-                                            
-                                            // Fallback to raw values if labels fail
-                                            if (!val || val === '-' || val === 'None') {
-                                                val = (typeof item.orientation === 'string' && item.orientation !== '-') ? item.orientation : 
-                                                      (item.orientation?.lookup_value || item.orientation?.name);
-                                            }
-
-                                            if (!val || val === '-' || val === 'None') return null;
-                                            return (
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', fontWeight: 800, color: '#1e293b', background: '#f8fafc', padding: '2px 8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
-                                                    <i className="fas fa-compass" style={{ fontSize: '0.8rem', color: '#4f46e5' }}></i>
-                                                    {renderValue(val)}
-                                                </div>
-                                            );
-                                        })()}
-
-                                        {(() => {
-                                            const rw = getLookupValue('RoadWidth', item.roadWidth) || item.roadWidth;
-                                            if (!rw) return null;
-                                            return (
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: '#64748b', fontWeight: 700, background: '#fffbeb', padding: '2px 8px', borderRadius: '4px', border: '1px solid #fef3c7' }}>
-                                                    <i className="fas fa-road" style={{ fontSize: '0.75rem', color: '#f59e0b' }}></i>
-                                                    {renderValue(rw)}
-                                                </div>
-                                            );
-                                        })()}
-                                    </div>
-
+                                {/* Col 4: Orientation */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                                    {(() => {
+                                        const orientationLabel = getLookupValue('Orientation', item.orientation);
+                                        const facingLabel = getLookupValue('Facing', item.facing);
+                                        
+                                         // Prioritize non-placeholder values
+                                        let val = orientationLabel;
+                                        if (!val || val === '-' || val === 'None') val = facingLabel;
+                                        
+                                        // Fallback to raw values if labels fail
+                                        if (!val || val === '-' || val === 'None') {
+                                            val = (typeof item.orientation === 'string' && item.orientation !== '-') ? item.orientation : 
+                                                  (item.orientation?.lookup_value || item.orientation?.name);
+                                        }
+                                        if (!val || val === '-' || val === 'None') {
+                                            val = (typeof item.facing === 'string' && item.facing !== '-') ? item.facing : 
+                                                  (item.facing?.lookup_value || item.facing?.name);
+                                        }
+     
+                                         if (!val || val === '-' || val === 'None') return null;
+                                        return (
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem', fontWeight: 800, color: '#1e293b' }}>
+                                                <i className="fas fa-compass" style={{ fontSize: '0.9rem', color: '#4f46e5' }}></i>
+                                                {renderValue(val)}
+                                            </div>
+                                        );
+                                    })()}
                                     {(() => {
                                         const dir = getLookupValue('Direction', item.direction);
                                         if (!dir) return null;
                                         return (
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.72rem', color: '#64748b', fontWeight: 700, paddingLeft: '4px' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.72rem', color: '#64748b', fontWeight: 700 }}>
                                                 <i className="fas fa-location-arrow" style={{ fontSize: '0.75rem', color: '#94a3b8' }}></i>
                                                 {renderValue(dir)}
+                                            </div>
+                                        );
+                                    })()}
+                                    {(() => {
+                                        const rw = getLookupValue('RoadWidth', item.roadWidth) || item.roadWidth;
+                                        if (!rw) return null;
+                                        return (
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.72rem', color: '#64748b', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                                                <i className="fas fa-road" style={{ fontSize: '0.8rem', color: '#f59e0b' }}></i>
+                                                {renderValue(rw)}
                                             </div>
                                         );
                                     })()}
