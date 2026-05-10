@@ -1216,24 +1216,13 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
                         {deal.subCategory ? ` - ${renderValue(getLookupValue('SubCategory', deal.subCategory))}` : ''}
                     </div>
                     <div style={{ fontSize: '0.68rem', color: '#94a3b8', fontWeight: 600, marginTop: '2px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        {(() => {
-                            const sizeLabel = getLookupValue('Size', deal.sizeLabel || deal.unitSpecification?.sizeLabel || (typeof deal.sizeConfig === 'object' ? deal.sizeConfig?.lookup_value : deal.sizeConfig));
-                            if (sizeLabel && sizeLabel !== 'N/A') {
-                                return (
-                                    <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#4338ca', background: '#e0e7ff', padding: '2px 6px', borderRadius: '4px' }}>
-                                        {sizeLabel}
-                                    </span>
-                                );
-                            }
-                            const rawSize = deal.sizeLabel || deal.size;
-                            const sizeUnit = deal.sizeUnit || (typeof deal.size === 'object' ? deal.size?.unit : '');
-                            return (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#2563eb', fontWeight: 700 }}>
-                                    <i className="fas fa-expand-arrows-alt" style={{ fontSize: '0.65rem' }}></i>
-                                    {renderValue(rawSize)} {renderValue(sizeUnit)}
-                                </div>
-                            );
-                        })()}
+                        {(deal.sizeLabel || deal.unitSpecification?.sizeLabel || deal.sizeConfig) ? (
+                            <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#4338ca', background: '#e0e7ff', padding: '2px 6px', borderRadius: '4px' }}>
+                                {getLookupValue('Size', deal.sizeLabel || deal.unitSpecification?.sizeLabel || (typeof deal.sizeConfig === 'object' ? deal.sizeConfig?.lookup_value : deal.sizeConfig))}
+                            </span>
+                        ) : (
+                            renderValue(deal.size, 'N/A')
+                        )}
                     </div>
                 </div>
             </div>
