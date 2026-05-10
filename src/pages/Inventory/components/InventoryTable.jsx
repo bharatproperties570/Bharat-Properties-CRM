@@ -251,14 +251,38 @@ const InventoryTable = ({
                                 </div>
 
                                 {/* Col 8: Assignment */}
-                                <div className="assignment-cell-final" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                        <div className="avatar-circle" style={{ width: '20px', height: '20px', fontSize: '0.5rem' }}>
+                                <div className="assignment-cell-final" style={{ 
+                                    display: 'flex', 
+                                    flexDirection: 'column', 
+                                    alignItems: 'flex-end', 
+                                    gap: '2px',
+                                    paddingRight: '0.5rem'
+                                }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <div 
+                                            style={{ 
+                                                width: '24px', height: '24px', 
+                                                background: '#f8fafc', border: '1px solid #e2e8f0',
+                                                borderRadius: '50%', display: 'flex', 
+                                                alignItems: 'center', justifyContent: 'center',
+                                                fontSize: '0.55rem', color: '#64748b', fontWeight: 800,
+                                                boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                                                flexShrink: 0
+                                            }}
+                                        >
                                             {getInitials(getUserName(item.assignedTo))}
                                         </div>
-                                        <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0f172a' }}>{renderValue(getUserName(item.assignedTo))}</div>
+                                        <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0f172a', lineHeight: 1 }}>
+                                            {renderValue(getUserName(item.assignedTo))}
+                                        </div>
                                     </div>
-                                    <div style={{ fontSize: '0.6rem', color: '#64748b', fontWeight: 700 }}>{renderValue(getTeamName(item.team))}</div>
+                                    <div style={{ fontSize: '0.62rem', color: '#64748b', fontWeight: 700, marginTop: '2px' }}>
+                                        {renderValue(getTeamName(item.team))}
+                                    </div>
+                                    <div style={{ fontSize: '0.52rem', color: '#94a3b8', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '3px', marginTop: '1px' }}>
+                                        <i className="far fa-clock" style={{ fontSize: '0.55rem' }}></i>
+                                        {new Date(item.updatedAt || item.createdAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                                    </div>
                                 </div>
                             </div>
                         );
