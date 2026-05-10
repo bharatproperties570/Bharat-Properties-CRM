@@ -56,9 +56,11 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
 
     // Deep Linking for Project Modal
     useEffect(() => {
-        const path = window.location.pathname;
-        if (path === '/projects/new') {
-            setShowAddProjectModal(true);
+        if (typeof window !== 'undefined' && window.location) {
+            const path = window.location.pathname;
+            if (path === '/projects/new') {
+                setShowAddProjectModal(true);
+            }
         }
     }, []);
 
@@ -66,7 +68,9 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
     const handleAddProject = () => {
         setEditingProject(null);
         setShowAddProjectModal(true);
-        window.history.pushState({ view: currentView, modal: 'add-project' }, '', '/projects/new');
+        if (typeof window !== 'undefined' && window.history) {
+            window.history.pushState({ view: currentView, modal: 'add-project' }, '', '/projects/new');
+        }
     };
 
     const handleCloseProjectModal = () => {
@@ -74,14 +78,17 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
         setEditingProject(null);
         // If we are currently at /projects/new, go back. 
         // We check this to avoid going back if the user navigated elsewhere (edge case)
-        if (window.location.pathname === '/projects/new') {
-            window.history.back();
+        if (typeof window !== 'undefined' && window.location && window.location.pathname === '/projects/new') {
+            if (window.history) window.history.back();
         }
     };
 
     // Listen for browser back/forward interactions for Modals (specifically Project)
     useEffect(() => {
+        if (typeof window === 'undefined') return;
+
         const handlePopState = () => {
+            if (!window.location) return;
             const path = window.location.pathname;
             if (path === '/projects/new') {
                 setShowAddProjectModal(true);
@@ -278,7 +285,9 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
                     onSave={() => {
                         handleCloseProjectModal();
                         // Trigger global refresh
-                        window.dispatchEvent(new Event('project-updated'));
+                        if (typeof window !== 'undefined') {
+                            window.dispatchEvent(new Event('project-updated'));
+                        }
                     }}
                     projectToEdit={editingProject}
                 />
@@ -294,7 +303,9 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
                         setShowAddInventoryModal(false);
                         setEditingInventory(null);
                         // Trigger global refresh for inventory list
-                        window.dispatchEvent(new Event('inventory-updated'));
+                        if (typeof window !== 'undefined') {
+                            window.dispatchEvent(new Event('inventory-updated'));
+                        }
                     }}
                 />
 
@@ -309,7 +320,9 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
                         setShowAddDealModal(false);
                         setDealContext(null);
                         // Trigger global refresh for deals list
-                        window.dispatchEvent(new Event('deal-updated'));
+                        if (typeof window !== 'undefined') {
+                            window.dispatchEvent(new Event('deal-updated'));
+                        }
                     }}
                 />
 
@@ -321,7 +334,9 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
                         deal={activeEntity}
                         onSave={() => {
                             setShowQuoteModal(false);
-                            window.dispatchEvent(new Event('deal-updated'));
+                            if (typeof window !== 'undefined') {
+                                window.dispatchEvent(new Event('deal-updated'));
+                            }
                         }}
                     />
                 )}
@@ -333,7 +348,9 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
                         leads={activeEntity?.matchedLeads || []}
                         onSave={() => {
                             setShowOfferModal(false);
-                            window.dispatchEvent(new Event('deal-updated'));
+                            if (typeof window !== 'undefined') {
+                                window.dispatchEvent(new Event('deal-updated'));
+                            }
                         }}
                     />
                 )}
@@ -346,7 +363,9 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
                         entityType={activeEntity?.type === 'lead' ? 'Lead' : 'Deal'}
                         onComplete={() => {
                             setShowClosingModal(false);
-                            window.dispatchEvent(new Event('inventory-updated'));
+                            if (typeof window !== 'undefined') {
+                                window.dispatchEvent(new Event('inventory-updated'));
+                            }
                         }}
                     />
                 )}

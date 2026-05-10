@@ -45,7 +45,9 @@ class ErrorBoundary extends React.Component {
                     </button>
                     {(() => {
                         try {
-                            return import.meta.env.DEV === true;
+                            // Safer check for development mode
+                            return (typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'development') || 
+                                   (typeof window !== 'undefined' && window.location && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'));
                         } catch (e) {
                             return false;
                         }

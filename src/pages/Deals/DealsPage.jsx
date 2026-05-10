@@ -25,6 +25,9 @@ import PipelineDashboard from '../../components/PipelineDashboard';
 import useDebounce from '../../hooks/useDebounce';
 import { PermissionGate } from '../../hooks/usePermissions';
 import SocialPostModal from '../../components/SocialPostModal';
+import { List } from 'react-window';
+import { AutoSizer } from 'react-virtualized-auto-sizer';
+
 
 // Helper: colored stage chip for deals
 const DealStageChip = ({ stage }) => {
@@ -99,6 +102,55 @@ function DealsPage({ onNavigate, onAddActivity }) {
 
     // --- OPTIMIZATION: Debounced Search Term ---
     const debouncedSearchTerm = useDebounce(searchTerm, 500);
+
+    const toggleSelect = useCallback((id) => {
+        setSelectedIds(prev => {
+            if (prev.includes(id)) {
+                return prev.filter(v => v !== id);
+            } else {
+                return [...prev, id];
+            }
+        });
+    }, []);
+
+    const handleAction = useCallback((type, d) => {
+        setEditingDeal(d);
+        if (type === 'quote') setIsQuoteModalOpen(true);
+        if (type === 'offer') setIsOfferModalOpen(true);
+        if (type === 'share') {
+            setSelectedSocialData({
+                id: d._id,
+                unitNo: d.unitNo,
+                projectName: d.projectName,
+                price: d.price,
+                location: getLookupValue('Locality', d.location) || getLookupValue('Area', d.location) || getLookupValue('Location', d.location),
+                images: d.propertyImages || []
+            });
+            setIsSocialModalOpen(true);
+        }
+        if (type === 'edit') {
+            setEditingDeal(d);
+            setIsAddModalOpen(true);
+        }
+        if (type === 'delete') {
+            if (window.confirm('Are you sure you want to delete this deal?')) {
+                // 🚀 OPTIMISTIC UI: Remove from list immediately
+                const previousDeals = [...deals];
+                setDeals(prev => prev.filter(item => item._id !== d._id));
+                toast.success('Deal deleted successfully');
+
+                api.delete(`deals/${d._id}`).then(() => {
+                    // Success - no further action needed as UI is already updated
+                    // We can optionally trigger fetchDeals in background to sync any other changes
+                }).catch(err => {
+                    console.error("Delete failed:", err);
+                    toast.error('Failed to delete deal. Reverting...');
+                    setDeals(previousDeals); // Rollback
+                });
+            }
+        }
+        setActiveRowMenu(null);
+    }, [getLookupValue, deals]);
 
     const fetchDeals = useCallback(async () => {
         setLoading(true);
@@ -261,13 +313,6 @@ function DealsPage({ onNavigate, onAddActivity }) {
         return applyDealsFilters(deal, filters);
     });
 
-    const toggleSelect = (id) => {
-        if (selectedIds.includes(id)) {
-            setSelectedIds(selectedIds.filter(v => v !== id));
-        } else {
-            setSelectedIds([...selectedIds, id]);
-        }
-    };
 
     const getSelectedDeal = () => deals.find(d => d._id === selectedIds[0]);
 
@@ -802,55 +847,30 @@ function DealsPage({ onNavigate, onAddActivity }) {
                     )}
 
                     {currentView === 'list' ? (
-                        <div className="list-content" style={{ background: '#fafbfc' }}>
-                            <div className="list-group">
-                                {filteredDeals.map((deal, index) => (
+                        <div className="list-content" style={{ flex: 1, overflowY: 'auto', background: '#fafbfc' }}>
+                            {filteredDeals.length === 0 ? (
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#94a3b8', fontSize: '0.9rem' }}>
+                                    No deals found matching your criteria.
+                                </div>
+                            ) : (
+                                filteredDeals.map((deal, index) => (
                                     <DealRow
                                         key={deal._id || index}
                                         deal={deal}
                                         index={index}
                                         selected={selectedIds.includes(deal._id)}
-                                        onSelect={(id) => setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id])}
+                                        onSelect={toggleSelect}
                                         onNavigate={onNavigate}
                                         getLookupValue={getLookupValue}
                                         activeRowMenu={activeRowMenu}
                                         setActiveRowMenu={setActiveRowMenu}
                                         getUserName={getUserName}
                                         getTeamName={getTeamName}
-                                        onAction={(type, d) => {
-                                            setEditingDeal(d);
-                                            if (type === 'quote') setIsQuoteModalOpen(true);
-                                            if (type === 'offer') setIsOfferModalOpen(true);
-                                            if (type === 'share') {
-                                                setSelectedSocialData({
-                                                    id: d._id,
-                                                    unitNo: d.unitNo,
-                                                    projectName: d.projectName,
-                                                    price: d.price,
-                                                    location: getLookupValue('Locality', d.location) || getLookupValue('Area', d.location) || getLookupValue('Location', d.location),
-                                                    images: d.propertyImages || []
-                                                });
-                                                setIsSocialModalOpen(true);
-                                            }
-                                            if (type === 'edit') {
-                                                setEditingDeal(d);
-                                                setIsAddModalOpen(true);
-                                            }
-                                            if (type === 'delete') {
-                                                if (window.confirm('Are you sure you want to delete this deal?')) {
-                                                    api.delete(`deals/${d._id}`).then(() => {
-                                                        toast.success('Deal deleted successfully');
-                                                        fetchDeals();
-                                                    }).catch(err => {
-                                                        toast.error('Failed to delete deal');
-                                                    });
-                                                }
-                                            }
-                                            setActiveRowMenu(null);
-                                        }}
+                                        dealScores={dealScores}
+                                        onAction={handleAction}
                                     />
-                                ))}
-                            </div>
+                                ))
+                            )}
                         </div>
                     ) : (
                         <div className="map-view-container" style={{ height: 'calc(100vh - 250px)', position: 'relative', margin: '0', display: 'flex' }}>
@@ -1111,7 +1131,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
 
 // --- MEMOIZED COMPONENTS FOR PERFORMANCE ---
 
-const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLookupValue, activeRowMenu, setActiveRowMenu, onAction, dealScores = {}, getUserName, getTeamName }) => {
+const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLookupValue, activeRowMenu, setActiveRowMenu, onAction, dealScores = {}, getUserName, getTeamName, style }) => {
     
     const s = dealScores[deal._id];
     const scoreVal = s ? s.score : (deal.dealProbability || 0);
@@ -1138,7 +1158,7 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
     const isNonActionable = isBooked || isClosed;
 
     return (
-        <div className={`list-item deals-list-grid ${isNonActionable ? 'non-actionable-row' : ''}`} style={{ padding: '18px 1.5rem', borderBottom: '1px solid #e2e8f0', transition: 'all 0.2s ease', background: rowBackground, marginBottom: '2px', opacity: isNonActionable ? 0.8 : 1, pointerEvents: isNonActionable ? 'none' : 'auto' }}>
+        <div className={`list-item deals-list-grid ${isNonActionable ? 'non-actionable-row' : ''}`} style={{ ...style, padding: '18px 1.5rem', borderBottom: '1px solid #e2e8f0', transition: 'background 0.2s ease', background: rowBackground, opacity: isNonActionable ? 0.8 : 1, pointerEvents: isNonActionable ? 'none' : 'auto', display: 'grid', alignItems: 'center' }}>
             <input
                 type="checkbox"
                 className="item-check"

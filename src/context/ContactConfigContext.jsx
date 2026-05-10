@@ -1,5 +1,5 @@
 import { createContext, useState, useContext, useEffect, useCallback } from 'react';
-import { api } from '../utils/api';
+import { api, safeStorage } from '../utils/api';
 
 const ContactConfigContext = createContext();
 
@@ -98,7 +98,7 @@ export const ContactConfigProvider = ({ children }) => {
     }, []);
 
     const fetchLookups = useCallback(async () => {
-        const token = localStorage.getItem('authToken');
+        const token = safeStorage.getItem('authToken');
         if (!token) {
             setLoading(false);
             return;
@@ -106,8 +106,9 @@ export const ContactConfigProvider = ({ children }) => {
         try {
             setLoading(true);
 
-            // Use consolidate getAll() instead of multiple getByCategory calls
-            const response = await api.get('/lookups');
+            // 🚀 SENIOR OPTIMIZATION: Request specific types to avoid massive payloads (Prevents 502s)
+            const targetTypes = ['Professional', 'Address', 'Profile', 'Document-Category', 'DocumentCategory', 'Document-Type', 'DocumentType'];
+            const response = await api.get(`/lookups?lookup_type=${targetTypes.join(',')}`);
 
             let allLookups = [];
             // Axios response stores the server's JSON in response.data

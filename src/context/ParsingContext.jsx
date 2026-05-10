@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { parsingRulesAPI } from '../utils/api';
+import { parsingRulesAPI, safeStorage } from '../utils/api';
 import toast from 'react-hot-toast';
 
 const ParsingContext = createContext();
@@ -27,7 +27,7 @@ export const ParsingProvider = ({ children }) => {
     const [customPatterns, setCustomPatterns] = useState(null);
 
     const fetchRules = useCallback(async () => {
-        const token = localStorage.getItem('authToken');
+        const token = safeStorage.getItem('authToken');
         if (!token) {
             setLoading(false);
             return;

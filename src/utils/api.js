@@ -1,11 +1,53 @@
 // API Configuration
 import axios from 'axios';
 
-const isProd = import.meta.env.PROD;
+// 🛡️ Senior Implementation: Environment Variable Safety
+export const getEnvVar = (name) => {
+    // Priority 1: process.env (Node/Expo/React Native)
+    try {
+        if (typeof process !== 'undefined' && process && process.env) {
+            const val = process.env[name];
+            if (typeof val !== 'undefined') return val;
+        }
+    } catch (e) {}
+
+    // Priority 2: window._env_ (common fallback)
+    try {
+        if (typeof window !== 'undefined' && window._env_ && window._env_[name] !== undefined) {
+            return window._env_[name];
+        }
+    } catch (e) {}
+    
+    return undefined;
+};
+
+// 🛡️ Senior Implementation: Storage Safety (for Mobile/Expo compatibility)
+export const safeStorage = {
+    getItem: (key) => {
+        try {
+            if (typeof localStorage === 'undefined' || !localStorage) return null;
+            return localStorage.getItem(key);
+        } catch (e) { return null; }
+    },
+    setItem: (key, value) => {
+        try {
+            if (typeof localStorage !== 'undefined' && localStorage) localStorage.setItem(key, value);
+        } catch (e) {}
+    },
+    removeItem: (key) => {
+        try {
+            if (typeof localStorage !== 'undefined' && localStorage) localStorage.removeItem(key);
+        } catch (e) {}
+    }
+};
+
+const isProd = getEnvVar('PROD') === 'true' || getEnvVar('PROD') === true;
 const STABLE_TUNNEL_URL = 'https://crm-bharat-api-v5.loca.lt/api';
-export const API_BASE_URL = import.meta.env.VITE_API_URL || (isProd ? '/api' : STABLE_TUNNEL_URL);
-console.error('[API_AUDIT] API_BASE_URL:', API_BASE_URL);
-console.error('[API_AUDIT] VITE_API_URL from env:', import.meta.env.VITE_API_URL);
+const rawViteApiUrl = getEnvVar('VITE_API_URL');
+const VITE_API_URL = typeof rawViteApiUrl === 'string' ? rawViteApiUrl : '';
+
+const tempApiUrl = VITE_API_URL || STABLE_TUNNEL_URL;
+export const API_BASE_URL = typeof tempApiUrl === 'string' ? tempApiUrl : String(tempApiUrl || '');
 export const BASE_BACKEND_URL = API_BASE_URL.replace(/\/api$/, '');
 
 // 🚀 Senior Professional: Smart Fallback Logic
@@ -80,7 +122,7 @@ export const triggerTestNotification = () => api.post('/notifications/test').the
 
 // Create and export axios instance
 export const api = axios.create({
-    baseURL: API_BASE_URL.endsWith('/') ? API_BASE_URL : `${API_BASE_URL}/`,
+    baseURL: (typeof API_BASE_URL === 'string' && API_BASE_URL.endsWith('/')) ? API_BASE_URL : String(API_BASE_URL || '') + '/',
     headers: {
         "Content-Type": "application/json",
         "Bypass-Tunnel-Reminder": "true", // 🚀 Required to skip Localtunnel's splash page for API calls
@@ -90,7 +132,7 @@ export const api = axios.create({
 // Add a request interceptor to inject the token
 api.interceptors.request.use((config) => {
     console.log(`[API Request Audit] ${config.method?.toUpperCase()} ${config.url}`, config.params);
-    const token = localStorage.getItem('authToken');
+    const token = safeStorage.getItem('authToken');
         if (token) {
             config.headers.Authorization = `Bearer ${token}`;
         }
@@ -128,7 +170,7 @@ api.interceptors.response.use(
             if (originalRequest.url.includes('/auth/refresh')) {
                 // If the refresh token call itself fails, we must logout
                 console.warn('Refresh token expired. Logging out...');
-                localStorage.removeItem('authToken');
+                safeStorage.removeItem('authToken');
                 window.dispatchEvent(new CustomEvent('unauthorized-token'));
                 return Promise.reject(error);
             }
@@ -150,7 +192,7 @@ api.interceptors.response.use(
                 const res = await axios.post(`${API_BASE_URL}/auth/refresh`, {}, { withCredentials: true });
                 if (res.data.success && res.data.token) {
                     const newToken = res.data.token;
-                    localStorage.setItem('authToken', newToken);
+                    safeStorage.setItem('authToken', newToken);
                     isRefreshing = false;
                     onRefreshed(newToken);
                     
@@ -161,7 +203,7 @@ api.interceptors.response.use(
             } catch (refreshError) {
                 isRefreshing = false;
                 console.error('Silent refresh failed:', refreshError.message);
-                localStorage.removeItem('authToken');
+                safeStorage.removeItem('authToken');
                 window.dispatchEvent(new CustomEvent('unauthorized-token'));
                 return Promise.reject(refreshError);
             }

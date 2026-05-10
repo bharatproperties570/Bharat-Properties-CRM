@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 import './index.css'
 
-console.error('[DIAGNOSTIC] VITE_API_URL from env:', import.meta.env.VITE_API_URL);
+// Environment diagnostics removed for cross-platform compatibility
 
 ReactDOM.createRoot(document.getElementById('root')).render(
     <React.StrictMode>

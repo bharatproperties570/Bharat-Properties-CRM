@@ -424,9 +424,15 @@ export default function MarketingOverviewPage() {
       try {
         console.log("[MarketingOS] Synchronizing CRM Metadata...");
         const [lks, usrRes] = await Promise.all([
-          lookupsAPI.getAll().catch(() => ({ success: false })),
+          api.get('/lookups?lookup_type=Stage,LeadStage,LeadStatus,DealStage,Source,LeadSource,PropertyCategory,Sub-Category,LeadSegment,City,InventoryStatus').catch(() => ({ success: false })),
           usersAPI.getAll().catch(() => ({ success: false }))
         ]);
+        
+        // Normalize the lookups response to match the structure expected by the rest of the code
+        if (lks && lks.status === 200 && lks.data?.status === 'success') {
+          lks.success = true;
+          lks.data = lks.data.data;
+        }
         
         if (lks.success && lks.data) {
           const allLks = lks.data;

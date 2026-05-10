@@ -2,7 +2,7 @@ import React, { createContext, useState, useContext, useEffect, useCallback } fr
 import { PROPERTY_CATEGORIES } from '../constants/propertyConstants';
 import { PROJECTS_LIST } from '../constants/projectConstants';
 
-import { api, lookupsAPI, systemSettingsAPI } from '../utils/api';
+import { api, lookupsAPI, systemSettingsAPI, safeStorage } from '../utils/api';
 
 const PropertyConfigContext = createContext();
 
@@ -20,7 +20,7 @@ export const PropertyConfigProvider = ({ children }) => {
     const useSystemSetting = (key, initialValue) => {
         const [storedValue, setStoredValue] = useState(() => {
             try {
-                const item = window.localStorage.getItem(key);
+                const item = safeStorage.getItem(key);
                 return item ? JSON.parse(item) : initialValue;
             } catch (error) {
                 console.error(error);
@@ -32,7 +32,7 @@ export const PropertyConfigProvider = ({ children }) => {
             try {
                 setStoredValue(prev => {
                     const valueToStore = value instanceof Function ? value(prev) : value;
-                    window.localStorage.setItem(key, JSON.stringify(valueToStore));
+                    safeStorage.setItem(key, JSON.stringify(valueToStore));
 
                     // Sync to Backend unless skipSync is true
                     if (!skipSync) {
@@ -1288,8 +1288,14 @@ export const PropertyConfigProvider = ({ children }) => {
 
     const refreshLookups = useCallback(async () => {
         try {
-            console.log('[PropertyConfigContext] Refreshing all lookups in one call...');
-            const response = await lookupsAPI.getAll();
+            console.log('[PropertyConfigContext] Refreshing targeted lookups...');
+            // 🚀 SENIOR OPTIMIZATION: Specify required types to avoid 502 timeouts
+            const requiredTypes = [
+                'UnitType', 'Category', 'SubCategory', 'Facing', 'RoadWidth', 
+                'Direction', 'Relation', 'CompanyType', 'Industry', 'Size',
+                'Status', 'State', 'City', 'Location'
+            ];
+            const response = await api.get(`/lookups?lookup_type=${requiredTypes.join(',')}`);
 
             let allLookups = [];
             if (response && response.status === "success" && Array.isArray(response.data)) {

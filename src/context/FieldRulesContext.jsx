@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { validateEntity } from '../utils/fieldRuleEngine';
-import { fieldRulesAPI } from '../utils/api';
+import { fieldRulesAPI, safeStorage } from '../utils/api';
 
 
 const FieldRulesContext = createContext();
@@ -17,7 +17,7 @@ export const FieldRulesProvider = ({ children }) => {
     // Load rules from backend on mount
     useEffect(() => {
         const loadRules = async () => {
-            const token = localStorage.getItem('authToken');
+            const token = typeof window !== 'undefined' ? safeStorage.getItem('authToken') : null;
             if (!token) {
                 setIsLoading(false);
                 return;
@@ -38,7 +38,7 @@ export const FieldRulesProvider = ({ children }) => {
                 console.error('Failed to load field rules from backend:', error);
                 // Fall back to localStorage
                 try {
-                    const saved = localStorage.getItem('fieldRules');
+                    const saved = typeof window !== 'undefined' ? safeStorage.getItem('fieldRules') : null;
                     if (saved) {
                         const parsed = JSON.parse(saved);
                         setRules(Array.isArray(parsed) ? parsed : []);
@@ -93,8 +93,8 @@ export const FieldRulesProvider = ({ children }) => {
 
     // Persist to LocalStorage as backup
     useEffect(() => {
-        if (!isLoading) {
-            localStorage.setItem('fieldRules', JSON.stringify(rules));
+        if (!isLoading && typeof window !== 'undefined') {
+            safeStorage.setItem('fieldRules', JSON.stringify(rules));
         }
     }, [rules, isLoading]);
 

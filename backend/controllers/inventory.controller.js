@@ -1443,7 +1443,7 @@ export const importInventory = async (req, res) => {
                 }
 
                 restructuredData.push(result);
-                if (i % 50 === 0) console.log(`[IMPORT] Processed ${i}/${data.length} items`);
+                if (i % 10 === 0) console.log(`[IMPORT] Processed ${i}/${data.length} items`);
             } catch (itemErr) {
                 console.error(`[IMPORT] Critical error in item restructuring at index ${i}:`, itemErr);
                 errors.push({

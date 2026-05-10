@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback } from 'react';
+import { useUserContext } from './UserContext';
 import { evaluateAndExecuteTriggers } from '../utils/triggersEngine';
 import { activitiesAPI } from '../utils/api';
 import { dispatchWhatsApp, dispatchSMS, dispatchEmail } from '../utils/communicationDispatcher';
@@ -10,6 +11,7 @@ const TriggersContext = createContext();
 
 export const TriggersProvider = ({ children }) => {
     const { enrollInSequence, updateEnrollmentStatus } = useSequences();
+    const { currentUser } = useUserContext();
     // AutomatedActionsContext is read lazily inside fireEvent to avoid
     // provider ordering issues during React HMR refresh.
     const automatedActionsCtx = useContext(AutomatedActionsContext);
@@ -446,7 +448,7 @@ export const TriggersProvider = ({ children }) => {
             id: `trigger_${Date.now()}`,
             isActive: true,
             createdAt: new Date().toISOString(),
-            createdBy: 'current_user' // TODO: Get from auth context
+            createdBy: currentUser?._id || 'current_user'
         };
 
         setTriggers(prev => [...prev, newTrigger]);
@@ -509,7 +511,7 @@ export const TriggersProvider = ({ children }) => {
             name: `${trigger.name} (Copy)`,
             isActive: false, // Start disabled for safety
             createdAt: new Date().toISOString(),
-            createdBy: 'current_user'
+            createdBy: currentUser?._id || 'current_user'
         };
 
         setTriggers(prev => [...prev, duplicate]);

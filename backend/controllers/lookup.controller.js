@@ -3,18 +3,35 @@ import Lookup from "../models/Lookup.js";
 export const getLookups = async (req, res) => {
     try {
         const { lookup_type, parent_lookup_id } = req.query;
+        
+        // 🚀 SENIOR OPTIMIZATION: Prevent "Massive Dump" (1900+ records) if type is missing or malformed
+        if (!lookup_type || lookup_type === 'undefined' || lookup_type === 'null') {
+            console.warn(`[LOOKUP_FETCH] Blocked unfiltered request (type: ${lookup_type}) to prevent server overload.`);
+            return res.json({ status: "success", data: [] });
+        }
+
         console.log(`[LOOKUP_FETCH] Request received for type: ${lookup_type}${parent_lookup_id ? ' | Parent: ' + parent_lookup_id : ''}`);
 
         const query = {};
         if (lookup_type) {
-            // Robust matching: Try exact match first, then normalized match (ignoring spaces and case)
-            // This handles cases like "Unit Type" vs "UnitType"
-            const normalizedType = lookup_type.replace(/\s+/g, '');
-            query.$or = [
-                { lookup_type: { $regex: new RegExp(`^${lookup_type}$`, 'i') } },
-                { lookup_type: { $regex: new RegExp(`^${normalizedType}$`, 'i') } },
-                { lookup_type: { $regex: new RegExp(`^${lookup_type.split('').join('\\s*')}$`, 'i') } }
-            ];
+            const types = String(lookup_type).split(',').map(t => t.trim()).filter(Boolean);
+            
+            if (types.length > 1) {
+                // Multi-type support
+                query.lookup_type = { $in: types.map(t => new RegExp(`^${t.replace(/\s+/g, '')}$`, 'i')) };
+                // Also support the raw types with spaces
+                query.$or = [
+                    { lookup_type: { $in: types.map(t => new RegExp(`^${t}$`, 'i')) } },
+                    { lookup_type: { $in: types.map(t => new RegExp(`^${t.replace(/\s+/g, '')}$`, 'i')) } }
+                ];
+            } else {
+                // Single type support (Legacy/Standard)
+                const normalizedType = lookup_type.replace(/\s+/g, '');
+                query.$or = [
+                    { lookup_type: { $regex: new RegExp(`^${lookup_type}$`, 'i') } },
+                    { lookup_type: { $regex: new RegExp(`^${normalizedType}$`, 'i') } }
+                ];
+            }
         }
 
         if (parent_lookup_id && parent_lookup_id !== "null" && parent_lookup_id !== "undefined") {

@@ -12,7 +12,7 @@ import {
     validateAssignment,
     getFallbackAssignment
 } from '../utils/distributionEngine';
-import { distributionRulesAPI } from '../utils/api';
+import { distributionRulesAPI, safeStorage } from '../utils/api';
 
 const DistributionContext = createContext();
 
@@ -35,7 +35,7 @@ export const DistributionProvider = ({ children }) => {
     // Load distribution rules from backend on mount
     useEffect(() => {
         const loadRules = async () => {
-            const token = localStorage.getItem('authToken');
+            const token = safeStorage.getItem('authToken');
             if (!token) {
                 setIsLoading(false);
                 return;
@@ -55,7 +55,7 @@ export const DistributionProvider = ({ children }) => {
                 console.error('Failed to load distribution rules from backend:', error);
                 // Fall back to localStorage
                 try {
-                    const saved = localStorage.getItem('distributionRules');
+                    const saved = safeStorage.getItem('distributionRules');
                     if (saved) {
                         const parsed = JSON.parse(saved);
                         setDistributionRules(Array.isArray(parsed) ? parsed : []);
@@ -72,7 +72,7 @@ export const DistributionProvider = ({ children }) => {
 
         // Load distribution log from localStorage (not persisted to backend)
         try {
-            const saved = localStorage.getItem('distributionLog');
+            const saved = safeStorage.getItem('distributionLog');
             if (saved) {
                 const parsed = JSON.parse(saved);
                 setDistributionLog(Array.isArray(parsed) ? parsed : []);
@@ -86,12 +86,12 @@ export const DistributionProvider = ({ children }) => {
     // Persist to localStorage as backup
     useEffect(() => {
         if (!isLoading) {
-            localStorage.setItem('distributionRules', JSON.stringify(distributionRules));
+            safeStorage.setItem('distributionRules', JSON.stringify(distributionRules));
         }
     }, [distributionRules, isLoading]);
 
     useEffect(() => {
-        localStorage.setItem('distributionLog', JSON.stringify(distributionLog));
+        safeStorage.setItem('distributionLog', JSON.stringify(distributionLog));
     }, [distributionLog]);
 
     /**

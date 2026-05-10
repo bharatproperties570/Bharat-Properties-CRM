@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { usersAPI, rolesAPI, teamsAPI, authAPI } from '../utils/api';
+import { usersAPI, rolesAPI, teamsAPI, authAPI, safeStorage } from '../utils/api';
 
 const UserContext = createContext();
 
@@ -13,12 +13,17 @@ export const useUserContext = () => {
 };
 
 export const UserProvider = ({ children }) => {
+    console.log('[DEBUG] UserProvider rendering start');
     const [users, setUsers] = useState([]);
     const [roles, setRoles] = useState([]);
     const [teams, setTeams] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    const [token, setToken] = useState(localStorage.getItem('authToken'));
+    const [token, setToken] = useState(() => {
+        const t = safeStorage.getItem('authToken');
+        console.log('[DEBUG] UserProvider initial token:', !!t);
+        return t;
+    });
     const [currentUser, setCurrentUser] = useState(null);
 
     const processUserWithAdminFlag = (user) => {
@@ -91,7 +96,7 @@ export const UserProvider = ({ children }) => {
             if (response.success) {
                 const newToken = response.token || response.data?.token || response.data?.accessToken;
                 if (newToken) {
-                    localStorage.setItem('authToken', newToken);
+                    safeStorage.setItem('authToken', newToken);
                     setToken(newToken);
                     setCurrentUser(processUserWithAdminFlag(response.data?.user || response.user));
                     fetchAllData();
@@ -105,7 +110,7 @@ export const UserProvider = ({ children }) => {
     };
 
     const logout = () => {
-        localStorage.removeItem('authToken');
+        safeStorage.removeItem('authToken');
         setToken(null);
         setCurrentUser(null);
         // Optionally redirect or clear other state

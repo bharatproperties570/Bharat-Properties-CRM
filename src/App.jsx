@@ -1,3 +1,4 @@
+console.log('[DEBUG] src/App.jsx module evaluated');
 import { useState, useEffect, Suspense } from 'react';
 import { Toaster } from 'react-hot-toast';
 import AppRouter from './router/AppRouter';
@@ -40,10 +41,11 @@ const CallModalWrapper = () => {
 };
 const AppContent = () => {
     const { token } = useUserContext();
+    console.log('[DEBUG] AppContent rendering, token:', !!token);
 
     // Global Navigation State (Routing Logic Only)
     const [currentView, setCurrentView] = useState(() => {
-        const path = window.location.pathname;
+        const path = (typeof window !== 'undefined' && window.location) ? window.location.pathname : '/';
         if (path.startsWith('/contacts/')) return 'contact-detail';
         if (path.startsWith('/inventory/')) return 'inventory-detail';
         if (path === '/contacts') return 'contacts';
@@ -82,7 +84,7 @@ const AppContent = () => {
     });
 
     const [currentContactId, setCurrentContactId] = useState(() => {
-        const path = window.location.pathname;
+        const path = (typeof window !== 'undefined' && window.location) ? window.location.pathname : '/';
         if (path.startsWith('/contacts/')) {
             return path.split('/').pop();
         }
@@ -134,14 +136,16 @@ const AppContent = () => {
         else if (view === 'marketing-overview') url = '/marketing-overview';
         else url = `/${view}`;
 
-        window.history.pushState({ view, contactId }, '', url);
+        if (typeof window !== 'undefined' && window.history) {
+            window.history.pushState({ view, contactId }, '', url);
+        }
     };
 
     // Handle session popstate (browser back/forward)
     useEffect(() => {
         const handlePopState = (event) => {
             const state = event.state;
-            const path = window.location.pathname;
+            const path = (typeof window !== 'undefined' && window.location) ? window.location.pathname : '/';
 
             if (state) {
                 setCurrentView(state.view);
@@ -248,7 +252,10 @@ const AppContent = () => {
         return <ResetPasswordPage />;
     }
 
+    console.log('[DEBUG] Final render decision, currentView:', currentView, 'hasToken:', !!token);
+    
     if (!token) {
+        console.log('[DEBUG] Rendering LoginPage');
         return <LoginPage />;
     }
 
@@ -272,16 +279,16 @@ const AppContent = () => {
 function App() {
     return (
         <ErrorBoundary>
-            <ContactConfigProvider>
-                <FieldRulesProvider>
-                    <PropertyConfigProvider>
-                        <ParsingProvider>
-                            <ActivityProvider>
-                                <DistributionProvider>
-                                    <SequenceProvider>
-                                        <AutomatedActionsProvider>
-                                            <TriggersProvider>
-                                                <UserProvider>
+            <UserProvider>
+                <ContactConfigProvider>
+                    <FieldRulesProvider>
+                        <PropertyConfigProvider>
+                            <ParsingProvider>
+                                <ActivityProvider>
+                                    <DistributionProvider>
+                                        <SequenceProvider>
+                                            <AutomatedActionsProvider>
+                                                <TriggersProvider>
                                                     <CallProvider>
                                                         <Toaster 
                                                             position="top-right" 
@@ -289,16 +296,16 @@ function App() {
                                                         />
                                                         <AppContent />
                                                     </CallProvider>
-                                                </UserProvider>
-                                            </TriggersProvider>
-                                        </AutomatedActionsProvider>
-                                    </SequenceProvider>
-                                </DistributionProvider>
-                            </ActivityProvider>
-                        </ParsingProvider>
-                    </PropertyConfigProvider>
-                </FieldRulesProvider>
-            </ContactConfigProvider >
+                                                </TriggersProvider>
+                                            </AutomatedActionsProvider>
+                                        </SequenceProvider>
+                                    </DistributionProvider>
+                                </ActivityProvider>
+                            </ParsingProvider>
+                        </PropertyConfigProvider>
+                    </FieldRulesProvider>
+                </ContactConfigProvider >
+            </UserProvider>
         </ErrorBoundary>
     );
 }

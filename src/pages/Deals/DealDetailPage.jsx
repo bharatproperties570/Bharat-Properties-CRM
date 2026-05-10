@@ -329,25 +329,31 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
             return;
         }
 
+        // 🚀 OPTIMISTIC UI: Update state immediately
+        const previousStage = deal.stage;
+        setDeal(prev => ({ ...prev, stage: newStage }));
+        toast.success(`Transaction moved to ${newStage} stage!`);
+
         try {
             const res = await api.put(`deals/${dealId}`, { 
                 stage: newStage,
                 triggeredBy: 'manual_pipeline_override'
             });
+            
             if (res.data && (res.data.success || res.data.status === 'success')) {
-                toast.success(`Transaction moved to ${newStage} stage!`);
-                
-                // Refresh everything
+                // Refresh background data for consistency
                 fetchDealDetails();
                 fetchLiveScore();
                 fetchDealActivities();
-                
-                // If intelligence engine is active, trigger an auto-enrichment
                 enrichDealIntelligence();
+            } else {
+                throw new Error("Server rejected status update");
             }
         } catch (error) {
             console.error("Error updating deal stage:", error);
-            toast.error("Failed to update status");
+            // ROLLBACK on failure
+            setDeal(prev => ({ ...prev, stage: previousStage }));
+            toast.error("Failed to update status. Reverting changes.");
         }
     };
 

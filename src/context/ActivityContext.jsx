@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react';
-import { activitiesAPI } from '../utils/api';
+import { activitiesAPI, safeStorage } from '../utils/api';
 
 const ActivityContext = createContext();
 
@@ -128,7 +128,7 @@ export const ActivityProvider = ({ children }) => {
     };
 
     useEffect(() => {
-        const token = localStorage.getItem('authToken');
+        const token = safeStorage.getItem('authToken');
         if (token) {
             fetchActivities();
         }
