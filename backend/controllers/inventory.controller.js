@@ -1625,15 +1625,17 @@ export const checkDuplicatesImport = async (req, res) => {
  */
 export const bulkUpdatePropertyOwners = async (req, res) => {
     try {
-        const { rows, resolutions, dryRun = false } = req.body;
-        if (!rows || !Array.isArray(rows)) {
-            return res.status(400).json({ success: false, error: "Invalid data provided" });
+        const { rows, data, resolutions, dryRun = false } = req.body;
+        const finalRows = rows || data;
+
+        if (!finalRows || !Array.isArray(finalRows)) {
+            return res.status(400).json({ success: false, error: "Invalid data provided (rows/data missing)" });
         }
 
-        console.log(`[BULK OWNER UPDATE] ${dryRun ? '[DRY RUN] ' : ''}Processing ${rows.length} records`);
+        console.log(`[BULK OWNER UPDATE] ${dryRun ? '[DRY RUN] ' : ''}Processing ${finalRows.length} records`);
 
         const results = {
-            total: rows.length,
+            total: finalRows.length,
             inventoryMatched: 0,
             inventoryNotFound: 0,
             contactsCreated: 0,
@@ -1687,8 +1689,8 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
             return result;
         };
 
-        for (let i = 0; i < rows.length; i++) {
-            const row = rows[i];
+        for (let i = 0; i < finalRows.length; i++) {
+            const row = finalRows[i];
             const {
                 projectName,
                 block,
