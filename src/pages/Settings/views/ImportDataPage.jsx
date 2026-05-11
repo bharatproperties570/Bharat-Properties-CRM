@@ -31,9 +31,7 @@ const ImportDataPage = () => {
     const [isAnalyzing, setIsAnalyzing] = useState(false);
 
     // Global Defaults for Assignment
-    const [defaultAssignedTo, setDefaultAssignedTo] = useState('');
-    const [defaultVisibleTo, setDefaultVisibleTo] = useState('Everyone');
-    const [defaultTeam, setDefaultTeam] = useState('');
+
 
     const fileInputRef = useRef(null);
     const [isDragging, setIsDragging] = useState(false);
@@ -339,10 +337,8 @@ const ImportDataPage = () => {
                 let payload = {
                     data: chunk,
                     updateDuplicates: updateDuplicates,
-                    teams: selectedTeams.length > 0 ? selectedTeams : (defaultTeam ? [defaultTeam] : undefined),
-                    resolutions: module === 'propertyOwners' ? resolutions : undefined,
-                    defaultAssignedTo: defaultAssignedTo || undefined,
-                    defaultVisibleTo: defaultVisibleTo || undefined
+                    teams: selectedTeams.length > 0 ? selectedTeams : undefined,
+                    resolutions: module === 'propertyOwners' ? resolutions : undefined
                 };
 
                 if (module === 'sizes') {
@@ -617,54 +613,7 @@ const ImportDataPage = () => {
                             </button>
                         </div>
 
-                        {/* Global Assignment Hub */}
-                        <div style={{ marginTop: '32px', padding: '24px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                            <h4 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#1e293b', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <i className="fas fa-user-shield" style={{ color: 'var(--primary-color)' }}></i> Global Assignment Hub
-                            </h4>
-                            <p style={{ fontSize: '0.8rem', color: '#64748b', marginBottom: '20px' }}>
-                                Set default rules for this batch. These will be used if assignment data is missing in your CSV.
-                            </p>
-                            
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                                <div>
-                                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>Default Owner (RM)</label>
-                                    <select 
-                                        value={defaultAssignedTo}
-                                        onChange={(e) => setDefaultAssignedTo(e.target.value)}
-                                        style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
-                                    >
-                                        <option value="">-- Choose RM --</option>
-                                        {users.map(u => <option key={u._id} value={u._id}>{u.fullName}</option>)}
-                                    </select>
-                                </div>
-                                
-                                <div>
-                                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>Data Visibility</label>
-                                    <select 
-                                        value={defaultVisibleTo}
-                                        onChange={(e) => setDefaultVisibleTo(e.target.value)}
-                                        style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
-                                    >
-                                        <option value="Everyone">Everyone</option>
-                                        <option value="Team">Team Only</option>
-                                        <option value="Private">Private (Owner Only)</option>
-                                    </select>
-                                </div>
 
-                                <div style={{ gridColumn: 'span 2' }}>
-                                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>Primary Team</label>
-                                    <select 
-                                        value={defaultTeam}
-                                        onChange={(e) => setDefaultTeam(e.target.value)}
-                                        style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
-                                    >
-                                        <option value="">-- Select Primary Team --</option>
-                                        {teams.map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
-                                    </select>
-                                </div>
-                            </div>
-                        </div>
 
                         <div style={{ marginTop: '24px', textAlign: 'center' }}>
                             <p style={{ fontSize: '0.8rem', color: '#64748b' }}>
