@@ -626,9 +626,9 @@ export const getInventoryById = async (req, res) => {
             const addrFields = [
                 { field: 'city', type: 'City' },
                 { field: 'state', type: 'State' },
-                { field: 'locality', type: 'Area' },
+                { field: 'locality', type: 'Location' }, // Try Location first
                 { field: 'area', type: 'Area' },
-                { field: 'location', type: 'Area' },
+                { field: 'location', type: 'Location' }, // Try Location first
                 { field: 'pincode', type: 'Pincode' },
                 { field: 'tehsil', type: 'Tehsil' },
                 { field: 'postOffice', type: 'PostOffice' }
@@ -637,24 +637,38 @@ export const getInventoryById = async (req, res) => {
                 let val = inventoryData.address[field];
                 if (!val) continue;
 
-                // Case 1: Already an object (partially populated or placeholder)
-                if (typeof val === 'object' && val !== null) continue;
+                // Case 1: Already a populated object with a value (skip)
+                if (typeof val === 'object' && val !== null && (val.lookup_value || val.name || val.fullName)) continue;
 
                 const valStr = String(val).trim();
                 
-                // Case 2: It's a valid Mongo ID
-                if (mongoose.Types.ObjectId.isValid(valStr) && /^[0-9a-fA-F]{24}$/.test(valStr)) {
+                // Case 2: It's a valid Mongo ID (instance or string)
+                if (mongoose.Types.ObjectId.isValid(valStr)) {
                     const lookup = await Lookup.findById(valStr).lean();
-                    inventoryData.address[field] = lookup || { _id: valStr };
+                    if (lookup) {
+                        inventoryData.address[field] = lookup;
+                    } else {
+                        // Fallback: If ID not found in its primary type, it might be a generic lookup
+                        inventoryData.address[field] = { _id: valStr, lookup_value: valStr };
+                    }
                 } 
-                // Case 3: It's a raw string or numeric value (e.g., Pincode)
+                // Case 3: It's a raw string value
                 else {
                     // Try to find the lookup by value
-                    const lookup = await Lookup.findOne({ 
+                    let lookup = await Lookup.findOne({ 
                         lookup_type: type, 
                         lookup_value: { $regex: new RegExp(`^${escapeRegExp(valStr)}$`, 'i') } 
                     }).lean();
                     
+                    // Area/Location Cross-fallback
+                    if (!lookup && (type === 'Location' || type === 'Area')) {
+                        const fallbackType = type === 'Location' ? 'Area' : 'Location';
+                        lookup = await Lookup.findOne({ 
+                            lookup_type: fallbackType, 
+                            lookup_value: { $regex: new RegExp(`^${escapeRegExp(valStr)}$`, 'i') } 
+                        }).lean();
+                    }
+
                     inventoryData.address[field] = lookup || { lookup_value: valStr };
                 }
             }

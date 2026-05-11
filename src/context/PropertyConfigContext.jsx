@@ -1300,7 +1300,7 @@ export const PropertyConfigProvider = ({ children }) => {
             const requiredTypes = [
                 'UnitType', 'Category', 'SubCategory', 'Facing', 'RoadWidth', 
                 'Direction', 'Relation', 'CompanyType', 'Industry', 'Size',
-                'Status', 'State', 'City', 'Location'
+                'Status', 'State', 'City', 'Location', 'Area', 'Pincode', 'Tehsil', 'PostOffice'
             ];
             const response = await api.get(`/lookups?lookup_type=${requiredTypes.join(',')}`);
 
