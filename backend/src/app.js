@@ -52,7 +52,7 @@ const allowedOrigins = [
     "http://192.168.1.10:8081",
     "https://bharat-properties-crm.vercel.app",
     "https://api.bharatproperties.co",
-    "https://crm.bharatproperties.com"
+    "https://crm.bharatproperties.co"
 ];
 
 const envOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : [];

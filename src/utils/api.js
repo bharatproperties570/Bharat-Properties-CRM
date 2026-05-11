@@ -42,7 +42,7 @@ export const safeStorage = {
 };
 
 const isProd = getEnvVar('PROD') === 'true' || getEnvVar('PROD') === true;
-const STABLE_TUNNEL_URL = 'https://crm-bharat-api-v5.loca.lt/api';
+const STABLE_TUNNEL_URL = 'https://api.bharatproperties.co/api';
 const rawViteApiUrl = getEnvVar('VITE_API_URL');
 const VITE_API_URL = typeof rawViteApiUrl === 'string' ? rawViteApiUrl : '';
 
