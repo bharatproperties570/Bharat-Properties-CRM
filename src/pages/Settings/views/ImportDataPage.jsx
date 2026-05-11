@@ -232,7 +232,8 @@ const ImportDataPage = () => {
                 setConflicts(response.data.conflicts || []);
                 setImportSummary({
                     newItems: response.data.newCount || 0,
-                    updateItems: response.data.successCount || 0
+                    updateItems: response.data.updatedCount || response.data.successCount || 0,
+                    noMobileItems: response.data.noMobileCount || 0
                 });
                 
                 // Default resolutions
@@ -262,7 +263,7 @@ const ImportDataPage = () => {
         }));
     };
 
-    const handleImport = async () => {
+    const handleImport = async (mode = 'ALL') => {
         if (!fileData.data.length || Object.keys(mapping).length === 0) {
             return toast.error('No data or mapping provided');
         }
@@ -274,13 +275,32 @@ const ImportDataPage = () => {
         setImportStats({ success: 0, failed: 0, newCount: 0, updatedCount: 0 });
 
         try {
-            // Transform data based on mapping
-            const transformedData = fileData.data.map(row => {
+            // Transform and Filter data based on mapping and mode
+            let rawTransformed = fileData.data.map((row, idx) => {
                 const item = {};
                 Object.entries(mapping).forEach(([systemKey, fileHeader]) => {
                     item[systemKey] = row[fileHeader];
                 });
+                item._rowIdx = idx; // Keep track for filtering
+                return item;
+            });
 
+            // Filter data based on mode for Property Owners
+            let transformedData = rawTransformed;
+            if (module === 'propertyOwners' && mode !== 'ALL') {
+                transformedData = rawTransformed.filter(item => {
+                    const hasMobile = !!String(item.ownerMobile || '').trim();
+                    const hasConflict = conflicts.some(c => c.mobile === String(item.ownerMobile || '').trim());
+                    
+                    if (mode === 'NEW_ONLY') return hasMobile && !hasConflict;
+                    if (mode === 'UPDATE_ONLY') return hasMobile && hasConflict;
+                    if (mode === 'SPECIAL_ENTRY') return !hasMobile;
+                    return true;
+                });
+            }
+
+            // Cleanup temp indexing
+            transformedData = transformedData.map(({ _rowIdx, ...item }) => {
                 if (module === 'sizes' || module === 'inventory') {
                     const projectObj = projects.find(p => p._id === selectedProject);
                     item.projectId = selectedProject;
@@ -748,7 +768,7 @@ const ImportDataPage = () => {
                                 )}
 
                                 <div style={{ textAlign: 'center', background: '#f8fafc', padding: '32px', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '32px' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'center', gap: '40px', alignItems: 'center' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'center', gap: '40px', alignItems: 'center', marginBottom: '24px' }}>
                                         <div style={{ textAlign: 'center' }}>
                                             <div style={{ fontSize: '2.5rem', fontWeight: 800, color: '#1e293b' }}>{fileData.data.length}</div>
                                             <div style={{ fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 700 }}>Total Records</div>
@@ -761,18 +781,49 @@ const ImportDataPage = () => {
                                         <div style={{ width: '1px', height: '40px', background: '#e2e8f0' }}></div>
                                         <div style={{ textAlign: 'center' }}>
                                             <div style={{ fontSize: '2.5rem', fontWeight: 800, color: '#2563eb' }}>{importSummary.updateItems}</div>
-                                            <div style={{ fontSize: '0.75rem', color: '#2563eb', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 700 }}>Existing Matched</div>
+                                            <div style={{ fontSize: '0.75rem', color: '#2563eb', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 700 }}>Matched Existing</div>
                                         </div>
+                                        {importSummary.noMobileItems > 0 && (
+                                            <>
+                                                <div style={{ width: '1px', height: '40px', background: '#e2e8f0' }}></div>
+                                                <div style={{ textAlign: 'center' }}>
+                                                    <div style={{ fontSize: '2.5rem', fontWeight: 800, color: '#ea580c' }}>{importSummary.noMobileItems}</div>
+                                                    <div style={{ fontSize: '0.75rem', color: '#ea580c', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 700 }}>No Numbers</div>
+                                                </div>
+                                            </>
+                                        )}
                                     </div>
                                     
-                                    {module !== 'propertyOwners' && !checkingDuplicates && duplicates.length === 0 && (
+                                    <div style={{ display: 'flex', justifyContent: 'center', gap: '12px' }}>
                                         <button
-                                            onClick={checkDuplicates}
-                                            style={{ marginTop: '24px', background: 'var(--primary-color)', color: '#fff', padding: '10px 20px', borderRadius: '8px', fontSize: '0.9rem', cursor: 'pointer', fontWeight: 600, border: 'none' }}
+                                            onClick={() => handleImport('NEW_ONLY')}
+                                            disabled={importSummary.newItems === 0}
+                                            style={{ background: '#16a34a', color: '#fff', padding: '12px 24px', borderRadius: '8px', fontSize: '0.9rem', cursor: importSummary.newItems === 0 ? 'not-allowed' : 'pointer', fontWeight: 700, border: 'none', opacity: importSummary.newItems === 0 ? 0.5 : 1 }}
                                         >
-                                            <i className="fas fa-search" style={{ marginRight: '8px' }}></i> Validate Duplicates
+                                            <i className="fas fa-plus-circle" style={{ marginRight: '8px' }}></i> Add Only New
                                         </button>
-                                    )}
+                                        <button
+                                            onClick={() => handleImport('UPDATE_ONLY')}
+                                            disabled={importSummary.updateItems === 0}
+                                            style={{ background: '#2563eb', color: '#fff', padding: '12px 24px', borderRadius: '8px', fontSize: '0.9rem', cursor: importSummary.updateItems === 0 ? 'not-allowed' : 'pointer', fontWeight: 700, border: 'none', opacity: importSummary.updateItems === 0 ? 0.5 : 1 }}
+                                        >
+                                            <i className="fas fa-sync-alt" style={{ marginRight: '8px' }}></i> Update Matched
+                                        </button>
+                                        {importSummary.noMobileItems > 0 && (
+                                            <button
+                                                onClick={() => handleImport('SPECIAL_ENTRY')}
+                                                style={{ background: '#ea580c', color: '#fff', padding: '12px 24px', borderRadius: '8px', fontSize: '0.9rem', cursor: 'pointer', fontWeight: 700, border: 'none' }}
+                                            >
+                                                <i className="fas fa-user-tag" style={{ marginRight: '8px' }}></i> Add Special Entries
+                                            </button>
+                                        )}
+                                        <button
+                                            onClick={() => handleImport('ALL')}
+                                            style={{ background: '#0f172a', color: '#fff', padding: '12px 24px', borderRadius: '8px', fontSize: '0.9rem', cursor: 'pointer', fontWeight: 700, border: 'none' }}
+                                        >
+                                            <i className="fas fa-check-double" style={{ marginRight: '8px' }}></i> Proceed with All
+                                        </button>
+                                    </div>
                                 </div>
 
                                 <div style={{ textAlign: 'left', background: '#fff', border: '1px solid #e2e8f0', padding: '24px', borderRadius: '12px', fontSize: '0.9rem', color: '#64748b' }}>

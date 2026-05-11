@@ -1612,6 +1612,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
             inventoryNotFound: 0,
             contactsCreated: 0,
             contactsFound: 0,
+            noMobileCount: 0,
             conflicts: [], // 🛡️ ENTERPRISE: Structured conflicts for UI resolution
             errors: []
         };
@@ -1676,6 +1677,8 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                     const mobile = String(ownerMobile || '').trim();
                     const name = String(ownerName || '').trim();
                     const fatherName = String(row.fatherName || '').trim();
+
+                    if (!mobile) results.noMobileCount++;
 
                     const resolution = resolutions[rowKey]?.owner; 
 
@@ -1843,6 +1846,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
             successCount: results.inventoryMatched,
             newCount: results.contactsCreated,
             updatedCount: results.contactsFound,
+            noMobileCount: results.noMobileCount,
             conflictCount: results.conflicts.length,
             conflicts: results.conflicts,
             errors: results.errors
