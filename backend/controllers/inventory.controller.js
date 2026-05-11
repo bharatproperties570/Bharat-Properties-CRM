@@ -1657,7 +1657,13 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                 results.inventoryMatched++;
 
                 const updates = {};
-                const propertyTag = `${(inventory.projectName || 'Property').replace(/\s+/g, '-')}_${(inventory.unitNo || 'Unit').replace(/\s+/g, '-')}`;
+                // Enterprise Grade: Short Code Tagging (First 3 chars of each word)
+                const shortProject = (inventory.projectName || 'Prop')
+                    .split(/\s+/)
+                    .map(word => word.substring(0, 3))
+                    .join('')
+                    .replace(/[^a-zA-Z0-9]/g, '');
+                const propertyTag = `${shortProject}_${(inventory.unitNo || 'Unit').replace(/\s+/g, '-')}`;
 
                 // Structured Address Object
                 const personalAddress = {
