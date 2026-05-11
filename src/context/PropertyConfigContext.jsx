@@ -1096,8 +1096,13 @@ export const PropertyConfigProvider = ({ children }) => {
             // SINGLE SOURCE OF TRUTH: Fetch from Lookups ('Size' category)
             const sizesResponse = await lookupsAPI.getByCategory('Size');
             let lookupSizes = [];
-            if (sizesResponse && sizesResponse.status === "success" && Array.isArray(sizesResponse.data)) {
-                lookupSizes = sizesResponse.data.map(l => ({
+            
+            // 🛡️ SENIOR PROFESSIONAL: Handle multiple response formats (status vs success)
+            const isSuccess = sizesResponse && (sizesResponse.status === "success" || sizesResponse.success === true);
+            const responseData = sizesResponse?.data || (Array.isArray(sizesResponse) ? sizesResponse : []);
+
+            if (isSuccess && Array.isArray(responseData)) {
+                lookupSizes = responseData.map(l => ({
                     id: l._id,
                     name: l.lookup_value,
                     ...l.metadata
@@ -1404,21 +1409,34 @@ export const PropertyConfigProvider = ({ children }) => {
                 });
 
                 // 2. LOAD SYSTEM SETTINGS (Secondary source / Remaining configs)
-                const response = await systemSettingsAPI.getAll({ limit: 100 });
-                if (response) {
-                    const resBody = response;
-                    const settingsList = Array.isArray(resBody) ? resBody : (resBody.data || resBody.docs || []);
+                const settingsResponse = await systemSettingsAPI.getAll({ limit: 100 });
+                console.log('[PropertyConfigContext] System Settings Response:', settingsResponse);
+                
+                if (settingsResponse) {
+                    const resBody = settingsResponse;
+                    // Robust extraction: Handle [Array], { data: [Array] }, or { data: { docs: [Array] } }
+                    const settingsList = Array.isArray(resBody) 
+                        ? resBody 
+                        : (Array.isArray(resBody?.data) 
+                            ? resBody.data 
+                            : (resBody?.data?.docs || resBody?.docs || []));
+                    
+                    console.log(`[PropertyConfigContext] Processing ${settingsList.length} settings...`);
 
                     // Map settings to state (Aligned with useSystemSetting camelCase keys)
                     const foundKeys = new Set();
                     settingsList.forEach(setting => {
+                        console.log(`[PropertyConfigContext] Syncing key: ${setting.key}`);
                         foundKeys.add(setting.key);
                         switch (setting.key) {
                             case 'propertyConfig': setPropertyConfig(setting.value, true); break;
                             case 'masterFields': setMasterFields(setting.value, true); break;
                             case 'projectMasterFields': setProjectMasterFields(setting.value, true); break;
                             case 'projectAmenities': setProjectAmenities(setting.value, true); break;
-                            case 'leadMasterFields': setLeadMasterFields(setting.value, true); break;
+                            case 'leadMasterFields': 
+                                console.log('[PropertyConfigContext] Syncing leadMasterFields:', setting.value);
+                                setLeadMasterFields(setting.value, true); 
+                                break;
                             case 'scoringAttributes': setScoringAttributes(setting.value, true); break;
                             case 'scoringConfig': setScoringConfig(setting.value, true); break;
                             case 'behaviouralSignals': setBehaviouralSignals(setting.value, true); break;
@@ -1441,12 +1459,16 @@ export const PropertyConfigProvider = ({ children }) => {
                             case 'intentSignals': setIntentSignals(setting.value, true); break;
                             case 'dealMasterFields': setDealMasterFields(setting.value, true); break;
 
-                            // Backward compatibility
-                            case 'property_config': if (!foundKeys.has('propertyConfig')) setPropertyConfig(setting.value, true); break;
-                            case 'master_fields': if (!foundKeys.has('masterFields')) setMasterFields(setting.value, true); break;
-                            case 'activity_master_fields': if (!foundKeys.has('activityMasterFields')) setActivityMasterFields(setting.value, true); break;
-                            case 'lead_master_fields': if (!foundKeys.has('leadMasterFields')) setLeadMasterFields(setting.value, true); break;
-                            case 'score_bands': if (!foundKeys.has('scoreBands')) setScoreBands(setting.value, true); break;
+                            case 'dynamic_projects': 
+                                console.log('[PropertyConfigContext] Syncing dynamic_projects:', setting.value);
+                                setProjects(prev => {
+                                    const dynamicProjs = Array.isArray(setting.value) ? setting.value : [];
+                                    // Merge dynamic projects with existing ones, avoiding duplicates by name
+                                    const existingNames = new Set(prev.map(p => (p.name || '').toLowerCase()));
+                                    const newUnique = dynamicProjs.filter(p => p.name && !existingNames.has(p.name.toLowerCase()));
+                                    return [...prev, ...newUnique];
+                                });
+                                break;
 
                             default: break;
                         }
@@ -1472,18 +1494,28 @@ export const PropertyConfigProvider = ({ children }) => {
                 // Company lookups and Sizes are now handled within refreshLookups()
 
                 // FETCH REAL PROJECTS FROM BACKEND
-                console.log("[PropertyConfigContext] Fetching projects...");
-                const projectsRes = await api.get('/projects');
-                console.log("[PropertyConfigContext] Projects response:", projectsRes.data);
+                try {
+                    console.log("[PropertyConfigContext] Fetching projects...");
+                    const projectsRes = await api.get('/projects?limit=1000');
+                    console.log("[PropertyConfigContext] Projects response:", projectsRes.data);
 
-                if (projectsRes.data && projectsRes.data.success && Array.isArray(projectsRes.data.data)) {
-                    setProjects(projectsRes.data.data);
-                } else if (Array.isArray(projectsRes.data)) {
-                    // Handle case where API might return array directly (less likely but possible based on controller)
-                    setProjects(projectsRes.data);
-                } else {
-                    console.warn("[PropertyConfigContext] Unexpected projects data format:", projectsRes.data);
-                    setProjects([]);
+                    if (projectsRes.data && projectsRes.data.success && Array.isArray(projectsRes.data.data)) {
+                        const apiProjects = projectsRes.data.data;
+                        setProjects(prev => {
+                            const existingNames = new Set(prev.map(p => (p.name || '').toLowerCase()));
+                            const newUnique = apiProjects.filter(p => p.name && !existingNames.has(p.name.toLowerCase()));
+                            return [...prev, ...newUnique];
+                        });
+                    } else if (Array.isArray(projectsRes.data)) {
+                        const apiProjects = projectsRes.data;
+                        setProjects(prev => {
+                            const existingNames = new Set(prev.map(p => (p.name || '').toLowerCase()));
+                            const newUnique = apiProjects.filter(p => p.name && !existingNames.has(p.name.toLowerCase()));
+                            return [...prev, ...newUnique];
+                        });
+                    }
+                } catch (projError) {
+                    console.error('[PropertyConfigContext] Failed to fetch projects:', projError);
                 }
             } catch (error) {
                 console.error('Failed to load configs from backend:', error);

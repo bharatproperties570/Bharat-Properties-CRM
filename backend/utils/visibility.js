@@ -49,6 +49,7 @@ export const getVisibilityFilter = async (user) => {
         $or: [
             { assignedTo: userObjectId },
             { owner: userObjectId },
+            { assign: userObjectId },
             { 'assignment.assignedTo': userObjectId }
         ]
     };
@@ -58,6 +59,8 @@ export const getVisibilityFilter = async (user) => {
             { 
                 $or: [
                     { visibleTo: 'Everyone' },
+                    { visibleTo: { $exists: false } },
+                    { visibleTo: null },
                     { 'assignment.visibleTo': 'Everyone' }
                 ]
             }
@@ -76,6 +79,7 @@ export const getVisibilityFilter = async (user) => {
                 { team: { $in: deptTeamIds } },
                 { 'assignment.team': { $in: deptTeamIds } },
                 { team: { $exists: false } },
+                { team: null },
                 { teams: { $size: 0 } }
             ]
         });
@@ -100,7 +104,8 @@ export const getVisibilityFilter = async (user) => {
                             $or: [
                                 { visibleTo: { $in: ['Team', 'Everyone'] } },
                                 { 'assignment.visibleTo': { $in: ['Team', 'Everyone'] } },
-                                { visibleTo: { $exists: false } }
+                                { visibleTo: { $exists: false } },
+                                { visibleTo: null }
                             ]
                         },
                         {
@@ -114,7 +119,13 @@ export const getVisibilityFilter = async (user) => {
                 },
                 {
                     $and: [
-                        { visibleTo: 'Everyone' },
+                        { 
+                            $or: [
+                                { visibleTo: 'Everyone' },
+                                { visibleTo: { $exists: false } },
+                                { visibleTo: null }
+                            ]
+                        },
                         { $or: [{ team: null }, { teams: { $size: 0 } }, { team: { $exists: false } }] }
                     ]
                 }
@@ -125,6 +136,8 @@ export const getVisibilityFilter = async (user) => {
             $or: [
                 ...baseFilter.$or,
                 { visibleTo: 'Everyone' },
+                { visibleTo: { $exists: false } },
+                { visibleTo: null },
                 { 'assignment.visibleTo': 'Everyone' }
             ]
         };

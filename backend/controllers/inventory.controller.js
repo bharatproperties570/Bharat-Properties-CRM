@@ -1413,14 +1413,41 @@ export const importInventory = async (req, res) => {
                                 contact = await Contact.findOne({ name: { $regex: new RegExp(`^${escapeRegExp(item.ownerName)}$`, 'i') } }).select('_id name').lean();
                             }
 
+                            // 🚀 Enterprise Grade: Short Code Tagging (First 3 chars of each word)
+                            const shortProject = (result.projectName || 'Prop')
+                                .split(/\s+/)
+                                .map(word => word.substring(0, 3))
+                                .join('')
+                                .replace(/[^a-zA-Z0-9]/g, '');
+                            const propertyTag = `${shortProject}_${(result.unitNo || '').replace(/\s+/g, '')}`;
+
                             if (!contact) {
                                 const newContactData = {
                                     name: item.ownerName || 'Unknown Owner',
                                     phones: item.ownerPhone ? [{ number: item.ownerPhone, type: 'Personal' }] : [],
                                     emails: item.ownerEmail ? [{ address: item.ownerEmail, type: 'Personal' }] : [],
-                                    source: await resolveLookup('Source', 'Data Import')
+                                    source: await resolveLookup('Source', 'Inventory Import'),
+                                    // 🚀 Sync assignment from inventory to owner
+                                    assignedTo: result.assignedTo,
+                                    owner: result.assignedTo,
+                                    team: result.team,
+                                    teams: result.teams,
+                                    visibleTo: result.visibleTo,
+                                    tags: ['Property Owner', propertyTag]
                                 };
                                 contact = await Contact.create(newContactData);
+                            } else {
+                                // 🚀 Update existing contact with assignment and tagging
+                                await Contact.findByIdAndUpdate(contact._id, {
+                                    $addToSet: { tags: { $each: ['Property Owner', propertyTag] } },
+                                    $set: {
+                                        assignedTo: result.assignedTo,
+                                        owner: result.assignedTo,
+                                        team: result.team,
+                                        teams: result.teams,
+                                        visibleTo: result.visibleTo
+                                    }
+                                });
                             }
                             contactCache.set(contactKey, contact._id);
                         }
@@ -1621,18 +1648,55 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
 
         for (let i = 0; i < data.length; i++) {
             const row = data[i];
-            const {
-                projectName, block, unitNo,
-                ownerName, ownerMobile, ownerEmail,
-                associateName, associateMobile, associateEmail, relationship,
-                team, assignedTo, visibleTo,
-                ownerHNo, ownerStreet, ownerLocality, ownerArea, ownerCity, ownerState, ownerPinCode
-            } = row;
+            
+            // Robust Header Resolution (Senior Professional Pattern)
+            const projectName = row.projectName || row.project || row['Project Name'] || row['Project'];
+            const block = row.block || row.sector || row['Block'] || row['Sector'];
+            const unitNo = row.unitNo || row.unitNumber || row['Unit No'] || row['Unit Number'];
+            
+            const ownerName = row.ownerName || row['Owner Name'] || row['Name'];
+            const ownerFatherName = row.ownerFatherName || row.fatherName || row['Father Name'] || row['FatherName'];
+            const ownerMobile = row.ownerMobile || row['Owner Mobile'] || row['Mobile'] || row['Phone'];
+            const ownerEmail = row.ownerEmail || row['Owner Email'] || row['Email'];
+            
+            const associateName = row.associateName || row['Associate Name'];
+            const associateMobile = row.associateMobile || row['Associate Mobile'];
+            const associateEmail = row.associateEmail || row['Associate Email'];
+            const relationship = row.relationship || row['Relationship'];
+            
+            // Assignment Header Variations
+            const assignedTo = row.assignedTo || row['Assigned To'] || row['AssignedTo'] || row.rm || row.RM || row['RM Name'];
+            const team = row.team || row['Team'] || row.department || row['Department'];
+            const visibleTo = row.visibleTo || row['Visible To'] || row['Visibility'];
+
+            const ownerHNo = row.ownerHNo || row['Owner HNo'] || row['HNo'];
+            const ownerStreet = row.ownerStreet || row['Owner Street'] || row['Street'];
+            const ownerLocality = row.ownerLocality || row['Owner Locality'] || row['Locality'];
+            const ownerArea = row.ownerArea || row['Owner Area'] || row['Area'];
+            const ownerCity = row.ownerCity || row['Owner City'] || row['City'];
+            const ownerState = row.ownerState || row['Owner State'] || row['State'];
+            const ownerPinCode = row.ownerPinCode || row['Owner Pincode'] || row['Pincode'];
+
+            const fatherName = String(ownerFatherName || row.fatherName || '').trim();
 
             // Resolve assignment hierarchy: CSV Row > Global Default
-            const rowAssignedTo = assignedTo || defaultAssignedTo;
-            const rowTeam = team || defaultTeam;
+            const rowAssignedTo = await resolveUser(assignedTo || defaultAssignedTo);
+            const rowTeam = await resolveTeam(team || defaultTeam);
             const rowVisibleTo = visibleTo || defaultVisibleTo || 'Everyone';
+            
+            // 🛡️ SECURITY: Ensure ID consistency for assignment
+            const assignmentUpdate = {
+                assignedTo: rowAssignedTo,
+                owner: rowAssignedTo,
+                team: rowTeam,
+                teams: Array.isArray(rowTeam) ? rowTeam : (rowTeam ? [rowTeam] : []),
+                visibleTo: rowVisibleTo,
+                assignment: {
+                    assignedTo: rowAssignedTo,
+                    team: Array.isArray(rowTeam) ? rowTeam : (rowTeam ? [rowTeam] : []),
+                    visibleTo: rowVisibleTo
+                }
+            };
 
             // Row Identifier for resolutions
             const rowKey = `row_${i}`;
@@ -1683,7 +1747,6 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                     let ownerId = null;
                     const mobile = String(ownerMobile || '').trim();
                     const name = String(ownerName || '').trim();
-                    const fatherName = String(row.fatherName || '').trim();
 
                     if (!mobile) results.noMobileCount++;
 
@@ -1710,6 +1773,14 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                         if (existingContact && (!mobile || (contactByMobile && contactByMobile._id.equals(existingContact._id)))) {
                             ownerId = existingContact._id;
                             results.contactsFound++;
+
+                            // 🚀 SYNC: Even for perfect matches, ensure assignment and tags are up to date
+                            if (!dryRun) {
+                                await Contact.findByIdAndUpdate(ownerId, {
+                                    $addToSet: { tags: { $each: ['Property Owner', propertyTag] } },
+                                    $set: assignmentUpdate
+                                });
+                            }
                         }
                         // CASE: Conflict Detected (Name mismatch on same mobile)
                         else if (contactByMobile && contactByMobile.name.toLowerCase() !== name.toLowerCase()) {
@@ -1732,6 +1803,12 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                                     contactByMobile.name = name;
                                     if (fatherName) contactByMobile.fatherName = fatherName;
                                     contactByMobile.personalAddress = personalAddress;
+                                    
+                                    // Update assignment data
+                                    contactByMobile.assignedTo = rowAssignedTo;
+                                    contactByMobile.owner = rowAssignedTo;
+                                    contactByMobile.team = rowTeam;
+                                    contactByMobile.visibleTo = rowVisibleTo;
                                     
                                     // Enterprise Auto-Tagging
                                     if (!contactByMobile.tags) contactByMobile.tags = [];
@@ -1794,9 +1871,11 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                     }
 
                     if (ownerId && ownerId !== "CONFLICT_PENDING" && !dryRun) {
-                        // Ensure existing contacts get the tag if they weren't updated in the resolution blocks
+                        // 🚀 SENIOR PROFESSIONAL: Unified Update Layer
+                        // Ensure existing contacts get the tag AND updated assignment
                         await Contact.findByIdAndUpdate(ownerId, { 
-                            $addToSet: { tags: { $each: ['Property Owner', propertyTag] } } 
+                            $addToSet: { tags: { $each: ['Property Owner', propertyTag] } },
+                            $set: assignmentUpdate
                         });
 
                         const existingOwners = inventory.owners || [];

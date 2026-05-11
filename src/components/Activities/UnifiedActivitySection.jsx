@@ -834,6 +834,38 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                                                         {new Date(item.timestamp).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })} • {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                                     </div>
                                                 </div>
+
+                                                {/* 🚀 ENTERPRISE CAMPAIGN INTELLIGENCE SECTION */}
+                                                {(item.metadata?.campaign || item.metadata?.source || item.metadata?.subSource) && (
+                                                    <div style={{ 
+                                                        display: 'flex', 
+                                                        flexWrap: 'wrap', 
+                                                        gap: '6px', 
+                                                        marginTop: '4px', 
+                                                        marginBottom: '10px',
+                                                        padding: '6px 10px',
+                                                        background: 'rgba(255, 255, 255, 0.5)',
+                                                        borderRadius: '8px',
+                                                        border: '1px solid rgba(0,0,0,0.03)'
+                                                    }}>
+                                                        {item.metadata.campaign && (
+                                                            <span title="Campaign Name" style={{ fontSize: '0.65rem', fontWeight: 800, background: '#fef3c7', color: '#92400e', padding: '2px 8px', borderRadius: '4px', textTransform: 'uppercase', letterSpacing: '0.02em', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                                <i className="fas fa-bullhorn" style={{ fontSize: '0.6rem' }}></i> {typeof item.metadata.campaign === 'object' ? item.metadata.campaign.lookup_value : item.metadata.campaign}
+                                                            </span>
+                                                        )}
+                                                        {item.metadata.source && (
+                                                            <span title="Lead Source" style={{ fontSize: '0.65rem', fontWeight: 800, background: '#e0f2fe', color: '#075985', padding: '2px 8px', borderRadius: '4px', textTransform: 'uppercase', letterSpacing: '0.02em', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                                <i className="fas fa-sign-in-alt" style={{ fontSize: '0.6rem' }}></i> {typeof item.metadata.source === 'object' ? item.metadata.source.lookup_value : item.metadata.source}
+                                                            </span>
+                                                        )}
+                                                        {item.metadata.subSource && (
+                                                            <span title="Medium / Sub-Source" style={{ fontSize: '0.65rem', fontWeight: 800, background: '#f1f5f9', color: '#475569', padding: '2px 8px', borderRadius: '4px', textTransform: 'uppercase', letterSpacing: '0.02em', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                                <i className="fas fa-layer-group" style={{ fontSize: '0.6rem' }}></i> {typeof item.metadata.subSource === 'object' ? item.metadata.subSource.lookup_value : item.metadata.subSource}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                )}
+
                                                 {item.type?.toLowerCase() === 'whatsapp' ? (
                                                     <div className="whatsapp-chat-container" style={{ marginTop: '12px' }}>
                                                         <div className={`wa-bubble ${item.details?.direction?.toLowerCase() === 'incoming' ? 'wa-incoming' : 'wa-outgoing'}`}>

@@ -480,9 +480,9 @@ export const getUnifiedTimeline = async (req, res) => {
         }
 
         // 0.1 Fetch Entity Mobile for wider conversation matching
-        let mobileForLookup = null;
+        let leadDoc = null;
         if (entityType.toLowerCase() === 'lead') {
-            const leadDoc = await Lead.findById(objId).select('mobile').lean();
+            leadDoc = await Lead.findById(objId).populate('source subSource campaign').lean();
             if (leadDoc?.mobile) mobileForLookup = normalizePhone(leadDoc.mobile);
         } else if (entityType.toLowerCase() === 'contact') {
             const contactDoc = await Contact.findById(objId).select('phones').lean();
@@ -566,7 +566,12 @@ export const getUnifiedTimeline = async (req, res) => {
                 date: l.timestamp, // Fallback
                 metadata: {
                     changes: l.changes,
-                    eventType: l.eventType
+                    eventType: l.eventType,
+                    // Senior Injection: Add Campaign context to creation logs
+                    campaign: leadDoc?.campaign,
+                    source: leadDoc?.source,
+                    subSource: leadDoc?.subSource,
+                    source_meta: leadDoc?.source_meta
                 }
             })),
             ...conversations.flatMap(c => (c.messages || []).map(m => ({

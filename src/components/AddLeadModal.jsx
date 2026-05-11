@@ -544,7 +544,8 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
         areaMetric: 'Sq Yard',
         searchLocation: '',
         areaSearch: '',
-        streetAddress: '',
+        locStreet: '',
+        locHNo: '', // Added House Number
         range: 'Within 3 km',
         locCity: '', locArea: '', locBlock: [], locPinCode: '',
         locCountry: '', locState: '', locLat: '', locLng: '',
@@ -2547,18 +2548,18 @@ const LocationSection = React.memo(function LocationSection({
                                 </select>
                             </div>
                         </div>
-                        <div style={{ marginBottom: '20px' }}>
-                            <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Street/Road/Landmark Address</label>
-                            <input type="text" value={formData.streetAddress} onChange={(e) => handleInputChange('streetAddress', e.target.value)} placeholder="Enter street name, road no, or landmark" style={inputStyle} />
-                        </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '20px', marginBottom: '20px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)', gap: '20px', marginBottom: '20px' }}>
                             <div>
-                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Location/Sector</label>
-                                <input type="text" value={formData.locArea} onChange={(e) => handleInputChange('locArea', e.target.value)} style={inputStyle} />
+                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>House Number</label>
+                                <input type="text" value={formData.locHNo} onChange={(e) => handleInputChange('locHNo', e.target.value)} placeholder="House/Flat No." style={inputStyle} />
                             </div>
                             <div>
-                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Area</label>
-                                <input ref={areaInputRef} type="text" value={formData.areaSearch} onChange={(e) => handleInputChange('areaSearch', e.target.value)} placeholder="Search area..." style={inputStyle} />
+                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Street/Road</label>
+                                <input type="text" value={formData.locStreet} onChange={(e) => handleInputChange('locStreet', e.target.value)} placeholder="Street/Road Name" style={inputStyle} />
+                            </div>
+                            <div>
+                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Area/Sector</label>
+                                <input type="text" value={formData.locArea} onChange={(e) => handleInputChange('locArea', e.target.value)} placeholder="Area or Sector" style={inputStyle} />
                             </div>
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)', gap: '20px' }}>

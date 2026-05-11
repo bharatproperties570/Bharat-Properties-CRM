@@ -44,10 +44,17 @@ const ImportDataPage = () => {
     const [blocks, setBlocks] = useState([]);
 
     const handleProjectChange = (projectId) => {
+        console.log("[ImportData] Project selected:", projectId);
         setSelectedProject(projectId);
         setSelectedBlock('');
-        const project = projects.find(p => p._id === projectId);
-        setBlocks(project?.blocks || []);
+        const project = projects.find(p => p._id === projectId || p.id === projectId);
+        if (project) {
+            console.log("[ImportData] Found project, blocks count:", project.blocks?.length || 0);
+            setBlocks(project.blocks || []);
+        } else {
+            console.warn("[ImportData] Project not found in list for ID:", projectId);
+            setBlocks([]);
+        }
     };
 
     // --- Handlers ---
@@ -338,11 +345,22 @@ const ImportDataPage = () => {
                     defaultVisibleTo: defaultVisibleTo || undefined
                 };
 
-                if (module === 'sizes') payload.lookup_type = 'Size';
-                else if (module === 'inventory') {
+                if (module === 'sizes') {
+                    payload.lookup_type = 'Size';
+                    payload.metadata = {
+                        projectName: projects.find(p => String(p._id || p.id) === String(selectedProject))?.name,
+                        projectId: selectedProject,
+                        block: selectedBlock,
+                        module: module
+                    };
+                } else if (module === 'inventory') {
                     payload.projectId = selectedProject;
-                    payload.projectName = projects.find(p => p._id === selectedProject)?.name;
-                    payload.block = selectedBlock;
+                    payload.metadata = {
+                        projectName: projects.find(p => String(p._id || p.id) === String(selectedProject))?.name,
+                        projectId: selectedProject,
+                        block: selectedBlock,
+                        module: module
+                    };
                 }
 
                 const response = await api.post(endpoint, payload);
@@ -484,23 +502,37 @@ const ImportDataPage = () => {
                                 <div>
                                     <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>Select Project</label>
                                     <select
+                                        id="project-selection-import"
                                         value={selectedProject}
                                         onChange={(e) => handleProjectChange(e.target.value)}
                                         style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.9rem' }}
                                     >
                                         <option value="">-- Choose Project --</option>
-                                        {projects.map(p => <option key={p._id} value={p._id}>{p.name}</option>)}
+                                        {projects.map(p => (
+                                            <option key={p._id || p.id} value={p._id || p.id}>
+                                                {p.name}
+                                            </option>
+                                        ))}
                                     </select>
+                                    {projects.length === 0 && (
+                                        <p style={{ fontSize: '0.7rem', color: '#ef4444', marginTop: '4px' }}>
+                                            <i className="fa fa-exclamation-triangle" style={{ marginRight: '4px' }}></i>
+                                            No projects found. Please create a project first.
+                                        </p>
+                                    )}
                                 </div>
                                 <div>
                                     <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>Select Block</label>
                                     <select
+                                        id="block-selection-import"
                                         value={selectedBlock}
                                         onChange={(e) => setSelectedBlock(e.target.value)}
-                                        disabled={!selectedProject}
-                                        style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.9rem' }}
+                                        disabled={!selectedProject || blocks.length === 0}
+                                        style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.9rem', opacity: (!selectedProject || blocks.length === 0) ? 0.6 : 1 }}
                                     >
-                                        <option value="">-- Choose Block --</option>
+                                        <option value="">
+                                            {!selectedProject ? '-- Select Project First --' : (blocks.length === 0 ? '-- No Blocks Found --' : '-- Choose Block --')}
+                                        </option>
                                         {blocks.map(b => <option key={b.name} value={b.name}>{b.name}</option>)}
                                     </select>
                                 </div>

@@ -50,6 +50,9 @@ const LeadSchema = new mongoose.Schema({
     projectName: [String],
     locCity: { type: String },
     locArea: { type: String },
+    locStreet: { type: String }, // For 'Street'
+    locHNo: { type: String },    // For 'House Number'
+    streetAddress: { type: String }, // Keeping this for backward compatibility with AddLeadModal
     locBlock: [String],
     locPincode: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup' },
     locState: { type: String },
