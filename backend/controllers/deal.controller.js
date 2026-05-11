@@ -887,12 +887,14 @@ export const getDeals = async (req, res) => {
             enrichWithLookup(dealObj, 'status');
             enrichWithLookup(dealObj, 'location');
             enrichWithLookup(dealObj, 'unitType');
+            enrichWithLookup(dealObj, 'sizeConfig');
 
             if (dealObj.inventoryId && typeof dealObj.inventoryId === 'object') {
                 enrichWithLookup(dealObj.inventoryId, 'location');
                 enrichWithLookup(dealObj.inventoryId, 'category');
                 enrichWithLookup(dealObj.inventoryId, 'propertyType');
                 enrichWithLookup(dealObj.inventoryId, 'unitType');
+                enrichWithLookup(dealObj.inventoryId, 'sizeConfig');
             }
             
             const ownerId = dealObj.owner?._id || dealObj.owner;
@@ -943,7 +945,7 @@ export const getDealById = async (req, res) => {
 
         // Manual Enrichment for Mixed fields that might be strings (preventing CastErrors)
         const enrichWithLookup = async (doc) => {
-            const fields = ['category', 'subCategory', 'intent', 'status', 'propertyType', 'location', 'unitType'];
+            const fields = ['category', 'subCategory', 'intent', 'status', 'propertyType', 'location', 'unitType', 'sizeConfig'];
             for (const field of fields) {
                 const val = doc[field];
                 if (!val) continue;
@@ -952,7 +954,7 @@ export const getDealById = async (req, res) => {
                     // It's a raw string, find or create the lookup
                     const lookupTypeMap = {
                         category: 'Category', subCategory: 'SubCategory', intent: 'Intent', 
-                        status: 'Status', propertyType: 'PropertyType', location: 'Locality', unitType: 'UnitType'
+                        status: 'Status', propertyType: 'PropertyType', location: 'Locality', unitType: 'UnitType', sizeConfig: 'Size'
                     };
                     const lookupType = lookupTypeMap[field] || 'Location';
                     const lookupId = await resolveLookup(lookupType, val);

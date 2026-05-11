@@ -49,11 +49,9 @@ export const renderValue = (val, emptyValue = '-', prefix = '') => {
             const str = String(result);
             if (str === '[object Object]') return emptyValue;
             
-            // If it's a 24-char hex string (ObjectId) and we reached here, 
-            // it means no better value was found. We show a truncated version 
-            // for debugging/visibility instead of just hiding it with '-'
+            // PROFESSIONAL FIX: Never show truncated IDs as values to the user
             if (/^[0-9a-fA-F]{24}$/.test(str)) {
-                return str.substring(0, 8) + '...'; 
+                return emptyValue; 
             }
             return str;
         } catch (e) {

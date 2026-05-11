@@ -293,6 +293,7 @@ DealSchema.pre("save", function (next) {
             this.category = await resolveLookup('Category', this.category);
             this.subCategory = await resolveLookup('SubCategory', this.subCategory);
             this.intent = await resolveLookup('Intent', this.intent);
+            this.sizeConfig = await resolveLookup('Size', this.sizeConfig);
         } catch (err) {
             console.error("Lookup resolution error:", err);
         }
