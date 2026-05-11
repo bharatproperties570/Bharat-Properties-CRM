@@ -631,7 +631,8 @@ export const getInventoryById = async (req, res) => {
                 { field: 'location', type: 'Location' }, // Try Location first
                 { field: 'pincode', type: 'Pincode' },
                 { field: 'tehsil', type: 'Tehsil' },
-                { field: 'postOffice', type: 'PostOffice' }
+                { field: 'postOffice', type: 'PostOffice' },
+                { field: 'country', type: 'Country' }
             ];
             for (const { field, type } of addrFields) {
                 let val = inventoryData.address[field];
