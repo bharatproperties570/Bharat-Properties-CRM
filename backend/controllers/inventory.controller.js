@@ -1663,7 +1663,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                     .map(word => word.substring(0, 3))
                     .join('')
                     .replace(/[^a-zA-Z0-9]/g, '');
-                const propertyTag = `${shortProject}_${(inventory.unitNo || 'Unit').replace(/\s+/g, '-')}`;
+                const propertyTag = `${shortProject}_${(inventory.unitNo || '').replace(/\s+/g, '')}`;
 
                 // Structured Address Object
                 const personalAddress = {
