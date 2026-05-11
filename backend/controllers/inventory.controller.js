@@ -1598,12 +1598,13 @@ export const checkDuplicatesImport = async (req, res) => {
  */
 export const bulkUpdatePropertyOwners = async (req, res) => {
     try {
-        const { data } = req.body;
+        const { data, dryRun = false, resolutions = {}, defaultAssignedTo, defaultVisibleTo, teams } = req.body;
+        const defaultTeam = Array.isArray(teams) ? teams[0] : teams; // Primary team for assignment
         if (!data || !Array.isArray(data)) {
             return res.status(400).json({ success: false, error: "Invalid data provided" });
         }
 
-        console.log(`[BULK OWNER UPDATE] Processing ${data.length} records`);
+        console.log(`[BULK OWNER UPDATE] ${dryRun ? '[DRY RUN] ' : ''}Processing ${data.length} records`);
 
         const results = {
             total: data.length,
@@ -1611,19 +1612,29 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
             inventoryNotFound: 0,
             contactsCreated: 0,
             contactsFound: 0,
+            conflicts: [], // 🛡️ ENTERPRISE: Structured conflicts for UI resolution
             errors: []
         };
 
-        // Cache for resolved contacts to avoid redundant DB hits within the same bulk job
-        const contactCache = new Map(); // mobile -> contactId
+        const contactCache = new Map();
 
         for (let i = 0; i < data.length; i++) {
             const row = data[i];
             const {
                 projectName, block, unitNo,
                 ownerName, ownerMobile, ownerEmail,
-                associateName, associateMobile, associateEmail, relationship
+                associateName, associateMobile, associateEmail, relationship,
+                team, assignedTo, visibleTo,
+                ownerHNo, ownerStreet, ownerLocality, ownerArea, ownerCity, ownerState, ownerPinCode
             } = row;
+
+            // Resolve assignment hierarchy: CSV Row > Global Default
+            const rowAssignedTo = assignedTo || defaultAssignedTo;
+            const rowTeam = team || defaultTeam;
+            const rowVisibleTo = visibleTo || defaultVisibleTo || 'Everyone';
+
+            // Row Identifier for resolutions
+            const rowKey = `row_${i}`;
 
             try {
                 // 1. Find Inventory Record
@@ -1638,7 +1649,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
 
                 if (!inventory) {
                     results.inventoryNotFound++;
-                    results.errors.push({ row: i + 1, item: unitNo, reason: `Inventory not found for ${projectName} | ${block} | ${unitNo}` });
+                    results.errors.push({ row: i + 1, item: unitNo, reason: `Inventory not found.` });
                     continue;
                 }
 
@@ -1646,73 +1657,123 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
 
                 const updates = {};
 
-                // 2. Resolve/Create Owner
+                // Structured Address Object
+                const personalAddress = {
+                    hNo: ownerHNo || '',
+                    street: ownerStreet || '',
+                    location: ownerLocality || '',
+                    area: ownerArea || '',
+                    city: ownerCity || '',
+                    state: ownerState || '',
+                    pincode: ownerPinCode || ''
+                };
+
+                const commonSource = await resolveLookup('Source', 'Unified Import Center');
+
+                // 2. Resolve/Create Owner (With Legal Identity & Assignment)
                 if (ownerMobile || ownerName) {
                     let ownerId = null;
                     const mobile = String(ownerMobile || '').trim();
                     const name = String(ownerName || '').trim();
+                    const fatherName = String(row.fatherName || '').trim();
+
+                    const resolution = resolutions[rowKey]?.owner; 
 
                     if (mobile && contactCache.has(mobile)) {
                         ownerId = contactCache.get(mobile);
                         results.contactsFound++;
                     } else {
-                        // Strict Matching: Both mobile and name must match for auto-alignment
-                        let contactByMobile = null;
-                        let contactByName = null;
-
-                        if (mobile) {
-                            contactByMobile = await Contact.findOne({ 'phones.number': { $regex: new RegExp(escapeRegExp(mobile), 'i') } });
+                        let contactByMobile = mobile ? await Contact.findOne({ 'phones.number': { $regex: new RegExp(escapeRegExp(mobile), 'i') } }) : null;
+                        
+                        // Legal Matching: Name + Father Name
+                        let contactByLegal = null;
+                        if (name && fatherName) {
+                            contactByLegal = await Contact.findOne({ 
+                                name: { $regex: new RegExp(`^${escapeRegExp(name)}$`, 'i') },
+                                fatherName: { $regex: new RegExp(`^${escapeRegExp(fatherName)}$`, 'i') }
+                            });
                         }
-                        if (name) {
-                            contactByName = await Contact.findOne({ name: { $regex: new RegExp(`^${escapeRegExp(name)}$`, 'i') } });
-                        }
 
-                        // Case 1: Perfect Match (Both match the same person)
-                        if (contactByMobile && contactByName && contactByMobile._id.toString() === contactByName._id.toString()) {
-                            ownerId = contactByMobile._id;
+                        const existingContact = contactByMobile || contactByLegal;
+
+                        // CASE: Perfect Match
+                        if (existingContact && (!mobile || (contactByMobile && contactByMobile._id.equals(existingContact._id)))) {
+                            ownerId = existingContact._id;
                             results.contactsFound++;
                         }
-                        // Case 2: Only Mobile found (Completely new Name or partial match)
-                        else if (contactByMobile && !contactByName) {
-                            // Flag as recommendation if names are significantly different
-                            results.errors.push({
-                                row: i + 1,
-                                item: unitNo,
-                                reason: `RECOMMENDATION: Mobile ${mobile} found as "${contactByMobile.name}", but import says "${name}". Please check and align manually.`
-                            });
+                        // CASE: Conflict Detected (Name mismatch on same mobile)
+                        else if (contactByMobile && contactByMobile.name.toLowerCase() !== name.toLowerCase()) {
+                            if (dryRun) {
+                                results.conflicts.push({
+                                    row: i + 1,
+                                    rowKey,
+                                    type: 'owner',
+                                    unitNo,
+                                    providedName: name,
+                                    providedFatherName: fatherName,
+                                    existingName: contactByMobile.name,
+                                    existingFatherName: contactByMobile.fatherName,
+                                    mobile: mobile,
+                                    reason: 'Name mismatch for existing mobile number.'
+                                });
+                                ownerId = "CONFLICT_PENDING";
+                            } else {
+                                if (resolution === 'UPDATE_SYSTEM') {
+                                    contactByMobile.name = name;
+                                    if (fatherName) contactByMobile.fatherName = fatherName;
+                                    contactByMobile.personalAddress = personalAddress;
+                                    await contactByMobile.save();
+                                    ownerId = contactByMobile._id;
+                                    results.contactsFound++;
+                                } else if (resolution === 'KEEP_SYSTEM') {
+                                    ownerId = contactByMobile._id;
+                                    results.contactsFound++;
+                                } else if (resolution === 'CREATE_NEW') {
+                                    const newContact = await Contact.create({
+                                        name: name || 'Unknown Owner',
+                                        fatherName: fatherName,
+                                        phones: mobile ? [{ number: mobile, type: 'Personal' }] : [],
+                                        emails: ownerEmail ? [{ address: ownerEmail, type: 'Personal' }] : [],
+                                        personalAddress: personalAddress,
+                                        assignedTo: rowAssignedTo,
+                                        owner: rowAssignedTo,
+                                        team: rowTeam,
+                                        visibleTo: rowVisibleTo,
+                                        source: commonSource,
+                                        tags: ['Property Owner']
+                                    });
+                                    ownerId = newContact._id;
+                                    results.contactsCreated++;
+                                }
+                            }
                         }
-                        // Case 3: Only Name found (New mobile for existing name)
-                        else if (!contactByMobile && contactByName) {
-                            results.errors.push({
-                                row: i + 1,
-                                item: unitNo,
-                                reason: `RECOMMENDATION: Name "${name}" found, but Mobile in system is different. Please check and align manually.`
-                            });
-                        }
-                        // Case 4: No match at all (New contact)
-                        else if (!contactByMobile && !contactByName) {
-                            const newContact = await Contact.create({
-                                name: name || 'Unknown Owner',
-                                phones: mobile ? [{ number: mobile, type: 'Personal' }] : [],
-                                emails: ownerEmail ? [{ address: ownerEmail, type: 'Personal' }] : [],
-                                source: await resolveLookup('Source', 'Bulk Owner Update')
-                            });
-                            ownerId = newContact._id;
+                        // CASE: New Contact
+                        else if (!existingContact) {
+                            if (dryRun) {
+                                ownerId = "SIMULATED_ID";
+                            } else {
+                                const newContact = await Contact.create({
+                                    name: name || 'Unknown Owner',
+                                    fatherName: fatherName,
+                                    phones: mobile ? [{ number: mobile, type: 'Personal' }] : [],
+                                    emails: ownerEmail ? [{ address: ownerEmail, type: 'Personal' }] : [],
+                                    personalAddress: personalAddress,
+                                    assignedTo: rowAssignedTo,
+                                    owner: rowAssignedTo,
+                                    team: rowTeam,
+                                    visibleTo: rowVisibleTo,
+                                    source: commonSource,
+                                    tags: ['Property Owner']
+                                });
+                                ownerId = newContact._id;
+                            }
                             results.contactsCreated++;
                         }
-                        // Case 5: Conflict (Both match different people)
-                        else if (contactByMobile && contactByName) {
-                            results.errors.push({
-                                row: i + 1,
-                                item: unitNo,
-                                reason: `CONFLICT: Mobile matches ${contactByMobile.name} and Name matches ${contactByName.name}. Skipped auto-alignment.`
-                            });
-                        }
 
-                        if (ownerId && mobile) contactCache.set(mobile, ownerId);
+                        if (ownerId && ownerId !== "CONFLICT_PENDING" && mobile) contactCache.set(mobile, ownerId);
                     }
 
-                    if (ownerId) {
+                    if (ownerId && ownerId !== "CONFLICT_PENDING" && !dryRun) {
                         const existingOwners = inventory.owners || [];
                         if (!existingOwners.some(id => id.toString() === ownerId.toString())) {
                             updates.owners = [...existingOwners, ownerId];
@@ -1728,89 +1789,63 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
 
                     if (mobile && contactCache.has(mobile)) {
                         associateId = contactCache.get(mobile);
-                        results.contactsFound++;
                     } else {
-                        let contactByMobile = null;
-                        let contactByName = null;
-
-                        if (mobile) {
-                            contactByMobile = await Contact.findOne({ 'phones.number': { $regex: new RegExp(escapeRegExp(mobile), 'i') } });
-                        }
-                        if (name) {
-                            contactByName = await Contact.findOne({ name: { $regex: new RegExp(`^${escapeRegExp(name)}$`, 'i') } });
-                        }
-
-                        if (contactByMobile && contactByName && contactByMobile._id.toString() === contactByName._id.toString()) {
+                        let contactByMobile = await Contact.findOne({ 'phones.number': { $regex: new RegExp(escapeRegExp(mobile), 'i') } });
+                        if (contactByMobile) {
                             associateId = contactByMobile._id;
-                            results.contactsFound++;
-                        }
-                        else if (contactByMobile && !contactByName) {
-                            results.errors.push({
-                                row: i + 1,
-                                item: unitNo,
-                                reason: `RECOMMENDATION: Mobile ${mobile} found as "${contactByMobile.name}", but import says "${name}". Please check and align manually.`
-                            });
-                        }
-                        else if (!contactByMobile && contactByName) {
-                            results.errors.push({
-                                row: i + 1,
-                                item: unitNo,
-                                reason: `RECOMMENDATION: Name "${name}" found, but Mobile is different. Please check and align manually.`
-                            });
-                        }
-                        else if (!contactByMobile && !contactByName) {
+                        } else if (!dryRun) {
                             const newContact = await Contact.create({
                                 name: name || 'Unknown Associate',
                                 phones: mobile ? [{ number: mobile, type: 'Personal' }] : [],
                                 emails: associateEmail ? [{ address: associateEmail, type: 'Personal' }] : [],
-                                source: await resolveLookup('Source', 'Bulk Owner Update')
+                                assignedTo: rowAssignedTo,
+                                owner: rowAssignedTo,
+                                team: rowTeam,
+                                visibleTo: rowVisibleTo,
+                                source: await resolveLookup('Source', 'Bulk Owner Update'),
+                                tags: ['Family Member']
                             });
                             associateId = newContact._id;
-                            results.contactsCreated++;
+                        } else {
+                            associateId = "SIMULATED_ID";
                         }
-                        else if (contactByMobile && contactByName) {
-                            results.errors.push({
-                                row: i + 1,
-                                item: unitNo,
-                                reason: `CONFLICT: Mobile matches ${contactByMobile.name} and Name matches ${contactByName.name}. Skipped auto-alignment.`
-                            });
-                        }
-
                         if (associateId && mobile) contactCache.set(mobile, associateId);
                     }
 
-                    if (associateId) {
+                    if (associateId && associateId !== "SIMULATED_ID" && !dryRun) {
                         const existingAssociates = inventory.associates || [];
                         if (!existingAssociates.some(a => a.contact && a.contact.toString() === associateId.toString())) {
-                            const newAssociate = {
-                                contact: associateId,
-                                relationship: relationship || 'Associate'
-                            };
-                            updates.associates = [...existingAssociates, newAssociate];
+                            updates.associates = [...existingAssociates, { contact: associateId, relationship: relationship || 'Associate' }];
                         }
                     }
                 }
 
-                // 4. Save Updates
-                if (Object.keys(updates).length > 0) {
-                    await Inventory.findByIdAndUpdate(inventory._id, { $set: updates });
+                // 4. Save Updates (Inventory Assignment Persistence)
+                if (!dryRun) {
+                    // Update Inventory assignment to match owner for consistency
+                    updates.assignedTo = rowAssignedTo;
+                    updates.team = rowTeam;
+                    updates.visibleTo = rowVisibleTo;
+
+                    if (Object.keys(updates).length > 0) {
+                        await Inventory.findByIdAndUpdate(inventory._id, { $set: updates });
+                    }
                 }
 
             } catch (itemErr) {
-                console.error(`[BULK OWNER UPDATE] Error at row ${i + 1}:`, itemErr);
                 results.errors.push({ row: i + 1, item: unitNo, reason: itemErr.message });
             }
         }
 
         res.status(200).json({
             success: true,
-            message: `Bulk update complete. Matched Properties: ${results.inventoryMatched}, New Contacts: ${results.contactsCreated}`,
+            message: dryRun ? 'Validation complete.' : 'Bulk update complete.',
             successCount: results.inventoryMatched,
             newCount: results.contactsCreated,
-            updatedCount: results.inventoryMatched,
-            errorCount: results.errors.length,
-            errors: results.errors,
-            results // Keep for debugging if needed
+            updatedCount: results.contactsFound,
+            conflictCount: results.conflicts.length,
+            conflicts: results.conflicts,
+            errors: results.errors
         });
 
     } catch (error) {

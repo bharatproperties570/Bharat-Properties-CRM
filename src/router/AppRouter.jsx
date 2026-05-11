@@ -1,4 +1,5 @@
 import { Suspense, lazy } from 'react';
+import { isWeb } from '../utils/platform';
 
 // Lazy load pages for massive bundle reduction
 const DashboardPage = lazy(() => import('../pages/Dashboard/DashboardPage'));
@@ -43,13 +44,15 @@ const ContactDetail = lazy(() => import('../pages/Contacts/ContactDetail'));
 // Mock data removed
 
 // Premium Loading State for Suspense
-const RouteLoading = () => (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', gap: '20px' }}>
-        <div style={{ width: '40px', height: '40px', border: '3px solid #e2e8f0', borderTopColor: 'var(--primary-color)', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
-        <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#64748b', letterSpacing: '0.5px' }}>SYNCING TRANSACTION DATA...</div>
-        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-    </div>
-);
+const RouteLoading = () => {
+    return (
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', height: '100vh', gap: '20px' }}>
+            <div style={{ width: '40px', height: '40px', border: '3px solid #e2e8f0', borderTopColor: 'var(--primary-color)', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#64748b', letterSpacing: '0.5px' }}>SYNCING TRANSACTION DATA...</div>
+            <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        </div>
+    );
+};
 
 const AppRouter = ({ currentView, currentContactId, onNavigate, onEditContact, onEditCompany, onAddActivity, onAddDeal, onAddInventory, onAddProject, onEditProject }) => {
     const renderContent = () => {

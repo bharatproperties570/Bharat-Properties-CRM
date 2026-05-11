@@ -712,86 +712,57 @@ const AddContactModal = ({
         }
       }
 
-      // --- GOOGLE DRIVE UPLOAD ---
+      // --- DATA NORMALIZATION FOR BACKEND ---
       let finalFormData = { ...formData };
 
-      // Clean up internal fields that backend Joi might reject
-      const fieldsToStrip = ["_id", "id", "__v", "createdAt", "updatedAt", "fullName"];
+      // 🛡️ Senior Implementation: Recursive Reference Normalizer
+      const deepNormalize = (obj) => {
+        if (!obj || typeof obj !== 'object') return obj;
+        
+        if (Array.isArray(obj)) {
+          return obj.map(item => deepNormalize(item));
+        }
+
+        const normalized = { ...obj };
+        
+        const schemaContainers = [
+          "phones", "emails", "personalAddress", "correspondenceAddress", 
+          "educations", "loans", "socialMedia", "incomes", "documents"
+        ];
+
+        for (const key in normalized) {
+          const value = normalized[key];
+          if (!value) continue;
+
+          if (schemaContainers.includes(key)) {
+            normalized[key] = deepNormalize(value);
+            continue;
+          }
+
+          if (typeof value === 'object' && (value._id || value.id)) {
+            normalized[key] = value._id || value.id;
+          } 
+          else if (typeof value === 'object' && !Array.isArray(value)) {
+            normalized[key] = deepNormalize(value);
+          }
+        }
+        return normalized;
+      };
+
+      // Strip system fields that backend Joi might reject
+      const fieldsToStrip = ["_id", "id", "__v", "createdAt", "updatedAt", "fullName", "matchedEntityType"];
       fieldsToStrip.forEach(field => delete finalFormData[field]);
 
-      // Normalize references to IDs only to prevent 500/400 errors
-      const normalizeRefs = (obj, parentKey = null) => {
-        if (!obj || typeof obj !== 'object') return obj;
-        const result = Array.isArray(obj) ? [...obj] : { ...obj };
+      // Apply deep normalization to flatten lookup objects into IDs
+      finalFormData = deepNormalize(finalFormData);
 
-        // Fields that should REMAIN as objects (not converted to IDs)
-        const embeddedFields = ["phones", "emails", "personalAddress", "correspondenceAddress", "educations", "loans", "socialMedia", "incomes", "documents"];
-
-        if (Array.isArray(result)) {
-          // If we are INSIDE an embedded field (like phones array), don't normalize the items to IDs
-          if (embeddedFields.includes(parentKey)) {
-            return result.map(item => normalizeRefs(item));
-          }
-          return result.map(item => (item && typeof item === 'object' && item._id) ? item._id : item);
-        }
-
-        for (const key in result) {
-          if (result[key] && typeof result[key] === 'object') {
-            if (embeddedFields.includes(key)) {
-              // Recurse into embedded fields without converting to ID
-              result[key] = normalizeRefs(result[key], key);
-            } else if (result[key]._id) {
-              result[key] = result[key]._id;
-            } else if (Array.isArray(result[key])) {
-              result[key] = result[key].map(item =>
-                (item && typeof item === 'object' && item._id) ? item._id : item
-              );
-            }
-          }
-        }
-        return result;
-      };
-
-      const topLevelRefs = [
-        "title", "countryCode", "campaign", "source", "subSource",
-        "professionCategory", "professionSubCategory", "designation",
-        "team", "owner", "visibleTo"
-      ];
-
-      const lookupMapping = {
-        title: 'Title',
-        countryCode: 'Country-Code',
-        campaign: 'Campaign',
-        source: 'Source',
-        subSource: 'SubSource',
-        professionCategory: 'ProfessionalCategory',
-        professionSubCategory: 'ProfessionalSubCategory',
-        designation: 'ProfessionalDesignation'
-      };
-
-
-      Object.entries(lookupMapping).forEach(([field, type]) => {
-        if (finalFormData[field]) {
-          if (typeof finalFormData[field] === 'string') {
-            const id = getLookupId(type, finalFormData[field]);
-            if (id) finalFormData[field] = id;
-          } else if (typeof finalFormData[field] === 'object') {
-            finalFormData[field] = finalFormData[field]._id || finalFormData[field].id || null;
-          }
-        }
-      });
-
-      topLevelRefs.forEach(ref => {
-        if (finalFormData[ref] && typeof finalFormData[ref] === 'object') {
-          finalFormData[ref] = finalFormData[ref]._id || finalFormData[ref].id;
-        }
-      });
-
-      if (finalFormData.personalAddress) finalFormData.personalAddress = normalizeRefs(finalFormData.personalAddress);
-      if (finalFormData.correspondenceAddress) finalFormData.correspondenceAddress = normalizeRefs(finalFormData.correspondenceAddress);
-
+      // Final cleanup for documents (ensure unitNumber mapping is consistent)
       if (finalFormData.documents && finalFormData.documents.length > 0) {
         finalFormData.documents = await Promise.all(finalFormData.documents.map(async (doc) => {
+          // Flatten doc refs manually if needed (as extra safety)
+          if (doc.documentName && typeof doc.documentName === 'object') doc.documentName = doc.documentName._id || doc.documentName.id;
+          if (doc.documentType && typeof doc.documentType === 'object') doc.documentType = doc.documentType._id || doc.documentType.id;
+          
           if (doc.documentPicture && (doc.documentPicture instanceof File)) {
             try {
               const uploadData = new FormData();
@@ -827,16 +798,24 @@ const AddContactModal = ({
         window.dispatchEvent(new CustomEvent('contact-updated'));
         onClose();
       } else {
-        // Handle case where success is false but no error thrown
-        throw new Error(response.data?.message || "Failed to add contact");
+        throw new Error(response.data?.message || "Failed to save contact");
       }
     } catch (error) {
-      console.error("Error adding contact:", error);
-      const errorMessage =
-        error.response?.data?.message ||
-        error.message ||
-        "Failed to add contact. Please try again.";
-      toast.error(errorMessage, { id: toastId });
+      console.error("Error saving contact:", error);
+      // 🛡️ Senior Implementation: Extract specific Joi validation errors if available
+      const backendMessage = error.response?.data?.message;
+      const details = error.response?.data?.details;
+      
+      let errorMessage = backendMessage || error.message || "An unexpected error occurred";
+      
+      // If Joi validation failed, the details might contain the specific field
+      if (details && Array.isArray(details) && details.length > 0) {
+        errorMessage = `Validation Error: ${details[0].message}`;
+      } else if (backendMessage && backendMessage.includes('validation')) {
+        errorMessage = `Schema Error: ${backendMessage}`;
+      }
+      toast.error(errorMessage, { id: toastId, duration: 5000 });
+      setIsSaving(false);
     }
   };
 

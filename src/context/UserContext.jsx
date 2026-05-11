@@ -122,8 +122,11 @@ export const UserProvider = ({ children }) => {
             logout();
         };
 
-        window.addEventListener('unauthorized-token', handleUnauthorized);
-        return () => window.removeEventListener('unauthorized-token', handleUnauthorized);
+        const isWeb = typeof window !== 'undefined';
+        if (isWeb) window.addEventListener('unauthorized-token', handleUnauthorized);
+        return () => {
+            if (isWeb) window.removeEventListener('unauthorized-token', handleUnauthorized);
+        };
     }, [logout]);
 
     // User Operations

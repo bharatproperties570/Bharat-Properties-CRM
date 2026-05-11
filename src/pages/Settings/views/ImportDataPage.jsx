@@ -1,11 +1,13 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { MODULE_CONFIG, parseCSV, generateErrorReportCSV, generateSuccessReportCSV, downloadFile } from '../../../utils/dataManagementUtils';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
+import { useUserContext } from '../../../context/UserContext';
 import toast from 'react-hot-toast';
 import { api } from '../../../utils/api';
 
 const ImportDataPage = () => {
     const { projects, refreshSizes } = usePropertyConfig();
+    const { users, teams, refreshData } = useUserContext();
     const [step, setStep] = useState(1);
     const [module, setModule] = useState('contacts'); // Default module
     const [file, setFile] = useState(null);
@@ -21,9 +23,17 @@ const ImportDataPage = () => {
     const [duplicates, setDuplicates] = useState([]);
     const [importSummary, setImportSummary] = useState({ newItems: 0, updateItems: 0 });
     const [updateDuplicates, setUpdateDuplicates] = useState(true);
-    const [teams, setTeams] = useState([]);
     const [selectedTeams, setSelectedTeams] = useState([]);
-    const [fetchingTeams, setFetchingTeams] = useState(false);
+
+    // Enterprise Conflict Management States
+    const [conflicts, setConflicts] = useState([]);
+    const [resolutions, setResolutions] = useState({});
+    const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+    // Global Defaults for Assignment
+    const [defaultAssignedTo, setDefaultAssignedTo] = useState('');
+    const [defaultVisibleTo, setDefaultVisibleTo] = useState('Everyone');
+    const [defaultTeam, setDefaultTeam] = useState('');
 
     const fileInputRef = useRef(null);
     const [isDragging, setIsDragging] = useState(false);
@@ -39,24 +49,6 @@ const ImportDataPage = () => {
         const project = projects.find(p => p._id === projectId);
         setBlocks(project?.blocks || []);
     };
-
-    const fetchTeams = async () => {
-        setFetchingTeams(true);
-        try {
-            const res = await api.get('/teams');
-            if (res.data.success) {
-                setTeams(res.data.data || []);
-            }
-        } catch (err) {
-            console.error('Error fetching teams:', err);
-        } finally {
-            setFetchingTeams(false);
-        }
-    };
-
-    useState(() => {
-        fetchTeams();
-    }, []);
 
     // --- Handlers ---
 
@@ -218,6 +210,58 @@ const ImportDataPage = () => {
         }
     };
 
+    // --- Enterprise Analysis Phase ---
+    const handleAnalyze = async () => {
+        setIsAnalyzing(true);
+        setConflicts([]);
+        try {
+            const transformedData = fileData.data.map(row => {
+                const item = {};
+                Object.entries(mapping).forEach(([systemKey, fileHeader]) => {
+                    item[systemKey] = row[fileHeader];
+                });
+                return item;
+            });
+
+            const response = await api.post('/inventory/bulk-update-owners', {
+                dryRun: true,
+                data: transformedData
+            });
+
+            if (response.data.success) {
+                setConflicts(response.data.conflicts || []);
+                setImportSummary({
+                    newItems: response.data.newCount || 0,
+                    updateItems: response.data.successCount || 0
+                });
+                
+                // Default resolutions
+                const initialResolutions = {};
+                (response.data.conflicts || []).forEach(c => {
+                    initialResolutions[c.rowKey] = { [c.type]: 'KEEP_SYSTEM' };
+                });
+                setResolutions(initialResolutions);
+
+                if (response.data.conflictCount > 0) {
+                    toast.error(`Detected ${response.data.conflictCount} data conflicts.`);
+                } else {
+                    toast.success('Validation complete: No conflicts found.');
+                }
+            }
+        } catch (error) {
+            toast.error('Data validation failed');
+        } finally {
+            setIsAnalyzing(false);
+        }
+    };
+
+    const handleResolutionChange = (rowKey, type, action) => {
+        setResolutions(prev => ({
+            ...prev,
+            [rowKey]: { ...prev[rowKey], [type]: action }
+        }));
+    };
+
     const handleImport = async () => {
         if (!fileData.data.length || Object.keys(mapping).length === 0) {
             return toast.error('No data or mapping provided');
@@ -268,7 +312,10 @@ const ImportDataPage = () => {
                 let payload = {
                     data: chunk,
                     updateDuplicates: updateDuplicates,
-                    teams: selectedTeams
+                    teams: selectedTeams.length > 0 ? selectedTeams : (defaultTeam ? [defaultTeam] : undefined),
+                    resolutions: module === 'propertyOwners' ? resolutions : undefined,
+                    defaultAssignedTo: defaultAssignedTo || undefined,
+                    defaultVisibleTo: defaultVisibleTo || undefined
                 };
 
                 if (module === 'sizes') payload.lookup_type = 'Size';
@@ -450,11 +497,7 @@ const ImportDataPage = () => {
                                         gridTemplateColumns: 'repeat(2, 1fr)',
                                         gap: '8px'
                                     }}>
-                                        {fetchingTeams ? (
-                                            <div style={{ gridColumn: 'span 2', textAlign: 'center', padding: '10px', color: '#94a3b8' }}>
-                                                <i className="fas fa-spinner fa-spin"></i> Loading Teams...
-                                            </div>
-                                        ) : teams.length === 0 ? (
+                                        {teams.length === 0 ? (
                                             <div style={{ gridColumn: 'span 2', textAlign: 'center', padding: '10px', color: '#94a3b8' }}>No teams found. Ensure teams are created in User Management.</div>
                                         ) : teams.map(t => (
                                             <label key={t._id} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', padding: '4px 8px', borderRadius: '4px', background: selectedTeams.includes(t._id) ? '#eff6ff' : 'transparent', transition: 'all 0.2s' }}>
@@ -520,6 +563,61 @@ const ImportDataPage = () => {
                             >
                                 <i className="fas fa-download" style={{ marginRight: '8px' }}></i> Download
                             </button>
+                        </div>
+
+                        {/* Global Assignment Hub */}
+                        <div style={{ marginTop: '32px', padding: '24px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                            <h4 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#1e293b', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <i className="fas fa-user-shield" style={{ color: 'var(--primary-color)' }}></i> Global Assignment Hub
+                            </h4>
+                            <p style={{ fontSize: '0.8rem', color: '#64748b', marginBottom: '20px' }}>
+                                Set default rules for this batch. These will be used if assignment data is missing in your CSV.
+                            </p>
+                            
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>Default Owner (RM)</label>
+                                    <select 
+                                        value={defaultAssignedTo}
+                                        onChange={(e) => setDefaultAssignedTo(e.target.value)}
+                                        style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
+                                    >
+                                        <option value="">-- Choose RM --</option>
+                                        {users.map(u => <option key={u._id} value={u._id}>{u.fullName}</option>)}
+                                    </select>
+                                </div>
+                                
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>Data Visibility</label>
+                                    <select 
+                                        value={defaultVisibleTo}
+                                        onChange={(e) => setDefaultVisibleTo(e.target.value)}
+                                        style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
+                                    >
+                                        <option value="Everyone">Everyone</option>
+                                        <option value="Team">Team Only</option>
+                                        <option value="Private">Private (Owner Only)</option>
+                                    </select>
+                                </div>
+
+                                <div style={{ gridColumn: 'span 2' }}>
+                                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>Primary Team</label>
+                                    <select 
+                                        value={defaultTeam}
+                                        onChange={(e) => setDefaultTeam(e.target.value)}
+                                        style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
+                                    >
+                                        <option value="">-- Select Primary Team --</option>
+                                        {teams.map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style={{ marginTop: '24px', textAlign: 'center' }}>
+                            <p style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                                Tip: You can also map these fields directly from your CSV in the next step.
+                            </p>
                         </div>
                     </div>
                 )}
@@ -587,9 +685,9 @@ const ImportDataPage = () => {
 
                 {/* Step 4: Preview & Confirm */}
                 {step === 4 && (
-                    <div style={{ maxWidth: '800px', margin: '0 auto', textAlign: 'center' }}>
+                    <div style={{ maxWidth: '800px', margin: '0 auto' }}>
                         {importing ? (
-                            <div style={{ padding: '60px 0' }}>
+                            <div style={{ padding: '60px 0', textAlign: 'center' }}>
                                 <h3 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#1e293b', marginBottom: '16px' }}>Importing Records...</h3>
                                 <div style={{ height: '8px', width: '100%', background: '#e2e8f0', borderRadius: '4px', overflow: 'hidden', marginBottom: '16px' }}>
                                     <div style={{ height: '100%', width: `${progress}%`, background: 'var(--primary-color)', transition: 'width 0.1s' }}></div>
@@ -598,99 +696,105 @@ const ImportDataPage = () => {
                             </div>
                         ) : (
                             <div>
-                                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1e293b', marginBottom: '16px' }}>Ready to Import</h3>
+                                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1e293b', marginBottom: '16px' }}>Review Data Analysis</h3>
 
-                                {duplicates.length > 0 ? (
-                                    <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '8px', padding: '24px', marginBottom: '32px' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px', color: '#ea580c' }}>
-                                            <i className="fas fa-exclamation-triangle" style={{ fontSize: '1.5rem' }}></i>
-                                            <div style={{ fontWeight: 700, fontSize: '1.1rem' }}>Duplicates Detected</div>
-                                        </div>
-                                        <p style={{ color: '#9a3412', fontSize: '0.95rem', marginBottom: '16px', textAlign: 'left' }}>
-                                            We found <strong>{duplicates.length}</strong> records that already exist in the database.
-                                            If you proceed, these duplicates might be skipped or cause errors depending on the module.
+                                {module === 'propertyOwners' && conflicts.length > 0 && (
+                                    <div style={{ marginBottom: '32px', background: '#fff', border: '1px solid #fee2e2', borderRadius: '12px', padding: '24px', boxShadow: '0 4px 12px rgba(239, 68, 68, 0.05)' }}>
+                                        <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#991b1b', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <i className="fas fa-exclamation-triangle"></i> Data Conflicts Detected ({conflicts.length})
+                                        </h3>
+                                        <p style={{ fontSize: '0.85rem', color: '#b91c1c', marginBottom: '20px' }}>
+                                            The following records have mobile numbers that match existing contacts but with different names. Please choose an action for each.
                                         </p>
-                                        <div style={{ display: 'flex', justifyContent: 'center', gap: '12px' }}>
-                                            <button
-                                                onClick={() => setStep(3)}
-                                                className="btn-outline"
-                                                style={{ padding: '8px 16px', fontSize: '0.85rem' }}
-                                            >
-                                                Fix Mapping
-                                            </button>
-                                            <button
-                                                onClick={() => { setFile(null); setStep(2); }}
-                                                className="btn-outline"
-                                                style={{ padding: '8px 16px', fontSize: '0.85rem' }}
-                                            >
-                                                Upload New File
-                                            </button>
+                                        
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                            {conflicts.map((conflict, idx) => (
+                                                <div key={idx} style={{ padding: '16px', background: '#fef2f2', borderRadius: '8px', border: '1px solid #fecaca', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                    <div style={{ flex: 1 }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                                                            <span style={{ fontWeight: 700, color: '#1e293b' }}>Unit: {conflict.unitNo}</span>
+                                                            <span style={{ fontSize: '0.8rem', background: '#fee2e2', color: '#b91c1c', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>{conflict.mobile}</span>
+                                                        </div>
+                                                        <div style={{ fontSize: '0.85rem', color: '#475569' }}>
+                                                            System: <strong style={{ color: '#0f172a' }}>{conflict.existingName}</strong> {conflict.existingFatherName ? <span style={{ fontSize: '0.75rem', color: '#64748b' }}>(s/o {conflict.existingFatherName})</span> : ''} 
+                                                            &nbsp;→ File: <strong style={{ color: '#0369a1' }}>{conflict.providedName}</strong> {conflict.providedFatherName ? <span style={{ fontSize: '0.75rem', color: '#0369a1' }}>(s/o {conflict.providedFatherName})</span> : ''}
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                                        <button 
+                                                            onClick={() => handleResolutionChange(conflict.rowKey, conflict.type, 'KEEP_SYSTEM')}
+                                                            style={{ padding: '6px 12px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', border: '1px solid #cbd5e1', background: resolutions[conflict.rowKey]?.[conflict.type] === 'KEEP_SYSTEM' ? '#0f172a' : '#fff', color: resolutions[conflict.rowKey]?.[conflict.type] === 'KEEP_SYSTEM' ? '#fff' : '#64748b' }}
+                                                        >
+                                                            Keep System Name
+                                                        </button>
+                                                        <button 
+                                                            onClick={() => handleResolutionChange(conflict.rowKey, conflict.type, 'UPDATE_SYSTEM')}
+                                                            style={{ padding: '6px 12px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', border: '1px solid #0284c7', background: resolutions[conflict.rowKey]?.[conflict.type] === 'UPDATE_SYSTEM' ? '#0284c7' : '#fff', color: resolutions[conflict.rowKey]?.[conflict.type] === 'UPDATE_SYSTEM' ? '#fff' : '#0284c7' }}
+                                                        >
+                                                            Update System
+                                                        </button>
+                                                        <button 
+                                                            onClick={() => handleResolutionChange(conflict.rowKey, conflict.type, 'CREATE_NEW')}
+                                                            style={{ padding: '6px 12px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', border: '1px solid #16a34a', background: resolutions[conflict.rowKey]?.[conflict.type] === 'CREATE_NEW' ? '#16a34a' : '#fff', color: resolutions[conflict.rowKey]?.[conflict.type] === 'CREATE_NEW' ? '#fff' : '#16a34a' }}
+                                                        >
+                                                            Create New Contact
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
                                         </div>
-                                    </div>
-                                ) : (
-                                    <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '24px', marginBottom: '32px' }}>
-                                        <div style={{ fontSize: '2rem', fontWeight: 700, color: '#16a34a', marginBottom: '4px' }}>{fileData.data.length}</div>
-                                        <div style={{ color: '#15803d', fontWeight: 600 }}>Records ready to be created</div>
-
-                                        {!checkingDuplicates && duplicates.length === 0 && (
-                                            <button
-                                                onClick={checkDuplicates}
-                                                style={{ marginTop: '16px', background: '#fff', border: '1px solid #bbf7d0', color: '#16a34a', padding: '6px 12px', borderRadius: '4px', fontSize: '0.85rem', cursor: 'pointer', fontWeight: 600 }}
-                                            >
-                                                <i className="fas fa-search" style={{ marginRight: '6px' }}></i> Check for Duplicates
-                                            </button>
-                                        )}
-                                        {checkingDuplicates && (
-                                            <div style={{ marginTop: '16px', color: '#16a34a', fontSize: '0.85rem' }}>
-                                                <i className="fas fa-spinner fa-spin" style={{ marginRight: '6px' }}></i> Checking backend...
-                                            </div>
-                                        )}
                                     </div>
                                 )}
 
-                                <div style={{ textAlign: 'left', background: '#f8fafc', padding: '20px', borderRadius: '8px', fontSize: '0.9rem', color: '#64748b', marginBottom: '24px' }}>
-                                    <div style={{ marginBottom: '8px' }}>• Module: <strong>{MODULE_CONFIG[module].label}</strong></div>
-                                    <div style={{ marginBottom: '8px' }}>• File: <strong>{file?.name}</strong></div>
-                                    <div style={{ marginBottom: '8px' }}>• Mapped Fields: <strong>{Object.keys(mapping).length} / {MODULE_CONFIG[module].fields.length}</strong></div>
+                                <div style={{ textAlign: 'center', background: '#f8fafc', padding: '32px', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '32px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'center', gap: '40px', alignItems: 'center' }}>
+                                        <div style={{ textAlign: 'center' }}>
+                                            <div style={{ fontSize: '2.5rem', fontWeight: 800, color: '#1e293b' }}>{fileData.data.length}</div>
+                                            <div style={{ fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 700 }}>Total Records</div>
+                                        </div>
+                                        <div style={{ width: '1px', height: '40px', background: '#e2e8f0' }}></div>
+                                        <div style={{ textAlign: 'center' }}>
+                                            <div style={{ fontSize: '2.5rem', fontWeight: 800, color: '#16a34a' }}>{importSummary.newItems}</div>
+                                            <div style={{ fontSize: '0.75rem', color: '#16a34a', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 700 }}>New Contacts</div>
+                                        </div>
+                                        <div style={{ width: '1px', height: '40px', background: '#e2e8f0' }}></div>
+                                        <div style={{ textAlign: 'center' }}>
+                                            <div style={{ fontSize: '2.5rem', fontWeight: 800, color: '#2563eb' }}>{importSummary.updateItems}</div>
+                                            <div style={{ fontSize: '0.75rem', color: '#2563eb', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 700 }}>Existing Matched</div>
+                                        </div>
+                                    </div>
+                                    
+                                    {module !== 'propertyOwners' && !checkingDuplicates && duplicates.length === 0 && (
+                                        <button
+                                            onClick={checkDuplicates}
+                                            style={{ marginTop: '24px', background: 'var(--primary-color)', color: '#fff', padding: '10px 20px', borderRadius: '8px', fontSize: '0.9rem', cursor: 'pointer', fontWeight: 600, border: 'none' }}
+                                        >
+                                            <i className="fas fa-search" style={{ marginRight: '8px' }}></i> Validate Duplicates
+                                        </button>
+                                    )}
+                                </div>
 
-                                    {(importSummary.newItems > 0 || importSummary.updateItems > 0) && (
-                                        <div style={{ marginTop: '16px', borderTop: '1px solid #e2e8f0', paddingTop: '16px' }}>
-                                            <div style={{ fontWeight: 700, color: '#1e293b', marginBottom: '8px' }}>Import Result Summary:</div>
-                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '24px', alignItems: 'center' }}>
-                                                <div style={{ color: '#16a34a', fontWeight: 600 }}>
-                                                    <i className="fas fa-plus-circle" style={{ marginRight: '6px' }}></i>
-                                                    New {module.charAt(0).toUpperCase() + module.slice(1)} to Add: {importSummary.newItems}
-                                                </div>
-                                                <div style={{ color: '#2563eb', fontWeight: 600 }}>
-                                                    <i className="fas fa-sync-alt" style={{ marginRight: '6px' }}></i>
-                                                    Existing {module.charAt(0).toUpperCase() + module.slice(1)} to Update: {importSummary.updateItems}
-                                                </div>
-
-                                                {importSummary.updateItems > 0 && (
-                                                    <label style={{
-                                                        marginLeft: 'auto',
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        gap: '8px',
-                                                        background: '#eff6ff',
-                                                        padding: '6px 12px',
-                                                        borderRadius: '6px',
-                                                        border: '1px solid #bfdbfe',
-                                                        cursor: 'pointer',
-                                                        fontSize: '0.85rem',
-                                                        color: '#1e40af',
-                                                        fontWeight: 600
-                                                    }}>
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={updateDuplicates}
-                                                            onChange={(e) => setUpdateDuplicates(e.target.checked)}
-                                                            style={{ width: '16px', height: '16px' }}
-                                                        />
-                                                        Update Existing Records
-                                                    </label>
-                                                )}
-                                            </div>
+                                <div style={{ textAlign: 'left', background: '#fff', border: '1px solid #e2e8f0', padding: '24px', borderRadius: '12px', fontSize: '0.9rem', color: '#64748b' }}>
+                                    <h4 style={{ margin: '0 0 16px', color: '#1e293b', fontWeight: 700 }}>System Configuration</h4>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                                        <div>Module: <strong style={{ color: '#0f172a' }}>{MODULE_CONFIG[module].label}</strong></div>
+                                        <div>File: <strong style={{ color: '#0f172a' }}>{file?.name}</strong></div>
+                                        <div>Target Team(s): <strong style={{ color: '#0f172a' }}>{selectedTeams.length > 0 ? `${selectedTeams.length} Selected` : 'Global/None'}</strong></div>
+                                        {module === 'propertyOwners' && <div>Conflict Protection: <strong style={{ color: '#16a34a' }}>Active (Enterprise)</strong></div>}
+                                    </div>
+                                    
+                                    {module !== 'propertyOwners' && importSummary.updateItems > 0 && (
+                                        <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid #f1f5f9' }}>
+                                            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={updateDuplicates}
+                                                    onChange={(e) => setUpdateDuplicates(e.target.checked)}
+                                                    style={{ width: '18px', height: '18px' }}
+                                                />
+                                                <span style={{ fontSize: '0.9rem', fontWeight: 600, color: '#1e293b' }}>Update existing records if found</span>
+                                            </label>
                                         </div>
                                     )}
                                 </div>
@@ -884,20 +988,34 @@ const ImportDataPage = () => {
                         </button>
                     )}
                     <button
-                        onClick={() => {
+                        onClick={async () => {
                             if (step === 2) {
                                 if ((module === 'sizes' || module === 'inventory') && (!selectedProject || !selectedBlock)) {
                                     return toast.error('Please select both Project and Block');
                                 }
                                 if (!file) return toast.error('Please upload a file');
                             }
+                            
+                            // Analysis Trigger for Property Owners
+                            if (step === 3 && module === 'propertyOwners') {
+                                if (Object.keys(mapping).length === 0) return toast.error('Please map at least one field');
+                                await handleAnalyze();
+                                setStep(4);
+                                return;
+                            }
+
                             if (step === 4) handleImport();
                             else setStep(step + 1);
                         }}
                         className="btn-primary"
                         style={{ padding: '10px 32px', borderRadius: '6px', fontWeight: 700 }}
+                        disabled={isAnalyzing}
                     >
-                        {step === 4 ? 'Start Import' : 'Next Step'} <i className="fas fa-arrow-right" style={{ marginLeft: '8px' }}></i>
+                        {isAnalyzing ? (
+                            <><i className="fas fa-spinner fa-spin" style={{ marginRight: '8px' }}></i> Validating...</>
+                        ) : (
+                            <>{step === 4 ? 'Confirm & Start Import' : 'Next Step'} <i className="fas fa-arrow-right" style={{ marginLeft: '8px' }}></i></>
+                        )}
                     </button>
                 </div>
             )}

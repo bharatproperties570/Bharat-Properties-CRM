@@ -1,5 +1,6 @@
 console.log('[DEBUG] src/App.jsx module evaluated');
 import { useState, useEffect, Suspense } from 'react';
+import { isWeb, safeWindow, getPathname } from './utils/platform';
 import { Toaster } from 'react-hot-toast';
 import AppRouter from './router/AppRouter';
 import MainLayout from './layouts/MainLayout';
@@ -45,7 +46,7 @@ const AppContent = () => {
 
     // Global Navigation State (Routing Logic Only)
     const [currentView, setCurrentView] = useState(() => {
-        const path = (typeof window !== 'undefined' && window.location) ? window.location.pathname : '/';
+        const path = getPathname();
         if (path.startsWith('/contacts/')) return 'contact-detail';
         if (path.startsWith('/inventory/')) return 'inventory-detail';
         if (path === '/contacts') return 'contacts';
@@ -84,7 +85,7 @@ const AppContent = () => {
     });
 
     const [currentContactId, setCurrentContactId] = useState(() => {
-        const path = (typeof window !== 'undefined' && window.location) ? window.location.pathname : '/';
+        const path = getPathname();
         if (path.startsWith('/contacts/')) {
             return path.split('/').pop();
         }
@@ -116,7 +117,7 @@ const AppContent = () => {
     // Custom Navigation Handler
     const handleNavigate = (view, contactId = null) => {
         if (view === currentView && view === 'inventory') {
-            window.dispatchEvent(new CustomEvent('inventory-reset'));
+            if (isWeb) safeWindow.dispatchEvent(new CustomEvent('inventory-reset'));
         }
         setCurrentView(view);
         setCurrentContactId(contactId);
@@ -136,8 +137,8 @@ const AppContent = () => {
         else if (view === 'marketing-overview') url = '/marketing-overview';
         else url = `/${view}`;
 
-        if (typeof window !== 'undefined' && window.history) {
-            window.history.pushState({ view, contactId }, '', url);
+        if (isWeb && safeWindow.history) {
+            safeWindow.history.pushState({ view, contactId }, '', url);
         }
     };
 
@@ -145,7 +146,7 @@ const AppContent = () => {
     useEffect(() => {
         const handlePopState = (event) => {
             const state = event.state;
-            const path = (typeof window !== 'undefined' && window.location) ? window.location.pathname : '/';
+            const path = getPathname();
 
             if (state) {
                 setCurrentView(state.view);
@@ -195,51 +196,60 @@ const AppContent = () => {
             }
         };
 
-        window.addEventListener('popstate', handlePopState);
-        return () => window.removeEventListener('popstate', handlePopState);
+        if (isWeb) safeWindow.addEventListener('popstate', handlePopState);
+        return () => {
+            if (isWeb) safeWindow.removeEventListener('popstate', handlePopState);
+        };
     }, []);
 
     if (currentView === 'public-lead-form') {
+        const fallback = <div style={{ textAlign: 'center', padding: '100px' }}>Loading...</div>;
+        const slug = isWeb ? safeWindow.location.pathname.split('/').pop() : 'default';
         return (
             <>
-                <Suspense fallback={<div style={{ textAlign: 'center', padding: '100px' }}>Loading...</div>}>
-                    <PublicLeadForm slug={window.location.pathname.split('/').pop()} />
+                <Suspense fallback={fallback}>
+                    <PublicLeadForm slug={slug} />
                 </Suspense>
-                <PublicChatWidget />
+                {isWeb && <PublicChatWidget />}
             </>
         );
     }
 
     if (currentView === 'public-feedback-form') {
+        const fallback = <div style={{ textAlign: 'center', padding: '100px' }}>Loading...</div>;
+        const slug = isWeb ? safeWindow.location.pathname.split('/').pop() : 'default';
         return (
             <>
-                <Suspense fallback={<div style={{ textAlign: 'center', padding: '100px' }}>Loading...</div>}>
-                    <PublicFeedbackForm slug={window.location.pathname.split('/').pop()} />
+                <Suspense fallback={fallback}>
+                    <PublicFeedbackForm slug={slug} />
                 </Suspense>
-                <PublicChatWidget />
+                {isWeb && <PublicChatWidget />}
             </>
         );
     }
 
     if (currentView === 'public-deal-form') {
+        const fallback = <div style={{ textAlign: 'center', padding: '100px' }}>Loading...</div>;
+        const slug = isWeb ? safeWindow.location.pathname.split('/').pop() : 'default';
         return (
             <>
-                <Suspense fallback={<div style={{ textAlign: 'center', padding: '100px' }}>Loading...</div>}>
-                    <PublicDealForm slug={window.location.pathname.split('/').pop()} />
+                <Suspense fallback={fallback}>
+                    <PublicDealForm slug={slug} />
                 </Suspense>
-                <PublicChatWidget />
+                {isWeb && <PublicChatWidget />}
             </>
         );
     }
 
     if (currentView === 'deal-capture') {
-        const slug = window.location.pathname.split('/').pop() || 'professional-deal-capture';
+        const slug = isWeb ? safeWindow.location.pathname.split('/').pop() : 'professional-deal-capture';
+        const fallback = isWeb ? <div style={{ textAlign: 'center', padding: '100px' }}>Loading...</div> : <View><Text>Loading...</Text></View>;
         return (
             <>
-                <Suspense fallback={<div style={{ textAlign: 'center', padding: '100px' }}>Loading...</div>}>
-                    <CaptureFormPage slug={slug} />
+                <Suspense fallback={fallback}>
+                    <CaptureFormPage slug={slug || 'professional-deal-capture'} />
                 </Suspense>
-                <PublicChatWidget />
+                {isWeb && <PublicChatWidget />}
             </>
         );
     }
@@ -257,6 +267,65 @@ const AppContent = () => {
     if (!token) {
         console.log('[DEBUG] Rendering LoginPage');
         return <LoginPage />;
+    }
+
+    if (!isWeb) {
+        return (
+            <View style={{ 
+                flex: 1, 
+                backgroundColor: '#0f172a', 
+                alignItems: 'center', 
+                justifyContent: 'center',
+                padding: 20
+            }}>
+                <View style={{ 
+                    backgroundColor: 'rgba(255, 255, 255, 0.05)', 
+                    padding: 30, 
+                    borderRadius: 24, 
+                    alignItems: 'center',
+                    borderWidth: 1,
+                    borderColor: 'rgba(255, 255, 255, 0.1)'
+                }}>
+                    <Text style={{ 
+                        color: '#fff', 
+                        fontSize: 24, 
+                        fontWeight: '800', 
+                        marginBottom: 10,
+                        textAlign: 'center'
+                    }}>
+                        Bharat Properties
+                    </Text>
+                    <Text style={{ 
+                        color: 'rgba(255, 255, 255, 0.6)', 
+                        fontSize: 14, 
+                        textAlign: 'center',
+                        lineHeight: 20
+                    }}>
+                        Mobile CRM Native interface is currently under optimization.
+                    </Text>
+                    <View style={{ 
+                        marginTop: 30, 
+                        padding: 15, 
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)', 
+                        borderRadius: 12,
+                        width: '100%'
+                    }}>
+                        <Text style={{ color: '#3b82f6', fontWeight: '700', textAlign: 'center' }}>
+                            Platform: Native {Platform.OS === 'ios' ? 'iOS' : 'Android'}
+                        </Text>
+                    </View>
+                </View>
+                <Text style={{ 
+                    position: 'absolute', 
+                    bottom: 40, 
+                    color: 'rgba(255, 255, 255, 0.3)', 
+                    fontSize: 10,
+                    letterSpacing: 1
+                }}>
+                    ESTABLISHING SECURE CONNECTION...
+                </Text>
+            </View>
+        );
     }
 
     return (
@@ -290,10 +359,10 @@ function App() {
                                             <AutomatedActionsProvider>
                                                 <TriggersProvider>
                                                     <CallProvider>
-                                                        <Toaster 
+                                                        {isWeb && <Toaster 
                                                             position="top-right" 
                                                             containerStyle={{ zIndex: 999999 }}
-                                                        />
+                                                        />}
                                                         <AppContent />
                                                     </CallProvider>
                                                 </TriggersProvider>

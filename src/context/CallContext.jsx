@@ -43,7 +43,10 @@ export const CallProvider = ({ children }) => {
 
         // Trigger system calling app (Mac FaceTime, Phone app, etc.)
         const phoneNumber = contact.mobile.replace(/[^0-9+]/g, ''); // Clean number
-        window.location.href = `tel:${phoneNumber}`;
+        const telUrl = `tel:${phoneNumber}`;
+        if (typeof window !== 'undefined' && window.location) {
+            window.location.href = telUrl;
+        }
 
         // Show success toast
         toast.success(`Calling ${contact.name || phoneNumber}...`);
@@ -83,7 +86,9 @@ export const CallProvider = ({ children }) => {
         }
         // WhatsApp call URL scheme
         const whatsappUrl = `https://wa.me/${phoneNumber}`;
-        window.open(whatsappUrl, '_blank');
+        if (typeof window !== 'undefined' && window.open) {
+            window.open(whatsappUrl, '_blank');
+        }
 
         // Show success toast
         toast.success(`Opening WhatsApp for ${contact.name || phoneNumber}...`);

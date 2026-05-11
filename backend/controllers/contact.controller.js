@@ -375,19 +375,40 @@ export const updateContact = async (req, res, next) => {
     try {
         console.log("[updateContact] Request Body:", JSON.stringify(req.body, null, 2));
 
-        // Strip internal fields that shouldn't be in the update payload according to Joi
-        const updateData = { ...req.body };
-        delete updateData._id;
-        delete updateData.id;
-        delete updateData.__v;
-        delete updateData.createdAt;
-        delete updateData.updatedAt;
-        delete updateData.fullName;
+        // 🛡️ Senior Professional: Pre-validation Data Normalization
+        const flattenPopulatedRefs = (obj) => {
+            if (!obj || typeof obj !== 'object' || obj instanceof mongoose.Types.ObjectId) return obj;
+            if (Array.isArray(obj)) return obj.map(flattenPopulatedRefs);
+            const newObj = { ...obj };
+            const schemaContainers = ["phones", "emails", "personalAddress", "correspondenceAddress", "educations", "loans", "socialMedia", "incomes", "documents"];
+            for (const key in newObj) {
+                const val = newObj[key];
+                if (val && typeof val === 'object' && !(val instanceof mongoose.Types.ObjectId)) {
+                    if (val._id && !schemaContainers.includes(key)) {
+                        newObj[key] = val._id;
+                    } else {
+                        newObj[key] = flattenPopulatedRefs(val);
+                    }
+                }
+            }
+            return newObj;
+        };
 
+        const updateData = flattenPopulatedRefs(req.body);
+        
+        // Strip internal fields
+        const fieldsToStrip = ["_id", "id", "__v", "createdAt", "updatedAt", "fullName"];
+        fieldsToStrip.forEach(field => delete updateData[field]);
+
+        // Validate
         const { error, value: cleanData } = updateContactSchema.validate(updateData, { stripUnknown: true });
         if (error) {
             console.error("[updateContact] Validation Error:", JSON.stringify(error.details, null, 2));
-            return res.status(400).json({ success: false, error: error.details[0].message });
+            return res.status(400).json({ 
+                success: false, 
+                error: error.details[0].message,
+                details: error.details 
+            });
         }
 
         // Fetch existing contact to audit stage changes

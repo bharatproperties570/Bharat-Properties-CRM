@@ -55,7 +55,10 @@ export const MODULE_CONFIG = {
             { key: 'gender', label: 'Gender' },
             { key: 'maritalStatus', label: 'Marital Status' },
             { key: 'birthDate', label: 'Birth Date' },
-            { key: 'anniversaryDate', label: 'Anniversary Date' }
+            { key: 'anniversaryDate', label: 'Anniversary Date' },
+            { key: 'team', label: 'Team (ID/Name)' },
+            { key: 'assignedTo', label: 'Owner (User ID)' },
+            { key: 'visibleTo', label: 'Visibility (Everyone/Team/Private)' }
         ]
     },
     leads: {
@@ -348,16 +351,32 @@ export const MODULE_CONFIG = {
             { key: 'block', label: 'Block', required: true, sample: 'Phase 1' },
             { key: 'unitNo', label: 'Unit Number', required: true, sample: '101' },
 
-            // Owner Details
+            // Owner Details & Legal Identity
             { key: 'ownerName', label: 'Owner Name', sample: 'John Doe' },
+            { key: 'fatherName', label: 'Father Name', sample: 'Shri Ram Lal' },
             { key: 'ownerMobile', label: 'Owner Mobile', sample: '9876543210' },
             { key: 'ownerEmail', label: 'Owner Email', sample: 'john@example.com' },
+            
+            // Structured Permanent Address
+            { key: 'ownerHNo', label: 'House Number', sample: 'H-123' },
+            { key: 'ownerStreet', label: 'Street', sample: 'Main Market Road' },
+            { key: 'ownerLocality', label: 'Locality/Sector', sample: 'Sector 15' },
+            { key: 'ownerArea', label: 'Area', sample: 'Near Metro Station' },
+            { key: 'ownerCity', label: 'City', sample: 'Gurugram' },
+            { key: 'ownerState', label: 'State', sample: 'Haryana' },
+            { key: 'ownerPinCode', label: 'Pin Code', sample: '122001' },
+            
+            { key: 'assignedTo', label: 'Assigned To (RM User ID)', sample: '652f...' },
 
             // Associate Details
             { key: 'associateName', label: 'Associate Name', sample: 'Jane Doe' },
             { key: 'associateMobile', label: 'Associate Mobile', sample: '9876543211' },
             { key: 'associateEmail', label: 'Associate Email', sample: 'jane@example.com' },
-            { key: 'relationship', label: 'Relationship', sample: 'Spouse' }
+            { key: 'relationship', label: 'Relationship', sample: 'Spouse' },
+            
+            // Enterprise Governance & Visibility
+            { key: 'team', label: 'Team (Team ID)', sample: '652f...' },
+            { key: 'visibleTo', label: 'Visibility', sample: 'Everyone / Team / Private' }
         ]
     }
 };

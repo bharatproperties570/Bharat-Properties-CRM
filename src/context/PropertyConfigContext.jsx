@@ -1303,12 +1303,13 @@ export const PropertyConfigProvider = ({ children }) => {
                 'Status', 'State', 'City', 'Location', 'Area', 'Pincode', 'Tehsil', 'PostOffice', 'Country'
             ];
             const response = await api.get(`/lookups?lookup_type=${requiredTypes.join(',')}`);
+            const resBody = response.data;
 
             let allLookups = [];
-            if (response && response.status === "success" && Array.isArray(response.data)) {
-                allLookups = response.data;
-            } else if (Array.isArray(response)) {
-                allLookups = response;
+            if (resBody && (resBody.status === "success" || resBody.success === true) && Array.isArray(resBody.data)) {
+                allLookups = resBody.data;
+            } else if (Array.isArray(resBody)) {
+                allLookups = resBody;
             }
 
             const newLookups = {};
@@ -1458,7 +1459,7 @@ export const PropertyConfigProvider = ({ children }) => {
                         if (!foundKeys.has(k)) {
                             console.log(`[PropertyConfigContext] Backfilling missing setting to MongoDB: ${k}`);
                             // We use a small delay to ensure states are initialized or use localStorage directly for backfill
-                            const localVal = window.localStorage.getItem(k);
+                            const localVal = safeStorage.getItem(k);
                             if (localVal) {
                                 systemSettingsAPI.upsert(k, { value: JSON.parse(localVal), category: 'crm_config' })
                                     .catch(e => console.error(`Backfill failed for ${k}:`, e));
