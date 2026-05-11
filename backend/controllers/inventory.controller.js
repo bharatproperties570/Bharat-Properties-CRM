@@ -1743,22 +1743,50 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                 const commonSource = await resolveLookup('Source', 'Unified Import Center');
 
                 // 2. Resolve/Create Owner (With Legal Identity & Assignment)
-                if (ownerMobile || ownerName) {
-                    let ownerId = null;
-                    const mobile = String(ownerMobile || '').trim();
-                    const name = String(ownerName || '').trim();
+                if (module === 'propertyOwners') {
+                    const name = (row['Name'] || row['ownerName'] || '').trim();
+                    const fatherName = (row['Father Name'] || row['ownerFatherName'] || '').trim();
+                    const mobileRaw = (row['Mobile'] || row['ownerMobile'] || '').toString().trim();
+                    const mobile = mobileRaw ? normalizePhone(mobileRaw) : null;
+                    
+                    const ownerHNo = (row['Owner House No'] || '').toString().trim();
+                    const ownerLocality = (row['Owner Locality'] || '').trim();
+                    const ownerEmail = (row['Owner Email'] || '').trim();
+
+                    const personalAddress = {
+                        hNo: ownerHNo || '',
+                        street: (row['Owner Street'] || '').trim() || '',
+                        location: ownerLocality || '',
+                        area: (row['Owner Area'] || '').trim() || '',
+                        city: (row['Owner City'] || '').trim() || '',
+                        state: (row['Owner State'] || '').trim() || '',
+                        pincode: (row['Owner Pincode'] || '').trim() || ''
+                    };
 
                     if (!mobile) results.noMobileCount++;
 
                     const resolution = resolutions[rowKey]?.owner; 
 
                     if (mobile && contactCache.has(mobile)) {
-                        ownerId = contactCache.get(mobile);
+                        const ownerId = contactCache.get(mobile);
                         results.contactsFound++;
-                    } else {
-                        let contactByMobile = mobile ? await Contact.findOne({ 'phones.number': { $regex: new RegExp(escapeRegExp(mobile), 'i') } }) : null;
                         
-                        // Legal Matching: Name + Father Name + Address (Senior Professional Standard)
+                        if (!dryRun) {
+                            await Contact.findByIdAndUpdate(ownerId, { 
+                                $addToSet: { tags: { $each: ['Property Owner', propertyTag] } },
+                                $set: assignmentUpdate
+                            });
+
+                            const existingOwners = inventory.owners || [];
+                            if (!existingOwners.some(id => id.toString() === ownerId.toString())) {
+                                await Inventory.findByIdAndUpdate(inventory._id, { $addToSet: { owners: ownerId } });
+                            }
+                        }
+                    } else {
+                        // 🚀 [HARDENED] Exact normalized phone matching
+                        let contactByMobile = mobile ? await Contact.findOne({ 'phones.number': mobile }) : null;
+                        
+                        // Legal Matching: Name + Father Name + Address
                         let contactByLegal = null;
                         if (name && fatherName) {
                             const legalQuery = { 
@@ -1766,79 +1794,113 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                                 fatherName: { $regex: new RegExp(`^${escapeRegExp(fatherName)}$`, 'i') }
                             };
                             
-                            // 🚀 [ADVANCED] If we have address details, try to match exactly for 100% certainty
                             if (ownerHNo && ownerLocality) {
-                                legalQuery['personalAddress.hNo'] = ownerHNo;
-                                legalQuery['personalAddress.location'] = await resolveLookup('Area', ownerLocality, true);
+                                const resolvedLocId = await resolveLookup('Area', ownerLocality, true);
+                                if (resolvedLocId) {
+                                    legalQuery['personalAddress.hNo'] = ownerHNo;
+                                    legalQuery['personalAddress.location'] = resolvedLocId;
+                                }
                             }
-
                             contactByLegal = await Contact.findOne(legalQuery).populate('personalAddress.location');
                         }
 
-                        const existingContact = contactByMobile || contactByLegal;
+                            const existingContact = contactByMobile || contactByLegal;
 
-                        // CASE: Perfect Match (All identity factors aligned)
-                        if (existingContact && (!mobile || (contactByMobile && contactByMobile._id.equals(existingContact._id)))) {
-                            ownerId = existingContact._id;
-                            results.contactsFound++;
+                            // CASE: Perfect Match (All identity factors aligned)
+                            if (existingContact && (!mobile || (contactByMobile && contactByMobile._id.equals(existingContact._id)))) {
+                                ownerId = existingContact._id;
+                                results.contactsFound++;
 
-                            // 🚀 SYNC: Even for perfect matches, ensure assignment and tags are up to date
-                            if (!dryRun) {
-                                await Contact.findByIdAndUpdate(ownerId, {
-                                    $addToSet: { tags: { $each: ['Property Owner', propertyTag] } },
-                                    $set: assignmentUpdate
-                                });
-                            }
-                        }
-                        // CASE: Conflict Detected (Same Mobile OR Name, but Address/Identity mismatch)
-                        else if (existingContact) {
-                            const providedHNo = ownerHNo || 'N/A';
-                            const providedLoc = ownerLocality || 'N/A';
-                            
-                            const existing = contactByMobile || contactByLegal;
-                            const existingHNo = existing.personalAddress?.hNo || 'N/A';
-                            const existingLoc = existing.personalAddress?.location?.lookup_value || existing.personalAddress?.location || 'N/A';
-
-                            if (dryRun) {
-                                results.conflicts.push({
-                                    row: i + 1,
-                                    rowKey,
-                                    type: 'owner',
-                                    unitNo,
-                                    mobile: mobile || 'N/A',
-                                    providedName: name,
-                                    providedFatherName: fatherName,
-                                    providedHNo,
-                                    providedLoc,
-                                    existingName: existing.name,
-                                    existingFatherName: existing.fatherName,
-                                    existingHNo,
-                                    existingLoc,
-                                    reason: contactByMobile ? 'Name mismatch for existing mobile number.' : 'Address mismatch for same Legal Identity (Name+Father).'
-                                });
-                                ownerId = "CONFLICT_PENDING";
-                            } else {
-                                if (resolution === 'UPDATE_SYSTEM') {
-                                    existing.name = name;
-                                    if (fatherName) existing.fatherName = fatherName;
-                                    existing.personalAddress = personalAddress;
-                                    existing.assignedTo = rowAssignedTo;
-                                    existing.owner = rowAssignedTo;
-                                    existing.team = rowTeam;
-                                    existing.visibleTo = rowVisibleTo;
-                                    
-                                    if (!existing.tags) existing.tags = [];
-                                    ['Property Owner', propertyTag].forEach(t => {
-                                        if (!existing.tags.includes(t)) existing.tags.push(t);
+                                // 🚀 SYNC: Even for perfect matches, ensure assignment and tags are up to date
+                                if (!dryRun) {
+                                    await Contact.findByIdAndUpdate(ownerId, {
+                                        $addToSet: { tags: { $each: ['Property Owner', propertyTag] } },
+                                        $set: assignmentUpdate
                                     });
+                                }
+                            }
+                            // CASE: Conflict Detected (Same Mobile OR Name, but Identity mismatch)
+                            else if (existingContact) {
+                                const providedHNo = ownerHNo || 'N/A';
+                                const providedLoc = ownerLocality || 'N/A';
+                                
+                                const existing = contactByMobile || contactByLegal;
+                                const existingHNo = existing.personalAddress?.hNo || 'N/A';
+                                const existingLoc = existing.personalAddress?.location?.lookup_value || existing.personalAddress?.location || 'N/A';
 
-                                    await existing.save();
-                                    ownerId = existing._id;
-                                    results.contactsFound++;
-                                } else if (resolution === 'KEEP_SYSTEM') {
-                                    ownerId = existing._id;
-                                    results.contactsFound++;
-                                } else if (resolution === 'CREATE_NEW') {
+                                if (dryRun) {
+                                    // 🚀 [DIAGNOSTIC] Determine the exact reason for conflict
+                                    let conflictReason = 'Identity Mismatch';
+                                    if (contactByMobile && (existing.name.toLowerCase() !== name.toLowerCase())) {
+                                        conflictReason = 'Name mismatch for existing mobile number.';
+                                    } else if (contactByLegal && !contactByMobile) {
+                                        conflictReason = 'Mobile number mismatch for same Legal Identity (Name+Father).';
+                                    } else if (ownerHNo || ownerLocality) {
+                                        conflictReason = 'Address mismatch for same identity.';
+                                    }
+
+                                    results.conflicts.push({
+                                        row: i + 1,
+                                        rowKey,
+                                        type: 'owner',
+                                        unitNo,
+                                        mobile: mobile || 'N/A',
+                                        providedName: name,
+                                        providedFatherName: fatherName,
+                                        providedHNo,
+                                        providedLoc,
+                                        existingName: existing.name,
+                                        existingFatherName: existing.fatherName,
+                                        existingHNo,
+                                        existingLoc,
+                                        reason: conflictReason
+                                    });
+                                    ownerId = "CONFLICT_PENDING";
+                                } else {
+                                    if (resolution === 'UPDATE_SYSTEM') {
+                                        existing.name = name;
+                                        if (fatherName) existing.fatherName = fatherName;
+                                        existing.personalAddress = personalAddress;
+                                        existing.assignedTo = rowAssignedTo;
+                                        existing.owner = rowAssignedTo;
+                                        existing.team = rowTeam;
+                                        existing.visibleTo = rowVisibleTo;
+                                        
+                                        if (!existing.tags) existing.tags = [];
+                                        ['Property Owner', propertyTag].forEach(t => {
+                                            if (!existing.tags.includes(t)) existing.tags.push(t);
+                                        });
+
+                                        await existing.save();
+                                        ownerId = existing._id;
+                                        results.contactsFound++;
+                                    } else if (resolution === 'KEEP_SYSTEM') {
+                                        ownerId = existing._id;
+                                        results.contactsFound++;
+                                    } else if (resolution === 'CREATE_NEW') {
+                                        const newContact = await Contact.create({
+                                            name: name || 'Unknown Owner',
+                                            fatherName: fatherName,
+                                            phones: mobile ? [{ number: mobile, type: 'Personal' }] : [],
+                                            emails: ownerEmail ? [{ address: ownerEmail, type: 'Personal' }] : [],
+                                            personalAddress: personalAddress,
+                                            assignedTo: rowAssignedTo,
+                                            owner: rowAssignedTo,
+                                            team: rowTeam,
+                                            visibleTo: rowVisibleTo,
+                                            source: commonSource,
+                                            tags: ['Property Owner', propertyTag]
+                                        });
+                                        ownerId = newContact._id;
+                                        results.contactsCreated++;
+                                    }
+                                }
+                            }
+                            // CASE: New Contact
+                            else {
+                                if (dryRun) {
+                                    ownerId = "SIMULATED_ID";
+                                } else {
                                     const newContact = await Contact.create({
                                         name: name || 'Unknown Owner',
                                         fatherName: fatherName,
@@ -1856,31 +1918,9 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                                     results.contactsCreated++;
                                 }
                             }
-                        }
-                        // CASE: New Contact
-                        else {
-                            if (dryRun) {
-                                ownerId = "SIMULATED_ID";
-                            } else {
-                                const newContact = await Contact.create({
-                                    name: name || 'Unknown Owner',
-                                    fatherName: fatherName,
-                                    phones: mobile ? [{ number: mobile, type: 'Personal' }] : [],
-                                    emails: ownerEmail ? [{ address: ownerEmail, type: 'Personal' }] : [],
-                                    personalAddress: personalAddress,
-                                    assignedTo: rowAssignedTo,
-                                    owner: rowAssignedTo,
-                                    team: rowTeam,
-                                    visibleTo: rowVisibleTo,
-                                    source: commonSource,
-                                    tags: ['Property Owner', propertyTag]
-                                });
-                                ownerId = newContact._id;
-                                results.contactsCreated++;
-                            }
-                        }
 
-                        if (ownerId && ownerId !== "CONFLICT_PENDING" && mobile) contactCache.set(mobile, ownerId);
+                            if (ownerId && ownerId !== "CONFLICT_PENDING" && mobile) contactCache.set(mobile, ownerId);
+                        }
                     }
 
                     if (ownerId && ownerId !== "CONFLICT_PENDING" && !dryRun) {

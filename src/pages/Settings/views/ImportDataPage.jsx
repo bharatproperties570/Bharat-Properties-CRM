@@ -716,6 +716,11 @@ const ImportDataPage = () => {
                                                             <span style={{ fontWeight: 700, color: '#1e293b' }}>Unit: {conflict.unitNo}</span>
                                                             <span style={{ fontSize: '0.8rem', background: '#fee2e2', color: '#b91c1c', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>{conflict.mobile}</span>
                                                         </div>
+                                                        <div style={{ fontSize: '0.85rem', color: '#475569', marginBottom: '8px' }}>
+                                                            <span style={{ fontSize: '0.75rem', background: '#fef3c7', color: '#92400e', padding: '2px 8px', borderRadius: '4px', fontWeight: 700, border: '1px solid #fde68a' }}>
+                                                                <i className="fas fa-info-circle" style={{ marginRight: '4px' }}></i> {conflict.reason}
+                                                            </span>
+                                                        </div>
                                                         <div style={{ fontSize: '0.85rem', color: '#475569' }}>
                                                             System: <strong style={{ color: '#0f172a' }}>{conflict.existingName}</strong> {conflict.existingFatherName ? <span style={{ fontSize: '0.75rem', color: '#64748b' }}>(s/o {conflict.existingFatherName})</span> : ''} 
                                                             <span style={{ fontSize: '0.75rem', color: '#64748b', marginLeft: '8px' }}>[{conflict.existingHNo}, {conflict.existingLoc}]</span>

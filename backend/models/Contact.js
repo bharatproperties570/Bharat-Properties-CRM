@@ -3,9 +3,9 @@ import { normalizePhone } from "../utils/normalization.js";
 
 const ContactSchema = new mongoose.Schema({
     title: { type: mongoose.Schema.Types.Mixed },
-    name: { type: String, required: true },
-    surname: { type: String },
-    fatherName: { type: String },
+    name: { type: String, required: true, index: true },
+    surname: { type: String, index: true },
+    fatherName: { type: String, index: true },
     countryCode: { type: mongoose.Schema.Types.Mixed },
     phones: [{
         number: String,
@@ -45,7 +45,7 @@ const ContactSchema = new mongoose.Schema({
 
     // Personal Address
     personalAddress: {
-        hNo: String,
+        hNo: { type: String, index: true },
         street: String,
         country: { type: mongoose.Schema.Types.Mixed },
         state: { type: mongoose.Schema.Types.Mixed },
@@ -53,7 +53,7 @@ const ContactSchema = new mongoose.Schema({
         tehsil: { type: mongoose.Schema.Types.Mixed },
         postOffice: { type: mongoose.Schema.Types.Mixed },
         pincode: { type: mongoose.Schema.Types.Mixed },
-        location: { type: mongoose.Schema.Types.Mixed },
+        location: { type: mongoose.Schema.Types.Mixed, index: true },
         area: String
     },
 
