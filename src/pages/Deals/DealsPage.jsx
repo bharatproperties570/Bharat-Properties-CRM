@@ -1158,13 +1158,15 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
 
     return (
         <div className={`list-item deals-list-grid ${isNonActionable ? 'non-actionable-row' : ''}`} style={{ ...style, padding: '18px 1.5rem', borderBottom: '1px solid #e2e8f0', transition: 'background 0.2s ease', background: rowBackground, opacity: isNonActionable ? 0.8 : 1, pointerEvents: isNonActionable ? 'none' : 'auto', display: 'grid', alignItems: 'center' }}>
-            <input
-                type="checkbox"
-                className="item-check"
-                checked={selected}
-                onChange={() => onSelect(deal._id)}
-                style={{ pointerEvents: 'auto' }} // Allow selection even if row is non-actionable
-            />
+            <div>
+                <input
+                    type="checkbox"
+                    className="item-check"
+                    checked={selected}
+                    onChange={() => onSelect(deal._id)}
+                    style={{ pointerEvents: 'auto' }} // Allow selection even if row is non-actionable
+                />
+            </div>
 
             {/* Col 1: Score */}
             <div
@@ -1187,7 +1189,7 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
                     <div
                         onClick={() => onNavigate('deal-detail', deal._id)}
-                        className={`project-thumbnail ${deal.status === 'Open' ? 'thumb-active' : 'thumb-inactive'}`}
+                        className={`project-thumbnail ${(renderValue(deal.status) || deal.stage) === 'Open' ? 'thumb-active' : 'thumb-inactive'}`}
                         style={{
                             width: 'auto',
                             minWidth: '60px',

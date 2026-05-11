@@ -943,36 +943,7 @@ export const getDealById = async (req, res) => {
             return res.status(404).json({ success: false, error: "Deal not found or access denied" });
         }
 
-        // Manual Enrichment for Mixed fields that might be strings (preventing CastErrors)
-        const enrichWithLookup = async (doc) => {
-            const fields = ['category', 'subCategory', 'intent', 'status', 'propertyType', 'location', 'unitType', 'sizeConfig'];
-            for (const field of fields) {
-                const val = doc[field];
-                if (!val) continue;
-
-                if (typeof val === 'string' && !mongoose.Types.ObjectId.isValid(val)) {
-                    // It's a raw string, find or create the lookup
-                    const lookupTypeMap = {
-                        category: 'Category', subCategory: 'SubCategory', intent: 'Intent', 
-                        status: 'Status', propertyType: 'PropertyType', location: 'Locality', unitType: 'UnitType', sizeConfig: 'Size'
-                    };
-                    const lookupType = lookupTypeMap[field] || 'Location';
-                    const lookupId = await resolveLookup(lookupType, val);
-                    const lookup = await Lookup.findById(lookupId).lean();
-                    doc[field] = lookup || { _id: lookupId, lookup_value: val };
-                } else if (mongoose.Types.ObjectId.isValid(val) || (typeof val === 'object' && val._id)) {
-                    // It's an ID or already an object, attempt to populate if not already
-                    const targetId = val._id || val;
-                    if (!val.lookup_value) {
-                        const lookup = await Lookup.findById(targetId).lean();
-                        if (lookup) doc[field] = lookup;
-                    }
-                }
-            }
-        };
-
         const dealObj = deal.toObject();
-        await enrichWithLookup(dealObj);
 
         // --- [ENTERPRISE HARDENING]: Live Multi-Source Sync (Detail View) ---
         if (deal.inventoryId) {
@@ -1018,6 +989,39 @@ export const getDealById = async (req, res) => {
                     inv.unitSpecification = inventory.unitSpecification || inv.unitSpecification;
                 }
             }
+        }
+
+        // Manual Enrichment for Mixed fields - MUST BE AFTER INVENTORY MERGE
+        const resolveLookupInDoc = async (doc) => {
+            const fields = ['category', 'subCategory', 'intent', 'status', 'propertyType', 'location', 'unitType', 'sizeConfig'];
+            for (const field of fields) {
+                const val = doc[field];
+                if (!val) continue;
+
+                if (typeof val === 'string' && !mongoose.Types.ObjectId.isValid(val)) {
+                    // It's a raw string, find or create the lookup
+                    const lookupTypeMap = {
+                        category: 'Category', subCategory: 'SubCategory', intent: 'Intent', 
+                        status: 'Status', propertyType: 'PropertyType', location: 'Locality', unitType: 'UnitType', sizeConfig: 'Size'
+                    };
+                    const lookupType = lookupTypeMap[field] || 'Location';
+                    const lookupId = await resolveLookup(lookupType, val);
+                    const lookup = await Lookup.findById(lookupId).lean();
+                    doc[field] = lookup || { _id: lookupId, lookup_value: val };
+                } else if (mongoose.Types.ObjectId.isValid(val) || (typeof val === 'object' && val._id)) {
+                    // It's an ID or already an object, attempt to populate if not already
+                    const targetId = val._id || val;
+                    if (!val.lookup_value) {
+                        const lookup = await Lookup.findById(targetId).lean();
+                        if (lookup) doc[field] = lookup;
+                    }
+                }
+            }
+        };
+
+        await resolveLookupInDoc(dealObj);
+        if (dealObj.inventoryId && typeof dealObj.inventoryId === 'object') {
+            await resolveLookupInDoc(dealObj.inventoryId);
         }
 
         res.json({
