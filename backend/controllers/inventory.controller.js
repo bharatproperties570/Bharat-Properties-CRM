@@ -1643,7 +1643,49 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
             errors: []
         };
 
+        const lookupCache = new Map();
+        const userCache = new Map();
+        const teamCache = new Map();
         const contactCache = new Map(); // Local cache to prevent redundant DB hits in same batch
+
+        // Internal cached helpers for batch efficiency
+        const cachedResolveLookup = async (type, val) => {
+            if (!val) return null;
+            const key = `${type}:${val}`;
+            if (lookupCache.has(key)) return lookupCache.get(key);
+            const res = await resolveLookup(type, val);
+            lookupCache.set(key, res);
+            return res;
+        };
+
+        const cachedResolveUser = async (id) => {
+            if (!id) return null;
+            if (userCache.has(id)) return userCache.get(id);
+            const res = await User.findOne({ 
+                $or: [
+                    { _id: mongoose.Types.ObjectId.isValid(id) ? id : null },
+                    { name: { $regex: new RegExp(`^${escapeRegExp(id)}$`, 'i') } },
+                    { email: { $regex: new RegExp(`^${escapeRegExp(id)}$`, 'i') } }
+                ] 
+            }).select('_id').lean();
+            const result = res?._id || null;
+            userCache.set(id, result);
+            return result;
+        };
+
+        const cachedResolveTeam = async (id) => {
+            if (!id) return null;
+            if (teamCache.has(id)) return teamCache.get(id);
+            const res = await Team.findOne({ 
+                $or: [
+                    { _id: mongoose.Types.ObjectId.isValid(id) ? id : null },
+                    { name: { $regex: new RegExp(`^${escapeRegExp(id)}$`, 'i') } }
+                ] 
+            }).select('_id').lean();
+            const result = res?._id || null;
+            teamCache.set(id, result);
+            return result;
+        };
 
         for (let i = 0; i < rows.length; i++) {
             const row = rows[i];
@@ -1681,7 +1723,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                         { unitNo: { $regex: new RegExp(`^${escapeRegExp(unitNo)}$`, 'i') } },
                         { unitNumber: { $regex: new RegExp(`^${escapeRegExp(unitNo)}$`, 'i') } }
                     ]
-                });
+                }).select('_id projectName unitNo owners associates assignedTo team visibleTo').lean();
 
                 if (!inventory) {
                     results.inventoryNotFound++;
@@ -1700,9 +1742,9 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                     .replace(/[^a-zA-Z0-9]/g, '');
                 const propertyTag = `${shortProject}_${(inventory.unitNo || '').replace(/\s+/g, '')}`;
 
-                // Resolution of assignment details
-                const rowAssignedTo = assignment.assignedTo || req.user._id;
-                const rowTeam = assignment.team || req.user.team;
+                // Resolution of assignment details (CACHED)
+                const rowAssignedTo = (await cachedResolveUser(assignment.assignedTo)) || req.user._id;
+                const rowTeam = (await cachedResolveTeam(assignment.team)) || req.user.team;
                 const rowVisibleTo = assignment.visibleTo || 'Everyone';
 
                 const assignmentUpdate = {
@@ -1717,7 +1759,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                     }
                 };
 
-                const commonSource = await resolveLookup('Source', 'Unified Import Center');
+                const commonSource = await cachedResolveLookup('Source', 'Unified Import Center');
 
                 let ownerId = null;
 
@@ -1762,13 +1804,13 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                             };
                             
                             if (hNo && locality) {
-                                const resolvedLocId = await resolveLookup('Area', locality, true);
+                                const resolvedLocId = await cachedResolveLookup('Area', locality);
                                 if (resolvedLocId) {
                                     legalQuery['personalAddress.hNo'] = hNo;
                                     legalQuery['personalAddress.location'] = resolvedLocId;
                                 }
                             }
-                            contactByLegal = await Contact.findOne(legalQuery).populate('personalAddress.location');
+                            contactByLegal = await Contact.findOne(legalQuery).populate('personalAddress.location').lean();
                         }
 
                         const existingContact = contactByMobile || contactByLegal;
@@ -1903,7 +1945,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                                 phones: mobile ? [{ number: mobile, type: 'Personal' }] : [],
                                 emails: associateEmail ? [{ address: associateEmail, type: 'Personal' }] : [],
                                 ...assignmentUpdate,
-                                source: await resolveLookup('Source', 'Bulk Owner Update'),
+                                source: await cachedResolveLookup('Source', 'Bulk Owner Update'),
                                 tags: ['Family Member']
                             });
                             associateId = newContact._id;
