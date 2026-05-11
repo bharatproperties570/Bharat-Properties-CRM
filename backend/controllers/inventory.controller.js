@@ -1657,6 +1657,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                 results.inventoryMatched++;
 
                 const updates = {};
+                const propertyTag = `${(inventory.projectName || 'Property').replace(/\s+/g, '-')}_${(inventory.unitNo || 'Unit').replace(/\s+/g, '-')}`;
 
                 // Structured Address Object
                 const personalAddress = {
@@ -1725,6 +1726,16 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                                     contactByMobile.name = name;
                                     if (fatherName) contactByMobile.fatherName = fatherName;
                                     contactByMobile.personalAddress = personalAddress;
+                                    
+                                    // Enterprise Auto-Tagging
+                                    if (!contactByMobile.tags) contactByMobile.tags = [];
+                                    if (!contactByMobile.tags.includes(propertyTag)) {
+                                        contactByMobile.tags.push(propertyTag);
+                                    }
+                                    if (!contactByMobile.tags.includes('Property Owner')) {
+                                        contactByMobile.tags.push('Property Owner');
+                                    }
+
                                     await contactByMobile.save();
                                     ownerId = contactByMobile._id;
                                     results.contactsFound++;
@@ -1743,7 +1754,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                                         team: rowTeam,
                                         visibleTo: rowVisibleTo,
                                         source: commonSource,
-                                        tags: ['Property Owner']
+                                        tags: ['Property Owner', propertyTag]
                                     });
                                     ownerId = newContact._id;
                                     results.contactsCreated++;
@@ -1766,7 +1777,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                                     team: rowTeam,
                                     visibleTo: rowVisibleTo,
                                     source: commonSource,
-                                    tags: ['Property Owner']
+                                    tags: ['Property Owner', propertyTag]
                                 });
                                 ownerId = newContact._id;
                             }
@@ -1777,6 +1788,11 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                     }
 
                     if (ownerId && ownerId !== "CONFLICT_PENDING" && !dryRun) {
+                        // Ensure existing contacts get the tag if they weren't updated in the resolution blocks
+                        await Contact.findByIdAndUpdate(ownerId, { 
+                            $addToSet: { tags: { $each: ['Property Owner', propertyTag] } } 
+                        });
+
                         const existingOwners = inventory.owners || [];
                         if (!existingOwners.some(id => id.toString() === ownerId.toString())) {
                             updates.owners = [...existingOwners, ownerId];
