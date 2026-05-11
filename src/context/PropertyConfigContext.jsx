@@ -1405,9 +1405,9 @@ export const PropertyConfigProvider = ({ children }) => {
 
                 // 2. LOAD SYSTEM SETTINGS (Secondary source / Remaining configs)
                 const response = await systemSettingsAPI.getAll({ limit: 100 });
-                if (response && response.data) {
-                    const settings = response.data;
-                    const settingsList = Array.isArray(settings) ? settings : (settings.docs || []);
+                if (response) {
+                    const resBody = response;
+                    const settingsList = Array.isArray(resBody) ? resBody : (resBody.data || resBody.docs || []);
 
                     // Map settings to state (Aligned with useSystemSetting camelCase keys)
                     const foundKeys = new Set();
