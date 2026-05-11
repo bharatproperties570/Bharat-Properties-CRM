@@ -718,7 +718,9 @@ const ImportDataPage = () => {
                                                         </div>
                                                         <div style={{ fontSize: '0.85rem', color: '#475569' }}>
                                                             System: <strong style={{ color: '#0f172a' }}>{conflict.existingName}</strong> {conflict.existingFatherName ? <span style={{ fontSize: '0.75rem', color: '#64748b' }}>(s/o {conflict.existingFatherName})</span> : ''} 
+                                                            <span style={{ fontSize: '0.75rem', color: '#64748b', marginLeft: '8px' }}>[{conflict.existingHNo}, {conflict.existingLoc}]</span>
                                                             &nbsp;→ File: <strong style={{ color: '#0369a1' }}>{conflict.providedName}</strong> {conflict.providedFatherName ? <span style={{ fontSize: '0.75rem', color: '#0369a1' }}>(s/o {conflict.providedFatherName})</span> : ''}
+                                                            <span style={{ fontSize: '0.75rem', color: '#0369a1', marginLeft: '8px' }}>[{conflict.providedHNo}, {conflict.providedLoc}]</span>
                                                         </div>
                                                     </div>
                                                     
