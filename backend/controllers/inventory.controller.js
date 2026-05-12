@@ -1772,18 +1772,18 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                     const mobileRaw = (row['Mobile'] || ownerMobile || '').toString().trim();
                     const mobile = mobileRaw ? normalizePhone(mobileRaw) : null;
                     
-                    const hNo = (row['Owner House No'] || ownerHNo || '').toString().trim();
-                    const locality = (row['Owner Locality'] || ownerLocality || '').trim();
-                    const email = (row['Owner Email'] || '').trim();
+                    const hNo = (row['Owner House No'] || row['House No'] || row['HNo'] || ownerHNo || '').toString().trim();
+                    const locality = (row['Owner Locality'] || row['Locality'] || row['Sector'] || ownerLocality || '').trim();
+                    const email = (row['Owner Email'] || row['Email'] || '').trim();
 
                     const personalAddress = {
                         hNo: hNo || '',
-                        street: (row['Owner Street'] || ownerStreet || '').trim() || '',
+                        street: (row['Owner Street'] || row['Street'] || ownerStreet || '').trim() || '',
                         location: locality || '',
-                        area: (row['Owner Area'] || ownerArea || '').trim() || '',
-                        city: (row['Owner City'] || ownerCity || '').trim() || '',
-                        state: (row['Owner State'] || ownerState || '').trim() || '',
-                        pincode: (row['Owner Pincode'] || ownerPinCode || '').trim() || ''
+                        area: (row['Owner Area'] || row['Area'] || ownerArea || '').trim() || '',
+                        city: (row['Owner City'] || row['City'] || ownerCity || '').trim() || '',
+                        state: (row['Owner State'] || row['State'] || ownerState || '').trim() || '',
+                        pincode: (row['Owner Pincode'] || row['Pin Code'] || row['Pincode'] || ownerPinCode || '').trim() || ''
                     };
 
                     if (!mobile) results.noMobileCount++;
@@ -1823,9 +1823,14 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                             results.contactsFound++;
 
                             if (!dryRun) {
+                                // 🚀 [HARDENED] Sync address even for perfect matches to ensure data completeness
                                 await Contact.findByIdAndUpdate(ownerId, {
                                     $addToSet: { tags: { $each: ['Property Owner', propertyTag] } },
-                                    $set: assignmentUpdate
+                                    $set: { 
+                                        ...assignmentUpdate,
+                                        personalAddress: personalAddress,
+                                        fatherName: existingContact.fatherName || fatherName // Fill if missing
+                                    }
                                 });
                             }
                         }
