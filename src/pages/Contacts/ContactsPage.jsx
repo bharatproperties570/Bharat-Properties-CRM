@@ -212,6 +212,11 @@ const ContactRow = memo(function ContactRow({
             <div style={{ fontSize: "0.6rem", color: "#64748b", fontWeight: 700 }}>
               {getTeamName(item?.assignment?.team || item?.team)}
             </div>
+            { (item?.assignment?.assignedAt || item?.updatedAt) && (
+              <div style={{ fontSize: "0.6rem", color: "#94a3b8", fontWeight: 600, marginTop: "2px" }}>
+                {new Date(item?.assignment?.assignedAt || item?.updatedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })} {new Date(item?.assignment?.assignedAt || item?.updatedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -324,6 +329,11 @@ const ContactCard = memo(function ContactCard({
                 <div style={{ fontSize: '0.6rem', color: '#64748b', fontWeight: 600 }}>
                   {getTeamName(item?.assignment?.team || item?.team)}
                 </div>
+                { (item?.assignment?.assignedAt || item?.updatedAt) && (
+                  <div style={{ fontSize: "0.6rem", color: "#94a3b8", fontWeight: 700, marginTop: "2px" }}>
+                    {new Date(item?.assignment?.assignedAt || item?.updatedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -819,9 +829,20 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
       <AssignContactModal isOpen={isAssignModalOpen} onClose={() => setIsAssignModalOpen(false)} selectedContacts={selectedContactsForAssign} onAssign={async (a) => {
         try {
           toast.loading("Assigning...");
-          await Promise.all(selectedContactsForAssign.map(c => api.put(`contacts/${c._id}`, { owner: a.assignedTo })));
-          toast.dismiss(); toast.success("Assigned!"); fetchContacts();
-        } catch (e) { toast.dismiss(); toast.error("Failed"); }
+          // SENIOR ARCHITECTURE: Send full assignment object to backend for precision tracking
+          const payload = {
+            assignment: {
+              assignedTo: a.assignedTo,
+              team: a.team ? (Array.isArray(a.team) ? a.team : [a.team]) : [],
+              assignedAt: a.timestamp || new Date().toISOString(),
+              notes: a.notes,
+              reason: a.reason
+            },
+            owner: a.assignedTo // Keep legacy owner field in sync
+          };
+          await Promise.all(selectedContactsForAssign.map(c => api.put(`contacts/${c._id}`, payload)));
+          toast.dismiss(); toast.success("Assigned successfully!"); fetchContacts();
+        } catch (e) { toast.dismiss(); toast.error("Assignment failed: " + (e.message || "Unknown error")); }
         setIsAssignModalOpen(false); setSelectedIds([]);
       }} />
       <ManageTagsModal isOpen={isTagsModalOpen} onClose={() => setIsTagsModalOpen(false)} selectedContacts={selectedContactsForTags} onUpdateTags={() => { setIsTagsModalOpen(false); setSelectedIds([]); fetchContacts(); }} />

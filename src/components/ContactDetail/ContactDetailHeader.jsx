@@ -288,6 +288,12 @@ const ContactDetailHeader = React.memo(function ContactDetailHeader({
                         <span style={{ fontSize: '0.65rem', fontWeight: 600, color: '#64748b', whiteSpace: 'nowrap' }}>
                             {renderLookup(contact.assignment?.team?.[0] || contact.assignment?.team || contact.team) || 'Standard Team'}
                         </span>
+                        { (contact.assignment?.assignedAt || contact.updatedAt) && (
+                            <span style={{ fontSize: '0.6rem', fontWeight: 700, color: '#94a3b8', marginTop: '2px' }}>
+                                {new Date(contact.assignment?.assignedAt || contact.updatedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })} {new Date(contact.assignment?.assignedAt || contact.updatedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}
+                                {contact.assignment?.assignedBy && ` by ${contact.assignment.assignedBy.fullName || contact.assignment.assignedBy.name || 'Admin'}`}
+                            </span>
+                        )}
                     </div>
 
                     <div style={{ width: '1px', height: '18px', background: '#cbd5e1' }}></div>

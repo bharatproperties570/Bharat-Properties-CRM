@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import AddressDetailsForm from '../common/AddressDetailsForm';
 
 const InventoryLocationSection = ({
@@ -10,6 +10,10 @@ const InventoryLocationSection = ({
     inputStyle,
     sectionStyle
 }) => {
+    const onAddressChange = useCallback((newAddr) => {
+        setFormData(prev => ({ ...prev, address: newAddr }));
+    }, [setFormData]);
+
     return (
         <div className="tab-content fade-in">
             <div style={sectionStyle}>
@@ -53,7 +57,7 @@ const InventoryLocationSection = ({
                 <AddressDetailsForm
                     title=""
                     address={formData.address}
-                    onChange={(newAddr) => setFormData(prev => ({ ...prev, address: newAddr }))}
+                    onChange={onAddressChange}
                     disabledFields={disabledAddressFields}
                 />
             </div>

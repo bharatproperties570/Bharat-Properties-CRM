@@ -1167,309 +1167,196 @@ export const getMessagingActivities = async (req, res) => {
 
         const visibilityFilter = await getVisibilityFilter(req.user);
 
-        // 🌟 Omnichannel Expansion: Include all unassigned items for the shared pool
-        const messagingQuery = {
-            $or: [
-                { ...visibilityFilter },
-                { 
-                    assignedTo: { $exists: false }, 
-                    type: { $in: ['WhatsApp', 'whatsapp', 'Call', 'call', 'Email', 'email', 'SMS', 'sms', 'Voice', 'voice'] }
+        // 1. Optimized Combined Query
+        // 🚀 Senior Profession: Filter at DB level to reduce memory footprint
+        const messagingTypes = ['WhatsApp', 'whatsapp', 'Call', 'call', 'Email', 'email', 'SMS', 'sms', 'Voice', 'voice', 'Messaging'];
+        const query = {
+            $and: [
+                { type: { $in: messagingTypes } },
+                {
+                    $or: [
+                        { ...visibilityFilter },
+                        { assignedTo: { $exists: false } }
+                    ]
                 }
             ]
         };
 
-        // 1. Fetch Messaging & Voice Activities (Increased horizon for better grouping)
-        const activities = await Activity.find(messagingQuery)
-        .sort({ createdAt: -1 })
-        .limit(1000) // Fetch enough for effective grouping
-        .lean();
+        if (channel !== 'all') {
+            if (channel === 'Voice') query.type = { $in: ['Voice', 'voice', 'Call', 'call'] };
+            else if (channel === 'Email') query.type = { $in: ['Email', 'email'] };
+            else if (channel === 'WhatsApp') query.type = { $in: ['WhatsApp', 'whatsapp'] };
+            else if (channel === 'SMS') query.type = { $in: ['SMS', 'sms', 'Messaging'] };
+        }
 
-        // 2. Fetch AI Conversations (Fast fetch, manual lookup later)
-        const rawConversations = await Conversation.find({})
-            .sort({ updatedAt: -1 })
-            .limit(100)
-            .lean();
-
-        // 3. Fetch SMS Logs
-        const rawSmsLogs = await SmsLog.find({})
-            .sort({ sentAt: -1 })
-            .limit(100)
-            .lean();
-
-        // 4. Resolve Identity (Lead/Contact) manually for high-performance grouping
-        const entityIdSet = new Set();
-        rawConversations.forEach(c => { if(c.lead) entityIdSet.add(c.lead.toString()); });
-        activities.forEach(act => { 
-            if(act.entityId && (act.entityType === 'Lead' || act.entityType === 'Contact')) {
-                entityIdSet.add(act.entityId.toString()); 
-            }
-        });
-        
-        const uniqueIds = Array.from(entityIdSet).filter(id => mongoose.Types.ObjectId.isValid(id));
-        
-        // Parallel fetch for speed
-        const [leads, contacts] = await Promise.all([
-            Lead.find({ _id: { $in: uniqueIds } }).select('firstName lastName fullName mobile').lean(),
-            mongoose.model('Contact').find({ _id: { $in: uniqueIds } }).select('name phones').lean()
+        // Fetch larger batch for grouping but limited to manageable size
+        const [activities, rawConversations, rawSmsLogs] = await Promise.all([
+            Activity.find(query).sort({ createdAt: -1 }).limit(800).lean(),
+            Conversation.find(channel === 'all' || channel === 'WhatsApp' ? {} : { _id: null }).sort({ updatedAt: -1 }).limit(100).lean(),
+            SmsLog.find(channel === 'all' || channel === 'SMS' ? {} : { _id: null }).sort({ sentAt: -1 }).limit(100).lean()
         ]);
 
-        const identityMap = {};
-        leads.forEach(l => {
-            identityMap[l._id.toString()] = { name: l.fullName || `${l.firstName} ${l.lastName}`.trim(), model: 'Lead', phone: l.mobile };
-        });
-        contacts.forEach(c => {
-            identityMap[c._id.toString()] = { name: c.name, model: 'Contact', phone: c.phones?.[0]?.number };
-        });
+        // 2. High-Performance Identity Mapping (O(1) Access)
+        const identifierSet = new Set();
+        const entityIdSet = new Set();
 
-        // Also index by phone/email for fallback lookup
-        const identifierIdentityMap = {};
-        leads.forEach(l => { 
-            if(l.mobile) identifierIdentityMap[normalizePhone(l.mobile)] = identityMap[l._id.toString()].name; 
-            if(l.email) identifierIdentityMap[l.email.toLowerCase()] = identityMap[l._id.toString()].name;
-        });
-        contacts.forEach(c => { 
-            c.phones?.forEach(p => { 
-                if(p.number) identifierIdentityMap[normalizePhone(p.number)] = identityMap[c._id.toString()].name; 
-            });
-            if(c.email) identifierIdentityMap[c.email.toLowerCase()] = identityMap[c._id.toString()].name;
-        });
-
-        console.log(`[MessagingHub] Found: Activities=${activities.length}, Convs=${rawConversations.length}, SMSLogs=${rawSmsLogs.length}`);
-
-        // 5. Group by Identifier (Phone or Email)
-        const conversationsMap = new Map();
-
-        const addToConversation = (identifier, via, item, timestamp) => {
-            if (!identifier) return;
-            const key = `${identifier}_${via}`;
-            const existing = conversationsMap.get(key);
-            
-            if (!existing) {
-                conversationsMap.set(key, {
-                    ...item,
-                    timestamp: new Date(timestamp),
-                    identifier,
-                    via,
-                    thread: [...(item.thread || [])]
-                });
-            } else {
-                // Merge thread and update if newer
-                const combinedThread = [...(existing.thread || []), ...(item.thread || [])];
-                
-                // Unique by text and time to avoid duplicates
-                const seen = new Set();
-                const uniqueThread = combinedThread.filter(m => {
-                    const key = `${m.time}-${m.text}-${m.sender}`;
-                    if (seen.has(key)) return false;
-                    seen.add(key);
-                    return true;
-                }).sort((a, b) => new Date(a.time) - new Date(b.time));
-
-                if (new Date(timestamp) > new Date(existing.timestamp)) {
-                    conversationsMap.set(key, {
-                        ...item,
-                        timestamp: new Date(timestamp),
-                        identifier,
-                        via,
-                        thread: uniqueThread
-                    });
-                } else {
-                    existing.thread = uniqueThread;
-                }
-            }
+        const collectIdentifiers = (phone, email, eId) => {
+            if (phone) identifierSet.add(normalizePhone(phone));
+            if (email) identifierSet.add(email.toLowerCase());
+            if (eId && mongoose.Types.ObjectId.isValid(eId)) entityIdSet.add(eId.toString());
         };
 
-        // 5.1 Process Activities
-        for (const a of activities) {
-            try {
-                const phone = normalizePhone(a.details?.phoneNumber || a.participants?.[0]?.mobile || '');
-                const email = (a.details?.email || a.participants?.[0]?.email || '').toLowerCase();
-                const identifier = phone || email;
-                
-                if (!identifier) continue;
+        activities.forEach(a => {
+            collectIdentifiers(a.details?.phoneNumber || a.participants?.[0]?.mobile, a.details?.email || a.participants?.[0]?.email, a.entityId);
+        });
+        rawConversations.forEach(c => collectIdentifiers(c.phoneNumber, null, c.lead || c.contact));
+        rawSmsLogs.forEach(l => collectIdentifiers(l.to, null, l.entityId));
 
-                const aEntityIdStr = a.entityId ? a.entityId.toString() : null;
-                const identity = aEntityIdStr ? identityMap[aEntityIdStr] : null;
-                const matchingConv = phone ? rawConversations.find(c => c.phoneNumber === phone) : null;
-                
-                let pName = a.participants?.[0]?.name || '';
-                if (!pName && identity) pName = identity.name;
-                if (!pName && identifierIdentityMap[identifier]) pName = identifierIdentityMap[identifier];
-                if (!pName && a.relatedTo?.length) {
-                    const match = a.relatedTo.find(r => ['Contact', 'Lead'].includes(r.model));
-                    if (match) pName = match.name;
-                }
-                if (!pName) pName = identifier;
+        const uniqueIdentifiers = Array.from(identifierSet);
+        const uniqueEntityIds = Array.from(entityIdSet).map(id => new mongoose.Types.ObjectId(id));
 
-                const isCall = (a.type || "").toLowerCase() === 'call' || (a.type || "").toLowerCase() === 'voice';
-                const isEmail = (a.type || "").toLowerCase() === 'email';
-                const isWhatsApp = (a.type || "").toLowerCase() === 'whatsapp' || a.details?.platform?.toLowerCase() === 'whatsapp';
-                const isSMS = (a.type || "").toLowerCase() === 'sms' || (a.type || "").toLowerCase() === 'messaging';
+        // Parallel Identity Lookup
+        const [leads, contacts] = await Promise.all([
+            Lead.find({ $or: [{ mobile: { $in: uniqueIdentifiers } }, { email: { $in: uniqueIdentifiers } }, { _id: { $in: uniqueEntityIds } }] }).select('firstName lastName fullName mobile email').lean(),
+            Contact.find({ $or: [{ 'phones.number': { $in: uniqueIdentifiers } }, { 'emails.address': { $in: uniqueIdentifiers } }, { _id: { $in: uniqueEntityIds } }] }).select('name phones emails').lean()
+        ]);
 
-                // 🚀 Only process messaging types
-                if (!isCall && !isEmail && !isWhatsApp && !isSMS) continue;
+        const identityMap = new Map();
+        const identifierToNameMap = new Map();
 
-                const via = isCall ? 'Voice' : (isEmail ? 'Email' : (isWhatsApp ? 'WhatsApp' : 'SMS'));
-
-                const item = {
-                    _id: a._id,
-                    type: a.type,
-                    via: via,
-                    subject: a.subject,
-                    description: a.description,
-                    snippet: a.description,
-                    entityType: a.entityType,
-                    entityId: a.entityId,
-                    actor: a.performedBy || 'System',
-                    isMatched: a.details?.isMatched ?? !!(a.entityId && a.entityType !== 'Unknown'),
-                    details: a.details,
-                    platform: a.details?.platform || (isCall ? 'Mobile' : (isEmail ? 'Direct' : (isWhatsApp ? 'WhatsApp' : 'Direct'))),
-                    phoneNumber: phone,
-                    email: email,
-                    phone: phone,
-                    participant: pName,
-                    outcome: a.details?.status || a.outcome || a.status || 'Delivered',
-                    date: a.createdAt,
-                    // 🚀 [FIX] Thread should only include bot messages if the CHANNEL is WhatsApp
-                    thread: (isWhatsApp && matchingConv) ? (matchingConv.messages || []).map(m => ({
-                        sender: m.role === 'user' ? 'customer' : (m.role === 'assistant' ? 'ai' : 'agent'),
-                        text: m.content,
-                        time: m.timestamp,
-                        metadata: m.metadata
-                    })) : [{
-                        sender: (a.details?.direction === 'Incoming' || a.details?.direction === 'incoming') ? 'customer' : 'agent',
-                        text: a.description || a.subject || (isCall ? 'Call Log' : 'Message'),
-                        time: a.createdAt,
-                        metadata: a.details?.attachment ? { attachment: a.details.attachment } : null
-                    }]
-                };
-
-                addToConversation(identifier, via, item, a.createdAt);
-            } catch (err) { console.error("[MessagingHub] Activity Map Error:", err.message); }
-        }
-
-        // 5.2 Process SMS Logs
-        for (const log of rawSmsLogs) {
-            try {
-                const phone = normalizePhone(log.to);
-                const identifier = phone;
-                let pName = identifierIdentityMap[identifier] || identifier;
-                const item = {
-                    _id: log._id,
-                    type: 'Messaging',
-                    via: 'SMS',
-                    subject: 'Outgoing SMS',
-                    description: log.message,
-                    snippet: log.message,
-                    entityType: log.entityType,
-                    entityId: log.entityId,
-                    actor: log.provider || 'Gateway',
-                    isMatched: !!log.entityId && log.entityType !== 'System' && log.entityType !== 'Test',
-                    platform: log.provider,
-                    phoneNumber: phone,
-                    phone: phone,
-                    participant: pName,
-                    outcome: log.status,
-                    date: log.sentAt,
-                    thread: [{
-                        sender: 'agent',
-                        text: log.message,
-                        time: log.sentAt
-                    }]
-                };
-                addToConversation(identifier, 'SMS', item, log.sentAt);
-            } catch (err) { console.error("[MessagingHub] SmsLog Map Error:", err.message); }
-        }
-
-        // 5.3 Process Conversations
-        for (const c of rawConversations) {
-            try {
-                const phone = normalizePhone(c.phoneNumber);
-                const identifier = phone;
-                const messages = c.messages || [];
-                const lastMsg = messages[messages.length - 1];
-                
-                const cEntityIdStr = c.lead ? c.lead.toString() : (c.contact ? c.contact.toString() : null);
-                const identity = cEntityIdStr ? identityMap[cEntityIdStr] : null;
-                let pName = identity?.name || identifierIdentityMap[identifier] || identifier || 'Unknown';
-                
-                const item = {
-                    _id: c._id,
-                    type: 'WhatsApp',
-                    via: 'WhatsApp',
-                    subject: 'AI Bot Conversation',
-                    description: lastMsg?.content || 'Conversation started',
-                    snippet: lastMsg?.content || 'Conversation started',
-                    entityType: identity?.model || 'Lead',
-                    entityId: c.lead || c.contact,
-                    participant: pName,
-                    phone: phone,
-                    participantName: pName,
-                    participantMobile: phone,
-                    direction: lastMsg?.role === 'user' ? 'Incoming' : 'Outgoing',
-                    platform: 'WhatsApp Bot',
-                    isMatched: !!(identity && c.source !== 'AI Bot WhatsApp'),
-                    phoneNumber: phone,
-                    date: c.updatedAt,
-                    thread: messages.map(m => ({
-                        sender: m.role === 'user' ? 'customer' : 'ai',
-                        text: m.content,
-                        time: m.timestamp,
-                        metadata: m.metadata
-                    }))
-                };
-                addToConversation(identifier, 'WhatsApp', item, c.updatedAt);
-            } catch (err) { console.error("[MessagingHub] Conversation Map Error:", err.message); }
-        }
-
-        // 6. Final Sort and return
-        let unified = Array.from(conversationsMap.values());
-
-        // Apply Channel Filter
-        if (channel !== 'all') {
-            unified = unified.filter(i => i.via === channel);
-        }
-
-        // Apply SubTab Filter
-        if (subTab === 'matched') {
-            unified = unified.filter(i => i.isMatched);
-        } else if (subTab === 'unmatched') {
-            unified = unified.filter(i => !i.isMatched);
-        }
-        
-        // Dynamic Sorting Engine
-        unified.sort((a, b) => {
-            let valA = a[sortBy] || a.timestamp;
-            let valB = b[sortBy] || b.timestamp;
-            
-            if (sortBy === 'date') {
-                valA = new Date(a.timestamp).getTime();
-                valB = new Date(b.timestamp).getTime();
-            }
-
-            if (valA < valB) return -1 * sortOrder;
-            if (valA > valB) return 1 * sortOrder;
-            return 0;
+        leads.forEach(l => {
+            const name = l.fullName || `${l.firstName} ${l.lastName}`.trim();
+            identityMap.set(l._id.toString(), { name, model: 'Lead', phone: l.mobile });
+            if (l.mobile) identifierToNameMap.set(normalizePhone(l.mobile), name);
+            if (l.email) identifierToNameMap.set(l.email.toLowerCase(), name);
+        });
+        contacts.forEach(c => {
+            const name = c.name;
+            identityMap.set(c._id.toString(), { name, model: 'Contact', phone: c.phones?.[0]?.number });
+            c.phones?.forEach(p => { if (p.number) identifierToNameMap.set(normalizePhone(p.number), name); });
+            c.emails?.forEach(e => { if (e.address) identifierToNameMap.set(e.address.toLowerCase(), name); });
         });
 
-        // Pagination Engine
+        // 3. Thread Correlation Mapping
+        const convLookupMap = new Map();
+        rawConversations.forEach(c => convLookupMap.set(normalizePhone(c.phoneNumber), c));
+
+        // 4. Unified Stream Construction (Map-based Grouping)
+        const conversationsMap = new Map();
+
+        const getParticipantName = (identifier, entityId, fallback) => {
+            if (entityId && identityMap.has(entityId.toString())) return identityMap.get(entityId.toString()).name;
+            if (identifierToNameMap.has(identifier)) return identifierToNameMap.get(identifier);
+            return fallback || identifier;
+        };
+
+        // 4.1 Process Activities
+        activities.forEach(a => {
+            const phone = normalizePhone(a.details?.phoneNumber || a.participants?.[0]?.mobile || '');
+            const email = (a.details?.email || a.participants?.[0]?.email || '').toLowerCase();
+            const identifier = phone || email;
+            if (!identifier) return;
+
+            const via = ['Call', 'Voice', 'call', 'voice'].includes(a.type) ? 'Voice' : (['Email', 'email'].includes(a.type) ? 'Email' : (['WhatsApp', 'whatsapp'].includes(a.type) || a.details?.platform === 'WhatsApp' ? 'WhatsApp' : 'SMS'));
+            const key = `${identifier}_${via}`;
+
+            if (!conversationsMap.has(key) || new Date(a.createdAt) > new Date(conversationsMap.get(key).timestamp)) {
+                conversationsMap.set(key, {
+                    _id: a._id,
+                    type: a.type,
+                    via,
+                    subject: a.subject,
+                    description: a.description,
+                    snippet: a.description || a.subject,
+                    entityType: a.entityType,
+                    entityId: a.entityId,
+                    participant: getParticipantName(identifier, a.entityId, a.participants?.[0]?.name),
+                    phone: phone,
+                    phoneNumber: phone,
+                    email: email,
+                    isMatched: !!(a.entityId && a.entityType !== 'Unknown'),
+                    outcome: a.details?.status || a.outcome || a.status || 'Delivered',
+                    timestamp: a.createdAt,
+                    date: a.createdAt,
+                    // 🚀 Ultra-Fast: Don't send thread in list view
+                    thread: [] 
+                });
+            }
+        });
+
+        // 4.2 Process SMS Logs & Conversations
+        rawSmsLogs.forEach(log => {
+            const phone = normalizePhone(log.to);
+            const key = `${phone}_SMS`;
+            if (!conversationsMap.has(key) || new Date(log.sentAt) > new Date(conversationsMap.get(key).timestamp)) {
+                conversationsMap.set(key, {
+                    _id: log._id, type: 'Messaging', via: 'SMS', subject: 'Outgoing SMS',
+                    description: log.message, snippet: log.message, entityType: log.entityType, entityId: log.entityId,
+                    participant: getParticipantName(phone, log.entityId), phone, phoneNumber: phone,
+                    isMatched: !!log.entityId, outcome: log.status, timestamp: log.sentAt, date: log.sentAt,
+                    thread: []
+                });
+            }
+        });
+
+        rawConversations.forEach(c => {
+            const phone = normalizePhone(c.phoneNumber);
+            const key = `${phone}_WhatsApp`;
+            if (!conversationsMap.has(key) || new Date(c.updatedAt) > new Date(conversationsMap.get(key).timestamp)) {
+                const lastMsg = c.messages?.[c.messages.length - 1];
+                conversationsMap.set(key, {
+                    _id: c._id, type: 'WhatsApp', via: 'WhatsApp', subject: 'AI Bot Conversation',
+                    description: lastMsg?.content || 'Conversation started', snippet: lastMsg?.content || 'Conversation started',
+                    entityType: c.lead ? 'Lead' : 'Contact', entityId: c.lead || c.contact,
+                    participant: getParticipantName(phone, c.lead || c.contact), phone, phoneNumber: phone,
+                    isMatched: !!(c.lead || c.contact), outcome: 'Active', timestamp: c.updatedAt, date: c.updatedAt,
+                    thread: []
+                });
+            }
+        });
+
+        // 5. Final Filtering, Sort & Paginate
+        let unified = Array.from(conversationsMap.values());
+        
+        if (subTab === 'matched') unified = unified.filter(i => i.isMatched);
+        else if (subTab === 'unmatched') unified = unified.filter(i => !i.isMatched);
+
+        if (search) {
+            const s = search.toLowerCase();
+            unified = unified.filter(i => i.participant.toLowerCase().includes(s) || i.phone.includes(s) || (i.description || '').toLowerCase().includes(s));
+        }
+
+        unified.sort((a, b) => (new Date(b.timestamp) - new Date(a.timestamp)) * sortOrder);
+
         const totalCount = unified.length;
-        const totalPages = Math.ceil(totalCount / limit);
         const startIndex = (page - 1) * limit;
         const paginatedData = unified.slice(startIndex, startIndex + Number(limit));
+
+        // 6. Global KPI Counts (Fast count)
+        const [totalStreams, matchedStreams, failedStreams] = await Promise.all([
+            Activity.countDocuments(query),
+            Activity.countDocuments({ ...query, $or: [{ entityId: { $exists: true, $ne: null } }, { 'details.isMatched': true }] }),
+            Activity.countDocuments({ ...query, outcome: 'Failed' })
+        ]);
 
         res.json({
             success: true,
             data: paginatedData,
-            pagination: {
-                totalCount,
-                totalPages,
-                currentPage: Number(page),
-                limit: Number(limit)
+            pagination: { 
+                totalCount, 
+                totalPages: Math.ceil(totalCount / limit), 
+                currentPage: Number(page), 
+                limit: Number(limit) 
+            },
+            kpis: {
+                total: totalStreams,
+                matched: matchedStreams,
+                failed: failedStreams
             }
         });
+
     } catch (error) {
-        console.error("[ActivityController] getMessagingActivities error:", error);
+        console.error("[ActivityController] Optimized MessagingHub Error:", error);
         res.status(500).json({ success: false, error: error.message });
     }
 };
@@ -1478,6 +1365,70 @@ export const getMessagingActivities = async (req, res) => {
  * @desc    Manual conversion of a messaging participant to a lead
  * @route   POST /api/activities/messaging/convert-to-lead
  */
+/**
+ * @desc    Get full thread history for a specific identifier (Ultra-Fast Selection)
+ * @route   GET /api/activities/messaging/thread/:identifier
+ */
+export const getThreadHistory = async (req, res) => {
+    try {
+        const { identifier } = req.params;
+        const { via } = req.query; // WhatsApp, SMS, Voice, Email
+        if (!identifier) return res.status(400).json({ success: false, error: "Identifier required" });
+
+        const phone = normalizePhone(identifier);
+        const email = identifier.toLowerCase();
+        const visibilityFilter = await getVisibilityFilter(req.user);
+
+        // 1. Fetch relevant records in parallel
+        const [activities, conversations] = await Promise.all([
+            Activity.find({
+                $and: [
+                    { ...visibilityFilter },
+                    { $or: [
+                        { 'details.phoneNumber': phone },
+                        { 'details.phoneNumber': identifier },
+                        { 'details.email': email },
+                        { 'participants.mobile': phone },
+                        { 'participants.email': email }
+                    ]}
+                ]
+            }).sort({ createdAt: 1 }).lean(),
+            Conversation.find({ phoneNumber: phone }).lean()
+        ]);
+
+        // 2. Unify and Sort
+        let thread = activities.map(a => ({
+            sender: (a.details?.direction || '').toLowerCase().includes('in') ? 'customer' : 'agent',
+            text: a.description || a.subject,
+            time: a.createdAt,
+            metadata: a.details?.attachment ? { attachment: a.details.attachment } : null
+        }));
+
+        if (conversations.length > 0) {
+            const aiMsgs = conversations.flatMap(c => (c.messages || []).map(m => ({
+                sender: m.role === 'user' ? 'customer' : (m.role === 'assistant' ? 'ai' : 'agent'),
+                text: m.content,
+                time: m.timestamp,
+                metadata: m.metadata
+            })));
+            thread = [...thread, ...aiMsgs];
+        }
+
+        // De-duplicate and sort by time
+        const seen = new Set();
+        const uniqueThread = thread.filter(m => {
+            const key = `${new Date(m.time).getTime()}-${m.text}-${m.sender}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        }).sort((a, b) => new Date(a.time) - new Date(b.time));
+
+        res.json({ success: true, data: uniqueThread });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
 export const convertToLead = async (req, res) => {
     try {
         const { phoneNumber, name, source = 'Direct Messaging' } = req.body;

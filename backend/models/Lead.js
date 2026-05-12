@@ -367,6 +367,52 @@ LeadSchema.pre('findOneAndUpdate', async function (next) {
         }
     }
 
+    const finalizeUpdate = (u) => {
+        const operators = {};
+        const rootFields = {};
+        Object.keys(u).forEach(key => {
+            if (key.startsWith('$')) operators[key] = u[key];
+            else rootFields[key] = u[key];
+        });
+        const flatten = (obj, prefix = '') => {
+            const flattened = {};
+            // [SENIOR SAFETY] Only flatten plain objects. Skip arrays, ObjectIds, Dates, and Mongoose internals.
+            if (!obj || typeof obj !== 'object' || Array.isArray(obj) || obj instanceof mongoose.Types.ObjectId || obj instanceof Date || (obj.constructor && obj.constructor.name !== 'Object')) {
+                return { [prefix]: obj };
+            }
+            Object.keys(obj).forEach(key => {
+                const path = prefix ? `${prefix}.${key}` : key;
+                const val = obj[key];
+                if (val && typeof val === 'object' && !Array.isArray(val) && !(val instanceof mongoose.Types.ObjectId) && !(val instanceof Date) && Object.keys(val).length > 0) {
+                    Object.assign(flattened, flatten(val, path));
+                } else {
+                    flattened[path] = val;
+                }
+            });
+            return flattened;
+        };
+        const combinedSet = { ...rootFields, ...(operators.$set || {}) };
+        const flatSet = flatten(combinedSet);
+        Object.keys(u).forEach(key => delete u[key]);
+        Object.assign(u, operators);
+        u.$set = flatSet;
+        ['$unset', '$inc', '$push', '$pull', '$addToSet'].forEach(op => {
+            if (u[op]) {
+                Object.keys(u[op]).forEach(path => {
+                    delete u.$set[path];
+                    Object.keys(u.$set).forEach(setPath => {
+                        if (setPath.startsWith(`${path}.`) || path.startsWith(`${setPath}.`)) {
+                            delete u.$set[setPath];
+                        }
+                    });
+                });
+            }
+        });
+        if (u.$set && Object.keys(u.$set).length === 0) delete u.$set;
+    };
+
+    finalizeUpdate(update);
+
     next();
 });
 

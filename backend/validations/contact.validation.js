@@ -48,7 +48,11 @@ export const createContactSchema = Joi.object({
     owner: Joi.string().optional().allow(null, ""),
     assignment: Joi.object({
         assignedTo: Joi.string().optional().allow(null, ""),
-        team: Joi.array().items(Joi.string()).optional()
+        team: Joi.array().items(Joi.string()).optional(),
+        assignedAt: Joi.date().optional().allow(null, ""),
+        assignedBy: Joi.string().optional().allow(null, ""),
+        notes: Joi.string().optional().allow("", null),
+        reason: Joi.string().optional().allow("", null)
     }).optional(),
     visibleTo: Joi.string().optional().allow("", null),
 

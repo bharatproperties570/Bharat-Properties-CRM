@@ -1263,13 +1263,13 @@ export const PropertyConfigProvider = ({ children }) => {
     }, [typeValueMap]);
 
     const getLookupValue = useCallback((type, id) => {
-        if (id === null || id === undefined) return '-';
+        if (id === null || id === undefined) return null;
 
         // Case A: ID is already a populated object
         if (typeof id === 'object') {
             const val = id.lookup_value || id.name || id.label || id.value || id.displayName;
             if (val !== undefined && val !== null && typeof val !== 'object') return String(val);
-            return typeof id.toString === 'function' && id.toString() !== '[object Object]' ? id.toString() : '-';
+            return typeof id.toString === 'function' && id.toString() !== '[object Object]' ? id.toString() : null;
         }
 
         const idStr = String(id).trim();
@@ -1283,7 +1283,7 @@ export const PropertyConfigProvider = ({ children }) => {
             return idStr;
         }
 
-        return '-';
+        return null;
     }, [lookupMap]);
 
     const findLookup = useCallback((type, value, parentId = null) => {
@@ -1303,9 +1303,11 @@ export const PropertyConfigProvider = ({ children }) => {
             console.log('[PropertyConfigContext] Refreshing targeted lookups...');
             // 🚀 SENIOR OPTIMIZATION: Specify required types to avoid 502 timeouts
             const requiredTypes = [
-                'UnitType', 'Category', 'SubCategory', 'Facing', 'RoadWidth', 
+                'UnitType', 'Category', 'SubCategory', 'PropertyType', 'BuiltupType', 'Facing', 'RoadWidth', 
                 'Direction', 'Relation', 'CompanyType', 'Industry', 'Size',
-                'Status', 'State', 'City', 'Location', 'Area', 'Pincode', 'Tehsil', 'PostOffice', 'Country'
+                'Status', 'State', 'City', 'Location', 'Area', 'Pincode', 'Tehsil', 'PostOffice', 'Country',
+                'Source', 'Stage', 'Title', 'Requirement', 'SubRequirement', 'Budget', 'Campaign', 'SubSource',
+                'TransactionType', 'FundingType', 'FurnishingStatus', 'Timeline'
             ];
             const response = await api.get(`/lookups?lookup_type=${requiredTypes.join(',')}`);
             const resBody = response.data;

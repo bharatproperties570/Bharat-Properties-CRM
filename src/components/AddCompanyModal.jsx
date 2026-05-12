@@ -459,6 +459,21 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
         });
     };
 
+    const onAddressUpdate = useCallback((newAddr) => {
+        setFormData(prev => {
+            let newAddresses = { ...prev.addresses };
+            if (currentAddressType === 'branchOffice' || currentAddressType === 'siteOffice') {
+                const activeIndex = currentAddressType === 'branchOffice' ? activeBranchIndex : activeSiteIndex;
+                const list = [...newAddresses[currentAddressType]];
+                list[activeIndex] = { ...list[activeIndex], ...newAddr };
+                newAddresses[currentAddressType] = list;
+            } else {
+                newAddresses[currentAddressType] = { ...newAddresses[currentAddressType], ...newAddr };
+            }
+            return { ...prev, addresses: newAddresses };
+        });
+    }, [currentAddressType, activeBranchIndex, activeSiteIndex]);
+
     const handleNext = () => {
         if (currentTab === 'basic') setCurrentTab('address');
         else if (currentTab === 'address') setCurrentTab('employee');
@@ -877,20 +892,7 @@ function AddCompanyModal({ isOpen, onClose, onAdd, initialData }) {
                     <AddressDetailsForm
                         title="" // Title handled by parent header
                         address={addr}
-                        onChange={(newAddr) => {
-                            setFormData(prev => {
-                                let newAddresses = { ...prev.addresses };
-                                if (currentAddressType === 'branchOffice' || currentAddressType === 'siteOffice') {
-                                    const activeIndex = currentAddressType === 'branchOffice' ? activeBranchIndex : activeSiteIndex;
-                                    const list = [...newAddresses[currentAddressType]];
-                                    list[activeIndex] = { ...list[activeIndex], ...newAddr };
-                                    newAddresses[currentAddressType] = list;
-                                } else {
-                                    newAddresses[currentAddressType] = { ...newAddresses[currentAddressType], ...newAddr };
-                                }
-                                return { ...prev, addresses: newAddresses };
-                            });
-                        }}
+                        onChange={onAddressUpdate}
                     />
                 </div>
             </div>

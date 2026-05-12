@@ -11,14 +11,44 @@ import { syncDocumentsToInventory } from "../utils/sync.js";
 import SmsLog from "../src/modules/sms/smsLog.model.js";
 import { googleSyncQueue } from "../src/queues/queueManager.js";
 import { getVisibilityFilter } from "../utils/visibility.js";
+import { resolveLookup, resolveHierarchicalAddress } from "../utils/lookupResolver.js";
 
 const populateFields = [
     { path: 'owner', select: 'fullName email name' },
     { path: 'team', select: 'name' },
     { path: 'teams', select: 'name' },
     { path: 'assignment.assignedTo', select: 'fullName email name' },
+    { path: 'assignment.assignedBy', select: 'fullName email name' },
     { path: 'assignment.team', select: 'name' }
 ];
+
+// 🛡️ Senior Professional: Data Normalization Utility
+const flattenPopulatedRefs = (obj) => {
+    if (!obj || typeof obj !== 'object' || obj instanceof mongoose.Types.ObjectId) return obj;
+    if (Array.isArray(obj)) return obj.map(flattenPopulatedRefs);
+    
+    const newObj = { ...obj };
+    const schemaContainers = ["phones", "emails", "personalAddress", "correspondenceAddress", "educations", "loans", "socialMedia", "incomes", "documents", "assignment"];
+    const referenceArrays = ["team", "teams", "tags", "groups", "addOn"];
+
+    for (const key in newObj) {
+        const val = newObj[key];
+        if (val && typeof val === 'object' && !(val instanceof mongoose.Types.ObjectId)) {
+            if (Array.isArray(val)) {
+                if (referenceArrays.includes(key)) {
+                    newObj[key] = val.map(i => (i && typeof i === 'object' && i._id) ? i._id : i);
+                } else {
+                    newObj[key] = val.map(flattenPopulatedRefs);
+                }
+            } else if (val._id && !schemaContainers.includes(key)) {
+                newObj[key] = val._id;
+            } else {
+                newObj[key] = flattenPopulatedRefs(val);
+            }
+        }
+    }
+    return newObj;
+};
 
 export const getContacts = async (req, res, next) => {
     try {
@@ -328,7 +358,7 @@ const resolveAllReferenceFields = async (obj) => {
 export const createContact = async (req, res, next) => {
     try {
         // Strip internal fields that shouldn't be in the create payload according to Joi
-        const data = { ...req.body };
+        const data = flattenPopulatedRefs(req.body);
         delete data._id;
         delete data.id;
         delete data.__v;
@@ -375,25 +405,6 @@ export const updateContact = async (req, res, next) => {
     try {
         console.log("[updateContact] Request Body:", JSON.stringify(req.body, null, 2));
 
-        // 🛡️ Senior Professional: Pre-validation Data Normalization
-        const flattenPopulatedRefs = (obj) => {
-            if (!obj || typeof obj !== 'object' || obj instanceof mongoose.Types.ObjectId) return obj;
-            if (Array.isArray(obj)) return obj.map(flattenPopulatedRefs);
-            const newObj = { ...obj };
-            const schemaContainers = ["phones", "emails", "personalAddress", "correspondenceAddress", "educations", "loans", "socialMedia", "incomes", "documents"];
-            for (const key in newObj) {
-                const val = newObj[key];
-                if (val && typeof val === 'object' && !(val instanceof mongoose.Types.ObjectId)) {
-                    if (val._id && !schemaContainers.includes(key)) {
-                        newObj[key] = val._id;
-                    } else {
-                        newObj[key] = flattenPopulatedRefs(val);
-                    }
-                }
-            }
-            return newObj;
-        };
-
         const updateData = flattenPopulatedRefs(req.body);
         
         // Strip internal fields
@@ -428,6 +439,16 @@ export const updateContact = async (req, res, next) => {
 
         await resolveAllReferenceFields(cleanData);
         cleanEmptyStrings(cleanData);
+
+        // 🚀 Senior Audit: Auto-inject Assignment Metadata
+        if (cleanData.assignment) {
+            if (!cleanData.assignment.assignedBy && req.user) {
+                cleanData.assignment.assignedBy = req.user._id;
+            }
+            if (!cleanData.assignment.assignedAt) {
+                cleanData.assignment.assignedAt = new Date();
+            }
+        }
 
         const visibilityFilter = await getVisibilityFilter(req.user);
         const contact = await Contact.findOneAndUpdate({ _id: req.params.id, ...visibilityFilter }, cleanData, { new: true, runValidators: true });
@@ -629,8 +650,8 @@ export const bulkDeleteContacts = async (req, res, next) => {
 
 export const searchDuplicates = async (req, res, next) => {
     try {
-        const { name, phone, email } = req.query;
-        if (!name && !phone && !email) return res.status(200).json({ success: true, data: [] });
+        const { name, phone, email, fatherName, hNo, location } = req.query;
+        if (!name && !phone && !email && !fatherName) return res.status(200).json({ success: true, data: [] });
 
         // 1. Fetch Active Rules
         const activeRules = await DuplicationRule.find({ isActive: true });
@@ -644,6 +665,8 @@ export const searchDuplicates = async (req, res, next) => {
                     if (field === 'name' && name) return { name: { $regex: name, $options: 'i' } };
                     if (field === 'phones.number' && phone) return { "phones.number": { $regex: phone, $options: 'i' } };
                     if (field === 'emails.address' && email) return { "emails.address": { $regex: email, $options: 'i' } };
+                    if (field === 'fatherName' && fatherName) return { fatherName: { $regex: fatherName, $options: 'i' } };
+                    if (field === 'personalAddress.hNo' && hNo) return { 'personalAddress.hNo': { $regex: hNo, $options: 'i' } };
                     return null;
                 }).filter(Boolean);
 
@@ -660,6 +683,23 @@ export const searchDuplicates = async (req, res, next) => {
             if (phone && phone.length > 3) cases.push({ "phones.number": { $regex: phone, $options: 'i' } });
             if (email && email.length > 3) cases.push({ "emails.address": { $regex: email, $options: 'i' } });
 
+            // 🚀 [SENIOR] Advanced Composite Matching (Name + FatherName + Address)
+            if (name && fatherName) {
+                const composite = {
+                    name: { $regex: `^\\s*${escapeRegExp(name)}\\s*$`, $options: 'i' },
+                    fatherName: { $regex: `^\\s*${escapeRegExp(fatherName)}\\s*$`, $options: 'i' }
+                };
+                if (hNo) composite['personalAddress.hNo'] = { $regex: `^\\s*${escapeRegExp(hNo)}\\s*$`, $options: 'i' };
+                if (location) {
+                    if (mongoose.Types.ObjectId.isValid(location)) {
+                        composite['personalAddress.location'] = new mongoose.Types.ObjectId(location);
+                    } else {
+                        composite['personalAddress.location'] = location;
+                    }
+                }
+                cases.push(composite);
+            }
+
             if (cases.length === 0) return res.status(200).json({ success: true, data: [] });
             query = { $or: cases };
         }
@@ -674,57 +714,38 @@ export const searchDuplicates = async (req, res, next) => {
 
 import Lookup from "../models/Lookup.js";
 
-// Helper to resolve lookup (Find or Create)
-// --- OPTIMIZATION 12: In-Memory Lookup Cache ---
-const _lookupResolveCache = new Map();
-const resolveLookup = async (type, value) => {
-    if (!value) return null;
-
-    // Handle populated object case
-    if (typeof value === 'object' && value._id) {
-        if (mongoose.Types.ObjectId.isValid(value._id)) return value._id;
-    }
-
-    if (mongoose.Types.ObjectId.isValid(value)) return new mongoose.Types.ObjectId(value.toString());
-
-    // Check Cache First
-    const cacheKey = `${type}:${value}`;
-    if (_lookupResolveCache.has(cacheKey)) return _lookupResolveCache.get(cacheKey);
-
-    let lookup = await Lookup.findOne({ lookup_type: type, lookup_value: value });
-    if (!lookup) {
-        lookup = await Lookup.create({ lookup_type: type, lookup_value: value });
-    }
-
-    // Cache Result (LRU-style simple limit to 500 entries)
-    if (_lookupResolveCache.size > 500) {
-        const firstKey = _lookupResolveCache.keys().next().value;
-        _lookupResolveCache.delete(firstKey);
-    }
-    _lookupResolveCache.set(cacheKey, lookup._id);
-
-    return lookup._id;
-};
-
-// Helper to resolve User (By Name or Email)
-import User from "../models/User.js";
-const escapeRegExp = (string) => {
-    if (!string) return '';
-    return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-};
-
+// Local resolveLookup and resolveUser removed - now centralized in utils/lookupResolver.js or handled inline
 const resolveUser = async (identifier) => {
     if (!identifier) return null;
-    if (mongoose.Types.ObjectId.isValid(identifier)) return new mongoose.Types.ObjectId(identifier.toString());
+    const strIdentifier = String(identifier).trim();
+    if (!strIdentifier) return null;
 
-    const escapedIdentifier = escapeRegExp(identifier);
+    if (mongoose.Types.ObjectId.isValid(strIdentifier)) return new mongoose.Types.ObjectId(strIdentifier);
+
+    const User = mongoose.models.User || mongoose.model('User');
+    const escapedIdentifier = escapeRegExp(strIdentifier);
     const user = await User.findOne({
         $or: [
             { fullName: { $regex: new RegExp(`^${escapedIdentifier}$`, 'i') } },
-            { email: identifier.toLowerCase() }
+            { email: strIdentifier.toLowerCase() }
         ]
     });
     return user ? user._id : null;
+};
+
+const resolveTeam = async (identifier) => {
+    if (!identifier) return null;
+    const strIdentifier = String(identifier).trim();
+    if (!strIdentifier) return null;
+
+    if (mongoose.Types.ObjectId.isValid(strIdentifier)) return new mongoose.Types.ObjectId(strIdentifier);
+
+    const Team = mongoose.models.Team || mongoose.model('Team');
+    const escapedIdentifier = escapeRegExp(strIdentifier);
+    const team = await Team.findOne({
+        name: { $regex: new RegExp(`^${escapedIdentifier}$`, 'i') }
+    });
+    return team ? team._id : null;
 };
 
 export const importContacts = async (req, res, next) => {
@@ -741,6 +762,9 @@ export const importContacts = async (req, res, next) => {
 
             const item = data[i];
             try {
+                // 🕵️ [DIAGNOSTIC] Capture raw item for first few rows
+                if (i < 3) console.log(`[IMPORT_DIAG] Row ${i+1} Raw:`, JSON.stringify(item));
+
                 const newItem = { ...item };
 
                 // Resolve Lookups
@@ -751,12 +775,45 @@ export const importContacts = async (req, res, next) => {
                 newItem.source = await resolveLookup('Source', item.source);
                 newItem.subSource = await resolveLookup('SubSource', item.subSource);
                 newItem.campaign = await resolveLookup('Campaign', item.campaign);
-                newItem.owner = await resolveUser(item.owner);
+                
+                // 🚀 [SENIOR] Assignment & Team Resolution
+                const rawOwner = item.owner || item.Owner;
+                newItem.owner = await resolveUser(rawOwner);
 
-                if (item.assignedTo) {
+                const rawAssignedTo = item.assign || item.Assign || item.assignedTo || item.AssignedTo || item['Assigned To'];
+                const rawTeam = item.team || item.Team;
+                const rawVisibility = item.visibility || item.Visibility || item.visibleTo || item['Visible To'] || 'Everyone';
+
+                if (rawAssignedTo || rawTeam || rawVisibility) {
                     if (!newItem.assignment) newItem.assignment = {};
-                    newItem.assignment.assignedTo = await resolveUser(item.assignedTo);
+                    
+                    if (rawAssignedTo) {
+                        newItem.assignment.assignedTo = await resolveUser(rawAssignedTo);
+                        // Also sync to top-level for compatibility
+                        newItem.assignedTo = newItem.assignment.assignedTo;
+                    }
+
+                    if (rawTeam) {
+                        const teamId = await resolveTeam(rawTeam);
+                        if (teamId) {
+                            newItem.assignment.team = [teamId];
+                            newItem.team = teamId;
+                            newItem.teams = [teamId];
+                        }
+                    }
+
+                    if (rawVisibility) {
+                        const validVis = ['Everyone', 'Team', 'Private'];
+                        const normalizedVis = String(rawVisibility).charAt(0).toUpperCase() + String(rawVisibility).slice(1).toLowerCase();
+                        newItem.assignment.visibleTo = validVis.includes(normalizedVis) ? normalizedVis : 'Everyone';
+                        newItem.visibleTo = newItem.assignment.visibleTo;
+                    }
+
+                    // Audit Metadata
+                    newItem.assignment.assignedBy = req.user?._id;
+                    newItem.assignment.assignedAt = new Date();
                 }
+
                 newItem.status = item.status || 'Active';
                 newItem.stage = item.stage || 'New';
 
@@ -767,50 +824,65 @@ export const importContacts = async (req, res, next) => {
                 newItem.tags = currentTags;
 
                 // Restructure phones (mobile as main key)
-                const mobile = item.mobile || (item.phones && item.phones[0]?.number);
+                const mobile = item.mobile || item['Mobile Number'] || item['Mobile'] || item['Phone'] || item['Contact'] || (item.phones && item.phones[0]?.number);
                 if (mobile) {
-                    newItem.phones = [{ number: mobile, type: 'Personal' }];
+                    newItem.phones = [{ number: String(mobile), type: 'Personal' }];
                     delete newItem.mobile;
                 }
 
                 // Restructure emails
-                if (item.email) {
-                    newItem.emails = [{ address: item.email, type: 'Personal' }];
+                if (item.email || item['Email'] || item['E-mail'] || item['Email Address']) {
+                    const emailAddr = item.email || item['Email'] || item['E-mail'] || item['Email Address'];
+                    newItem.emails = [{ address: String(emailAddr).toLowerCase(), type: 'Personal' }];
                     delete newItem.email;
                 }
 
-                // Resolve Address
-                const addressFields = ['hNo', 'street', 'area', 'city', 'tehsil', 'postOffice', 'state', 'country', 'pinCode', 'location'];
-                newItem.personalAddress = {};
-                if (item.country) newItem.personalAddress.country = await resolveLookup('Country', item.country);
-                if (item.state) newItem.personalAddress.state = await resolveLookup('State', item.state);
-                if (item.city) newItem.personalAddress.city = await resolveLookup('City', item.city);
-                if (item.tehsil) newItem.personalAddress.tehsil = await resolveLookup('Tehsil', item.tehsil);
-                if (item.postOffice) newItem.personalAddress.postOffice = await resolveLookup('PostOffice', item.postOffice);
-                if (item.location) newItem.personalAddress.location = await resolveLookup('Location', item.location);
-
-                addressFields.forEach(field => {
-                    if (item[field] && !['country', 'state', 'city', 'tehsil', 'postOffice', 'location'].includes(field)) {
-                        newItem.personalAddress[field] = item[field];
-                    }
-                    delete newItem[field];
+                // Resolve Address Hierarchically to IDs
+                const resolvedAddr = await resolveHierarchicalAddress({
+                    hNo: item.hNo || item['H No'] || item['House Number'] || item['House No'] || '',
+                    street: item.street || item['Street'] || item['Road'] || '',
+                    area: item.area || item.location || item['Area'] || item['Location'] || item['Locality'],
+                    city: item.city || item['City'],
+                    state: item.state || item['State'],
+                    country: item.country || item['Country'] || 'India',
+                    pincode: item.pinCode || item.pincode || item['Pin Code'] || item['Pincode'] || item['Zip']
                 });
+                
+                newItem.personalAddress = resolvedAddr;
+
+                // Clean up flat fields from newItem
+                const addressFields = ['hNo', 'street', 'area', 'city', 'tehsil', 'postOffice', 'state', 'country', 'pinCode', 'pincode', 'location', 'assign', 'Assign', 'team', 'Team', 'visibility', 'Visibility', 'Owner'];
+                addressFields.forEach(f => delete newItem[f]);
 
                 // Clean empty fields
                 const cleanObj = (obj) => {
                     for (const k in obj) {
                         if (typeof obj[k] === 'string' && obj[k].trim() === '') obj[k] = undefined;
-                        else if (obj[k] && typeof obj[k] === 'object' && !Array.isArray(obj[k])) cleanObj(obj[k]);
+                        else if (obj[k] && typeof obj[k] === 'object' && !Array.isArray(obj[k]) && !(obj[k] instanceof mongoose.Types.ObjectId)) cleanObj(obj[k]);
                     }
                 };
                 cleanObj(newItem);
 
                 if (mobile) {
                     if (updateDuplicates) {
+                        // 🚀 [SENIOR] Flatten nested objects for dot-notation updates to prevent overwriting whole objects
+                        const flatUpdate = {};
+                        for (const key in newItem) {
+                            if (newItem[key] && typeof newItem[key] === 'object' && !Array.isArray(newItem[key]) && !(newItem[key] instanceof mongoose.Types.ObjectId)) {
+                                for (const subKey in newItem[key]) {
+                                    if (newItem[key][subKey] !== undefined) {
+                                        flatUpdate[`${key}.${subKey}`] = newItem[key][subKey];
+                                    }
+                                }
+                            } else {
+                                flatUpdate[key] = newItem[key];
+                            }
+                        }
+
                         bulkOps.push({
                             updateOne: {
                                 filter: { $or: [{ mobile: mobile }, { "phones.number": mobile }] },
-                                update: { $set: newItem },
+                                update: { $set: flatUpdate },
                                 upsert: true
                             }
                         });
@@ -846,16 +918,47 @@ export const importContacts = async (req, res, next) => {
             // For non-upsert path, we need to filter out duplicates manually if we are doing insertMany
             let dataToInsert = processedData;
             if (!updateDuplicates) {
+                // 🚀 [SENIOR] Advanced Multi-Field Duplicate Detection
                 const mobiles = processedData.map(d => d.phones?.[0]?.number).filter(Boolean);
-                const existing = await Contact.find({
-                    $or: [{ mobile: { $in: mobiles } }, { "phones.number": { $in: mobiles } }]
-                }, 'phones').lean();
+                
+                // Build a composite query for records without mobiles
+                const compositeCriteria = processedData
+                    .filter(d => !d.phones?.[0]?.number)
+                    .map(d => ({
+                        name: d.name,
+                        fatherName: d.fatherName,
+                        'personalAddress.hNo': d.personalAddress?.hNo,
+                        'personalAddress.location': d.personalAddress?.location
+                    }))
+                    .filter(c => c.name && c.fatherName); // Ensure basic fields exist for matching
+
+                const existingQuery = {
+                    $or: [
+                        ...(mobiles.length > 0 ? [{ "phones.number": { $in: mobiles } }] : []),
+                        ...compositeCriteria
+                    ]
+                };
+
+                const existing = await Contact.find(existingQuery, 'phones name fatherName personalAddress.hNo personalAddress.location').lean();
+                
                 const existingMobiles = new Set();
+                const existingComposites = new Set();
+                
                 existing.forEach(e => {
-                    if (e.mobile) existingMobiles.add(e.mobile);
                     if (e.phones) e.phones.forEach(p => existingMobiles.add(p.number));
+                    if (e.name && e.fatherName) {
+                        const key = `${String(e.name).trim().toLowerCase()}|${String(e.fatherName).trim().toLowerCase()}|${String(e.personalAddress?.hNo || '').trim().toLowerCase()}|${String(e.personalAddress?.location || '')}`;
+                        existingComposites.add(key);
+                    }
                 });
-                dataToInsert = processedData.filter(d => !existingMobiles.has(d.phones?.[0]?.number));
+
+                dataToInsert = processedData.filter(d => {
+                    const mobile = d.phones?.[0]?.number;
+                    if (mobile) return !existingMobiles.has(mobile);
+                    
+                    const key = `${String(d.name).trim().toLowerCase()}|${String(d.fatherName).trim().toLowerCase()}|${String(d.personalAddress?.hNo || '').trim().toLowerCase()}|${String(d.personalAddress?.location || '')}`;
+                    return !existingComposites.has(key);
+                });
             }
 
             if (dataToInsert.length > 0) {

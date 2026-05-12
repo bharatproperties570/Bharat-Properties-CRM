@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "../../utils/api";
 
 // Helper dropdown styles (UNCHANGED)
@@ -36,9 +36,14 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address", dis
   const [postOffices, setPostOffices] = useState([]);
   const [tehsils, setTehsils] = useState([]);
 
+  const addressRef = useRef(address);
+  useEffect(() => {
+    addressRef.current = address;
+  }, [address]);
+
   const handleAddressChange = useCallback((updates) => {
-    onChange({ ...address, ...updates });
-  }, [address, onChange]);
+    onChange({ ...addressRef.current, ...updates });
+  }, [onChange]);
 
   // Generic Fetch Function
   const fetchLookup = useCallback(async (lookup_type, parent_lookup_id = null) => {

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 
 const ContactBasicSection = React.memo(function ContactBasicSection({
   formData,
@@ -23,6 +23,11 @@ const ContactBasicSection = React.memo(function ContactBasicSection({
   teams,
   users,
 }) {
+  const onAddressChange = useCallback((newAddr) => {
+    const addrKey = currentAddressType === "permanent" ? "personalAddress" : "correspondenceAddress";
+    handleInputChange(addrKey, newAddr);
+  }, [currentAddressType, handleInputChange]);
+
   return (
   <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
     {/* Identity Card */}
@@ -219,11 +224,12 @@ const ContactBasicSection = React.memo(function ContactBasicSection({
         {(() => {
           const addrKey = currentAddressType === "permanent" ? "personalAddress" : "correspondenceAddress";
           const addr = formData[addrKey];
+
           return (
             <AddressDetailsForm
               title={addrKey === "personalAddress" ? "Personal Address" : "Correspondence Address"}
               address={addr}
-              onChange={(newAddr) => handleInputChange(addrKey, newAddr)}
+              onChange={onAddressChange}
             />
           );
         })()}

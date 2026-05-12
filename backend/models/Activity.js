@@ -1,4 +1,4 @@
-import mongoose from "mongoose";
+import mongoose from "mongoose"; // Optimized for Communication Hub
 import { invalidateDashboardCache } from "../src/config/redis.js";
 
 const ActivitySchema = new mongoose.Schema({

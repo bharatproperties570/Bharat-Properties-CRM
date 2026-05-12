@@ -565,7 +565,7 @@ const AddContactModal = ({
   const handleInputChange = useCallback((field, value) => {
     setFormData((prev) => ({
       ...prev,
-      [field]: value,
+      [field]: typeof value === 'function' ? value(prev[field]) : value,
     }));
   }, []);
 
@@ -718,21 +718,28 @@ const AddContactModal = ({
       // 🛡️ Senior Implementation: Recursive Reference Normalizer
       const deepNormalize = (obj) => {
         if (!obj || typeof obj !== 'object') return obj;
-        
-        if (Array.isArray(obj)) {
-          return obj.map(item => deepNormalize(item));
-        }
+        if (Array.isArray(obj)) return obj.map(item => deepNormalize(item));
+
+        const schemaContainers = [
+          "phones", "emails", "personalAddress", "correspondenceAddress",
+          "educations", "loans", "socialMedia", "incomes", "documents", "assignment"
+        ];
+        const referenceArrays = ["team", "teams", "tags", "groups", "addOn"];
 
         const normalized = { ...obj };
-        
-        const schemaContainers = [
-          "phones", "emails", "personalAddress", "correspondenceAddress", 
-          "educations", "loans", "socialMedia", "incomes", "documents"
-        ];
 
         for (const key in normalized) {
           const value = normalized[key];
           if (!value) continue;
+
+          if (Array.isArray(value)) {
+            if (referenceArrays.includes(key)) {
+              normalized[key] = value.map(i => (i && typeof i === 'object' && (i._id || i.id)) ? (i._id || i.id) : i);
+            } else {
+              normalized[key] = value.map(item => deepNormalize(item));
+            }
+            continue;
+          }
 
           if (schemaContainers.includes(key)) {
             normalized[key] = deepNormalize(value);
@@ -741,8 +748,8 @@ const AddContactModal = ({
 
           if (typeof value === 'object' && (value._id || value.id)) {
             normalized[key] = value._id || value.id;
-          } 
-          else if (typeof value === 'object' && !Array.isArray(value)) {
+          }
+          else if (typeof value === 'object') {
             normalized[key] = deepNormalize(value);
           }
         }

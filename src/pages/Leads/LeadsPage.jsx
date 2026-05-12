@@ -342,8 +342,8 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                         ].filter(Boolean).map(s => String(s)).join(", "),
 
                         source: lead.source?._id || lead.source,
-                        sourceLabel: lead.source?.lookup_value || lead.source || "Direct",
-                        sourceFallback: contact.source || "Direct",
+                        sourceLabel: renderValue(getLookupValue('Source', lead.source), null) || lead.source?.lookup_value || (typeof lead.source === 'string' && !/^[0-9a-fA-F]{24}$/.test(lead.source) ? lead.source : null) || contact.source || "DIRECT",
+                        sourceFallback: contact.source || "DIRECT",
                         owner: getUserName(lead.assignment?.assignedTo || lead.owner),
                         rawOwner: lead.assignment?.assignedTo || lead.owner || null,
                         team: getTeamName(lead.assignment?.team?.[0] || lead.owner?.team),
@@ -1597,7 +1597,7 @@ const LeadItem = React.memo(function LeadItem({
                                     border: `1px solid ${stageInfo.color}40`,
                                     borderRadius: '5px',
                                     padding: '1px 6px',
-                                    fontSize: ' stageInfo.color + 18' ? '0.55rem' : '0.55rem',
+                                    fontSize: '0.55rem',
                                     fontWeight: 800,
                                 }}>
                                     <i className={`fas ${stageInfo.icon}`} style={{ fontSize: '0.5rem' }}></i>
@@ -1605,7 +1605,7 @@ const LeadItem = React.memo(function LeadItem({
                                 </span>
                             );
                         })()}
-                        {lead.source && (
+                        {(lead.sourceLabel || lead.source) && (
                             <span style={{
                                 display: 'inline-flex', alignItems: 'center', gap: '3px',
                                 background: '#f1f5f9',
@@ -1616,8 +1616,8 @@ const LeadItem = React.memo(function LeadItem({
                                 fontSize: '0.55rem',
                                 fontWeight: 800,
                             }}>
-                                <i className="fas fa-sign-in-alt" style={{ fontSize: '0.5rem' }}></i>
-                                {(renderValue(getLookupValue('Source', lead.source), null) || lead.source).toUpperCase()}
+                                <i className="fas fa-bullhorn" style={{ fontSize: '0.5rem', opacity: 0.7 }}></i>
+                                {String(lead.sourceLabel || renderValue(getLookupValue('Source', lead.source), null) || lead.source || "DIRECT").toUpperCase()}
                             </span>
                         )}
                     </div>
@@ -1905,8 +1905,9 @@ const LeadCard = React.memo(function LeadCard({
                         );
                     })()}
                 </div>
-                <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-                    {renderValue(getLookupValue('Source', lead.source), null) || renderValue(lead.sourceFallback, "Direct")}
+                <span style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <i className="fas fa-bullhorn" style={{ fontSize: '0.65rem', opacity: 0.7 }}></i>
+                    {String(lead.sourceLabel || renderValue(getLookupValue('Source', lead.source), null) || lead.source || "DIRECT").toUpperCase()}
                 </span>
             </div>
 

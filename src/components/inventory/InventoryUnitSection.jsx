@@ -125,7 +125,8 @@ const InventoryUnitSection = ({
                             {(masterFields?.unitTypes || ['Ordinary', 'Corner', 'Two Side Open', 'Three Side Open']).map(t => {
                                 const val = typeof t === 'object' ? (t.lookup_value || t.name) : t;
                                 const id = typeof t === 'object' ? (t._id || t.id) : t;
-                                return <option key={id} value={id}>{val}</option>;
+                                // We use lowercase for unitType value to match the initialization logic in useInventoryForm
+                                return <option key={id} value={val.toLowerCase()}>{val}</option>;
                             })}
                         </select>
                     </div>
@@ -226,33 +227,45 @@ const InventoryUnitSection = ({
                         <label style={labelStyle}>Direction</label>
                         <select style={customSelectStyle} value={formData.direction} onChange={e => setFormData(prev => ({ ...prev, direction: e.target.value }))}>
                             <option value="">Select</option>
-                            {(masterFields?.directions || []).map(d => (
-                                <option key={typeof d === 'object' ? (d._id || d.id) : d} value={typeof d === 'object' ? (d._id || d.id) : d}>
-                                    {renderValue(d)}
-                                </option>
-                            ))}
+                            {(masterFields?.directions || []).map(d => {
+                                const val = typeof d === 'object' ? (d.lookup_value || d.name) : d;
+                                const id = typeof d === 'object' ? (d._id || d.id) : d;
+                                return (
+                                    <option key={id} value={val}>
+                                        {val}
+                                    </option>
+                                );
+                            })}
                         </select>
                     </div>
                     <div>
                         <label style={labelStyle}>Facing</label>
                         <select style={customSelectStyle} value={formData.facing} onChange={e => setFormData(prev => ({ ...prev, facing: e.target.value }))}>
                             <option value="">Select</option>
-                            {(masterFields?.facings || []).map(f => (
-                                <option key={typeof f === 'object' ? (f._id || f.id) : f} value={typeof f === 'object' ? (f._id || f.id) : f}>
-                                    {renderValue(f)}
-                                </option>
-                            ))}
+                            {(masterFields?.facings || []).map(f => {
+                                const val = typeof f === 'object' ? (f.lookup_value || f.name) : f;
+                                const id = typeof f === 'object' ? (f._id || f.id) : f;
+                                return (
+                                    <option key={id} value={val}>
+                                        {val}
+                                    </option>
+                                );
+                            })}
                         </select>
                     </div>
                     <div>
                         <label style={labelStyle}>Road Width</label>
                         <select style={customSelectStyle} value={formData.roadWidth} onChange={e => setFormData(prev => ({ ...prev, roadWidth: e.target.value }))}>
                             <option value="">Select</option>
-                            {(masterFields?.roadWidths || []).map(r => (
-                                <option key={typeof r === 'object' ? (r._id || r.id) : r} value={typeof r === 'object' ? (r._id || r.id) : r}>
-                                    {renderValue(r)}
-                                </option>
-                            ))}
+                            {(masterFields?.roadWidths || []).map(r => {
+                                const val = typeof r === 'object' ? (r.lookup_value || r.name) : r;
+                                const id = typeof r === 'object' ? (r._id || r.id) : r;
+                                return (
+                                    <option key={id} value={val}>
+                                        {val}
+                                    </option>
+                                );
+                            })}
                         </select>
                     </div>
                     <div>
@@ -283,17 +296,27 @@ const InventoryUnitSection = ({
                     <div>
                         <label style={labelStyle}>Built-up Type (Dependent on Sub Category)</label>
                         <select
-                            style={!formData.subCategory ? customSelectStyleDisabled : customSelectStyle}
+                            style={(!formData.subCategory || !formData.sizeType) ? customSelectStyleDisabled : customSelectStyle}
                             value={formData.builtupType}
-                            disabled={!formData.subCategory}
+                            disabled={!formData.subCategory || !formData.sizeType}
                             onChange={e => setFormData(prev => ({ ...prev, builtupType: e.target.value }))}
                         >
-                            <option value="">{formData.subCategory ? "Select Type" : "Select Sub-Category in Unit Details First"}</option>
+                            <option value="">
+                                {!formData.subCategory 
+                                    ? "Select Sub-Category First" 
+                                    : !formData.sizeType 
+                                        ? "Select Size (Configuration) First" 
+                                        : "Select Type"}
+                            </option>
                             {builtUpTypes.map(t => (
-                                <option key={t._id || t.id || t.name} value={t._id || t.id || t.name}>
+                                <option key={t._id || t.id || t.name} value={t.name}>
                                     {t.name}
                                 </option>
                             ))}
+                            {/* Professional Fallback: Ensure saved data is visible even if not in the current sub-category list */}
+                            {formData.builtupType && !builtUpTypes.some(t => t.name === formData.builtupType) && (
+                                <option value={formData.builtupType}>{formData.builtupType}</option>
+                            )}
                         </select>
                     </div>
                 </div>

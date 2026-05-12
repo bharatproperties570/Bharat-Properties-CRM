@@ -446,6 +446,7 @@ export const activitiesAPI = {
     completeWithForm: (id, data) => apiRequest(`/activities/${id}/complete-with-form`, { method: 'POST', body: JSON.stringify(data) }),
     sendReply: (data) => apiRequest('/activities/messaging/reply', { method: 'POST', body: JSON.stringify(data) }),
     convertToLead: (data) => apiRequest('/activities/messaging/convert-to-lead', { method: 'POST', body: JSON.stringify(data) }),
+    getThreadHistory: (identifier, params) => apiRequest(`/activities/messaging/thread/${identifier}`, { params }),
 };
 
 // Stage Transition Rules API

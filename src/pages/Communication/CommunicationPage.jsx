@@ -67,6 +67,7 @@ export default function CommunicationPage() {
     const [selectedAIId, setSelectedAIId] = useState(null); // Stable AI Selection ID
     const [searchQ,     setSearchQ]     = useState('');
     const [filters,     setFilters]     = useState({});
+    const [backendKpis, setBackendKpis] = useState({ total: 0, matched: 0, failed: 0 });
     const [isFilterOpen,setFilterOpen]  = useState(false);
     const [loading,     setLoading]     = useState(true);
     const [refreshing,  setRefreshing]  = useState(false);
@@ -164,6 +165,9 @@ export default function CommunicationPage() {
                 if (res.pagination) {
                     setTotalPages(res.pagination.totalPages || 1);
                     setTotalRecords(res.pagination.totalCount || 0);
+                }
+                if (res.kpis) {
+                    setBackendKpis(res.kpis);
                 }
             }
         } catch(e){ console.error(e); } finally { setLoading(false); setRefreshing(false); }
@@ -294,53 +298,23 @@ export default function CommunicationPage() {
 
     /* ── KPIs ─── */
     const kpis = useMemo(() => {
-        const all = [...activities, ...liveEmails];
+        // AI Convos are fetched separately and not yet integrated into global backend KPIs
         return {
-            total:   all.length + aiConvos.length,
-            matched: all.filter(i=>i.isMatched).length + aiConvos.filter(c=>c.isMatched).length,
+            total:   (backendKpis.total || 0) + aiConvos.length,
+            matched: (backendKpis.matched || 0) + aiConvos.filter(c=>c.isMatched).length,
             ai:      aiConvos.length,
-            failed:  activities.filter(a=>a.outcome==='Failed').length,
+            failed:  (backendKpis.failed || 0),
         };
-    }, [activities, liveEmails, aiConvos]);
+    }, [backendKpis, aiConvos]);
 
     /* ── Actions ─── */
-    const handleSendMessage = async (text, ch, attachment = null) => {
-        if (!selectedItem?.phoneNumber && !selectedItem?.phone) return toast.error('No phone number for this thread');
-        const phone = selectedItem.phoneNumber || selectedItem.phone;
-        
+    const handleSendMessage = async (incomingPayload) => {
         try {
-            let payload = {
-                phoneNumber: phone, message: text, channel: ch.toLowerCase(),
-                entityId: selectedItem.entityId, entityType: selectedItem.entityType,
-            };
-
-            if (attachment) {
-                if (attachment.file) {
-                    const formData = new FormData();
-                    formData.append('file', attachment.file);
-                    formData.append('entityType', selectedItem.entityType || 'Communication');
-                    formData.append('entityName', selectedItem.name || phone);
-                    
-                    const uploadRes = await api.post('/upload', formData, {
-                        headers: { 'Content-Type': 'multipart/form-data' }
-                    });
-                    
-                    if (uploadRes.data?.success) {
-                        payload.attachment = {
-                            type: attachment.type,
-                            url: uploadRes.data.downloadUrl || uploadRes.data.url,
-                            filename: uploadRes.data.fileName
-                        };
-                    } else throw new Error('File upload failed');
-                } else if (attachment.type === 'location' || attachment.type === 'contacts') {
-                    payload.attachment = attachment;
-                }
-            }
+            let payload = incomingPayload;
 
             const res = await activitiesAPI.sendReply(payload);
             if (res?.success) {
-                fetchActivities(true);
-                toast.success('Message sent!');
+                return res;
             } else throw new Error(res?.error || 'Failed');
         } catch(e) { 
             const errorMsg = e.response?.data?.error || e.message || 'Send failed';
@@ -846,25 +820,69 @@ function ThreadPanel({ item, T, isDark, onClose, onSend, setPreviewMedia, onConv
     const [sending, setSending] = useState(false);
     const [showAttach, setShowAttach] = useState(false);
     const [pendingFile, setPendingFile] = useState(null);
+    const [history, setHistory] = useState([]);
+    const [loadingHist, setLoadingHist] = useState(false);
     const bodyRef = useRef(null);
     const chObj = CHANNELS.find(c=>c.id===item.via)||CHANNELS[0];
 
-    useEffect(() => { if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight; }, [item.thread]);
+    useEffect(() => { if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight; }, [history]);
+
+    // 🚀 Lazy Load Thread History (Senior Strategy: On-Demand Fetching)
+    useEffect(() => {
+        let isMounted = true;
+        const fetchHistory = async () => {
+            const id = item.phone || item.id;
+            if (!id) return;
+            setLoadingHist(true);
+            try {
+                const res = await activitiesAPI.getThreadHistory(id, { via: item.via });
+                if (res?.success && isMounted) {
+                    setHistory(res.data || []);
+                }
+            } catch (err) {
+                console.error("Thread fetch error:", err);
+            } finally {
+                if (isMounted) setLoadingHist(false);
+            }
+        };
+        fetchHistory();
+        return () => { isMounted = false; };
+    }, [item.phone, item.id, item.via]);
 
     const handleSend = async () => {
         if ((!text.trim() && !pendingFile) || sending) return;
         setSending(true);
         try {
+            const payload = { 
+                phoneNumber: item.phone, 
+                message: text, 
+                channel: ch.toLowerCase(),
+                entityId: item.entityId,
+                entityType: item.entityType
+            };
+
             if (pendingFile) {
-                await onSend(text, ch, { type: pendingFile.type, file: pendingFile.file });
-                setPendingFile(null);
-            } else {
-                await onSend(text, ch);
+                const formData = new FormData();
+                formData.append('file', pendingFile.file);
+                formData.append('entityType', 'Communication');
+                formData.append('entityName', item.participant);
+                const up = await api.post('/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+                if (up.data?.success) {
+                    payload.attachment = { type: pendingFile.type, url: up.data.downloadUrl || up.data.url, filename: up.data.fileName };
+                }
             }
-            setText('');
-        } finally {
-            setSending(false);
-        }
+
+            const res = await onSend(payload);
+            if (res?.success) {
+                // Optimistic UI update for Enterprise Speed
+                const newMsg = { sender: 'agent', text: text || `Sent ${payload.attachment?.type || 'file'}`, time: new Date().toISOString(), metadata: payload.attachment ? { attachment: payload.attachment } : null };
+                setHistory(prev => [...prev, newMsg]);
+                setText('');
+                setPendingFile(null);
+                toast.success('Message sent');
+            }
+        } catch (e) { toast.error(e.message || 'Failed to send'); }
+        finally { setSending(false); }
     };
 
     const triggerFile = (type) => {
@@ -886,18 +904,13 @@ function ThreadPanel({ item, T, isDark, onClose, onSend, setPreviewMedia, onConv
     const sendSpecial = (type) => {
         setShowAttach(false);
         if (type === 'location') {
-            onSend('Sending location...', ch, { 
-                type: 'location', 
-                location: { latitude: 29.9695, longitude: 76.8783, name: 'Bharat Properties', address: 'Sector 4, Kurukshetra' } 
-            });
+            const loc = { latitude: 29.9695, longitude: 76.8783, name: 'Bharat Properties', address: 'Sector 4, Kurukshetra' };
+            onSend({ phoneNumber: item.phone, channel: ch.toLowerCase(), message: 'Sending location...', attachment: { type: 'location', location: loc } })
+                .then(r => r?.success && setHistory(prev => [...prev, { sender: 'agent', text: 'Sent location', time: new Date().toISOString(), metadata: { attachment: { type: 'location', location: loc } } }]));
         } else if (type === 'contact') {
-            onSend('Sending contact card...', ch, {
-                type: 'contacts',
-                contacts: [{
-                    name: { first_name: 'Bharat', last_name: 'Properties', formatted_name: 'Bharat Properties' },
-                    phones: [{ phone: '919999999999', type: 'WORK' }]
-                }]
-            });
+            const card = [{ name: { first_name: 'Bharat', last_name: 'Properties', formatted_name: 'Bharat Properties' }, phones: [{ phone: '919999999999', type: 'WORK' }] }];
+            onSend({ phoneNumber: item.phone, channel: ch.toLowerCase(), message: 'Sending contact card...', attachment: { type: 'contacts', contacts: card } })
+                .then(r => r?.success && setHistory(prev => [...prev, { sender: 'agent', text: 'Sent contact card', time: new Date().toISOString(), metadata: { attachment: { type: 'contacts', contacts: card } } }]));
         }
     };
 
@@ -936,14 +949,20 @@ function ThreadPanel({ item, T, isDark, onClose, onSend, setPreviewMedia, onConv
             </div>
 
             {/* Body */}
-            <div ref={bodyRef} style={{ flex:1, overflowY:'auto', padding:'14px', display:'flex', flexDirection:'column', gap:'9px' }}>
-                {(!item.thread||item.thread.length===0) ? (
+            <div ref={bodyRef} style={{ flex:1, overflowY:'auto', padding:'14px', display:'flex', flexDirection:'column', gap:'9px', background: T.bg }}>
+                {loadingHist ? (
+                    <div style={{ display:'flex', flexDirection:'column', gap:'10px', padding:'20px' }}>
+                        {[...Array(6)].map((_,i)=>(
+                            <div key={i} style={{ height:'40px', width: i%2===0?'75%':'55%', alignSelf: i%2===0?'flex-start':'flex-end', borderRadius:'10px', background:T.surface, opacity:0.3, animation:'cpulse 1.5s infinite' }} />
+                        ))}
+                    </div>
+                ) : history.length === 0 ? (
                     <div style={{textAlign:'center',margin:'auto',color:T.text2,padding:'30px'}}>
                         <div style={{fontSize:'2.2rem',marginBottom:'10px'}}>💬</div>
                         <div style={{fontWeight:700, color: T.text2}}>No messages yet</div>
                         <div style={{fontSize:'0.78rem',color:T.text3,marginTop:'4px'}}>Use the input below to start the conversation.</div>
                     </div>
-                ) : item.thread.map((msg, i) => {
+                ) : history.map((msg, i) => {
                     const isOut = msg.sender !== 'customer';
                     return (
                         <div key={i} style={{ display:'flex', justifyContent:isOut?'flex-end':'flex-start', alignItems:'flex-end', gap:'7px' }}>

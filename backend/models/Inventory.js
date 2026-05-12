@@ -400,7 +400,7 @@ InventorySchema.pre('findOneAndUpdate', async function (next) {
                 { field: 'facing', type: 'Facing' },
                 { field: 'direction', type: 'Direction' },
                 { field: 'orientation', type: 'Orientation' },
-                { field: 'roadWidth', type: 'Road Width' },
+                { field: 'roadWidth', type: 'RoadWidth' },
                 { field: 'sizeConfig', type: 'Size' },
                 { field: 'builtupType', type: 'BuiltupType' }
             ];
@@ -408,7 +408,9 @@ InventorySchema.pre('findOneAndUpdate', async function (next) {
             for (const { field, type } of categoricalFields) {
                 if (obj[field]) {
                     if (typeof obj[field] === 'object' && obj[field] !== null && obj[field]._id) obj[field] = obj[field]._id;
-                    if (!isObjectId(obj[field])) {
+                    if (isObjectId(obj[field])) {
+                        obj[field] = new mongoose.Types.ObjectId(obj[field]);
+                    } else {
                         obj[field] = await resolveLookupLocal(type, obj[field]);
                     }
                 }

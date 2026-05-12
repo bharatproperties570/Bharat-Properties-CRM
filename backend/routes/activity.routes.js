@@ -10,7 +10,8 @@ import {
     getMessagingActivities, 
     getActivitiesByEntity,
     sendReply,
-    convertToLead
+    convertToLead,
+    getThreadHistory
 } from "../controllers/activity.controller.js";
 import { 
     completeActivity, 
@@ -25,6 +26,7 @@ router.use(authenticate);
 
 router.get("/", getActivities);
 router.get("/messaging", getMessagingActivities);
+router.get("/messaging/thread/:identifier", getThreadHistory);
 router.post("/messaging/reply", sendReply);
 router.post("/messaging/convert-to-lead", convertToLead);
 router.get("/entity/:entityType/:entityId", getActivitiesByEntity);

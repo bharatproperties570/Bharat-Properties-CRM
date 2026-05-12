@@ -13,7 +13,7 @@ export const useInventoryList = (initialFilters = {}) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState(''); // '' | 'Active' | 'InActive'
     const [filters, setFilters] = useState(initialFilters);
-    const [sortConfig, setSortConfig] = useState({ label: 'Newest Listed', by: 'createdAt', order: -1, icon: 'fa-calendar-plus' });
+    const [sortConfig, setSortConfig] = useState({ label: 'Unit Sequence', by: 'unitNo', order: 1, icon: 'fa-sort-numeric-down' });
     const [refreshTrigger, setRefreshTrigger] = useState(0);
     const [stats, setStats] = useState({ active: 0, inactive: 0, categories: [] });
 

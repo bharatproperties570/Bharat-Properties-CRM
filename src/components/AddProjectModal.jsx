@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { PROPERTY_CATEGORIES } from '../constants/propertyConstants';
 import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { renderValue } from '../utils/renderUtils';
@@ -609,6 +609,10 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
         }));
     };
 
+    const onAddressChange = React.useCallback((newAddress) => {
+        setFormData(prev => ({ ...prev, address: newAddress }));
+    }, []);
+
     const toggleAllAmenities = (list) => {
         const allSelected = list.every(a => formData.amenities[a]);
         const newAmenities = { ...formData.amenities };
@@ -989,7 +993,7 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
                 <AddressDetailsForm
                     title="Address Details"
                     address={formData.address}
-                    onChange={(newAddress) => setFormData(prev => ({ ...prev, address: newAddress }))}
+                    onChange={onAddressChange}
                 />
             </div>
         </div >

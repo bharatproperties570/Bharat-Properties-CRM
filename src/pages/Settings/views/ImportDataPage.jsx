@@ -27,6 +27,7 @@ const ImportDataPage = () => {
 
     // Enterprise Conflict Management States
     const [conflicts, setConflicts] = useState([]);
+    const [plannedUpdates, setPlannedUpdates] = useState([]);
     const [resolutions, setResolutions] = useState({});
     const [isAnalyzing, setIsAnalyzing] = useState(false);
 
@@ -247,6 +248,7 @@ const ImportDataPage = () => {
                     initialResolutions[c.rowKey] = { [c.type]: 'KEEP_SYSTEM' };
                 });
                 setResolutions(initialResolutions);
+                setPlannedUpdates(response.data.plannedUpdates || []);
 
                 if (response.data.conflictCount > 0) {
                     toast.error(`Detected ${response.data.conflictCount} data conflicts.`);
@@ -286,6 +288,8 @@ const ImportDataPage = () => {
                 Object.entries(mapping).forEach(([systemKey, fileHeader]) => {
                     item[systemKey] = row[fileHeader];
                 });
+                // Ensure raw row data is also available for the backend's flexible mapping
+                Object.assign(item, row);
                 item._rowIdx = idx; // Keep track for filtering
                 return item;
             });
@@ -306,12 +310,13 @@ const ImportDataPage = () => {
 
             // Cleanup temp indexing
             transformedData = transformedData.map(({ _rowIdx, ...item }) => {
-                if (module === 'sizes' || module === 'inventory') {
+                if (module === 'sizes' || module === 'inventory' || module === 'propertyOwners') {
                     const projectObj = projects.find(p => p._id === selectedProject);
                     item.projectId = selectedProject;
-                    item.project = projectObj ? projectObj.name : '';
-                    item.projectName = projectObj ? projectObj.name : item.projectName;
-                    item.block = selectedBlock;
+                    item.project = projectObj ? projectObj.name : (item.project || '');
+                    item.projectName = projectObj ? projectObj.name : (item.projectName || item.project || '');
+                    item.block = selectedBlock || item.block || '';
+                    item.module = module;
                 }
                 return item;
             });
@@ -324,6 +329,15 @@ const ImportDataPage = () => {
             let totalUpdatedCount = 0;
             let aggregatedErrors = [];
             let aggregatedSuccess = [];
+
+            // [SENIOR] Conflict Validation before Import
+            if (module === 'propertyOwners') {
+                const unresolved = conflicts.filter(c => !resolutions[c.rowKey]?.owner);
+                if (unresolved.length > 0 && mode !== 'NEW_ONLY') {
+                    setImporting(false);
+                    return toast.error(`Please resolve all ${unresolved.length} conflicts before proceeding.`);
+                }
+            }
 
             // Determine endpoint
             let endpoint = `/${module}/import`;
@@ -748,6 +762,46 @@ const ImportDataPage = () => {
                                                         >
                                                             Create New Contact
                                                         </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {module === 'propertyOwners' && plannedUpdates.length > 0 && (
+                                    <div style={{ marginBottom: '32px' }}>
+                                        <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <i className="fas fa-sync-alt" style={{ color: '#2563eb' }}></i> Contacts to be Updated ({plannedUpdates.length})
+                                        </h3>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '400px', overflowY: 'auto', padding: '4px' }}>
+                                            {plannedUpdates.map((update, idx) => (
+                                                <div key={idx} style={{ padding: '16px', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                                            <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: '#eff6ff', color: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>
+                                                                {update.name?.charAt(0) || 'C'}
+                                                            </div>
+                                                            <div>
+                                                                <div style={{ fontWeight: 700, color: '#1e293b' }}>{update.name}</div>
+                                                                <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{update.mobile} • Unit: {update.unitNo}</div>
+                                                            </div>
+                                                        </div>
+                                                        <div style={{ fontSize: '0.75rem', color: '#2563eb', fontWeight: 600, background: '#eff6ff', padding: '4px 10px', borderRadius: '20px' }}>
+                                                            {update.diffs.length} fields changing
+                                                        </div>
+                                                    </div>
+                                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '12px' }}>
+                                                        {update.diffs.map((diff, dIdx) => (
+                                                            <div key={dIdx} style={{ fontSize: '0.8rem', padding: '8px', background: '#f8fafc', borderRadius: '6px', borderLeft: '3px solid #3b82f6' }}>
+                                                                <div style={{ fontWeight: 600, color: '#475569', marginBottom: '4px' }}>{diff.field}</div>
+                                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                                    <span style={{ color: '#ef4444', textDecoration: 'line-through' }}>{diff.old || '(empty)'}</span>
+                                                                    <i className="fas fa-arrow-right" style={{ fontSize: '0.7rem', color: '#94a3b8' }}></i>
+                                                                    <span style={{ color: '#16a34a', fontWeight: 600 }}>{diff.new}</span>
+                                                                </div>
+                                                            </div>
+                                                        ))}
                                                     </div>
                                                 </div>
                                             ))}
