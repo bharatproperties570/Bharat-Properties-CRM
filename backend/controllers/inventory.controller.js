@@ -1812,7 +1812,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                                     legalQuery['personalAddress.location'] = resolvedLocId;
                                 }
                             }
-                            contactByLegal = await Contact.findOne(legalQuery).populate('personalAddress.location').lean();
+                            contactByLegal = await Contact.findOne(legalQuery).populate('personalAddress.location');
                         }
 
                         const existingContact = contactByMobile || contactByLegal;
@@ -1823,42 +1823,45 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                             results.contactsFound++;
 
                             if (!dryRun) {
-                                const updateOps = {
-                                    $addToSet: { 
-                                        tags: { $each: ['Property Owner', propertyTag] } 
-                                    },
-                                    $set: { 
-                                        ...assignmentUpdate,
-                                        personalAddress: personalAddress,
-                                        fatherName: existingContact.fatherName || fatherName
-                                    }
+                                // 🚀 [ENTERPRISE] Use .save() to trigger model hooks (Address resolution, etc.)
+                                existingContact.name = name || existingContact.name;
+                                if (fatherName) existingContact.fatherName = fatherName;
+                                
+                                // Smart Address Merge: Overwrite with file data
+                                existingContact.personalAddress = {
+                                    ...(existingContact.personalAddress?.toObject?.() || existingContact.personalAddress || {}),
+                                    ...personalAddress
                                 };
 
-                                // 🚀 [SENIOR] Multiple Identity Support: Add new phone/email if not already present
+                                // Multiple Identity Support
                                 if (mobile) {
                                     const hasPhone = existingContact.phones?.some(p => normalizePhone(p.number) === mobile);
-                                    if (!hasPhone) {
-                                        updateOps.$addToSet.phones = { number: mobile, type: 'Secondary' };
-                                    }
+                                    if (!hasPhone) existingContact.phones.push({ number: mobile, type: 'Secondary' });
                                 }
                                 if (email) {
                                     const hasEmail = existingContact.emails?.some(e => e.address?.toLowerCase() === email.toLowerCase());
-                                    if (!hasEmail) {
-                                        updateOps.$addToSet.emails = { address: email, type: 'Secondary' };
-                                    }
+                                    if (!hasEmail) existingContact.emails.push({ address: email, type: 'Secondary' });
                                 }
 
-                                await Contact.findByIdAndUpdate(ownerId, updateOps);
+                                // Tags & Assignment
+                                if (!existingContact.tags) existingContact.tags = [];
+                                [ 'Property Owner', propertyTag ].forEach(t => {
+                                    if (!existingContact.tags.includes(t)) existingContact.tags.push(t);
+                                });
+                                
+                                Object.assign(existingContact, assignmentUpdate);
+                                await existingContact.save();
                             }
                         }
                         // CASE: Conflict Detected
                         else if (existingContact) {
+                            const resolution = resolutions[rowKey]?.owner; 
                             const providedHNo = hNo || 'N/A';
                             const providedLoc = locality || 'N/A';
                             const existingHNo = existingContact.personalAddress?.hNo || 'N/A';
                             const existingLoc = existingContact.personalAddress?.location?.lookup_value || existingContact.personalAddress?.location || 'N/A';
 
-                            if (dryRun) {
+                            if (!resolution) {
                                 let conflictReason = 'Identity Mismatch';
                                 if (contactByMobile && (existingContact.name.toLowerCase() !== name.toLowerCase())) {
                                     conflictReason = 'Name mismatch for existing mobile number.';
@@ -1887,30 +1890,34 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                                 ownerId = "CONFLICT_PENDING";
                             } else {
                                 if (resolution === 'UPDATE_SYSTEM') {
-                                    const updateOps = {
-                                        $addToSet: { tags: { $each: ['Property Owner', propertyTag] } },
-                                        $set: { 
-                                            name: name,
-                                            fatherName: fatherName || existingContact.fatherName,
-                                            personalAddress: personalAddress,
-                                            ...assignmentUpdate
-                                        }
+                                    // 🚀 [ENTERPRISE] Use .save() to trigger model hooks
+                                    existingContact.name = name;
+                                    if (fatherName) existingContact.fatherName = fatherName;
+                                    
+                                    existingContact.personalAddress = {
+                                        ...(existingContact.personalAddress?.toObject?.() || existingContact.personalAddress || {}),
+                                        ...personalAddress
                                     };
 
                                     if (mobile) {
                                         const hasPhone = (existingContact.phones || []).some(p => normalizePhone(p.number) === mobile);
-                                        if (!hasPhone) updateOps.$addToSet.phones = { number: mobile, type: 'Secondary' };
+                                        if (!hasPhone) existingContact.phones.push({ number: mobile, type: 'Secondary' });
                                     }
                                     if (email) {
                                         const hasEmail = (existingContact.emails || []).some(e => e.address?.toLowerCase() === email.toLowerCase());
-                                        if (!hasEmail) updateOps.$addToSet.emails = { address: email, type: 'Secondary' };
+                                        if (!hasEmail) existingContact.emails.push({ address: email, type: 'Secondary' });
                                     }
 
-                                    await Contact.findByIdAndUpdate(existingContact._id, updateOps);
+                                    Object.assign(existingContact, assignmentUpdate);
+                                    if (!existingContact.tags) existingContact.tags = [];
+                                    [ 'Property Owner', propertyTag ].forEach(t => {
+                                        if (!existingContact.tags.includes(t)) existingContact.tags.push(t);
+                                    });
+
+                                    await existingContact.save();
                                     ownerId = existingContact._id;
                                     results.contactsFound++;
-                                }
- else if (resolution === 'KEEP_SYSTEM') {
+                                } else if (resolution === 'KEEP_SYSTEM') {
                                     ownerId = existingContact._id;
                                     results.contactsFound++;
                                 } else if (resolution === 'CREATE_NEW') {
