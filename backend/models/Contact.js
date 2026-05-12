@@ -172,14 +172,28 @@ ContactSchema.pre("save", async function (next) {
 
         const Lookup = mongoose.models.Lookup || mongoose.model('Lookup');
 
-        const resolveLookupLocal = async (type, value) => {
+        const resolveLookupLocal = async (type, value, parentId = null) => {
             if (!value) return null;
             if (mongoose.Types.ObjectId.isValid(value)) return value;
             if (typeof value === 'object' && value._id) return value._id;
-            const escapedValue = escapeRegExp(value);
-            let lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: new RegExp(`^${escapedValue}$`, 'i') } });
+            
+            const trimmedValue = String(value).trim();
+            if (!trimmedValue) return null;
+            
+            const escapedValue = escapeRegExp(trimmedValue);
+            const query = { 
+                lookup_type: type, 
+                lookup_value: { $regex: new RegExp(`^${escapedValue}$`, 'i') } 
+            };
+            
+            // 🛡️ [ENTERPRISE] Hierarchy matching: Only match if parent is same
+            if (parentId) query.parent_lookup_id = parentId;
+            
+            let lookup = await Lookup.findOne(query);
             if (!lookup) {
-                lookup = await Lookup.create({ lookup_type: type, lookup_value: value });
+                const createData = { lookup_type: type, lookup_value: trimmedValue };
+                if (parentId) createData.parent_lookup_id = parentId;
+                lookup = await Lookup.create(createData);
             }
             return lookup._id;
         };
@@ -200,13 +214,28 @@ ContactSchema.pre("save", async function (next) {
         const addrFields = ['personalAddress', 'correspondenceAddress'];
         for (const field of addrFields) {
             if (this[field]) {
-                if (this[field].city && typeof this[field].city === 'string') this[field].city = await resolveLookupLocal('City', this[field].city);
-                if (this[field].state && typeof this[field].state === 'string') this[field].state = await resolveLookupLocal('State', this[field].state);
-                if (this[field].country && typeof this[field].country === 'string') this[field].country = await resolveLookupLocal('Country', this[field].country);
-                if (this[field].tehsil && typeof this[field].tehsil === 'string') this[field].tehsil = await resolveLookupLocal('Tehsil', this[field].tehsil);
-                if (this[field].postOffice && typeof this[field].postOffice === 'string') this[field].postOffice = await resolveLookupLocal('PostOffice', this[field].postOffice);
-                if (this[field].pincode && (typeof this[field].pincode === 'string' || typeof this[field].pincode === 'number')) this[field].pincode = await resolveLookupLocal('Pincode', this[field].pincode);
-                if (this[field].location && typeof this[field].location === 'string') this[field].location = await resolveLookupLocal('Area', this[field].location);
+                // 🚀 [SENIOR] Hierarchical Resolution Flow: Country -> State -> City -> (Locality/Pincode)
+                const countryId = await resolveLookupLocal('Country', this[field].country);
+                if (countryId) this[field].country = countryId;
+
+                const stateId = await resolveLookupLocal('State', this[field].state, countryId);
+                if (stateId) this[field].state = stateId;
+
+                const cityId = await resolveLookupLocal('City', this[field].city, stateId);
+                if (cityId) this[field].city = cityId;
+
+                // Sector/Locality/Pincode belong to a City
+                if (this[field].tehsil && typeof this[field].tehsil === 'string') 
+                    this[field].tehsil = await resolveLookupLocal('Tehsil', this[field].tehsil, cityId);
+                
+                if (this[field].postOffice && typeof this[field].postOffice === 'string') 
+                    this[field].postOffice = await resolveLookupLocal('PostOffice', this[field].postOffice, cityId);
+                
+                if (this[field].pincode && (typeof this[field].pincode === 'string' || typeof this[field].pincode === 'number')) 
+                    this[field].pincode = await resolveLookupLocal('Pincode', this[field].pincode, cityId);
+                
+                if (this[field].location && typeof this[field].location === 'string') 
+                    this[field].location = await resolveLookupLocal('Area', this[field].location, cityId);
             }
         }
 

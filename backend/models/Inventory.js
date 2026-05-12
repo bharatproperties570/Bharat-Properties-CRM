@@ -11,17 +11,29 @@ const isObjectId = (val) => {
     return typeof val === 'string' && /^[0-9a-fA-F]{24}$/.test(val);
 };
 
-const resolveLookupLocal = async (type, value) => {
+const resolveLookupLocal = async (type, value, parentId = null) => {
     if (!value) return null;
     const Lookup = mongoose.model('Lookup');
     
-    if (isObjectId(value)) return new mongoose.Types.ObjectId(value);
+    if (isObjectId(value)) return new mongoose.Types.ObjectId(value.toString());
     if (typeof value === 'object' && value._id) return new mongoose.Types.ObjectId(value._id.toString());
     
-    const escapedValue = escapeRegExp(value);
-    let lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: new RegExp(`^${escapedValue}$`, 'i') } });
+    const trimmedValue = String(value).trim();
+    if (!trimmedValue) return null;
+    
+    const escapedValue = escapeRegExp(trimmedValue);
+    const query = { 
+        lookup_type: type, 
+        lookup_value: { $regex: new RegExp(`^${escapedValue}$`, 'i') } 
+    };
+    
+    if (parentId) query.parent_lookup_id = parentId;
+    
+    let lookup = await Lookup.findOne(query);
     if (!lookup) {
-        lookup = await Lookup.create({ lookup_type: type, lookup_value: value });
+        const createData = { lookup_type: type, lookup_value: trimmedValue };
+        if (parentId) createData.parent_lookup_id = parentId;
+        lookup = await Lookup.create(createData);
     }
     return lookup._id;
 };
@@ -402,35 +414,66 @@ InventorySchema.pre('findOneAndUpdate', async function (next) {
                 }
             }
 
-            // Address component resolution
-            const address = obj.address || {};
-            const resolveAddr = async (type, val) => {
-                if (!val) return null;
-                if (typeof val === 'object' && val !== null && val._id) val = val._id;
-                if (isObjectId(val)) return new mongoose.Types.ObjectId(val);
-                return await resolveLookupLocal(type, val);
+            // 🚀 [SENIOR] Hierarchical Address Resolution: Country -> State -> City -> (Locality/Pincode)
+            const resolveAddrHierarchical = async (addrObj) => {
+                const countryId = await resolveLookupLocal('Country', addrObj.country);
+                if (countryId) addrObj.country = countryId;
+
+                const stateId = await resolveLookupLocal('State', addrObj.state, countryId);
+                if (stateId) addrObj.state = stateId;
+
+                const cityId = await resolveLookupLocal('City', addrObj.city, stateId);
+                if (cityId) addrObj.city = cityId;
+
+                if (addrObj.tehsil && typeof addrObj.tehsil === 'string') 
+                    addrObj.tehsil = await resolveLookupLocal('Tehsil', addrObj.tehsil, cityId);
+                
+                if (addrObj.postOffice && typeof addrObj.postOffice === 'string') 
+                    addrObj.postOffice = await resolveLookupLocal('PostOffice', addrObj.postOffice, cityId);
+                
+                if (addrObj.pincode && (typeof addrObj.pincode === 'string' || typeof addrObj.pincode === 'number')) 
+                    addrObj.pincode = await resolveLookupLocal('Pincode', addrObj.pincode, cityId);
+                
+                if (addrObj.locality && typeof addrObj.locality === 'string') 
+                    addrObj.locality = await resolveLookupLocal('Area', addrObj.locality, cityId);
+
+                if (addrObj.location && typeof addrObj.location === 'string') 
+                    addrObj.location = await resolveLookupLocal('Area', addrObj.location, cityId);
+                
+                if (addrObj.area && typeof addrObj.area === 'string') 
+                    addrObj.area = await resolveLookupLocal('Area', addrObj.area, cityId);
             };
 
-            if (address.city) address.city = await resolveAddr('City', address.city);
-            if (address.tehsil) address.tehsil = await resolveAddr('Tehsil', address.tehsil);
-            if (address.state) address.state = await resolveAddr('State', address.state);
-            if (address.postOffice) address.postOffice = await resolveAddr('PostOffice', address.postOffice);
-            if (address.country) address.country = await resolveAddr('Country', address.country);
-            if (address.locality) address.locality = await resolveAddr('Location', address.locality) || await resolveAddr('Area', address.locality);
-            if (address.area) address.area = await resolveAddr('Area', address.area);
-            if (address.location) address.location = await resolveAddr('Location', address.location) || await resolveAddr('Area', address.location);
-            if (address.pincode) address.pincode = await resolveAddr('Pincode', address.pincode);
+            if (obj.address) {
+                await resolveAddrHierarchical(obj.address);
+            }
 
-            // Dot notation support
-            if (obj['address.city']) obj['address.city'] = await resolveAddr('City', obj['address.city']);
-            if (obj['address.tehsil']) obj['address.tehsil'] = await resolveAddr('Tehsil', obj['address.tehsil']);
-            if (obj['address.state']) obj['address.state'] = await resolveAddr('State', obj['address.state']);
-            if (obj['address.postOffice']) obj['address.postOffice'] = await resolveAddr('PostOffice', obj['address.postOffice']);
-            if (obj['address.country']) obj['address.country'] = await resolveAddr('Country', obj['address.country']);
-            if (obj['address.locality']) obj['address.locality'] = await resolveAddr('Location', obj['address.locality']) || await resolveAddr('Area', obj['address.locality']);
-            if (obj['address.area']) obj['address.area'] = await resolveAddr('Area', obj['address.area']);
-            if (obj['address.location']) obj['address.location'] = await resolveAddr('Location', obj['address.location']) || await resolveAddr('Area', obj['address.location']);
-            if (obj['address.pincode']) obj['address.pincode'] = await resolveAddr('Pincode', obj['address.pincode']);
+            // Handle Dot notation updates (common in findOneAndUpdate)
+            const dotAddr = {
+                country: obj['address.country'],
+                state: obj['address.state'],
+                city: obj['address.city'],
+                tehsil: obj['address.tehsil'],
+                postOffice: obj['address.postOffice'],
+                pincode: obj['address.pincode'],
+                locality: obj['address.locality'],
+                location: obj['address.location'],
+                area: obj['address.area']
+            };
+
+            if (Object.values(dotAddr).some(v => v !== undefined)) {
+                await resolveAddrHierarchical(dotAddr);
+                // Map back to dot notation
+                if (dotAddr.country) obj['address.country'] = dotAddr.country;
+                if (dotAddr.state) obj['address.state'] = dotAddr.state;
+                if (dotAddr.city) obj['address.city'] = dotAddr.city;
+                if (dotAddr.tehsil) obj['address.tehsil'] = dotAddr.tehsil;
+                if (dotAddr.postOffice) obj['address.postOffice'] = dotAddr.postOffice;
+                if (dotAddr.pincode) obj['address.pincode'] = dotAddr.pincode;
+                if (dotAddr.locality) obj['address.locality'] = dotAddr.locality;
+                if (dotAddr.location) obj['address.location'] = dotAddr.location;
+                if (dotAddr.area) obj['address.area'] = dotAddr.area;
+            }
         };
 
         // Process top-level, $set, and other relevant operators
