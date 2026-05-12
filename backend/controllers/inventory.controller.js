@@ -1823,15 +1823,32 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                             results.contactsFound++;
 
                             if (!dryRun) {
-                                // 🚀 [HARDENED] Sync address even for perfect matches to ensure data completeness
-                                await Contact.findByIdAndUpdate(ownerId, {
-                                    $addToSet: { tags: { $each: ['Property Owner', propertyTag] } },
+                                const updateOps = {
+                                    $addToSet: { 
+                                        tags: { $each: ['Property Owner', propertyTag] } 
+                                    },
                                     $set: { 
                                         ...assignmentUpdate,
                                         personalAddress: personalAddress,
-                                        fatherName: existingContact.fatherName || fatherName // Fill if missing
+                                        fatherName: existingContact.fatherName || fatherName
                                     }
-                                });
+                                };
+
+                                // 🚀 [SENIOR] Multiple Identity Support: Add new phone/email if not already present
+                                if (mobile) {
+                                    const hasPhone = existingContact.phones?.some(p => normalizePhone(p.number) === mobile);
+                                    if (!hasPhone) {
+                                        updateOps.$addToSet.phones = { number: mobile, type: 'Secondary' };
+                                    }
+                                }
+                                if (email) {
+                                    const hasEmail = existingContact.emails?.some(e => e.address?.toLowerCase() === email.toLowerCase());
+                                    if (!hasEmail) {
+                                        updateOps.$addToSet.emails = { address: email, type: 'Secondary' };
+                                    }
+                                }
+
+                                await Contact.findByIdAndUpdate(ownerId, updateOps);
                             }
                         }
                         // CASE: Conflict Detected
@@ -1870,20 +1887,30 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                                 ownerId = "CONFLICT_PENDING";
                             } else {
                                 if (resolution === 'UPDATE_SYSTEM') {
-                                    existingContact.name = name;
-                                    if (fatherName) existingContact.fatherName = fatherName;
-                                    existingContact.personalAddress = personalAddress;
-                                    Object.assign(existingContact, assignmentUpdate);
-                                    
-                                    if (!existingContact.tags) existingContact.tags = [];
-                                    ['Property Owner', propertyTag].forEach(t => {
-                                        if (!existingContact.tags.includes(t)) existingContact.tags.push(t);
-                                    });
+                                    const updateOps = {
+                                        $addToSet: { tags: { $each: ['Property Owner', propertyTag] } },
+                                        $set: { 
+                                            name: name,
+                                            fatherName: fatherName || existingContact.fatherName,
+                                            personalAddress: personalAddress,
+                                            ...assignmentUpdate
+                                        }
+                                    };
 
-                                    await existingContact.save();
+                                    if (mobile) {
+                                        const hasPhone = (existingContact.phones || []).some(p => normalizePhone(p.number) === mobile);
+                                        if (!hasPhone) updateOps.$addToSet.phones = { number: mobile, type: 'Secondary' };
+                                    }
+                                    if (email) {
+                                        const hasEmail = (existingContact.emails || []).some(e => e.address?.toLowerCase() === email.toLowerCase());
+                                        if (!hasEmail) updateOps.$addToSet.emails = { address: email, type: 'Secondary' };
+                                    }
+
+                                    await Contact.findByIdAndUpdate(existingContact._id, updateOps);
                                     ownerId = existingContact._id;
                                     results.contactsFound++;
-                                } else if (resolution === 'KEEP_SYSTEM') {
+                                }
+ else if (resolution === 'KEEP_SYSTEM') {
                                     ownerId = existingContact._id;
                                     results.contactsFound++;
                                 } else if (resolution === 'CREATE_NEW') {
