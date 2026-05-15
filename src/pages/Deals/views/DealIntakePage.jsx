@@ -497,9 +497,12 @@ const DealIntakePage = () => {
                     let score = 0;
                     let reasons = [];
 
-                    const invUnit = (inv.unitNo || '').toLowerCase();
-                    const invArea = (inv.area || '').toLowerCase();
-                    const invLoc = (inv.location || '').toLowerCase();
+                    const unitStr = typeof inv.unitNo === 'object' ? (inv.unitNo.lookup_value || inv.unitNo.name || '') : (inv.unitNo || '');
+                    const invUnit = unitStr.toLowerCase();
+                    const areaStr = typeof inv.area === 'object' ? (inv.area.lookup_value || inv.area.name || '') : (inv.area || '');
+                    const invArea = areaStr.toLowerCase();
+                    const locStr = typeof inv.location === 'object' ? (inv.location.lookup_value || inv.location.name || '') : (inv.location || '');
+                    const invLoc = locStr.toLowerCase();
 
                     // A. UNIT NUMBER
                     if (invUnit) {
@@ -756,10 +759,15 @@ const DealIntakePage = () => {
 
                 let matches = searchData.map(deal => {
                     let score = 0;
-                    if (searchLoc && deal.location.toLowerCase().includes(searchLoc)) score += 40;
-                    if (searchType && deal.type.includes(searchType)) score += 30;
-                    if (req.budget && deal.price.includes(req.budget)) score += 20;
-                    if (searchType && deal.description.toLowerCase().includes(searchType.toLowerCase())) score += 10;
+                    const locationStr = typeof deal.location === 'object' ? (deal.location.lookup_value || deal.location.name || '') : (deal.location || '');
+                    const typeStr = typeof deal.type === 'object' ? (deal.type.lookup_value || deal.type.name || '') : (deal.type || '');
+                    const priceStr = deal.price || '';
+                    const descStr = deal.description || '';
+
+                    if (searchLoc && locationStr.toLowerCase().includes(searchLoc)) score += 40;
+                    if (searchType && typeStr.includes(searchType)) score += 30;
+                    if (req.budget && priceStr.includes(req.budget)) score += 20;
+                    if (searchType && descStr.toLowerCase().includes(searchType.toLowerCase())) score += 10;
 
                     return { deal, score: Math.min(score, 100) };
                 });
