@@ -1,4 +1,5 @@
 import { memo } from 'react';
+import { renderValue } from '../../../utils/renderUtils';
 
 const DashboardSidebar = ({ metrics, onNavigate }) => {
     const { agenda, allAlerts, availability } = metrics;
@@ -70,8 +71,8 @@ const DashboardSidebar = ({ metrics, onNavigate }) => {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     {allAlerts.slice(0, 4).map((alert, idx) => (
                         <div key={idx} style={{ padding: '16px', background: 'rgba(15, 23, 42, 0.4)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.02)', borderLeft: '4px solid #f43f5e' }}>
-                            <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#fff' }}>{alert.title}</div>
-                            <p style={{ fontSize: '0.7rem', color: '#94a3b8', margin: '6px 0 0 0', lineHeight: 1.4, fontWeight: 500 }}>{alert.message}</p>
+                            <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#fff' }}>{renderValue(alert.title)}</div>
+                            <p style={{ fontSize: '0.7rem', color: '#94a3b8', margin: '6px 0 0 0', lineHeight: 1.4, fontWeight: 500 }}>{renderValue(alert.message)}</p>
                             <div style={{ marginTop: '12px', fontSize: '0.65rem', fontWeight: 800, color: '#6366f1', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>RESOLVE NOW <i className="fas fa-chevron-right" style={{ fontSize: '0.5rem' }}></i></div>
                         </div>
                     ))}

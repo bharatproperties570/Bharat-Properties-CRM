@@ -13,8 +13,10 @@ import { autoAssign } from "../src/services/DistributionService.js";
 import { createNotification } from "./notification.controller.js";
 import { syncDocumentsToInventory } from "../utils/sync.js";
 import { getVisibilityFilter } from "../utils/visibility.js";
-import Project from "../models/Project.js"; // Added for [matchLeads] consistency
+import Project from "../models/Project.js"; 
 import Inventory from "../models/Inventory.js";
+import AiAgent from '../models/AiAgent.js';
+import UnifiedAIService from '../services/UnifiedAIService.js';
 
 const escapeRegExp = (string) => {
     if (!string) return '';
@@ -897,6 +899,43 @@ export const addLead = async (req, res, next) => {
     }
 };
 
+/**
+ * Toggles the pinned status of a match for a specific lead.
+ * Pinned matches are persistent bookmarks that stay in the lead profile.
+ */
+export const togglePinMatch = async (req, res) => {
+    try {
+        const { id, inventoryId } = req.params;
+        const lead = await Lead.findById(id);
+
+        if (!lead) {
+            return res.status(404).json({ success: false, message: "Lead not found" });
+        }
+
+        if (!lead.pinnedMatches) lead.pinnedMatches = [];
+
+        const index = lead.pinnedMatches.indexOf(inventoryId);
+        if (index > -1) {
+            // Remove (Unpin)
+            lead.pinnedMatches.splice(index, 1);
+        } else {
+            // Add (Pin)
+            lead.pinnedMatches.push(inventoryId);
+        }
+
+        await lead.save();
+
+        res.json({
+            success: true,
+            message: index > -1 ? "Match unpinned" : "Match pinned successfully",
+            data: lead.pinnedMatches
+        });
+    } catch (error) {
+        console.error("[TOGGLE_PIN_MATCH_ERROR]", error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 export const updateLead = async (req, res, next) => {
     try {
         const updateData = { ...req.body };
@@ -1037,6 +1076,27 @@ export const updateLead = async (req, res, next) => {
                 await runFullLeadEnrichment(finalLead._id);
             } catch (enrichError) {
                 console.error("[ENRICHMENT ERROR] Failed in updateLead:", enrichError.message);
+            }
+
+            // ─── Phase 5: AI Audit Trail (SaaS Grade Persistence) ────────────
+            if (req.body.source === 'AI_PROFILER') {
+                const Activity = mongoose.model('Activity');
+                await Activity.create({
+                    type: 'System',
+                    subject: 'Requirement Profiler: Lead Insights Applied',
+                    entityType: 'Lead',
+                    entityId: req.params.id,
+                    dueDate: new Date(),
+                    status: 'Completed',
+                    description: `AI interpreted new requirements from recent notes & activities. Profile updated with suggested budget, location, and intent signals.`,
+                    details: {
+                        source: 'AI_PROFILER',
+                        updatedFields: Object.keys(updateData).filter(k => k !== 'source'),
+                        appliedAt: new Date()
+                    },
+                    performedBy: 'AI Agent (Requirement Profiler)',
+                    createdBy: req.user?._id || req.user?.id
+                }).catch(e => console.error("[AI_LOG_ERROR]", e));
             }
 
             // SMS Trigger: Stage Change (only if lead has a DLT-compliant template configured)
@@ -1660,5 +1720,106 @@ export const snoozeLeadMatch = async (req, res, next) => {
         res.status(200).json({ success: true, message: "Match snoozed successfully" });
     } catch (error) {
         next(error);
+    }
+};
+
+/**
+ * Phase 5: AI-Driven Lead Requirement Interpretation
+ * Uses Gemini to analyze unstructured data (notes, activity logs) and extract 
+ * high-precision matching parameters.
+ */
+export const interpretLeadRequirements = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const lead = await Lead.findOne({ _id: id, ...visibilityFilter }).lean();
+        if (!lead) return res.status(404).json({ success: false, error: 'Lead not found or access denied' });
+
+        // 1. Collect Context Data
+        const notes = lead.notes || '';
+        const activities = await Activity.find({ entityId: id, entityType: 'Lead' }).sort({ createdAt: -1 }).limit(10).lean();
+        const activityText = activities.map(a => `[${a.type}] ${a.subject}: ${a.description || ''}`).join('\n');
+
+        const prompt = `
+        As a Senior Real Estate Analyst, analyze the following lead data and extract structured requirements for our CRM matching engine.
+        
+        LEAD NAME: ${lead.firstName} ${lead.lastName || ''}
+        CURRENT PROJECT: ${lead.projectName || 'Not specified'}
+        CURRENT BUDGET: ${lead.budgetMin || 0} - ${lead.budgetMax || 0}
+        CURRENT LOCATION: ${lead.sector || lead.locArea || lead.locCity || ''}
+        
+        NOTES:
+        ${notes}
+        
+        RECENT ACTIVITY LOGS:
+        ${activityText}
+        
+        TASK:
+        1. Identify the intended use (Buying, Renting, or Investment).
+        2. Extract specific property types (e.g., 3BHK, Independent Floor, Plot).
+        3. Determine the budget range (convert words like "1.5Cr" to numbers like 15000000).
+        4. Identify location preferences (Sectors, Areas).
+        5. Look for "soft signals" like: Vastu, Park facing, High floor, Construction stage.
+        
+        RETURN ONLY A JSON OBJECT in this exact format:
+        {
+            "requirement": "Buy" | "Rent" | "Investment",
+            "propertyType": ["string"],
+            "budgetMin": number,
+            "budgetMax": number,
+            "location": "string",
+            "softSignals": ["string"],
+            "summary": "2-sentence professional summary",
+            "suggestedWeights": { "location": number, "budget": number, "type": number }
+        }
+        `;
+
+        // 2. Fetch Config from AI Agent (Settings Page Integration)
+        let agent = await AiAgent.findOne({ name: /Requirement Profiler/i, isActive: true });
+        
+        // Auto-provision if missing (Professional Fallback)
+        if (!agent) {
+            console.log("[AI_INTERPRET] Agent not found in settings. Using system default.");
+            agent = {
+                systemPrompt: "You are an expert Real Estate Profiling Agent for an Enterprise CRM. You extract structured data from unstructured conversations and notes.",
+                modelName: 'gemini-1.5-flash-latest',
+                provider: 'gemini'
+            };
+        }
+
+        const aiResponseText = await UnifiedAIService.generate(prompt, {
+            provider: agent.provider || 'gemini',
+            systemPrompt: agent.systemPrompt,
+            model: agent.modelName,
+            temperature: 0.2
+        });
+
+        // 3. Parse and Clean Response
+        let interpretation;
+        try {
+            const jsonMatch = aiResponseText.match(/\{.*\}/s);
+            interpretation = JSON.parse(jsonMatch ? jsonMatch[0] : aiResponseText);
+        } catch (e) {
+            console.error("[AI_INTERPRET] JSON Parse Failed:", aiResponseText);
+            throw new Error("AI returned unparseable response");
+        }
+
+        // 4. Transform Interpretation to DB IDs (Optional but professional)
+        // Note: For now we return the raw interpretation and let the frontend confirm
+        
+        res.json({
+            success: true,
+            data: interpretation,
+            originalLead: {
+                firstName: lead.firstName,
+                lastName: lead.lastName,
+                budgetMin: lead.budgetMin,
+                budgetMax: lead.budgetMax
+            }
+        });
+
+    } catch (error) {
+        console.error("[AI_INTERPRET] Fatal Error:", error);
+        res.status(500).json({ success: false, error: error.message });
     }
 };

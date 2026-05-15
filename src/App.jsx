@@ -80,6 +80,7 @@ const AppContent = () => {
         if (path === '/marketings') return 'marketing-overview';
         if (path === '/marketing') return 'marketing-overview';
         if (path === '/marketing-overview') return 'marketing-overview';
+        if (path.startsWith('/p/')) return 'public-portfolio';
         if (path === '/activities') return 'activities';
         return 'dashboard';
     });
@@ -251,6 +252,16 @@ const AppContent = () => {
                 </Suspense>
                 {isWeb && <PublicChatWidget />}
             </>
+        );
+    }
+
+    if (currentView === 'public-portfolio') {
+        const PublicPortfolioPage = React.lazy(() => import('./pages/Public/PublicPortfolioPage'));
+        const fallback = <div style={{ textAlign: 'center', padding: '100px' }}>Loading...</div>;
+        return (
+            <Suspense fallback={fallback}>
+                <PublicPortfolioPage />
+            </Suspense>
         );
     }
 

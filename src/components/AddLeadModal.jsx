@@ -207,7 +207,7 @@ const DuplicateResults = ({ contacts, onUpdate, isBlocked }) => {
                 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
                         <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '0.95rem' }}>
-                            {contact ? `${contact.title?.lookup_value || contact.title || ""} ${contact.firstName || contact.name || ""} ${contact.lastName || contact.surname || ""}`.trim() : "Lead Details"}
+                            {contact ? `${renderValue(contact.title, "")} ${contact.firstName || contact.name || ""} ${contact.lastName || contact.surname || ""}`.trim() : "Lead Details"}
                         </div>
                         {contact.matchedEntityType && (
                             <span style={{

@@ -1600,19 +1600,19 @@ const LeadItem = React.memo(function LeadItem({
                     {lead.projectName && (
                         <div style={{ color: '#0f172a', fontWeight: 800 }}>
                            <i className="fas fa-building" style={{ marginRight: '6px', color: '#64748b', fontSize: '0.65rem' }}></i>
-                           {lead.projectName}
+                           {renderValue(lead.projectName)}
                         </div>
                     )}
                     {(lead.locHNo || lead.locStreet) && (
                         <div style={{ color: '#334155', fontSize: '0.7rem' }}>
                             <i className="fas fa-home" style={{ marginRight: '6px', color: '#94a3b8', fontSize: '0.65rem' }}></i>
-                            {[lead.locHNo, lead.locStreet].filter(Boolean).join(', ')}
+                            {[lead.locHNo, lead.locStreet].map(v => renderValue(v)).filter(Boolean).join(', ')}
                         </div>
                     )}
                     {(lead.locArea || lead.locationLines?.area || lead.searchLocation) && (
                         <div style={{ color: '#64748b', fontSize: '0.7rem' }}>
                            <i className="fas fa-map-marker-alt" style={{ marginRight: '6px', color: '#ef4444', fontSize: '0.65rem' }}></i>
-                           {lead.locArea || lead.locationLines?.area || lead.searchLocation}
+                           {renderValue(lead.locArea) || renderValue(lead.locationLines?.area) || renderValue(lead.searchLocation)}
                         </div>
                     )}
                 </div>
@@ -1623,7 +1623,7 @@ const LeadItem = React.memo(function LeadItem({
                     <span
                         className={`status-badge ${(String(renderValue(getLookupValue('Status', lead.status), null) || (typeof lead.statusFallback === 'object' ? lead.statusFallback.class : 'new') || 'new')).toLowerCase()}`}
                     >
-                        {lead.statusLabel || (typeof lead.statusFallback === 'object' ? lead.statusFallback.label : lead.statusFallback)}
+                        {renderValue(lead.statusLabel) || renderValue(typeof lead.statusFallback === 'object' ? lead.statusFallback.label : lead.statusFallback)}
                     </span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                         {(() => {
@@ -1682,7 +1682,7 @@ const LeadItem = React.memo(function LeadItem({
                                     color: '#475569',
                                     fontWeight: 700
                                 }}>
-                                    LAST: {activity.type.toUpperCase()}
+                                    LAST: {renderValue(activity.type).toUpperCase()}
                                 </div>
                             );
                         }

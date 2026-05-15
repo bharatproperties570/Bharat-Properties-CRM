@@ -7,7 +7,7 @@ import LeadAcquisitionPanel from './components/LeadAcquisitionPanel';
 import RevenuePanel from './components/RevenuePanel';
 import DashboardSidebar from './components/DashboardSidebar';
 
-// Hooks
+import AIIntelligenceWidget from '../../components/AIIntelligenceWidget';
 import { useDashboardData } from '../../hooks/useDashboardData';
 
 const DashboardPage = ({ onNavigate }) => {
@@ -188,6 +188,9 @@ const DashboardPage = ({ onNavigate }) => {
 
             <div className="dashboard-grid-root" style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '32px' }}>
                 <div style={{ minWidth: 0 }}>
+                    <div style={{ marginBottom: '32px' }}>
+                        <AIIntelligenceWidget />
+                    </div>
                     <DashboardKPIs metrics={metrics} formatters={formatters} />
                     <LeadAcquisitionPanel charts={charts} metrics={metrics} formatters={formatters} />
                     <RevenuePanel charts={charts} metrics={metrics} formatters={formatters} />

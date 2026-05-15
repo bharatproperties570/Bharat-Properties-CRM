@@ -20,14 +20,16 @@ class GeminiService {
         const isPlaceholder = (val) => !val || val.includes('YOUR_') || val.length < 20;
 
         if (envKey && !isPlaceholder(envKey)) {
+            console.log(`[GeminiService] Using API Key from Environment Variables.`);
             return {
                 apiKey:     envKey,
-                model:      'gemini-2.0-flash', // Updated for 2026 availability
+                model:      'gemini-1.5-pro', 
                 apiVersion: 'v1beta', 
             };
         }
 
         // 2. Fall back to DB-stored config
+        console.log(`[GeminiService] Environment Key missing or placeholder. Falling back to DB Settings.`);
         const config = await SystemSetting.findOne({ key: 'ai_gemini_config' });
         return config?.value || {};
     }
@@ -95,7 +97,7 @@ class GeminiService {
         if (!apiKey || apiKey.includes('YOUR_')) {
             throw new Error('Gemini API Key not configured. Add GOOGLE_AI_API_KEY to .env or Settings > Integrations.');
         }
-        const model      = opts.model || config.model || 'gemini-1.5-pro';
+        const model      = opts.model || config.model || 'gemini-1.5-flash-latest';
         const apiVersion = 'v1beta'; // systemInstruction only available in v1beta
 
         return this._callGemini(apiKey, apiVersion, model, systemPrompt, userPrompt, opts);
@@ -127,14 +129,24 @@ class GeminiService {
             });
 
             const text = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (!text) throw new Error('Empty response from Gemini');
+            if (!text) {
+                console.error("[GeminiService] API Response missing text:", JSON.stringify(response.data));
+                throw new Error('Empty response from Gemini');
+            }
 
             const usage = response.data?.usageMetadata || {};
             console.log(`[GeminiService] ✅ Generated ${text.length} chars. Tokens: in=${usage.promptTokenCount} out=${usage.candidatesTokenCount}`);
             return text;
         } catch (err) {
             const detail = err.response?.data?.error?.message || err.message;
-            console.error(`[GeminiService] _callGemini error (${model}):`, detail);
+            const code = err.response?.data?.error?.status || 'UNKNOWN';
+            console.error(`[GeminiService] _callGemini error (${model}) [${code}]:`, detail);
+            
+            // If it's a 404, maybe the model is wrong
+            if (err.response?.status === 404) {
+                throw new Error(`Gemini model "${model}" not found. Please check your API configuration.`);
+            }
+            
             throw new Error(`Gemini error: ${detail}`);
         }
     }

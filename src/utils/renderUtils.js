@@ -59,5 +59,17 @@ export const renderValue = (val, emptyValue = '-', prefix = '') => {
         }
     }
 
-    return prefix ? `${prefix}${result}` : result;
+    const finalResult = prefix ? `${prefix}${result}` : result;
+    
+    // ABSOLUTE SAFETY: If we are still returning an object, stringify it or return empty
+    if (typeof finalResult === 'object' && finalResult !== null) {
+        try {
+            const str = String(finalResult);
+            return str === '[object Object]' ? emptyValue : str;
+        } catch (e) {
+            return emptyValue;
+        }
+    }
+
+    return finalResult;
 };

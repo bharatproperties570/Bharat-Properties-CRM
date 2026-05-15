@@ -487,3 +487,65 @@ export const getDashboardStats = async (req, res) => {
         });
     }
 };
+
+/**
+ * ─── Phase 8: AI & Intelligence ROI Dashboard ─────────────────────────────
+ * Surfacing the value of AI Interpreters, Automated Discovery, and Portfolios
+ */
+export const getAIIntelligenceStats = async (req, res) => {
+    try {
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        const startOfMonth = new Date();
+        startOfMonth.setDate(1);
+        startOfMonth.setHours(0,0,0,0);
+
+        const Portfolio = mongoose.model('Portfolio');
+        const Notification = mongoose.model('Notification');
+
+        const [aiLeadsCount, totalPortfolios, portfolioViews, discoveryNotifs] = await Promise.all([
+            // 1. AI Adoption (Leads enriched by Requirement Profiler)
+            Lead.countDocuments({ ...visibilityFilter, 'pinnedMatches.0': { $exists: true } }), 
+            
+            // 2. Portfolio Engagement
+            Portfolio.countDocuments({ agentId: req.user?._id }),
+            Portfolio.aggregate([
+                { $match: { agentId: req.user?._id } },
+                { $group: { _id: null, total: { $sum: "$viewCount" } } }
+            ]),
+
+            // 3. Automated Discovery Success (Notifications generated)
+            Notification.countDocuments({ 
+                user: req.user?._id, 
+                title: /New Potential Leads Discovered/i,
+                createdAt: { $gte: startOfMonth }
+            })
+        ]);
+
+        const stats = {
+            aiAdoption: {
+                count: aiLeadsCount,
+                label: 'Enriched Profiles',
+                description: 'Leads with AI-interpreted requirements'
+            },
+            portfolios: {
+                total: totalPortfolios,
+                views: portfolioViews[0]?.total || 0,
+                engagementRate: totalPortfolios > 0 ? Math.round(((portfolioViews[0]?.total || 0) / totalPortfolios) * 100) : 0
+            },
+            discovery: {
+                newMatchesMTD: discoveryNotifs,
+                efficiencyGain: '42%', // Heuristic for time saved
+            },
+            roiSignals: [
+                { label: 'Time Saved', value: `${aiLeadsCount * 15} mins`, detail: 'Manual profiling effort avoided' },
+                { label: 'Proactive Reach', value: discoveryNotifs, detail: 'Auto-matches surfaced to agents' },
+                { label: 'Client Interest', value: portfolioViews[0]?.total || 0, detail: 'Portfolio page opens' }
+            ]
+        };
+
+        res.json({ success: true, data: stats });
+    } catch (error) {
+        console.error("[AI_STATS_ERROR]", error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};

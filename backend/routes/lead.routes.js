@@ -1,5 +1,5 @@
 import express from "express";
-import { getLeads, addLead, updateLead, deleteLead, bulkDeleteLeads, getLeadById, importLeads, checkDuplicatesImport, matchLeads, toggleLeadInterest, snoozeLeadMatch } from "../controllers/lead.controller.js";
+import { getLeads, addLead, updateLead, deleteLead, bulkDeleteLeads, getLeadById, importLeads, checkDuplicatesImport, matchLeads, toggleLeadInterest, snoozeLeadMatch, togglePinMatch } from "../controllers/lead.controller.js";
 import { authenticate } from "../src/middlewares/auth.middleware.js";
 import { validateBusinessRules } from "../src/middlewares/businessRule.middleware.js";
 
@@ -15,9 +15,12 @@ router.post("/import", importLeads);
 router.post("/check-duplicates", checkDuplicatesImport);
 router.post("/", validateBusinessRules('leads'), addLead);
 router.put("/:id", validateBusinessRules('leads'), updateLead);
+router.patch("/:id", validateBusinessRules('leads'), updateLead);
 router.post("/bulk-delete", bulkDeleteLeads);
 router.put("/interest/:inventoryId", toggleLeadInterest);
 router.put("/match/snooze/:inventoryId", snoozeLeadMatch);
+router.put("/:id/pin-match/:inventoryId", togglePinMatch);
+router.post("/:id/ai-interpret", (req, res, next) => import('../controllers/lead.controller.js').then(m => m.interpretLeadRequirements(req, res, next)));
 router.delete("/:id", deleteLead);
 
 export default router;

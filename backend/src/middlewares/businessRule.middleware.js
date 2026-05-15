@@ -36,11 +36,15 @@ export const validateBusinessRules = (module) => {
 
                     switch (rule.ruleType) {
                         case 'MANDATORY':
-                            if (fieldValue === undefined || fieldValue === null || fieldValue === "") {
-                                errors.push({
-                                    field: rule.field,
-                                    message: rule.message || `${rule.field} is mandatory based on business rules.`
-                                });
+                            // Only enforce mandatory in POST (creation) or if the field is explicitly provided in PUT/PATCH
+                            const isUpdate = req.method === 'PUT' || req.method === 'PATCH';
+                            if (!isUpdate || (isUpdate && data.hasOwnProperty(rule.field))) {
+                                if (fieldValue === undefined || fieldValue === null || fieldValue === "") {
+                                    errors.push({
+                                        field: rule.field,
+                                        message: rule.message || `${rule.field} is mandatory based on business rules.`
+                                    });
+                                }
                             }
                             break;
                         

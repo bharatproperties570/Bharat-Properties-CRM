@@ -1,3 +1,4 @@
+import { renderValue } from '../../utils/renderUtils';
 
 const NotificationDropdown = ({ 
     showNotifications, 
@@ -99,8 +100,8 @@ const NotificationDropdown = ({
                                         margin: '0 0 4px 0', 
                                         lineHeight: 1.4,
                                         fontWeight: n.isRead ? 400 : 600
-                                    }}>{n.title}</p>
-                                    <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0 0 2px 0' }}>{n.message}</p>
+                                    }}>{renderValue(n.title)}</p>
+                                    <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0 0 2px 0' }}>{renderValue(n.message)}</p>
                                     <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{formatTime(n.createdAt)}</span>
                                 </div>
                             </div>

@@ -36,9 +36,14 @@ const EnrichmentSettingsPage = () => {
     ]);
 
     const [marginConfig, setMarginConfig] = useState({
-        enabled: true,
-        ageThreshold: 30,
         priceGapThreshold: 12
+    });
+
+    const [autoDispatchConfig, setAutoDispatchConfig] = useState({
+        enabled: false,
+        threshold: 70,
+        maxProperties: 3,
+        cooldownDays: 3
     });
 
     const fetchRules = useCallback(async () => {
@@ -56,6 +61,9 @@ const EnrichmentSettingsPage = () => {
 
                 const margin = response.data.generalRules.find(r => r.type === 'margin');
                 if (margin && margin.config) setMarginConfig(margin.config);
+
+                const autoDispatch = response.data.generalRules.find(r => r.type === 'autodispatch');
+                if (autoDispatch && autoDispatch.config) setAutoDispatchConfig(autoDispatch.config);
             }
         } catch (error) {
             showToast('Failed to fetch enrichment rules', 'error');
@@ -126,6 +134,7 @@ const EnrichmentSettingsPage = () => {
         { id: 'formula', label: 'Intent Formula', icon: 'fa-functions' },
         { id: 'classification', label: 'Classification Engine', icon: 'fa-tags' },
         { id: 'margin', label: 'Margin Detection', icon: 'fa-percentage' },
+        { id: 'autodispatch', label: 'Auto-Dispatch Policy', icon: 'fa-paper-plane' },
     ];
 
     const SectionHeader = ({ title, subtitle, icon, color = '#3b82f6' }) => (

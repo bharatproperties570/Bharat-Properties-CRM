@@ -59,6 +59,9 @@ const LeadSchema = new mongoose.Schema({
     locCountry: { type: String },
     searchLocation: { type: String },
 
+    // Phase 5: Enterprise Persistence
+    pinnedMatches: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Inventory' }],
+
     documents: [{
         documentCategory: { type: mongoose.Schema.Types.Mixed }, // Added for hierarchy
         documentName: { type: mongoose.Schema.Types.Mixed },

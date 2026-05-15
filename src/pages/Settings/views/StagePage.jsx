@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import { stageTransitionRulesAPI } from '../../../utils/api';
 import Toast from '../../../components/Toast';
+import { renderValue } from '../../../utils/renderUtils';
 import {
     STAGE_PIPELINE, STAGE_LABELS
 } from '../../../utils/stageEngine';
@@ -21,7 +22,10 @@ const REQUIRED_FORMS = [
 // ─────────────────────────────────────────────
 
 const StageChip = ({ stage }) => {
-    const stageInfo = STAGE_PIPELINE.find(s => s.label === stage) || STAGE_PIPELINE[0];
+    // 🧠 SENIOR HARDENING: Use centralized renderValue
+    const label = renderValue(stage, 'Unknown');
+    const stageInfo = STAGE_PIPELINE.find(s => s.label === label) || STAGE_PIPELINE[0];
+    
     return (
         <span style={{
             display: 'inline-flex', alignItems: 'center', gap: '5px',
@@ -29,7 +33,7 @@ const StageChip = ({ stage }) => {
             background: stageInfo.color + '18', color: stageInfo.color, border: `1px solid ${stageInfo.color}40`
         }}>
             <i className={`fas ${stageInfo.icon}`} style={{ fontSize: '9px' }} />
-            {stage}
+            {label}
         </span>
     );
 };
@@ -412,9 +416,9 @@ const StagePage = () => {
                                             <td style={{ padding: '10px 16px' }}>
                                                 <span style={{ background: '#f1f5f9', borderRadius: '4px', padding: '2px 8px', fontWeight: 700, color: '#374151' }}>#{rule.priority}</span>
                                             </td>
-                                            <td style={{ padding: '10px 16px', fontWeight: 600, color: '#374151' }}>{rule.activityType || <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Any</span>}</td>
-                                            <td style={{ padding: '10px 16px', color: '#6b7280' }}>{rule.purpose || <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Any</span>}</td>
-                                            <td style={{ padding: '10px 16px', color: '#6b7280' }}>{rule.outcome || <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Any</span>}</td>
+                                            <td style={{ padding: '10px 16px', fontWeight: 600, color: '#374151' }}>{typeof rule.activityType === 'object' ? rule.activityType.lookup_value : (rule.activityType || <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Any</span>)}</td>
+                                            <td style={{ padding: '10px 16px', color: '#6b7280' }}>{typeof rule.purpose === 'object' ? rule.purpose.lookup_value : (rule.purpose || <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Any</span>)}</td>
+                                            <td style={{ padding: '10px 16px', color: '#6b7280' }}>{typeof rule.outcome === 'object' ? rule.outcome.lookup_value : (rule.outcome || <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Any</span>)}</td>
                                             <td style={{ padding: '10px 16px' }}><StageChip stage={rule.stage} /></td>
                                             <td style={{ padding: '10px 16px' }}>
                                                 <FormChipsSelector
@@ -482,14 +486,14 @@ const StagePage = () => {
                                             onMouseEnter={e => e.currentTarget.style.background = '#fafafa'}
                                             onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                                             <td style={{ padding: '10px 16px' }}>
-                                                <span style={{ background: '#3b82f610', color: '#3b82f6', borderRadius: '6px', padding: '3px 8px', fontWeight: 700, fontSize: '12px' }}>{row.activityType}</span>
+                                                <span style={{ background: '#3b82f610', color: '#3b82f6', borderRadius: '6px', padding: '3px 8px', fontWeight: 700, fontSize: '12px' }}>{renderValue(row.activityType)}</span>
                                             </td>
-                                            <td style={{ padding: '10px 16px', color: '#374151', fontSize: '12px' }}>{row.purpose || <span style={{ color: '#cbd5e1' }}>Any</span>}</td>
+                                            <td style={{ padding: '10px 16px', color: '#374151', fontSize: '12px' }}>{renderValue(row.purpose) || <span style={{ color: '#cbd5e1' }}>Any</span>}</td>
                                             <td style={{ padding: '10px 16px', fontWeight: 600, color: '#111827' }}>
-                                                {row.outcome}
+                                                {renderValue(row.outcome)}
                                                 {row.reason && row.reason !== '*' && (
                                                     <div style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 400, marginTop: '2px' }}>
-                                                        <i className="fas fa-tag" style={{ marginRight: '4px' }} />{row.reason}
+                                                        <i className="fas fa-tag" style={{ marginRight: '4px' }} />{renderValue(row.reason)}
                                                     </div>
                                                 )}
                                             </td>

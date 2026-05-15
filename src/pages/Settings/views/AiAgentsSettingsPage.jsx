@@ -436,11 +436,10 @@ const AiAgentsSettingsPage = () => {
                                         )}
                                         {formData.provider === 'gemini' && (
                                             <>
-                                                <option value="gemini-2.0-flash">Gemini 2.0 Flash (Recommended)</option>
-                                                <option value="gemini-2.0-pro">Gemini 2.0 Pro</option>
-                                                <option value="gemini-3.0-flash-preview">Gemini 3.0 Flash (Preview)</option>
-                                                <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Newest)</option>
-                                                <option value="gemini-1.5-flash">Gemini 1.5 Flash (Legacy)</option>
+                                                <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+                                                <option value="gemini-1.5-pro">Gemini 1.5 Pro (Smarter)</option>
+                                                <option value="gemini-pro">Gemini Pro (Classic/Most Compatible)</option>
+                                                <option value="gemini-1.5-flash-latest">Gemini 1.5 Flash Latest</option>
                                             </>
                                         )}
                                         {formData.provider === 'openai' && formData.modelName === 'gpt-4o' && null}

@@ -68,8 +68,11 @@ export const matchDeals = async (req, res) => {
             leadId, 
             budgetFlexibility = 20, 
             sizeFlexibility = 20,
-            weights: weightsParam 
+            weights: weightsParam,
+            showOtherCities: showOtherCitiesParam
         } = req.query;
+        
+        const showOtherCities = showOtherCitiesParam === 'true';
 
         if (!leadId) {
             return res.status(400).json({ success: false, error: "leadId is required" });
@@ -79,7 +82,10 @@ export const matchDeals = async (req, res) => {
         let weights = { location: 30, type: 20, budget: 25, size: 25 };
         if (weightsParam) {
             try {
-                weights = typeof weightsParam === 'string' ? JSON.parse(weightsParam) : weightsParam;
+                const parsed = typeof weightsParam === 'string' ? JSON.parse(weightsParam) : weightsParam;
+                if (parsed && typeof parsed === 'object') {
+                    weights = { ...weights, ...parsed };
+                }
             } catch (e) {
                 console.error("Error parsing weights:", e);
             }
@@ -138,8 +144,8 @@ export const matchDeals = async (req, res) => {
             .map(p => String(p || "").toLowerCase()).filter(Boolean);
         const leadSector = String(lead.sector || "").toLowerCase();
         const leadLocValue = getLookupValueLocal(lead.location);
-        const leadLocArea = String(lead.locArea || "").toLowerCase();
-        const leadLocCity = String(lead.locCity || "").toLowerCase();
+        const leadLocArea = getLookupValueLocal(lead.locArea);
+        const leadLocCity = getLookupValueLocal(lead.locCity);
         const leadBlocks = (Array.isArray(lead.locBlock) ? lead.locBlock : []).map(b => String(b || "").toLowerCase()).filter(Boolean);
 
         // Budget signals
@@ -240,6 +246,20 @@ export const matchDeals = async (req, res) => {
                     return null;
                 }
 
+                // --- CITY ENFORCEMENT (User Requested Toggle) ---
+                const dealCity = getLookupValueLocal(deal.inventoryId?.address?.city);
+                const leadCityMatch = leadLocCity && dealCity && leadLocCity === dealCity;
+                
+                if (leadLocCity && dealCity && !leadCityMatch && !showOtherCities) {
+                    excludedDeals.push({
+                        _id: deal._id, projectName: dealLabel,
+                        unitNo: deal.unitNo || deal.inventoryId?.unitNo,
+                        price: deal.price || deal.quotePrice,
+                        excludeReason: `City Mismatch — Lead is looking in "${leadLocCity}" but this property is in "${dealCity}". (Toggle 'Show All Cities' to include)`
+                    });
+                    return null;
+                }
+
                 // --- SCORING ENGINE ---
                 let score = 0;
                 const matchDetails = [];
@@ -255,7 +275,6 @@ export const matchDeals = async (req, res) => {
                 const dealProjName = (deal.projectName || deal.inventoryId?.projectName || "").toLowerCase();
                 const dealSector = (deal.sector || deal.inventoryId?.sector || "").toLowerCase();
                 const dealLocality = getLookupValueLocal(deal.location || deal.inventoryId?.address?.locality);
-                const dealCity = getLookupValueLocal(deal.inventoryId?.address?.city);
                 const dealBlock = (deal.block || deal.inventoryId?.block || "").toLowerCase();
 
                 const locSignalsMatch = [
@@ -367,6 +386,7 @@ export const matchDeals = async (req, res) => {
                     ...deal,
                     score: Math.min(Math.round(decayedScore), 100),
                     rawScore: Math.min(Math.round(score), 100),
+                    isPinned: lead.pinnedMatches?.some(id => String(id) === String(deal.inventoryId?._id || deal.inventoryId || deal._id)),
                     matchDetails,
                     scoreBreakdown,
                     lastDispatch,
@@ -455,8 +475,12 @@ export const matchDeals = async (req, res) => {
             suggestions: smartSuggestions
         });
     } catch (error) {
-        console.error("[matchDeals Error]:", error);
-        res.status(500).json({ success: false, error: error.message });
+        console.error("[CRITICAL_MATCH_ERROR]:", error);
+        res.status(500).json({ 
+            success: false, 
+            error: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined 
+        });
     }
 };
 
@@ -1326,9 +1350,17 @@ export const addDeal = async (req, res) => {
             
             if (phone) {
                 smsService.sendSMSWithTemplate(phone, 'deal_created', {
-                    dealId: dealWithConfig.dealId || deal._id.toString().slice(-6).toUpperCase(),
+                    dealId: dealWithConfig.dealId || dealWithConfig._id.toString().slice(-6).toUpperCase(),
                     projectName: dealWithConfig.projectName || 'the property'
                 }).catch(e => console.error('[SMS Trigger Error] New Deal failed:', e.message));
+            }
+
+            // ─── PHASE 7: Automated Discovery (SaaS Proactivity) ──────────────
+            // Proactively find matching leads for this new property
+            if (deal.inventoryId) {
+                import('../services/discovery.service.js').then(m => {
+                    m.runProactiveDiscoveryForInventory(deal.inventoryId);
+                }).catch(e => console.error("[DISCOVERY_TRIGGER_ERROR]", e));
             }
         } catch (smsError) {
             console.error('[Notification Error] SMS trigger isolated:', smsError.message);
@@ -1339,75 +1371,9 @@ export const addDeal = async (req, res) => {
             console.error('[CampaignEngine] Auto-launch error for new deal:', err.message)
         );
 
-        // ─── PHASE 2B: Inverse Match Trigger (fire-and-forget) ─────────────────────
-        // Find top leads matching this new deal and notify their agents
-        setImmediate(async () => {
-            try {
-                const dealProjectName = (deal.projectName || '').toLowerCase();
-                const dealCategory = String(deal.category?.lookup_value || deal.category || '').toLowerCase();
-                const dealPrice = parseFloat(deal.price || deal.quotePrice) || 0;
-
-                // Find active leads that MIGHT match (broad pre-filter for speed)
-                const candidateLeads = await Lead.find({
-                    stage: { $nin: ['Closed', 'Lost', 'Junk'] },
-                    $or: [
-                        // Price range overlap (generous)
-                        { budgetMin: { $lte: dealPrice * 1.3 }, budgetMax: { $gte: dealPrice * 0.7 } },
-                        { budgetMin: 0, budgetMax: 0 },  // No budget set — still candidates
-                        // Project name match
-                        { projectName: { $regex: dealProjectName.slice(0, 10), $options: 'i' } }
-                    ]
-                })
-                .select('_id firstName lastName mobile assignment budgetMin budgetMax sector locCity requirement')
-                .limit(100)
-                .lean();
-
-                if (candidateLeads.length === 0) return;
-
-                // Score each candidate simply (no full engine — just budget + name signal)
-                const matched = candidateLeads
-                    .map(lead => {
-                        let score = 0;
-                        if (dealPrice > 0) {
-                            const lMin = parseFloat(lead.budgetMin) || 0;
-                            const lMax = parseFloat(lead.budgetMax) || Infinity;
-                            if (dealPrice >= lMin && dealPrice <= lMax) score += 50;
-                            else if (dealPrice >= lMin * 0.8 && dealPrice <= lMax * 1.2) score += 30;
-                        }
-                        const leadSector = (lead.sector || '').toLowerCase();
-                        const leadCity = (lead.locCity || '').toLowerCase();
-                        const dealSector = (deal.inventoryId?.sector || deal.sector || '').toLowerCase();
-                        if (dealSector && leadSector && dealSector.includes(leadSector)) score += 30;
-                        if (leadCity && dealProjectName.includes(leadCity)) score += 20;
-                        return { lead, score };
-                    })
-                    .filter(({ score }) => score >= 30)
-                    .sort((a, b) => b.score - a.score)
-                    .slice(0, 5); // Top 5 candidates
-
-                // Create notifications for each match
-                for (const { lead } of matched) {
-                    const agentId = lead.assignment?.assignedTo || req.user?._id;
-                    if (!agentId) continue;
-                    await createNotification({
-                        userId: agentId,
-                        type: 'deal_match',
-                        title: '🏠 New Property Matches a Lead',
-                        message: `${deal.projectName || 'New deal'} (${dealCategory}) may match ${lead.firstName} ${lead.lastName || ''}'s requirements. Budget: ₹${dealPrice > 0 ? (dealPrice / 100000).toFixed(1) + 'L' : 'TBA'}`,
-                        entityType: 'deal',
-                        entityId: deal._id,
-                        link: `/deals/${deal._id}`,
-                        metadata: { leadId: lead._id, leadName: `${lead.firstName} ${lead.lastName || ''}` }
-                    }).catch(() => {});
-                }
-                console.log(`[InverseMatch] Deal ${deal._id}: notified agents for ${matched.length} matching lead(s)`);
-            } catch (e) {
-                console.error('[InverseMatch] Background trigger error:', e.message);
-            }
-        });
-
         res.status(201).json({ success: true, data: deal });
     } catch (error) {
+        console.error("[ADD_DEAL_ERROR]", error);
         res.status(500).json({ success: false, error: error.message });
     }
 };

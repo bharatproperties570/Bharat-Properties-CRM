@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { activitiesAPI } from '../utils/api';
+import { renderValue } from '../utils/renderUtils';
 
 /**
  * StageTransitionModal
@@ -180,7 +181,7 @@ const StageTransitionModal = ({
                             Stage Transition Required
                         </h3>
                         <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: '#bfdbfe' }}>
-                            Fill required details to move lead to <strong>{newStage}</strong>
+                            Fill required details to move lead to <strong>{renderValue(newStage)}</strong>
                         </p>
                     </div>
                     <button onClick={onClose} style={{ border: 'none', background: 'rgba(255,255,255,0.2)', cursor: 'pointer', color: '#fff', borderRadius: '8px', padding: '6px 10px' }}>
@@ -235,7 +236,7 @@ const StageTransitionModal = ({
                             opacity: submitting ? 0.7 : 1
                         }}
                     >
-                        {submitting ? 'Saving...' : `Move to ${newStage} →`}
+                        {submitting ? 'Saving...' : `Move to ${renderValue(newStage)} →`}
                     </button>
                 </div>
             </div>

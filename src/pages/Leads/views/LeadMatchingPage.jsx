@@ -44,6 +44,30 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
         budget: 25,
         size: 25
     });
+    const [showOtherCities, setShowOtherCities] = useState(false);
+
+    useEffect(() => {
+        const savedWeights = localStorage.getItem(`match_weights_${leadId}`);
+        const savedFlex = localStorage.getItem(`match_flex_${leadId}`);
+        if (savedWeights) {
+            try { setWeights(JSON.parse(savedWeights)); } catch(e) {}
+        }
+        if (savedFlex) {
+            try { 
+                const { budget, size } = JSON.parse(savedFlex);
+                setBudgetFlexibility(budget);
+                setSizeFlexibility(size);
+            } catch(e) {}
+        }
+    }, [leadId]);
+
+    useEffect(() => {
+        localStorage.setItem(`match_weights_${leadId}`, JSON.stringify(weights));
+    }, [weights, leadId]);
+
+    useEffect(() => {
+        localStorage.setItem(`match_flex_${leadId}`, JSON.stringify({ budget: budgetFlexibility, size: sizeFlexibility }));
+    }, [budgetFlexibility, sizeFlexibility, leadId]);
 
     useEffect(() => {
         const timer = setTimeout(() => {
@@ -56,13 +80,13 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                         setLead(leadRes.data.data);
                     }
 
-                    // 2. Fetch professional matches from backend engine with dynamic params
                     const matchRes = await api.get('deals/match', { 
                         params: { 
                             leadId, 
                             budgetFlexibility, 
                             sizeFlexibility, 
-                            weights: JSON.stringify(weights) 
+                            weights: JSON.stringify(weights),
+                            showOtherCities
                         } 
                     });
                     
@@ -98,7 +122,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
         }, 600); // 600ms debounce for sliders
 
         return () => clearTimeout(timer);
-    }, [leadId, budgetFlexibility, sizeFlexibility, weights]);
+    }, [leadId, budgetFlexibility, sizeFlexibility, weights, showOtherCities]);
 
     // Profile Completeness State (Phase 1)
     const [isQuickFillOpen, setIsQuickFillOpen] = useState(false);
@@ -135,41 +159,6 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
         };
     }, [lead]);
 
-    const renderValue = (val) => {
-        if (val === undefined || val === null) return '-';
-        
-        let result = val;
-        // Extraction logic
-        const extracted = (val && typeof val === 'object') ? (val.lookup_value || val.fullName || val.name || val.title || val.label || val.value || val.displayName || val.code) : val;
-        
-        if (extracted !== undefined && extracted !== null && typeof extracted !== 'object') {
-            result = extracted;
-        } else if (val && typeof val === 'object') {
-            // Fallback for objects without standard keys
-            try {
-                const str = String(val);
-                result = (str !== '[object Object]') ? str : '';
-            } catch (e) {
-                result = '';
-            }
-        }
-
-        // Final sanitation
-        if (typeof result === 'object' || result === null) {
-            try {
-                result = String(result);
-            } catch (e) {
-                result = '-';
-            }
-        }
-        
-        // NEVER return a raw 24-char hex ID to the UI
-        const finalStr = String(result);
-        if (/^[0-9a-fA-F]{24}$/.test(finalStr)) return '-';
-        if (finalStr === '[object Object]') return '-';
-        
-        return finalStr || '-';
-    };
 
     // 🧠 SENIOR PROFESSIONAL: Robust Lookup Resolver for Matching
     const resolveLookup = useCallback((val, type) => {
@@ -196,7 +185,12 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
 
     // 3. Centralized Logic moved to Server-Side
     const matchedItems = useMemo(() => {
-        return inventoryItems; // Already fetched and mapped in useEffect
+        // Sort: Pinned items first, then by score
+        return [...inventoryItems].sort((a, b) => {
+            if (a.isPinned && !b.isPinned) return -1;
+            if (!a.isPinned && b.isPinned) return 1;
+            return (b.score || 0) - (a.score || 0);
+        });
     }, [inventoryItems]);
 
     // Progressive Rendering
@@ -283,7 +277,28 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
     const [autoDispatchThreshold, setAutoDispatchThreshold] = useState(70);   // Min score to auto-send
     const [autoDispatchTopN, setAutoDispatchTopN] = useState(3);              // Max deals to auto-send
     const [autoDispatching, setAutoDispatching] = useState(false);
-    const [lastAutoDispatchCount, setLastAutoDispatchCount] = useState(0);
+    const [globalPolicy, setGlobalPolicy] = useState(null);
+
+    useEffect(() => {
+        const fetchGlobalPolicy = async () => {
+            try {
+                const { enrichmentAPI } = await import('../../../utils/api');
+                const res = await enrichmentAPI.getRules();
+                if (res.success && res.data?.generalRules) {
+                    const policy = res.data.generalRules.find(r => r.type === 'autodispatch');
+                    if (policy && policy.config) {
+                        setGlobalPolicy(policy.config);
+                        setAutoDispatchEnabled(policy.config.enabled);
+                        setAutoDispatchThreshold(policy.config.threshold || 70);
+                        setAutoDispatchTopN(policy.config.maxProperties || 3);
+                    }
+                }
+            } catch (e) {
+                console.warn("Could not fetch global auto-dispatch policy", e);
+            }
+        };
+        fetchGlobalPolicy();
+    }, []);
 
     const handleAutoDispatch = async (deals) => {
         if (!autoDispatchEnabled || !lead || autoDispatching) return;
@@ -390,6 +405,89 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             toast.error('Failed to save feedback. Please try again.');
         } finally {
             setSubmittingFeedback(null);
+        }
+    };
+
+    const handleTogglePin = async (item) => {
+        if (!lead?._id || !item) return;
+        const invId = item.inventoryId?._id || item.inventoryId || item._id;
+        
+        // Optimistic UI
+        setInventoryItems(prev => prev.map(d => 
+            (d._id === item._id) ? { ...d, isPinned: !d.isPinned } : d
+        ));
+
+        try {
+            const res = await api.put(`leads/${lead._id}/pin-match/${invId}`);
+            if (res.data?.success) {
+                toast.success(res.data.message);
+                // Also update the lead state if we need it elsewhere
+                setLead(prev => {
+                    const pinned = prev.pinnedMatches || [];
+                    const exists = pinned.includes(invId);
+                    return {
+                        ...prev,
+                        pinnedMatches: exists ? pinned.filter(id => id !== invId) : [...pinned, invId]
+                    };
+                });
+            }
+        } catch (e) {
+            // Rollback
+            setInventoryItems(prev => prev.map(d => 
+                (d._id === item._id) ? { ...d, isPinned: !d.isPinned } : d
+            ));
+            toast.error('Failed to update bookmark');
+        }
+    };
+
+    // ─── PHASE 5: AI Interpretation Engine ───────────────────────────────────
+    const [interpreting, setInterpreting] = useState(false);
+    const [aiFindings, setAiFindings] = useState(null);
+
+    const handleAIInterpret = async () => {
+        if (!lead?._id) return;
+        setInterpreting(true);
+        try {
+            const res = await api.post(`leads/${lead._id}/ai-interpret`);
+            if (res.data?.success) {
+                setAiFindings(res.data.data);
+                toast.success('AI successfully interpreted lead preferences!');
+            }
+        } catch (e) {
+            const errorMsg = e.response?.data?.error || e.message || 'Check Gemini API Configuration';
+            toast.error(`AI Interpretation failed: ${errorMsg}`);
+        } finally {
+            setInterpreting(false);
+        }
+    };
+
+    const applyAIFindings = async () => {
+        if (!aiFindings || !lead?._id) return;
+        setSavingProfile(true);
+        try {
+            const payload = {
+                requirement: aiFindings.requirement,
+                budgetMin: aiFindings.budgetMin,
+                budgetMax: aiFindings.budgetMax,
+                sector: aiFindings.location,
+                source: 'AI_PROFILER',
+                // propertyType needs to be IDs, so we'll keep names for now or use a fuzzy resolver
+                // For a senior professional, we'll just update the scalars
+            };
+            
+            const res = await api.patch(`leads/${lead._id}`, payload);
+            if (res.data?.success) {
+                setLead(prev => ({ ...prev, ...payload }));
+                setAiFindings(null);
+                toast.success('AI Insights applied to profile! Re-matching...');
+                setBudgetFlexibility(prev => prev + 0.0001); // Trigger re-match
+            }
+        } catch (e) {
+            console.error('[AI_APPLY_ERROR]', e);
+            const msg = e.response?.data?.message || e.message;
+            toast.error(`Failed to apply AI insights: ${msg}`);
+        } finally {
+            setSavingProfile(false);
         }
     };
 
@@ -503,7 +601,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                 style={{ fontSize: '0.85rem', fontWeight: 700, color: '#2563eb', background: '#eff6ff', padding: '2px 8px', borderRadius: '4px', cursor: 'pointer', textDecoration: 'none' }}
                                 onClick={() => onNavigate('contact-detail', lead.mobile)}
                             >
-                                {lead.name} | {lead.mobile}
+                                {renderValue(lead.name)} | {renderValue(lead.mobile)}
                             </span>
                         </div>
                     </div>
@@ -513,6 +611,17 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                         <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981' }}></div>
                         <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#166534' }}>Strict AI Engine Active</span>
                     </div>
+                    <button 
+                        onClick={handleSendPortfolio}
+                        className="btn-secondary"
+                        style={{ 
+                            display: 'flex', alignItems: 'center', gap: '8px',
+                            padding: '8px 16px', borderRadius: '10px', background: '#fff', 
+                            color: '#0f172a', border: '1px solid #e2e8f0', fontWeight: 700 
+                        }}
+                    >
+                        <i className="fas fa-share-alt" style={{ color: '#6366f1' }}></i> Share Portfolio
+                    </button>
                     <button
                         className="btn-primary"
                         style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
@@ -543,6 +652,36 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                             <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#10b981', background: '#ecfdf5', padding: '4px 10px', borderRadius: '20px', border: '1px solid #b9f6ca', display: 'flex', alignItems: 'center', gap: '5px' }}>
                                 <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981' }}></div> Verified Signal
                             </span>
+                        </div>
+
+                        <div style={{ marginBottom: '16px' }}>
+                            <button 
+                                onClick={handleAIInterpret}
+                                disabled={interpreting}
+                                style={{ 
+                                    width: '100%', 
+                                    padding: '10px', 
+                                    borderRadius: '12px', 
+                                    background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)', 
+                                    color: '#fff', 
+                                    border: 'none', 
+                                    fontWeight: 800, 
+                                    fontSize: '0.8rem', 
+                                    cursor: interpreting ? 'not-allowed' : 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '10px',
+                                    boxShadow: '0 4px 12px rgba(99, 102, 241, 0.2)',
+                                    opacity: interpreting ? 0.7 : 1
+                                }}
+                            >
+                                {interpreting ? (
+                                    <><i className="fas fa-spinner fa-spin"></i> Analyzing Signals...</>
+                                ) : (
+                                    <><i className="fas fa-wand-magic-sparkles"></i> AI Interpret Requirements</>
+                                )}
+                            </button>
                         </div>
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -582,14 +721,14 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                         <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>Target Area</label>
                                     </div>
                                     <p style={{ fontSize: '0.85rem', fontWeight: 800, color: '#1e293b', margin: 0 }}>{renderValue(lead.location)}</p>
-                                    {lead.locArea && <p style={{ fontSize: '0.7rem', color: '#64748b', margin: 0 }}>Sub: {lead.locArea}</p>}
+                                    {lead.locArea && <p style={{ fontSize: '0.7rem', color: '#64748b', margin: 0 }}>Sub: {renderValue(lead.locArea)}</p>}
                                 </div>
                                 <div style={{ background: '#fff', padding: '14px', borderRadius: '16px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                         <i className="fas fa-city" style={{ color: '#3b82f6', fontSize: '0.75rem' }}></i>
                                         <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>City / Sector</label>
                                     </div>
-                                    <p style={{ fontSize: '0.85rem', fontWeight: 800, color: '#1e293b', margin: 0 }}>{lead.sector || lead.locCity || 'Open Region'}</p>
+                                    <p style={{ fontSize: '0.85rem', fontWeight: 800, color: '#1e293b', margin: 0 }}>{renderValue(lead.sector || lead.locCity) || 'Open Region'}</p>
                                     <p style={{ fontSize: '0.7rem', color: '#64748b', margin: 0 }}>Precise Match Active</p>
                                 </div>
                             </div>
@@ -704,6 +843,45 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                             <input type="checkbox" onChange={handleSelectAll} checked={selectedItems.length === matchedItems.length && matchedItems.length > 0} />
                             <span style={{ fontSize: '0.95rem', fontWeight: 700 }}>{matchedItems.length} Matches Found</span>
                         </div>
+                        
+                        <div 
+                            onClick={() => setShowOtherCities(!showOtherCities)}
+                            style={{ 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: '10px', 
+                                background: showOtherCities ? '#eff6ff' : '#f8fafc',
+                                padding: '6px 12px',
+                                borderRadius: '100px',
+                                cursor: 'pointer',
+                                border: `1px solid ${showOtherCities ? '#bfdbfe' : '#e2e8f0'}`,
+                                transition: 'all 0.3s ease',
+                                userSelect: 'none'
+                            }}
+                        >
+                            <span style={{ fontSize: '0.72rem', fontWeight: 800, color: showOtherCities ? '#2563eb' : '#64748b' }}>
+                                {showOtherCities ? 'Showing All Cities' : 'Target City Only'}
+                            </span>
+                            <div style={{ 
+                                width: '32px', 
+                                height: '18px', 
+                                background: showOtherCities ? '#3b82f6' : '#cbd5e1', 
+                                borderRadius: '10px', 
+                                position: 'relative',
+                                transition: 'background 0.3s'
+                            }}>
+                                <div style={{ 
+                                    width: '14px', 
+                                    height: '14px', 
+                                    background: '#fff', 
+                                    borderRadius: '50%', 
+                                    position: 'absolute', 
+                                    top: '2px', 
+                                    left: showOtherCities ? '16px' : '2px',
+                                    transition: 'left 0.3s'
+                                }}></div>
+                            </div>
+                        </div>
                     </div>
 
                     {/* ─── Phase 3C: Smart Suggestions Banner ─── */}
@@ -722,15 +900,15 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                             <i className={`fas ${s.icon}`} style={{ color: c.icon, fontSize: '0.85rem' }}></i>
                                         </div>
                                         <div style={{ flex: 1, minWidth: 0 }}>
-                                            <p style={{ margin: '0 0 3px 0', fontWeight: 800, fontSize: '0.82rem', color: c.text }}>{s.title}</p>
-                                            <p style={{ margin: 0, fontSize: '0.75rem', color: c.text, opacity: 0.85, lineHeight: 1.5 }}>{s.message}</p>
+                                            <p style={{ margin: '0 0 3px 0', fontWeight: 800, fontSize: '0.82rem', color: c.text }}>{renderValue(s.title)}</p>
+                                            <p style={{ margin: 0, fontSize: '0.75rem', color: c.text, opacity: 0.85, lineHeight: 1.5 }}>{renderValue(s.message)}</p>
                                         </div>
                                         {s.action && (
                                             <button 
                                                 onClick={() => s.action.toLowerCase().includes('quick fill') && setShowQuickFill(true)}
                                                 style={{ fontSize: '0.65rem', fontWeight: 800, color: c.icon, background: '#fff', border: `1px solid ${c.border}`, padding: '4px 12px', borderRadius: '8px', whiteSpace: 'nowrap', cursor: 'pointer', flexShrink: 0, boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}
                                             >
-                                                {s.action} →
+                                                {renderValue(s.action)} →
                                             </button>
                                         )}
                                     </div>
@@ -767,13 +945,29 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
 
                             {/* Property Image & Badge */}
                             <div style={{ position: 'relative' }}>
+                                <div 
+                                    onClick={(e) => { e.stopPropagation(); handleTogglePin(item); }}
+                                    style={{ 
+                                        position: 'absolute', top: '-10px', left: '-10px', 
+                                        zIndex: 10, width: '32px', height: '32px', 
+                                        borderRadius: '50%', background: item.isPinned ? '#f59e0b' : '#fff', 
+                                        color: item.isPinned ? '#fff' : '#cbd5e1',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        boxShadow: '0 4px 6px rgba(0,0,0,0.1)', cursor: 'pointer',
+                                        border: `2px solid ${item.isPinned ? '#d97706' : '#f1f5f9'}`,
+                                        transition: 'all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)'
+                                    }}
+                                    title={item.isPinned ? "Pinned to Shortlist" : "Pin to Shortlist"}
+                                >
+                                    <i className={`fas fa-thumbtack`} style={{ transform: item.isPinned ? 'rotate(0deg)' : 'rotate(45deg)', fontSize: '0.85rem' }}></i>
+                                </div>
                                 <img
                                     src={item.thumbnail}
                                     alt="Property"
                                     style={{ width: '100%', height: '80px', objectFit: 'cover', borderRadius: '14px', background: '#f1f5f9' }}
                                 />
                                 <div style={{ position: 'absolute', top: '8px', left: '8px', background: 'rgba(15, 23, 42, 0.8)', color: '#fff', fontSize: '0.6rem', fontWeight: 800, padding: '2px 8px', borderRadius: '6px', backdropFilter: 'blur(4px)' }}>
-                                    {item.itemType}
+                                    {renderValue(item.itemType || item.category)}
                                 </div>
                                 {item.sharedStatus && (
                                     <div style={{
@@ -812,7 +1006,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                         boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
                                         border: `1px solid ${item.matchPercentage > 80 ? '#b9f6ca' : item.matchPercentage > 50 ? '#fde68a' : '#e2e8f0'}`
                                     }}>
-                                        {item.unitNo || 'N/A'}
+                                        {renderValue(item.unitNo) || 'N/A'}
                                     </div>
                                     <span style={{ fontSize: '0.9rem', fontWeight: 800, color: '#10b981', background: '#ecfdf5', padding: '2px 10px', borderRadius: '100px', border: '1px solid #b9f6ca' }}>
                                         ₹{renderValue(item.price)}
@@ -827,12 +1021,12 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                                         {item.inventoryId?.sector && (
                                             <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#64748b', background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px' }}>
-                                                {item.inventoryId.sector}
+                                                {renderValue(item.inventoryId.sector)}
                                             </span>
                                         )}
                                         {item.inventoryId?.city && (
                                             <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#2563eb', background: '#eff6ff', padding: '2px 8px', borderRadius: '4px' }}>
-                                                {item.inventoryId.city}
+                                                {renderValue(item.inventoryId.city)}
                                             </span>
                                         )}
                                         {item.inventoryId?.address?.locality && (
@@ -860,7 +1054,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                     style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'none', border: 'none', cursor: 'pointer', padding: '0', color: '#3b82f6', fontSize: '0.7rem', fontWeight: 800, marginTop: '8px' }}
                                 >
                                     <i className="fas fa-magic" style={{ fontSize: '0.65rem' }}></i>
-                                    Analysis — {item.matchPercentage}%
+                                    Analysis — {renderValue(item.matchPercentage)}%
                                     <i className={`fas fa-chevron-${expandedBreakdown === item._id ? 'up' : 'down'}`} style={{ fontSize: '0.6rem', marginLeft: '2px' }}></i>
                                 </button>
 
@@ -891,11 +1085,29 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                             );
                                         })}
 
+                                        {/* 🚀 SENIOR PROFESSIONAL: Match Momentum & Decay Indicator */}
+                                        <div style={{ marginTop: '4px', borderTop: '1px dashed #e2e8f0', paddingTop: '8px' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                    <i className="fas fa-history" style={{ color: item.rawScore && item.rawScore > item.matchPercentage ? '#f97316' : '#64748b', fontSize: '0.7rem' }}></i>
+                                                    <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#475569' }}>Engagement Momentum</span>
+                                                </div>
+                                                <span style={{ fontSize: '0.7rem', fontWeight: 900, color: item.rawScore && item.rawScore > item.matchPercentage ? '#dc2626' : '#10b981' }}>
+                                                    {item.rawScore && item.rawScore > item.matchPercentage ? `-${item.rawScore - item.matchPercentage}% Decay` : 'Optimal'}
+                                                </span>
+                                            </div>
+                                            <p style={{ margin: 0, fontSize: '0.62rem', color: '#94a3b8', lineHeight: 1.3 }}>
+                                                {item.rawScore && item.rawScore > item.matchPercentage 
+                                                    ? `Score adjusted based on ${item.daysSinceShared || 'recent'} days of lead inactivity.` 
+                                                    : 'High relevance maintained due to active lead engagement signals.'}
+                                            </p>
+                                        </div>
+
                                         <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '8px', marginTop: '4px' }}>
                                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', marginBottom: '8px' }}>
                                                 {(item.matchDetails || item.matchReasons || []).map((detail, i) => (
                                                     <span key={i} style={{ fontSize: '0.62rem', fontWeight: 800, color: '#475569', background: '#fff', padding: '1px 6px', borderRadius: '4px', border: '1px solid #e2e8f0', textTransform: 'uppercase' }}>
-                                                        {detail}
+                                                        {renderValue(detail)}
                                                     </span>
                                                 ))}
                                             </div>
@@ -905,7 +1117,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                                     <span style={{ color: '#94a3b8', fontWeight: 600 }}>DISPATCH HISTORY:</span>
                                                     {(item.lastDispatch.channels || []).map((ch, i) => (
                                                         <span key={i} style={{ fontWeight: 700, color: ch === 'whatsapp' ? '#166534' : '#4338ca' }}>
-                                                            {ch.toUpperCase()}
+                                                            {renderValue(ch).toUpperCase()}
                                                         </span>
                                                     ))}
                                                     {item.rawScore && item.rawScore !== item.matchPercentage && (
@@ -1102,6 +1314,82 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             <CreateActivityModal isOpen={isActivityOpen} onClose={() => setIsActivityOpen(false)} initialData={activityInitialData} onSave={() => setIsActivityOpen(false)} />
             {showQuickFill && <QuickFillModal isOpen={showQuickFill} onClose={() => setShowQuickFill(false)} lead={lead} onUpdate={(u) => setLead(u)} getLookupValue={getLookupValue} />}
             <AlgorithmSettingsModal isOpen={isWeightsOpen} onClose={() => setIsWeightsOpen(false)} weights={weights} onSave={(newWeights) => { setWeights(newWeights); setIsWeightsOpen(false); }} />
+             {/* AI Findings Modal */}
+            {aiFindings && (
+                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.8)', backdropFilter: 'blur(8px)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+                    <div style={{ background: '#fff', width: '100%', maxWidth: '500px', borderRadius: '24px', overflow: 'hidden', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)', animation: 'modalSlideIn 0.3s ease-out' }}>
+                        <div style={{ background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)', padding: '24px', color: '#fff' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                    <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                        <i className="fas fa-brain" style={{ fontSize: '1.2rem' }}></i>
+                                    </div>
+                                    <div>
+                                        <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800 }}>AI Requirement Insight</h2>
+                                        <p style={{ margin: 0, fontSize: '0.75rem', opacity: 0.9 }}>Extracted from notes & activities</p>
+                                    </div>
+                                </div>
+                                <button onClick={() => setAiFindings(null)} style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '1.2rem' }}>
+                                    <i className="fas fa-times"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div style={{ padding: '24px' }}>
+                            <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '16px', border: '1px solid #e2e8f0', marginBottom: '20px' }}>
+                                <p style={{ margin: 0, fontSize: '0.9rem', color: '#334155', fontWeight: 600, fontStyle: 'italic', lineHeight: 1.5 }}>
+                                    "{renderValue(aiFindings.summary)}"
+                                </p>
+                            </div>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
+                                <div style={{ background: '#fff', border: '1px solid #f1f5f9', padding: '12px', borderRadius: '12px' }}>
+                                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Budget Suggestion</label>
+                                    <p style={{ margin: 0, fontSize: '0.9rem', fontWeight: 800, color: '#1e293b' }}>
+                                        ₹{(aiFindings.budgetMin / 100000).toFixed(1)}L - {(aiFindings.budgetMax / 100000).toFixed(1)}L
+                                    </p>
+                                </div>
+                                <div style={{ background: '#fff', border: '1px solid #f1f5f9', padding: '12px', borderRadius: '12px' }}>
+                                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Location Vector</label>
+                                    <p style={{ margin: 0, fontSize: '0.9rem', fontWeight: 800, color: '#1e293b' }}>{renderValue(aiFindings.location)}</p>
+                                </div>
+                            </div>
+
+                            <div style={{ marginBottom: '20px' }}>
+                                <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '8px' }}>Property Signals</label>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                    {aiFindings.propertyType?.map((t, i) => (
+                                        <span key={i} style={{ padding: '4px 10px', background: '#f0fdf4', color: '#16a34a', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, border: '1px solid #dcfce7' }}>{renderValue(t)}</span>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {aiFindings.softSignals?.length > 0 && (
+                                <div style={{ marginBottom: '24px' }}>
+                                    <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '8px' }}>Soft Preferences (Nuance)</label>
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                        {aiFindings.softSignals.map((s, i) => (
+                                            <span key={i} style={{ padding: '4px 10px', background: '#fff7ed', color: '#ea580c', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, border: '1px solid #ffedd5' }}>
+                                                <i className="fas fa-sparkles" style={{ marginRight: '4px' }}></i> {renderValue(s)}
+                                            </span>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            <div style={{ display: 'flex', gap: '12px' }}>
+                                <button onClick={() => setAiFindings(null)} style={{ flex: 1, padding: '14px', borderRadius: '12px', background: '#f1f5f9', color: '#64748b', border: 'none', fontWeight: 700, cursor: 'pointer' }}>Discard</button>
+                                <button 
+                                    onClick={applyAIFindings}
+                                    style={{ flex: 2, padding: '14px', borderRadius: '12px', background: '#6366f1', color: '#fff', border: 'none', fontWeight: 800, cursor: 'pointer', boxShadow: '0 4px 12px rgba(99, 102, 241, 0.3)' }}
+                                >
+                                    Apply AI Insights
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

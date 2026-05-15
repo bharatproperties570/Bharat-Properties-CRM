@@ -6,6 +6,7 @@ import ActivityFilterPanel from './components/ActivityFilterPanel';
 import { applyActivityFilters } from '../../utils/activityFilterLogic';
 import ActiveFiltersChips from '../../components/ActiveFiltersChips';
 import { STAGE_PIPELINE } from '../../utils/stageEngine';
+import { renderValue } from '../../utils/renderUtils';
 
 // ─── MEMOIZED SUB-COMPONENTS ──────────────────────────────────────────────────
 
@@ -22,7 +23,7 @@ const LeadStageChip = memo(function LeadStageChip({ stage }) {
             fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.03em'
         }}>
             <span style={{ width: '4px', height: '4px', borderRadius: '50%', background: info.color }} />
-            {stage}
+            {renderValue(stage)}
         </span>
     );
 });
@@ -71,21 +72,21 @@ const ActivityRow = memo(function ActivityRow({
 
             {/* Details */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', overflow: 'hidden' }}>
-                <div title={activity.relatedTo?.[0]?.name || activity.participants?.[0]?.name} className="text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0f172a' }}>
-                    {activity.relatedTo?.[0]?.name || activity.participants?.[0]?.name || activity.contactName || 'Unknown Client'}
+                <div title={renderValue(activity.relatedTo?.[0]?.name || activity.participants?.[0]?.name)} className="text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0f172a' }}>
+                    {renderValue(activity.relatedTo?.[0]?.name || activity.participants?.[0]?.name || activity.contactName || 'Unknown Client')}
                 </div>
                 
                 {/* Mobile / Phone - Enterprise Multi-Path Lookup */}
                 <div style={{ fontSize: '0.75rem', color: '#7c3aed', fontWeight: 700 }}>
                     <i className="fas fa-phone" style={{ marginRight: '6px', transform: 'scaleX(-1) rotate(5deg)', opacity: 0.8 }}></i>
-                    {activity.participants?.[0]?.mobile || activity.details?.mobile || activity.mobile || activity.contactPhone || '--'}
+                    {renderValue(activity.participants?.[0]?.mobile || activity.details?.mobile || activity.mobile || activity.contactPhone || '--')}
                 </div>
 
                 {/* Email - Enterprise Multi-Path Lookup */}
                 {(activity.contactEmail || activity.participants?.[0]?.email || activity.details?.email) && (
                     <div className="text-ellipsis" style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>
                         <i className="fas fa-envelope" style={{ marginRight: '6px', opacity: 0.7 }}></i>
-                        {activity.contactEmail || activity.participants?.[0]?.email || activity.details?.email}
+                        {renderValue(activity.contactEmail || activity.participants?.[0]?.email || activity.details?.email)}
                     </div>
                 )}
             </div>
@@ -106,7 +107,7 @@ const ActivityRow = memo(function ActivityRow({
 
             {/* Agenda */}
             <div style={{ fontSize: '0.75rem', color: '#475569', lineHeight: 1.5, overflow: 'hidden' }}>
-                <div className="address-clamp" style={{ fontStyle: 'italic' }}>{activity.subject}</div>
+                <div className="address-clamp" style={{ fontStyle: 'italic' }}>{renderValue(activity.subject)}</div>
             </div>
 
             {/* Activity Type */}
@@ -119,7 +120,7 @@ const ActivityRow = memo(function ActivityRow({
                     background: activity.type === 'Meeting' ? '#dbeafe' : activity.type === 'Call' ? '#fef3c7' : '#d1fae5',
                     color: activity.type === 'Meeting' ? '#1e40af' : activity.type === 'Call' ? '#92400e' : '#065f46',
                 }}>
-                    {activity.type}
+                    {renderValue(activity.type)}
                 </span>
             </div>
 
@@ -127,19 +128,19 @@ const ActivityRow = memo(function ActivityRow({
             <div style={{ fontSize: '0.75rem', color: '#475569', lineHeight: 1.5, overflow: 'hidden' }}>
                 {activity.details?.visitedProperties?.[0]?.project && (
                     <div className="text-ellipsis" style={{ fontSize: '0.75rem', color: '#0891b2', fontWeight: 600, marginBottom: '4px' }}>
-                        <i className="fas fa-building" style={{ marginRight: '4px' }}></i>{activity.details.visitedProperties[0].project}
+                        <i className="fas fa-building" style={{ marginRight: '4px' }}></i>{renderValue(activity.details.visitedProperties[0].project)}
                     </div>
                 )}
                 {activity.description && (
                     <div className="address-clamp" style={{ fontSize: '0.75rem', color: '#059669', fontWeight: 600, padding: '4px 8px', background: '#d1fae5', borderRadius: '4px', borderLeft: '3px solid #10b981', marginBottom: '4px' }}>
-                        <i className="fas fa-comment-dots" style={{ marginRight: '4px' }}></i>{activity.description}
+                        <i className="fas fa-comment-dots" style={{ marginRight: '4px' }}></i>{renderValue(activity.description)}
                     </div>
                 )}
                 {activity.details && Object.keys(activity.details).length > 0 && typeof activity.details === 'object' && !Array.isArray(activity.details) && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
                         {Object.entries(activity.details).filter(([k, v]) => v && typeof v === 'string' && k !== 'visitedProperties').slice(0, 2).map(([key, value], i) => (
-                            <span key={i} title={`${key}: ${value}`} className="text-ellipsis" style={{ maxWidth: '100%', fontSize: '0.65rem', background: '#f1f5f9', color: '#475569', padding: '2px 6px', borderRadius: '4px', border: '1px solid #e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden' }}>
-                                <span style={{ fontWeight: 700, textTransform: 'capitalize' }}>{key}</span>: {value}
+                            <span key={i} title={`${key}: ${renderValue(value)}`} className="text-ellipsis" style={{ maxWidth: '100%', fontSize: '0.65rem', background: '#f1f5f9', color: '#475569', padding: '2px 6px', borderRadius: '4px', border: '1px solid #e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden' }}>
+                                <span style={{ fontWeight: 700, textTransform: 'capitalize' }}>{key}</span>: {renderValue(value)}
                             </span>
                         ))}
                     </div>
@@ -148,12 +149,12 @@ const ActivityRow = memo(function ActivityRow({
 
             {/* Scheduled By */}
             <div className="text-ellipsis" style={{ fontSize: '0.8rem', color: '#334155', fontWeight: 600 }}>
-                {activity.createdBy?.fullName || activity.createdBy?.name || activity.performedBy || activity.scheduledBy || '--'}
+                {renderValue(activity.createdBy?.fullName || activity.createdBy?.name || activity.performedBy || activity.scheduledBy || '--')}
             </div>
 
             {/* Scheduled For */}
             <div className="text-ellipsis" style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>
-                {activity.assignedTo?.fullName || activity.assignedTo?.name || (activity.createdBy && !activity.assignedTo ? 'Self' : '--')}
+                {renderValue(activity.assignedTo?.fullName || activity.assignedTo?.name || (activity.createdBy && !activity.assignedTo ? 'Self' : '--'))}
             </div>
 
             {/* Stage / Status */}
@@ -178,7 +179,7 @@ const ActivityRow = memo(function ActivityRow({
                             : '#92400e',
                     width: 'fit-content'
                 }}>
-                    {activity.status}
+                    {renderValue(activity.status)}
                 </span>
             </div>
 
@@ -794,9 +795,9 @@ function ActivitiesPage() {
                             <div style={{ display: 'flex', gap: '30px', alignItems: 'center', flex: 1 }}>
                                 <div style={{ background: '#334155', color: '#fff', borderRadius: '6px', fontSize: '0.7rem', padding: '4px 12px', fontWeight: 800 }}>ACTIVITY SUMMARY</div>
                                 <div style={{ display: 'flex', gap: '20px' }}>
-                                    <div style={{ fontSize: '0.8rem' }}><span style={{ color: '#94a3b8' }}>CONTACT:</span> <span style={{ fontWeight: 800 }}>{selectedActivity.relatedTo?.[0]?.name || 'Unknown'}</span></div>
-                                    <div style={{ fontSize: '0.8rem' }}><span style={{ color: '#94a3b8' }}>TYPE:</span> <span style={{ fontWeight: 800, color: '#10b981' }}>{selectedActivity.type}</span></div>
-                                    <div style={{ fontSize: '0.8rem', maxWidth: '400px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}><span style={{ color: '#94a3b8' }}>SUBJECT:</span> <span style={{ fontWeight: 600 }}>{selectedActivity.subject}</span></div>
+                                    <div style={{ fontSize: '0.8rem' }}><span style={{ color: '#94a3b8' }}>CONTACT:</span> <span style={{ fontWeight: 800 }}>{renderValue(selectedActivity.relatedTo?.[0]?.name || 'Unknown')}</span></div>
+                                    <div style={{ fontSize: '0.8rem' }}><span style={{ color: '#94a3b8' }}>TYPE:</span> <span style={{ fontWeight: 800, color: '#10b981' }}>{renderValue(selectedActivity.type)}</span></div>
+                                    <div style={{ fontSize: '0.8rem', maxWidth: '400px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}><span style={{ color: '#94a3b8' }}>SUBJECT:</span> <span style={{ fontWeight: 600 }}>{renderValue(selectedActivity.subject)}</span></div>
                                 </div>
                                 <button onClick={() => setSelectedActivity(null)} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', marginLeft: 'auto' }}><i className="fas fa-times"></i></button>
                             </div>

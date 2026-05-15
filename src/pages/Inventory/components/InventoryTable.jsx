@@ -273,8 +273,8 @@ const InventoryTable = ({
                                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                                                     {outcome && (
                                                         <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                                            <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0f172a' }}>{outcome}</span>
-                                                            {reason && <span style={{ fontSize: '0.62rem', color: '#64748b', fontWeight: 600 }}>({reason})</span>}
+                                                            <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0f172a' }}>{renderValue(outcome)}</span>
+                                                            {reason && <span style={{ fontSize: '0.62rem', color: '#64748b', fontWeight: 600 }}>({renderValue(reason)})</span>}
                                                         </div>
                                                     )}
                                                     {followUp && (
