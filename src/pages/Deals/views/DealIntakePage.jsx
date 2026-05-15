@@ -1280,6 +1280,29 @@ const DealIntakePage = () => {
                                             )}
                                         </div>
                                     </div>
+
+                                    {/* Duplicate Intelligence Engine Panel */}
+                                    {currentItem.duplicate_intelligence && currentItem.duplicate_intelligence.duplicate_probability > 40 && (
+                                        <div style={{ padding: '16px', borderTop: '1px solid #e2e8f0', background: '#fff1f2' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                                                <i className="fas fa-clone" style={{ color: '#e11d48' }}></i>
+                                                <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#be123c' }}>
+                                                    DUPLICATE INTELLIGENCE (Probability: {currentItem.duplicate_intelligence.duplicate_probability}%)
+                                                </div>
+                                            </div>
+                                            <div style={{ fontSize: '0.85rem', color: '#9f1239', marginBottom: '8px' }}>
+                                                The system detected strong similarities with existing properties in the database.
+                                            </div>
+                                            {currentItem.duplicate_intelligence.merge_suggestions && currentItem.duplicate_intelligence.merge_suggestions.length > 0 && (
+                                                <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '0.85rem', color: '#881337', fontWeight: 600 }}>
+                                                    {currentItem.duplicate_intelligence.merge_suggestions.map((sug, idx) => (
+                                                        <li key={idx} style={{ marginBottom: '4px' }}>{sug}</li>
+                                                    ))}
+                                                </ul>
+                                            )}
+                                        </div>
+                                    )}
+
                                 </div>
                             )}
 

@@ -59,6 +59,13 @@ const intakeSchema = new mongoose.Schema({
     verification_notes: [{ type: String }],
     risk_flags: [{ type: String }],
 
+    // Duplicate Intelligence Layer
+    duplicate_intelligence: {
+        duplicate_probability: { type: Number, default: 0 },
+        possible_duplicate_ids: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Intake' }],
+        merge_suggestions: [{ type: String }]
+    },
+
     // Legacy fields
     content: { type: String },
     receivedAt: { type: Date, default: Date.now },

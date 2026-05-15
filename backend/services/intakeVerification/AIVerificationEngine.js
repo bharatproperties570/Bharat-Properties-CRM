@@ -1,16 +1,18 @@
 import Intake from '../../models/Intake.js';
+import duplicateIntelligenceEngine from './DuplicateIntelligenceEngine.js';
 
 class AIVerificationEngine {
     
     /**
      * Run all verification rules against an intake record
      * @param {Object} intakeRecord 
-     * @returns {Object} { status, confidence, notes, flags }
+     * @returns {Object} { status, confidence, notes, flags, duplicate_intelligence }
      */
     async verify(intakeRecord) {
         let confidenceScore = 100;
         const notes = [];
         const flags = [];
+        let duplicate_intelligence = {};
 
         // 1. Missing Fields Detection
         const missingFields = this.detectMissingFields(intakeRecord);
@@ -50,12 +52,20 @@ class AIVerificationEngine {
             notes.push("Low source extraction confidence.");
         }
 
-        // 6. Duplicate Risk
-        const duplicateRisk = await this.detectDuplicateProbability(intakeRecord);
-        if (duplicateRisk > 80) {
+        // 6. Duplicate Risk (Using Duplicate Intelligence Engine)
+        const duplicateAnalysis = await duplicateIntelligenceEngine.analyze(intakeRecord);
+        duplicate_intelligence = duplicateAnalysis;
+
+        if (duplicateAnalysis.duplicate_probability > 80) {
             confidenceScore -= 40;
             flags.push('high_duplicate_probability');
-            notes.push("High probability of being a duplicate listing in the CRM.");
+            notes.push(`High probability (${duplicateAnalysis.duplicate_probability}%) of being a duplicate.`);
+            if (duplicateAnalysis.merge_suggestions.length > 0) {
+                notes.push(`Merge suggestion: ${duplicateAnalysis.merge_suggestions[0]}`);
+            }
+        } else if (duplicateAnalysis.duplicate_probability > 50) {
+            confidenceScore -= 15;
+            notes.push(`Moderate duplicate risk (${duplicateAnalysis.duplicate_probability}%).`);
         }
 
         // Normalize Score
@@ -73,7 +83,8 @@ class AIVerificationEngine {
             verification_status: status,
             confidence_score: confidenceScore,
             verification_notes: notes,
-            risk_flags: flags
+            risk_flags: flags,
+            duplicate_intelligence: duplicate_intelligence
         };
     }
 
@@ -139,25 +150,6 @@ class AIVerificationEngine {
         return 'Normal';
     }
 
-    async detectDuplicateProbability(record) {
-        if (!record.location && !record.price) return 0;
-
-        // Find intakes with exact same location AND price within last 7 days
-        const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-        const duplicates = await Intake.countDocuments({
-            _id: { $ne: record._id },
-            location: record.location,
-            price: record.price,
-            createdAt: { $gte: sevenDaysAgo }
-        });
-
-        if (duplicates > 2) return 95;
-        if (duplicates > 0) return 60;
-        
-        return 5;
-    }
 }
 
 export default new AIVerificationEngine();
