@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import { whatsappTemplates } from '../../../constants/templates';
 import ComposeEmailModal from '../../Communication/components/ComposeEmailModal';
 import SendMessageModal from '../../../components/SendMessageModal';
@@ -9,9 +9,12 @@ import { api } from '../../../utils/api';
 import { parseBudget, parseSizeSqYard } from '../../../utils/matchingLogic'; // Keeping for parsing utilities
 import { useActivities } from '../../../context/ActivityContext';
 import { renderValue } from '../../../utils/renderUtils';
+import { usePropertyConfig } from '../../../context/PropertyConfigContext';
+import QuickFillModal from '../components/QuickFillModal';
 
 const LeadMatchingPage = ({ onNavigate, leadId }) => {
     const { addActivity } = useActivities();
+    const { getLookupValue } = usePropertyConfig();
     const [lead, setLead] = useState(null);
     const [inventoryItems, setInventoryItems] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -19,14 +22,22 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
     // Selection State
     const [selectedItems, setSelectedItems] = useState([]);
 
+    // Phase 3 Intelligence State
+    const [suggestions, setSuggestions] = useState([]);
+    const [excludedDeals, setExcludedDeals] = useState([]);
+    const [excludedCount, setExcludedCount] = useState(0);
+    const [showExcluded, setShowExcluded] = useState(false);
+    const [showQuickFill, setShowQuickFill] = useState(false);
+    const [expandedBreakdown, setExpandedBreakdown] = useState(null); // deal _id
+
     // Refinement State
-    const [budgetFlexibility, setBudgetFlexibility] = useState(10); // % flexibility
-    const [sizeFlexibility, setSizeFlexibility] = useState(10); // % flexibility
+    const [budgetFlexibility, setBudgetFlexibility] = useState(10);
+    const [sizeFlexibility, setSizeFlexibility] = useState(10);
     const [includeNearby, setIncludeNearby] = useState(true);
     const [isTypeFlexible] = useState(false);
     const [isSizeFlexible] = useState(false);
     const [minMatchScore, setMinMatchScore] = useState(20);
-    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [isWeightsOpen, setIsWeightsOpen] = useState(false);
     const [weights, setWeights] = useState({
         location: 30,
         type: 20,
@@ -59,10 +70,21 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                         const mappedMatches = (matchRes.data.data || []).map(item => ({
                             ...item,
                             matchPercentage: item.score || 0,
-                            gaps: item.matchDetails || [], // 🚀 Senior Professional: Use real backend reasons
-                            thumbnail: item.inventoryId?.propertyImages?.[0] || item.inventoryId?.images?.[0] || `https://picsum.photos/seed/${item._id}/400/300`
+                            gaps: item.matchDetails || [],
+                            thumbnail: item.inventoryId?.propertyImages?.[0] || item.inventoryId?.images?.[0] || `https://picsum.photos/seed/${item._id}/400/300`,
+                            // Phase 2 decay fields
+                            rawScore: item.rawScore || item.score || 0,
+                            sharedStatus: item.sharedStatus || null,
+                            daysSinceShared: item.daysSinceShared || null,
+                            lastDispatch: item.lastDispatch || null,
+                            // Phase 3A: score breakdown
+                            scoreBreakdown: item.scoreBreakdown || null,
                         }));
                         setInventoryItems(mappedMatches);
+                        // Phase 3B + 3C
+                        setSuggestions(matchRes.data.suggestions || []);
+                        setExcludedDeals(matchRes.data.excluded || []);
+                        setExcludedCount(matchRes.data.excludedCount || 0);
                     }
                 } catch (error) {
                     console.error("Error fetching match data:", error);
@@ -77,6 +99,11 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
 
         return () => clearTimeout(timer);
     }, [leadId, budgetFlexibility, sizeFlexibility, weights]);
+
+    // Profile Completeness State (Phase 1)
+    const [isQuickFillOpen, setIsQuickFillOpen] = useState(false);
+    const [quickFields, setQuickFields] = useState({});
+    const [savingProfile, setSavingProfile] = useState(false);
 
     // Communication Modals State
     const [isMailOpen, setIsMailOpen] = useState(false);
@@ -107,6 +134,65 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             leadLocation: (lead.location?.lookup_value || "").toLowerCase(),
         };
     }, [lead]);
+
+    const renderValue = (val) => {
+        if (val === undefined || val === null) return '-';
+        
+        let result = val;
+        // Extraction logic
+        const extracted = (val && typeof val === 'object') ? (val.lookup_value || val.fullName || val.name || val.title || val.label || val.value || val.displayName || val.code) : val;
+        
+        if (extracted !== undefined && extracted !== null && typeof extracted !== 'object') {
+            result = extracted;
+        } else if (val && typeof val === 'object') {
+            // Fallback for objects without standard keys
+            try {
+                const str = String(val);
+                result = (str !== '[object Object]') ? str : '';
+            } catch (e) {
+                result = '';
+            }
+        }
+
+        // Final sanitation
+        if (typeof result === 'object' || result === null) {
+            try {
+                result = String(result);
+            } catch (e) {
+                result = '-';
+            }
+        }
+        
+        // NEVER return a raw 24-char hex ID to the UI
+        const finalStr = String(result);
+        if (/^[0-9a-fA-F]{24}$/.test(finalStr)) return '-';
+        if (finalStr === '[object Object]') return '-';
+        
+        return finalStr || '-';
+    };
+
+    // 🧠 SENIOR PROFESSIONAL: Robust Lookup Resolver for Matching
+    const resolveLookup = useCallback((val, type) => {
+        if (!val) return null;
+        
+        // Case 1: val is already a resolved string or number
+        if (typeof val !== 'object' && !/^[0-9a-fA-F]{24}$/.test(String(val))) return String(val);
+
+        // Case 2: val is an object (could be populated)
+        if (typeof val === 'object') {
+            const label = val.lookup_value || val.name || val.label || val.fullName;
+            if (label && typeof label !== 'object' && !/^[0-9a-fA-F]{24}$/.test(String(label))) return String(label);
+            
+            // If label is missing or an ID, try to get the ID from the object
+            val = val._id || val.id || val;
+        }
+        
+        // Case 3: Try resolving the ID (string or from object above)
+        const resolved = getLookupValue(type, val);
+        if (!resolved || typeof resolved === 'object' || /^[0-9a-fA-F]{24}$/.test(String(resolved))) return null;
+        
+        return String(resolved);
+    }, [getLookupValue]);
 
     // 3. Centralized Logic moved to Server-Side
     const matchedItems = useMemo(() => {
@@ -145,6 +231,166 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
         setInitialChannel('WHATSAPP');
         setIsMessageOpen(true);
         logActivity('WhatsApp Prepared', item);
+    };
+
+    // Profile Completeness Calculator
+    const profileCompleteness = useMemo(() => {
+        if (!lead) return { score: 0, fields: [] };
+        const checks = [
+            { key: 'requirement', label: 'Requirement Type', done: !!(lead.requirement?.lookup_value || lead.requirement), icon: 'fa-home', weight: 20 },
+            { key: 'propertyType', label: 'Property Category', done: Array.isArray(lead.propertyType) && lead.propertyType.length > 0, icon: 'fa-building', weight: 20 },
+            { key: 'budget', label: 'Budget Range', done: lead.budgetMin > 0 || lead.budgetMax > 0, icon: 'fa-rupee-sign', weight: 20 },
+            { key: 'area', label: 'Area Preference', done: lead.areaMin > 0 || lead.areaMax > 0, icon: 'fa-ruler-combined', weight: 20 },
+            { key: 'location', label: 'Location Signal', done: !!(lead.sector || lead.locArea || lead.locCity || lead.location), icon: 'fa-map-marker-alt', weight: 15 },
+            { key: 'projectName', label: 'Target Project', done: Array.isArray(lead.projectName) && lead.projectName.length > 0, icon: 'fa-city', weight: 5 },
+        ];
+        const score = checks.filter(c => c.done).reduce((sum, c) => sum + c.weight, 0);
+        return { score, fields: checks };
+    }, [lead]);
+
+    const handleSaveProfile = async () => {
+        if (!lead?._id) return;
+        setSavingProfile(true);
+        try {
+            const payload = {};
+            if (quickFields.sector !== undefined) payload.sector = quickFields.sector;
+            if (quickFields.locArea !== undefined) payload.locArea = quickFields.locArea;
+            if (quickFields.locCity !== undefined) payload.locCity = quickFields.locCity;
+            if (quickFields.budgetMin !== undefined) payload.budgetMin = parseFloat(quickFields.budgetMin) * 100000;
+            if (quickFields.budgetMax !== undefined) payload.budgetMax = parseFloat(quickFields.budgetMax) * 100000;
+            if (quickFields.areaMin !== undefined) payload.areaMin = parseFloat(quickFields.areaMin);
+            if (quickFields.areaMax !== undefined) payload.areaMax = parseFloat(quickFields.areaMax);
+            if (quickFields.areaMetric !== undefined) payload.areaMetric = quickFields.areaMetric;
+
+            const res = await api.patch(`leads/${lead._id}`, payload);
+            if (res.data?.success || res.data?.data) {
+                setLead(prev => ({ ...prev, ...payload }));
+                setIsQuickFillOpen(false);
+                setQuickFields({});
+                toast.success('Profile updated! Re-matching...');
+                // Re-trigger match fetch by bumping budgetFlexibility slightly then back
+                setBudgetFlexibility(prev => { setTimeout(() => setBudgetFlexibility(prev), 50); return prev + 0.001; });
+            }
+        } catch (e) {
+            toast.error('Failed to save profile updates');
+        } finally {
+            setSavingProfile(false);
+        }
+    };
+
+    // ─── PHASE 4A: Auto-Dispatch State & Handler ─────────────────────────────
+    const [autoDispatchEnabled, setAutoDispatchEnabled] = useState(false);
+    const [autoDispatchThreshold, setAutoDispatchThreshold] = useState(70);   // Min score to auto-send
+    const [autoDispatchTopN, setAutoDispatchTopN] = useState(3);              // Max deals to auto-send
+    const [autoDispatching, setAutoDispatching] = useState(false);
+    const [lastAutoDispatchCount, setLastAutoDispatchCount] = useState(0);
+
+    const handleAutoDispatch = async (deals) => {
+        if (!autoDispatchEnabled || !lead || autoDispatching) return;
+        const qualifying = deals
+            .filter(d => (d.score || d.matchPercentage || 0) >= autoDispatchThreshold)
+            .slice(0, autoDispatchTopN);
+
+        if (qualifying.length === 0) {
+            toast('No deals meet the auto-dispatch threshold.', { icon: 'ℹ️' });
+            return;
+        }
+
+        setAutoDispatching(true);
+        try {
+            // Enterprise Grade: Automated Background Dispatch via Campaign Engine
+            const dealIds = qualifying.map(d => d._id);
+            const res = await api.post('marketing/send-manual', {
+                leadId: lead._id,
+                dealIds,
+                toggles: { whatsapp: true, email: false, sms: false }
+            });
+
+            if (res.data?.success) {
+                setLastAutoDispatchCount(qualifying.length);
+                toast.success(`🚀 Enterprise Auto-Dispatch: Shared ${qualifying.length} matches with ${lead.firstName || 'lead'} in background.`);
+            } else {
+                // Fallback to manual stagger if background fails
+                for (let i = 0; i < qualifying.length; i++) {
+                    const deal = qualifying[i];
+                    const phone = lead.mobile || lead.phone || '';
+                    const msg = `Hi ${lead.firstName || lead.name}, I found a match: ${deal.projectName || deal.location}. Interested?`;
+                    if (phone) window.open(`https://wa.me/91${phone.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
+                    if (i < qualifying.length - 1) await new Promise(r => setTimeout(r, 600));
+                }
+            }
+        } catch (err) {
+            console.error("Auto-dispatch failed", err);
+            toast.error("Auto-dispatch encounterd an error.");
+        } finally {
+            setAutoDispatching(false);
+        }
+    };
+
+    // Trigger auto-dispatch whenever inventory items update and toggle is on
+    const prevInventoryRef = useRef([]);
+    useEffect(() => {
+        if (autoDispatchEnabled && inventoryItems.length > 0 && inventoryItems !== prevInventoryRef.current) {
+            prevInventoryRef.current = inventoryItems;
+            handleAutoDispatch(inventoryItems);
+        }
+    }, [inventoryItems, autoDispatchEnabled]);
+
+    // ─── PHASE 4C: Interest Feedback State & Handler ──────────────────────────
+    const [dealFeedback, setDealFeedback] = useState({}); // { [deal._id]: 'interested'|'passed'|'snoozed' }
+    const [submittingFeedback, setSubmittingFeedback] = useState(null);
+
+    const handleInterestFeedback = async (item, feedback) => {
+        if (!lead?._id) return;
+        const dealId = item._id;
+        if (submittingFeedback === dealId) return;
+        setSubmittingFeedback(dealId);
+
+        try {
+            // 1. Update local UI immediately (optimistic)
+            setDealFeedback(prev => ({ ...prev, [dealId]: feedback }));
+
+            // 2. Persist to lead profile
+            const intentTagMap = { interested: 'interested_in_property', passed: 'not_interested', snoozed: 'follow_up_later' };
+            const newTag = intentTagMap[feedback];
+            const existingTags = Array.isArray(lead.intent_tags) ? lead.intent_tags : [];
+            const updatedTags = [...new Set([...existingTags.filter(t => !Object.values(intentTagMap).includes(t)), newTag])];
+
+            // 3. If interested, also update interestedInventory
+            const payload = { intent_tags: updatedTags };
+            if (feedback === 'interested' && (item.inventoryId?._id || item.inventoryId)) {
+                payload.interestedInventory = [...(lead.interestedInventory || []), (item.inventoryId?._id || item.inventoryId)];
+            }
+
+            if (feedback === 'snoozed' && (item.inventoryId?._id || item.inventoryId)) {
+                await api.put(`leads/match/snooze/${item.inventoryId?._id || item.inventoryId}`, { leadId: lead._id });
+            } else {
+                await api.patch(`leads/${lead._id}`, payload);
+            }
+            
+            setLead(prev => ({ ...prev, ...payload }));
+
+            // 4. Show contextual feedback
+            const messages = {
+                interested: `✅ ${lead.firstName} marked as interested in ${item.projectName || 'this property'}`,
+                passed: `👎 Noted as "Not Interested" — ${item.projectName || 'this property'} will be de-prioritized`,
+                snoozed: `⏰ Snoozed — ${item.projectName || 'this property'} will resurface in 7 days`
+            };
+            toast.success(messages[feedback]);
+
+            // 5. If snoozed — remove from current view after brief delay
+            if (feedback === 'snoozed') {
+                setTimeout(() => {
+                    setInventoryItems(prev => prev.filter(d => d._id !== dealId));
+                }, 800);
+            }
+        } catch (e) {
+            // Rollback optimistic update on error
+            setDealFeedback(prev => { const n = { ...prev }; delete n[dealId]; return n; });
+            toast.error('Failed to save feedback. Please try again.');
+        } finally {
+            setSubmittingFeedback(null);
+        }
     };
 
     if (loading) {
@@ -200,9 +446,9 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
 
             body += `<div>`;
             body += `<h3 style="margin: 0; color: #1e293b; font-size: 1.1rem;">🏠 MATCH #${index + 1}: ${item.projectName || 'Premium Listing'}</h3>`;
-            body += `<p style="margin: 4px 0; color: #64748b; font-size: 0.9rem;"><i class="fas fa-map-marker-alt"></i> ${item.location}</p>`;
-            body += `<p style="margin: 4px 0; color: #475569; font-size: 0.85rem;">🏢 Type: <strong>${item.propertyType || item.type}</strong> | 📏 Size: <strong>${item.size}</strong></p>`;
-            body += `<p style="margin: 8px 0; color: #10b981; font-weight: 800; font-size: 1.1rem;">💰 Exclusive Price: ₹${item.price}</p>`;
+            body += `<p style="margin: 4px 0; color: #64748b; font-size: 0.9rem;"><i class="fas fa-map-marker-alt"></i> ${renderValue(resolveLookup(item.inventoryId?.address?.locality, 'Locality') || resolveLookup(item.inventoryId?.address?.area, 'Area') || resolveLookup(item.inventoryId?.address?.location, 'Location') || item.location)}</p>`;
+            body += `<p style="margin: 4px 0; color: #475569; font-size: 0.85rem;">🏢 Type: <strong>${renderValue(resolveLookup(item.propertyType, 'Category') || item.type)}</strong> | 📏 Size: <strong>${renderValue(resolveLookup(item.sizeConfig, 'Size') || item.size)}</strong></p>`;
+            body += `<p style="margin: 8px 0; color: #10b981; font-weight: 800; font-size: 1.1rem;">💰 Exclusive Price: ₹${renderValue(item.price)}</p>`;
             body += `<div style="display: inline-block; background: #ecfdf5; color: #059669; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700;">✨ Match Accuracy: ${item.matchPercentage}%</div>`;
             body += `</div>`;
             body += `</div>`;
@@ -239,19 +485,8 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
         );
     }
 
-    /*
-    const getStatusColor = (status) => {
-        switch (status) {
-            case 'match': return '#10b981';
-            case 'partial': return '#f59e0b';
-            default: return '#94a3b8';
-        }
-    };
-    */
-
     return (
         <div style={{ background: '#f8fafc', minHeight: '100vh', padding: '24px', paddingBottom: '100px' }}>
-            {/* Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                     <button
@@ -267,8 +502,6 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                             <span
                                 style={{ fontSize: '0.85rem', fontWeight: 700, color: '#2563eb', background: '#eff6ff', padding: '2px 8px', borderRadius: '4px', cursor: 'pointer', textDecoration: 'none' }}
                                 onClick={() => onNavigate('contact-detail', lead.mobile)}
-                                onMouseOver={(e) => e.target.style.textDecoration = 'underline'}
-                                onMouseOut={(e) => e.target.style.textDecoration = 'none'}
                             >
                                 {lead.name} | {lead.mobile}
                             </span>
@@ -301,125 +534,210 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: '24px' }}>
-                {/* Left Panel: Context & Refinement */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                    {/* Lead Card */}
-                    <div style={{ background: '#fff', borderRadius: '20px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0' }}>
-                        <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#64748b', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                            <i className="fas fa-user-circle" style={{ color: '#3b82f6' }}></i> Lead Requirement
-                        </h3>
+                    <div style={{ background: '#fff', borderRadius: '24px', padding: '24px', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.05), 0 8px 10px -6px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                            <h3 style={{ fontSize: '0.85rem', fontWeight: 800, color: '#64748b', margin: 0, display: 'flex', alignItems: 'center', gap: '8px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                                <i className="fas fa-fingerprint" style={{ color: '#3b82f6' }}></i> Requirement Profile
+                            </h3>
+                            <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#10b981', background: '#ecfdf5', padding: '4px 10px', borderRadius: '20px', border: '1px solid #b9f6ca', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981' }}></div> Verified Signal
+                            </span>
+                        </div>
 
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                            <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px' }}>
-                                <div style={{ padding: '0 0 16px 0', borderBottom: '1px solid #f1f5f9', marginBottom: '20px' }}>
-                                    <p style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0f172a', margin: '4px 0' }}>{renderValue(lead.req?.type)}</p>
-                                    <p style={{ fontSize: '0.85rem', color: '#64748b', margin: 0 }}><i className="fas fa-map-marker-alt"></i> {renderValue(lead.location)}</p>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                            {/* Core Requirement & Intent */}
+                            <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '16px', border: '1px solid #f1f5f9' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                                    <div>
+                                        <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>Primary Intent</label>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <span style={{ fontSize: '1.2rem', fontWeight: 900, color: '#0f172a' }}>{renderValue(lead.intent)}</span>
+                                            <span style={{ padding: '2px 10px', borderRadius: '8px', background: '#eff6ff', color: '#2563eb', fontSize: '0.75rem', fontWeight: 800 }}>{renderValue(lead.requirement)}</span>
+                                        </div>
+                                    </div>
+                                    <div style={{ textAlign: 'right' }}>
+                                        <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>Lead Score</label>
+                                        <span style={{ fontSize: '1rem', fontWeight: 900, color: '#3b82f6' }}>{lead.leadScore || 85}%</span>
+                                    </div>
                                 </div>
+                                
+                                <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '12px', marginTop: '12px' }}>
+                                    <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', display: 'block', marginBottom: '8px' }}>Property Categories</label>
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                        {Array.isArray(lead.propertyType) && lead.propertyType.length > 0 ? lead.propertyType.map((pt, i) => (
+                                            <span key={i} style={{ fontSize: '0.7rem', fontWeight: 800, background: '#fff', color: '#475569', padding: '4px 10px', borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}>
+                                                {renderValue(pt)}
+                                            </span>
+                                        )) : <span style={{ color: '#cbd5e1', fontSize: '0.75rem', fontStyle: 'italic' }}>No specific category selected</span>}
+                                    </div>
+                                </div>
+                            </div>
 
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                                    <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '12px' }}>
-                                        <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Size</label>
-                                        <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a', margin: '2px 0' }}>{renderValue(lead.req?.size)}</p>
+                            {/* Location Signal Grid */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                                <div style={{ background: '#fff', padding: '14px', borderRadius: '16px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <i className="fas fa-map-marked-alt" style={{ color: '#3b82f6', fontSize: '0.75rem' }}></i>
+                                        <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>Target Area</label>
                                     </div>
-                                    <div style={{ background: '#eff6ff', padding: '12px', borderRadius: '12px' }}>
-                                        <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#2563eb', textTransform: 'uppercase' }}>Budget</label>
-                                        <p style={{ fontSize: '0.85rem', fontWeight: 800, color: '#2563eb', margin: '2px 0' }}>{renderValue(lead.budget)}</p>
+                                    <p style={{ fontSize: '0.85rem', fontWeight: 800, color: '#1e293b', margin: 0 }}>{renderValue(lead.location)}</p>
+                                    {lead.locArea && <p style={{ fontSize: '0.7rem', color: '#64748b', margin: 0 }}>Sub: {lead.locArea}</p>}
+                                </div>
+                                <div style={{ background: '#fff', padding: '14px', borderRadius: '16px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <i className="fas fa-city" style={{ color: '#3b82f6', fontSize: '0.75rem' }}></i>
+                                        <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>City / Sector</label>
+                                    </div>
+                                    <p style={{ fontSize: '0.85rem', fontWeight: 800, color: '#1e293b', margin: 0 }}>{lead.sector || lead.locCity || 'Open Region'}</p>
+                                    <p style={{ fontSize: '0.7rem', color: '#64748b', margin: 0 }}>Precise Match Active</p>
+                                </div>
+                            </div>
+
+                            {/* Financial & Scale Grid */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                                <div style={{ background: '#eff6ff', padding: '14px', borderRadius: '16px', border: '1px solid #dbeafe', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <i className="fas fa-wallet" style={{ color: '#2563eb', fontSize: '0.75rem' }}></i>
+                                        <label style={{ fontSize: '0.65rem', fontWeight: 800, color: '#2563eb', textTransform: 'uppercase' }}>Budget Window</label>
+                                    </div>
+                                    <p style={{ fontSize: '1rem', fontWeight: 900, color: '#1e40af', margin: 0 }}>
+                                        {lead.budgetMin > 0 ? `₹${(lead.budgetMin / 100000).toFixed(1)}L – ₹${lead.budgetMax > 0 ? (lead.budgetMax / 100000).toFixed(1) + 'L' : '?'}` : 'TBA'}
+                                    </p>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
+                                        <div style={{ width: '100%', height: '4px', background: '#dbeafe', borderRadius: '2px', overflow: 'hidden' }}>
+                                            <div style={{ width: '70%', height: '100%', background: '#2563eb' }}></div>
+                                        </div>
                                     </div>
                                 </div>
+                                <div style={{ background: '#f8fafc', padding: '14px', borderRadius: '16px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <i className="fas fa-ruler-combined" style={{ color: '#64748b', fontSize: '0.75rem' }}></i>
+                                        <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>Scale (Sq.Yd)</label>
+                                    </div>
+                                    <p style={{ fontSize: '1rem', fontWeight: 900, color: '#1e293b', margin: 0 }}>
+                                        {lead.areaMin > 0 ? `${lead.areaMin} – ${lead.areaMax || 'Any'}` : 'Open Size'}
+                                    </p>
+                                    <p style={{ fontSize: '0.65rem', color: '#94a3b8', margin: 0 }}>Preferred Floor: Any</p>
+                                </div>
+                            </div>
+
+                            {/* Additional Signals (New Enterprise Section) */}
+                            <div style={{ background: '#fdf4ff', padding: '12px 16px', borderRadius: '16px', border: '1px solid #f5d0fe', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <div style={{ width: '32px', height: '32px', borderRadius: '10px', background: '#f5d0fe', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                        <i className="fas fa-magic" style={{ color: '#a21caf', fontSize: '0.85rem' }}></i>
+                                    </div>
+                                    <div>
+                                        <p style={{ margin: 0, fontSize: '0.75rem', fontWeight: 800, color: '#701a75' }}>Secondary Preferences</p>
+                                        <p style={{ margin: 0, fontSize: '0.65rem', color: '#a21caf' }}>Facing, Age, Ready to move</p>
+                                    </div>
+                                </div>
+                                <i className="fas fa-chevron-right" style={{ color: '#a21caf', fontSize: '0.7rem' }}></i>
                             </div>
                         </div>
                     </div>
 
-                    {/* Interactive Refinement */}
-                    <div style={{ background: '#fff', borderRadius: '20px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0', position: 'sticky', top: '24px' }}>
-                        <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#64748b', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                            <i className="fas fa-shield-alt" style={{ color: '#10b981' }}></i> Match Controls
-                        </h3>
+                    <div style={{ background: '#fff', borderRadius: '24px', padding: '20px 24px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', border: `1px solid ${profileCompleteness.score < 60 ? '#ffedd5' : profileCompleteness.score < 100 ? '#fef9c3' : '#dcfce7'}`, position: 'relative', overflow: 'hidden' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+                            <h3 style={{ fontSize: '0.8rem', fontWeight: 800, color: '#64748b', margin: 0, display: 'flex', alignItems: 'center', gap: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                <i className="fas fa-bolt" style={{ color: profileCompleteness.score < 60 ? '#f97316' : profileCompleteness.score < 100 ? '#eab308' : '#10b981' }}></i>
+                                Data Readiness
+                            </h3>
+                            <div style={{ fontSize: '1rem', fontWeight: 900, color: '#0f172a' }}>{profileCompleteness.score}%</div>
+                        </div>
+                        
+                        <div style={{ height: '8px', background: '#f1f5f9', borderRadius: '4px', marginBottom: '16px', overflow: 'hidden' }}>
+                            <div style={{ height: '100%', width: `${profileCompleteness.score}%`, background: profileCompleteness.score < 60 ? '#f97316' : profileCompleteness.score < 100 ? '#eab308' : '#10b981', borderRadius: '4px', transition: 'width 1s ease-in-out' }}></div>
+                        </div>
 
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                            {/* Flexibility Sliders */}
-                            <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                                <div style={{ marginBottom: '16px' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                                        <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569' }}>Budget Flexibility</label>
-                                        <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#2563eb' }}>{budgetFlexibility}%</span>
-                                    </div>
-                                    <input 
-                                        type="range" 
-                                        min="0" max="50" 
-                                        value={budgetFlexibility} 
-                                        onChange={(e) => setBudgetFlexibility(parseInt(e.target.value))}
-                                        style={{ width: '100%', cursor: 'pointer' }}
-                                    />
+                        <button
+                            onClick={() => setIsQuickFillOpen(!isQuickFillOpen)}
+                            style={{ width: '100%', padding: '10px', borderRadius: '12px', border: '1.5px dashed #3b82f6', background: '#eff6ff', color: '#2563eb', fontWeight: 800, fontSize: '0.75rem', cursor: 'pointer', transition: 'all 0.2s' }}
+                            onMouseOver={(e) => { e.currentTarget.style.background = '#dbeafe'; }}
+                            onMouseOut={(e) => { e.currentTarget.style.background = '#eff6ff'; }}
+                        >
+                            <i className="fas fa-edit" style={{ marginRight: '6px' }}></i> Optimize Profile Data
+                        </button>
+                    </div>
+
+                    <div style={{ background: '#fff', borderRadius: '24px', padding: '24px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0', position: 'sticky', top: '24px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                            <h3 style={{ fontSize: '0.8rem', fontWeight: 800, color: '#64748b', margin: 0, display: 'flex', alignItems: 'center', gap: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                <i className="fas fa-sliders-h" style={{ color: '#6366f1' }}></i> Match Sensitivity
+                            </h3>
+                            <button onClick={() => setIsWeightsOpen(true)} style={{ background: 'none', border: 'none', color: '#6366f1', fontSize: '0.7rem', fontWeight: 800, cursor: 'pointer', textDecoration: 'underline' }}>Precision Config</button>
+                        </div>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                            <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '16px', border: '1px solid #f1f5f9' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px', alignItems: 'center' }}>
+                                    <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569' }}>Budget Tolerance</label>
+                                    <span style={{ fontSize: '0.8rem', fontWeight: 900, color: '#2563eb', background: '#eff6ff', padding: '2px 8px', borderRadius: '6px' }}>±{budgetFlexibility}%</span>
                                 </div>
-                                <div style={{ marginBottom: '4px' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                                        <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569' }}>Size Flexibility</label>
-                                        <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#2563eb' }}>{sizeFlexibility}%</span>
-                                    </div>
-                                    <input 
-                                        type="range" 
-                                        min="0" max="50" 
-                                        value={sizeFlexibility} 
-                                        onChange={(e) => setSizeFlexibility(parseInt(e.target.value))}
-                                        style={{ width: '100%', cursor: 'pointer' }}
-                                    />
-                                </div>
+                                <input type="range" min="0" max="50" value={budgetFlexibility} onChange={(e) => setBudgetFlexibility(parseInt(e.target.value))} style={{ width: '100%', accentColor: '#2563eb', cursor: 'pointer' }} />
+                                <p style={{ margin: '8px 0 0 0', fontSize: '0.6rem', color: '#94a3b8', fontStyle: 'italic' }}>Broadens price range for higher recall</p>
                             </div>
 
-                            {/* Scoring Weights */}
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                <p style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: '4px' }}>Engine Weighting</p>
-                                {[
-                                    { key: 'location', label: '📍 Location Weight', color: '#3b82f6' },
-                                    { key: 'type', label: '🏢 Type Symmetry', color: '#8b5cf6' },
-                                    { key: 'budget', label: '💰 Price Match', color: '#10b981' },
-                                    { key: 'size', label: '📐 Size/Specs', color: '#f59e0b' }
-                                ].map(w => (
-                                    <div key={w.key} style={{ background: '#fff', border: '1px solid #f1f5f9', borderRadius: '10px', padding: '10px' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', alignItems: 'center' }}>
-                                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#475569' }}>{w.label}</span>
-                                            <span style={{ fontSize: '0.7rem', fontWeight: 800, color: w.color }}>{weights[w.key]}%</span>
-                                        </div>
-                                        <input 
-                                            type="range" min="0" max="100" 
-                                            value={weights[w.key]} 
-                                            onChange={(e) => setWeights({...weights, [w.key]: parseInt(e.target.value)})}
-                                            style={{ width: '100%', height: '4px' }}
-                                        />
-                                    </div>
-                                ))}
+                            <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '16px', border: '1px solid #f1f5f9' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px', alignItems: 'center' }}>
+                                    <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569' }}>Scale Tolerance</label>
+                                    <span style={{ fontSize: '0.8rem', fontWeight: 900, color: '#6366f1', background: '#eef2ff', padding: '2px 8px', borderRadius: '6px' }}>±{sizeFlexibility}%</span>
+                                </div>
+                                <input type="range" min="0" max="50" value={sizeFlexibility} onChange={(e) => setSizeFlexibility(parseInt(e.target.value))} style={{ width: '100%', accentColor: '#6366f1', cursor: 'pointer' }} />
+                                <p style={{ margin: '8px 0 0 0', fontSize: '0.6rem', color: '#94a3b8', fontStyle: 'italic' }}>Adjusts area/size matching precision</p>
                             </div>
                             
-                            <div style={{ background: '#ecfdf5', padding: '12px', borderRadius: '10px', border: '1px solid #b9f6ca', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                <i className="fas fa-check-circle" style={{ color: '#10b981' }}></i>
-                                <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#166534' }}>AI Backend Re-Syncing Live</span>
+                            <div style={{ padding: '12px', borderRadius: '12px', background: '#fdf4ff', border: '1px solid #fae8ff', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <i className="fas fa-info-circle" style={{ color: '#d946ef', fontSize: '0.9rem' }}></i>
+                                <p style={{ margin: 0, fontSize: '0.65rem', color: '#a21caf', lineHeight: 1.4 }}>
+                                    Higher flexibility discovers more opportunities but may reduce lead relevance scores.
+                                </p>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                {/* Right Panel: Match Results */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 8px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            <input
-                                type="checkbox"
-                                style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-                                onChange={handleSelectAll}
-                                checked={selectedItems.length === matchedItems.length && matchedItems.length > 0}
-                            />
-                            <span style={{ fontSize: '0.95rem', fontWeight: 700, color: '#1e293b' }}>{matchedItems.length} Professional Matches Found</span>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: '#64748b' }}>
-                                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981' }}></div> High
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: '#64748b' }}>
-                                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#f59e0b' }}></div> Medium
-                            </div>
+                            <input type="checkbox" onChange={handleSelectAll} checked={selectedItems.length === matchedItems.length && matchedItems.length > 0} />
+                            <span style={{ fontSize: '0.95rem', fontWeight: 700 }}>{matchedItems.length} Matches Found</span>
                         </div>
                     </div>
+
+                    {/* ─── Phase 3C: Smart Suggestions Banner ─── */}
+                    {suggestions.length > 0 && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {suggestions.map((s, i) => {
+                                const colors = {
+                                    high:   { bg: '#fff1f2', border: '#fecdd3', icon: '#dc2626', text: '#9f1239' },
+                                    medium: { bg: '#fffbeb', border: '#fde68a', icon: '#d97706', text: '#92400e' },
+                                    low:    { bg: '#eff6ff', border: '#bfdbfe', icon: '#2563eb', text: '#1e40af' }
+                                };
+                                const c = colors[s.severity] || colors.low;
+                                return (
+                                    <div key={i} style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: '14px', padding: '12px 16px', display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                                        <div style={{ width: '32px', height: '32px', borderRadius: '10px', background: c.border, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                            <i className={`fas ${s.icon}`} style={{ color: c.icon, fontSize: '0.85rem' }}></i>
+                                        </div>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <p style={{ margin: '0 0 3px 0', fontWeight: 800, fontSize: '0.82rem', color: c.text }}>{s.title}</p>
+                                            <p style={{ margin: 0, fontSize: '0.75rem', color: c.text, opacity: 0.85, lineHeight: 1.5 }}>{s.message}</p>
+                                        </div>
+                                        {s.action && (
+                                            <button 
+                                                onClick={() => s.action.toLowerCase().includes('quick fill') && setShowQuickFill(true)}
+                                                style={{ fontSize: '0.65rem', fontWeight: 800, color: c.icon, background: '#fff', border: `1px solid ${c.border}`, padding: '4px 12px', borderRadius: '8px', whiteSpace: 'nowrap', cursor: 'pointer', flexShrink: 0, boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}
+                                            >
+                                                {s.action} →
+                                            </button>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
 
                     {displayedItems.map((item, idx) => (
                         <div
@@ -427,17 +745,18 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                             style={{
                                 background: '#fff',
                                 borderRadius: '24px',
-                                padding: '20px',
+                                padding: '8px 16px',
                                 boxShadow: selectedItems.includes(item.id || item.unitNo) ? '0 0 0 2px #3b82f6, 0 10px 15px -3px rgba(0, 0, 0, 0.1)' : '0 1px 3px rgba(0,0,0,0.05)',
                                 border: '1px solid #e2e8f0',
                                 display: 'grid',
-                                gridTemplateColumns: '40px 140px 1fr 240px',
-                                gap: '20px',
-                                alignItems: 'start',
-                                transition: 'all 0.3s ease'
+                                gridTemplateColumns: '40px 140px 1fr 220px',
+                                gap: '16px',
+                                alignItems: 'center',
+                                transition: 'all 0.3s ease',
+                                minHeight: '90px'
                             }}
                         >
-                            <div style={{ paddingTop: '50px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
                                 <input
                                     type="checkbox"
                                     style={{ width: '18px', height: '18px', cursor: 'pointer' }}
@@ -451,39 +770,56 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                 <img
                                     src={item.thumbnail}
                                     alt="Property"
-                                    style={{ width: '100%', height: '100px', objectFit: 'cover', borderRadius: '16px', background: '#f1f5f9' }}
+                                    style={{ width: '100%', height: '80px', objectFit: 'cover', borderRadius: '14px', background: '#f1f5f9' }}
                                 />
                                 <div style={{ position: 'absolute', top: '8px', left: '8px', background: 'rgba(15, 23, 42, 0.8)', color: '#fff', fontSize: '0.6rem', fontWeight: 800, padding: '2px 8px', borderRadius: '6px', backdropFilter: 'blur(4px)' }}>
                                     {item.itemType}
                                 </div>
-                                <div style={{ position: 'absolute', bottom: '-10px', right: '10px', background: '#fff', width: '40px', height: '40px', borderRadius: '50%', border: '3px solid #f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
-                                    <span style={{ fontSize: '0.8rem', fontWeight: 900, color: item.matchPercentage > 70 ? '#10b981' : '#f59e0b' }}>{item.matchPercentage}%</span>
+                                {item.sharedStatus && (
+                                    <div style={{
+                                        position: 'absolute', top: '8px', right: '8px',
+                                        background: item.sharedStatus === 'hot' ? '#dc2626' : item.sharedStatus === 'recent' ? '#f97316' : '#eab308',
+                                        color: '#fff', fontSize: '0.55rem', fontWeight: 800,
+                                        padding: '2px 7px', borderRadius: '6px',
+                                        display: 'flex', alignItems: 'center', gap: '3px'
+                                    }}>
+                                        <i className="fas fa-paper-plane" style={{ fontSize: '0.5rem' }}></i>
+                                        {item.sharedStatus === 'hot' ? `Sent ${item.daysSinceShared}d ago` :
+                                         item.sharedStatus === 'recent' ? `Sent ${item.daysSinceShared}d ago` :
+                                         `Sent ${item.daysSinceShared}d ago`}
+                                    </div>
+                                )}
+                                <div style={{ position: 'absolute', bottom: '-10px', right: '10px', background: '#fff', width: '40px', height: '40px', borderRadius: '50%', border: `3px solid ${item.sharedStatus ? (item.sharedStatus === 'hot' ? '#fee2e2' : item.sharedStatus === 'recent' ? '#ffedd5' : '#fef9c3') : '#f8fafc'}`, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
+                                    <span style={{ fontSize: '0.72rem', fontWeight: 900, color: item.matchPercentage > 70 ? '#10b981' : '#f59e0b', lineHeight: 1 }}>{item.matchPercentage}%</span>
+                                    {item.rawScore && item.rawScore !== item.matchPercentage && (
+                                        <span style={{ fontSize: '0.45rem', color: '#94a3b8', lineHeight: 1 }}>{item.rawScore}→</span>
+                                    )}
                                 </div>
                             </div>
 
                             {/* Item Info */}
-                            <div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                            <div style={{ padding: '4px 0' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                     <div style={{
                                         background: item.matchPercentage > 80 ? '#dcfce7' : item.matchPercentage > 50 ? '#fef3c7' : '#f1f5f9',
                                         color: item.matchPercentage > 80 ? '#166534' : item.matchPercentage > 50 ? '#92400e' : '#475569',
-                                        padding: '4px 12px',
+                                        padding: '2px 10px',
                                         borderRadius: '8px',
-                                        fontSize: '1.2rem',
+                                        fontSize: '1.1rem',
                                         fontWeight: 900,
-                                        minWidth: '60px',
+                                        minWidth: '50px',
                                         textAlign: 'center',
                                         boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
                                         border: `1px solid ${item.matchPercentage > 80 ? '#b9f6ca' : item.matchPercentage > 50 ? '#fde68a' : '#e2e8f0'}`
                                     }}>
                                         {item.unitNo || 'N/A'}
                                     </div>
-                                    <span style={{ fontSize: '1rem', fontWeight: 800, color: '#10b981', background: '#ecfdf5', padding: '4px 12px', borderRadius: '100px', border: '1px solid #b9f6ca' }}>
+                                    <span style={{ fontSize: '0.9rem', fontWeight: 800, color: '#10b981', background: '#ecfdf5', padding: '2px 10px', borderRadius: '100px', border: '1px solid #b9f6ca' }}>
                                         ₹{renderValue(item.price)}
                                     </span>
                                 </div>
 
-                                <div style={{ marginBottom: '12px' }}>
+                                <div style={{ marginBottom: '8px' }}>
                                     <p style={{ fontSize: '0.9rem', color: '#0f172a', margin: '0 0 4px 0', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
                                         <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.8rem' }}></i>
                                         {renderValue(item.inventoryId?.projectName || item.projectName || 'Premium Listing')}
@@ -501,40 +837,87 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                         )}
                                         {item.inventoryId?.address?.locality && (
                                             <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#10b981', background: '#ecfdf5', padding: '2px 8px', borderRadius: '4px' }}>
-                                                {renderValue(item.inventoryId.address.locality)}
+                                                {renderValue(resolveLookup(item.inventoryId.address.locality, 'Locality'))}
                                             </span>
                                         )}
                                     </div>
                                 </div>
 
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '10px', alignItems: 'center' }}>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '6px', alignItems: 'center' }}>
                                     <div style={{ background: '#f1f5f9', padding: '4px 10px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, color: '#475569', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                         <i className="fas fa-building" style={{ color: '#94a3b8', fontSize: '0.7rem' }}></i>
-                                        Type: <span style={{ color: '#2563eb' }}>{item.propertyType || item.type || 'N/A'}</span>
+                                        Type: <span style={{ color: '#2563eb' }}>{renderValue(resolveLookup(item.propertyType, 'Category') || item.type || 'N/A')}</span>
                                     </div>
                                     <span style={{ width: '1px', height: '14px', background: '#e2e8f0', margin: '0 4px' }}></span>
                                     <div style={{ background: '#f8fafc', padding: '4px 10px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid #e2e8f0' }}>
                                         <i className="fas fa-ruler-combined" style={{ color: '#94a3b8', fontSize: '0.7rem' }}></i>
-                                        Size: <span style={{ color: '#0f172a' }}>{renderValue(item.size)}</span>
+                                        Size: <span style={{ color: '#0f172a' }}>{renderValue(resolveLookup(item.sizeConfig, 'Size') || item.size)}</span>
                                     </div>
                                 </div>
 
-                                {/* Professional Match Logic Tags */}
-                                <div style={{ marginTop: '12px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                                    {(item.matchDetails || []).map((detail, i) => {
-                                        let tagBg = '#f1f5f9';
-                                        let tagColor = '#475569';
-                                        if (detail.includes("Budget")) { tagBg = '#dcfce7'; tagColor = '#166534'; }
-                                        if (detail.includes("Orientation")) { tagBg = '#fef3c7'; tagColor = '#92400e'; }
-                                        if (detail.includes("Unit") || detail.includes("Category")) { tagBg = '#e0f2fe'; tagColor = '#0369a1'; }
-                                        
-                                        return (
-                                            <span key={i} style={{ fontSize: '0.65rem', fontWeight: 800, color: tagColor, background: tagBg, padding: '2px 8px', borderRadius: '6px', border: `1px solid ${tagColor}30`, textTransform: 'uppercase' }}>
-                                                {detail}
-                                            </span>
-                                        );
-                                    })}
-                                </div>
+                                <button
+                                    onClick={() => setExpandedBreakdown(expandedBreakdown === item._id ? null : item._id)}
+                                    style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'none', border: 'none', cursor: 'pointer', padding: '0', color: '#3b82f6', fontSize: '0.7rem', fontWeight: 800, marginTop: '8px' }}
+                                >
+                                    <i className="fas fa-magic" style={{ fontSize: '0.65rem' }}></i>
+                                    Analysis — {item.matchPercentage}%
+                                    <i className={`fas fa-chevron-${expandedBreakdown === item._id ? 'up' : 'down'}`} style={{ fontSize: '0.6rem', marginLeft: '2px' }}></i>
+                                </button>
+
+                                {expandedBreakdown === item._id && item.scoreBreakdown && (
+                                    <div style={{ background: '#f8fafc', borderRadius: '12px', padding: '12px 16px', marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px', border: '1px solid #f1f5f9' }}>
+                                        {[
+                                            { key: 'location', label: '📍 Location',  color: '#3b82f6' },
+                                            { key: 'type',     label: '🏢 Type',      color: '#8b5cf6' },
+                                            { key: 'budget',   label: '💰 Budget',    color: '#10b981' },
+                                            { key: 'size',     label: '📐 Size',      color: '#f59e0b' }
+                                        ].map(({ key, label, color }) => {
+                                            const sig = item.scoreBreakdown[key];
+                                            if (!sig) return null;
+                                            const pct = sig.max > 0 ? Math.round((sig.earned / sig.max) * 100) : 0;
+                                            return (
+                                                <div key={key}>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '3px' }}>
+                                                        <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#475569' }}>{label}</span>
+                                                        <span style={{ fontSize: '0.7rem', fontWeight: 800, color: sig.earned === sig.max ? '#16a34a' : sig.earned > 0 ? '#d97706' : '#dc2626' }}>
+                                                            {sig.earned}/{sig.max} pts
+                                                        </span>
+                                                    </div>
+                                                    <div style={{ height: '6px', borderRadius: '4px', background: '#e2e8f0', overflow: 'hidden' }}>
+                                                        <div style={{ height: '100%', width: `${pct}%`, background: sig.earned === sig.max ? '#10b981' : sig.earned > 0 ? color : '#e2e8f0', borderRadius: '4px', transition: 'width 0.4s ease' }}></div>
+                                                    </div>
+                                                    <p style={{ margin: '2px 0 0 0', fontSize: '0.62rem', color: '#94a3b8', fontStyle: 'italic' }}>{renderValue(sig.label)}</p>
+                                                </div>
+                                            );
+                                        })}
+
+                                        <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '8px', marginTop: '4px' }}>
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', marginBottom: '8px' }}>
+                                                {(item.matchDetails || item.matchReasons || []).map((detail, i) => (
+                                                    <span key={i} style={{ fontSize: '0.62rem', fontWeight: 800, color: '#475569', background: '#fff', padding: '1px 6px', borderRadius: '4px', border: '1px solid #e2e8f0', textTransform: 'uppercase' }}>
+                                                        {detail}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                            
+                                            {item.lastDispatch && (
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.62rem' }}>
+                                                    <span style={{ color: '#94a3b8', fontWeight: 600 }}>DISPATCH HISTORY:</span>
+                                                    {(item.lastDispatch.channels || []).map((ch, i) => (
+                                                        <span key={i} style={{ fontWeight: 700, color: ch === 'whatsapp' ? '#166534' : '#4338ca' }}>
+                                                            {ch.toUpperCase()}
+                                                        </span>
+                                                    ))}
+                                                    {item.rawScore && item.rawScore !== item.matchPercentage && (
+                                                        <span style={{ marginLeft: 'auto', color: '#f97316', fontWeight: 800 }}>
+                                                            DECAYED FROM {item.rawScore}%
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
 
                             {/* Actions Column */}
@@ -543,9 +926,9 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                     <button
                                         onClick={() => handleWhatsApp(item)}
                                         title="Send on WhatsApp"
-                                        style={{ flex: 1, height: '44px', borderRadius: '14px', border: '1px solid #dcfce7', background: '#f0fdf4', color: '#166534', cursor: 'pointer', transition: 'all 0.2s' }}
+                                        style={{ flex: 1, height: '38px', borderRadius: '12px', border: '1px solid #dcfce7', background: '#f0fdf4', color: '#166534', cursor: 'pointer', transition: 'all 0.2s' }}
                                     >
-                                        <i className="fab fa-whatsapp" style={{ fontSize: '1.1rem' }}></i>
+                                        <i className="fab fa-whatsapp" style={{ fontSize: '1rem' }}></i>
                                     </button>
                                     <button
                                         onClick={() => {
@@ -558,9 +941,9 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                             setIsMailOpen(true);
                                         }}
                                         title="Email Presentation"
-                                        style={{ flex: 1, height: '44px', borderRadius: '14px', border: '1px solid #eef2ff', background: '#f5f3ff', color: '#4338ca', cursor: 'pointer' }}
+                                        style={{ flex: 1, height: '38px', borderRadius: '12px', border: '1px solid #eef2ff', background: '#f5f3ff', color: '#4338ca', cursor: 'pointer' }}
                                     >
-                                        <i className="fas fa-envelope-open-text"></i>
+                                        <i className="fas fa-envelope-open-text" style={{ fontSize: '0.9rem' }}></i>
                                     </button>
                                     <button
                                         onClick={() => {
@@ -571,21 +954,49 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                             }, 1500);
                                         }}
                                         title="Generate Professional PDF"
-                                        style={{ flex: 1, height: '44px', borderRadius: '14px', border: '1px solid #f1f5f9', background: '#fff', color: '#64748b', cursor: 'pointer' }}
+                                        style={{ flex: 1, height: '38px', borderRadius: '12px', border: '1px solid #f1f5f9', background: '#fff', color: '#64748b', cursor: 'pointer' }}
                                     >
-                                        <i className="fas fa-file-pdf"></i>
+                                        <i className="fas fa-file-pdf" style={{ fontSize: '0.9rem' }}></i>
                                     </button>
                                 </div>
+
+                                <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                                    <button
+                                        onClick={() => handleInterestFeedback(item, 'interested')}
+                                        disabled={submittingFeedback === item._id}
+                                        style={{ flex: 1.2, height: '36px', borderRadius: '10px', border: `1px solid ${dealFeedback[item._id] === 'interested' ? '#10b981' : '#e2e8f0'}`, background: dealFeedback[item._id] === 'interested' ? '#ecfdf5' : '#fff', color: dealFeedback[item._id] === 'interested' ? '#10b981' : '#64748b', fontSize: '0.7rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', transition: 'all 0.2s' }}
+                                    >
+                                        <i className="fas fa-thumbs-up" style={{ fontSize: '0.8rem' }}></i>
+                                        {submittingFeedback === item._id && dealFeedback[item._id] === 'interested' ? '...' : 'Interested'}
+                                    </button>
+                                    <button
+                                        onClick={() => handleInterestFeedback(item, 'passed')}
+                                        disabled={submittingFeedback === item._id}
+                                        style={{ flex: 1, height: '36px', borderRadius: '10px', border: `1px solid ${dealFeedback[item._id] === 'passed' ? '#ef4444' : '#e2e8f0'}`, background: dealFeedback[item._id] === 'passed' ? '#fef2f2' : '#fff', color: dealFeedback[item._id] === 'passed' ? '#ef4444' : '#64748b', fontSize: '0.7rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', transition: 'all 0.2s' }}
+                                    >
+                                        <i className="fas fa-thumbs-down" style={{ fontSize: '0.8rem' }}></i>
+                                        {submittingFeedback === item._id && dealFeedback[item._id] === 'passed' ? '...' : 'Pass'}
+                                    </button>
+                                    <button
+                                        onClick={() => handleInterestFeedback(item, 'snoozed')}
+                                        disabled={submittingFeedback === item._id}
+                                        style={{ flex: 1, height: '36px', borderRadius: '10px', border: `1px solid ${dealFeedback[item._id] === 'snoozed' ? '#f59e0b' : '#e2e8f0'}`, background: dealFeedback[item._id] === 'snoozed' ? '#fffbeb' : '#fff', color: dealFeedback[item._id] === 'snoozed' ? '#f59e0b' : '#64748b', fontSize: '0.7rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', transition: 'all 0.2s' }}
+                                    >
+                                        <i className="fas fa-clock" style={{ fontSize: '0.8rem' }}></i>
+                                        {submittingFeedback === item._id && dealFeedback[item._id] === 'snoozed' ? '...' : 'Later'}
+                                    </button>
+                                </div>
+
                                 <button
                                     className="btn-primary"
-                                    style={{ width: '100%', height: '48px', borderRadius: '14px', fontSize: '0.9rem', fontWeight: 800, boxShadow: '0 4px 6px -1px rgba(59, 130, 246, 0.2)' }}
+                                    style={{ width: '100%', height: '40px', borderRadius: '12px', fontSize: '0.85rem', fontWeight: 800, boxShadow: '0 4px 6px -1px rgba(59, 130, 246, 0.2)' }}
                                     onClick={() => {
-                                        // Improved project matching logic
-                                        const areaText = (item.area || item.location || '').toLowerCase();
-                                        const matchingProject = [].find(p =>
-                                            areaText.includes(p.name.toLowerCase()) ||
-                                            p.name.toLowerCase().includes(areaText)
-                                        );
+                                        const locVal = item.location?.lookup_value || item.location || '';
+                                        const areaVal = item.area || '';
+                                        const areaText = String(areaVal || locVal).toLowerCase();
+                                        
+                                        // Logic to resolve project from known inventory or lookup
+                                        const projectSource = item.inventoryId?.projectName || item.projectName || locVal || 'Premium Listing';
 
                                         setActivityInitialData({
                                             activityType: 'Site Visit',
@@ -593,8 +1004,8 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                             purpose: 'Property Visit',
                                             relatedTo: [{ id: lead.mobile, name: lead.name }],
                                             visitedProperties: [{
-                                                project: matchingProject ? matchingProject.name : (item.area || item.location || item.propertyType || item.type),
-                                                block: item.location || 'A Block',
+                                                project: projectSource,
+                                                block: locVal || 'A Block',
                                                 property: item.unitNo || item.id,
                                                 result: '',
                                                 feedback: ''
@@ -612,9 +1023,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                     {matchedItems.length > visibleCount && (
                         <button
                             onClick={() => setVisibleCount(prev => prev + 15)}
-                            style={{ padding: '16px', borderRadius: '15px', border: '2px dashed #cbd5e1', background: '#f1f5f9', color: '#64748b', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s' }}
-                            onMouseOver={(e) => { e.target.style.background = '#e2e8f0'; e.target.style.borderColor = '#94a3b8'; }}
-                            onMouseOut={(e) => { e.target.style.background = '#f1f5f9'; e.target.style.borderColor = '#cbd5e1'; }}
+                            style={{ padding: '16px', borderRadius: '15px', border: '2px dashed #cbd5e1', background: '#f1f5f9', color: '#64748b', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s', width: '100%' }}
                         >
                             <i className="fas fa-plus-circle"></i> Load More Matches ({matchedItems.length - visibleCount} remaining)
                         </button>
@@ -627,85 +1036,72 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                             <p style={{ color: '#94a3b8', fontSize: '0.9rem' }}>Try adjusting the "Budget Flexibility" or "Match Accuracy" in the left panel.</p>
                         </div>
                     )}
+
+                    {/* Phase 3B: Excluded Deals Panel */}
+                    {excludedCount > 0 && (
+                        <div style={{ marginTop: '20px' }}>
+                            <button
+                                onClick={() => setShowExcluded(o => !o)}
+                                style={{ width: '100%', padding: '12px 16px', borderRadius: '14px', border: '1px solid #e2e8f0', background: '#f8fafc', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', transition: 'all 0.2s' }}
+                            >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: '#fee2e2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                        <i className="fas fa-filter" style={{ color: '#dc2626', fontSize: '0.72rem' }}></i>
+                                    </div>
+                                    <div style={{ textAlign: 'left' }}>
+                                        <p style={{ margin: 0, fontWeight: 700, fontSize: '0.82rem', color: '#374151' }}>
+                                            {excludedCount} deal{excludedCount > 1 ? 's' : ''} filtered out by intent / category rules
+                                        </p>
+                                        <p style={{ margin: 0, fontSize: '0.7rem', color: '#94a3b8' }}>Click to see why they were excluded</p>
+                                    </div>
+                                </div>
+                                <i className={`fas fa-chevron-${showExcluded ? 'up' : 'down'}`} style={{ color: '#94a3b8', fontSize: '0.8rem' }}></i>
+                            </button>
+
+                            {showExcluded && excludedDeals.length > 0 && (
+                                <div style={{ background: '#fff', borderRadius: '14px', border: '1px solid #fee2e2', marginTop: '8px', overflow: 'hidden' }}>
+                                    <div style={{ padding: '10px 16px', background: '#fff1f2', borderBottom: '1px solid #fee2e2' }}>
+                                        <p style={{ margin: 0, fontSize: '0.72rem', fontWeight: 700, color: '#991b1b' }}>
+                                            <i className="fas fa-info-circle" style={{ marginRight: '6px' }}></i>
+                                            These deals passed visibility rules but were excluded by the intent/category filter.
+                                        </p>
+                                    </div>
+                                    {excludedDeals.map((ex, i) => (
+                                        <div key={i} style={{ padding: '12px 16px', borderBottom: i < excludedDeals.length - 1 ? '1px solid #fef2f2' : 'none', display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                                            <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#fef2f2', border: '1px solid #fecaca', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                                <i className="fas fa-home" style={{ color: '#ef4444', fontSize: '0.8rem' }}></i>
+                                            </div>
+                                            <div style={{ flex: 1, textAlign: 'left' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
+                                                    <span style={{ fontWeight: 700, fontSize: '0.82rem', color: '#374151' }}>{renderValue(ex.projectName)}</span>
+                                                    {ex.unitNo && <span style={{ fontSize: '0.65rem', background: '#f1f5f9', color: '#475569', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>Unit {renderValue(ex.unitNo)}</span>}
+                                                </div>
+                                                <p style={{ margin: 0, fontSize: '0.7rem', color: '#dc2626', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                    <i className="fas fa-times-circle" style={{ fontSize: '0.65rem' }}></i>
+                                                    {renderValue(ex.excludeReason)}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </div>
             </div>
 
-            {/* Professional Batch Action Bar */}
             {selectedItems.length > 0 && (
-                <div style={{ position: 'fixed', bottom: '24px', left: '50%', transform: 'translateX(-50%)', background: '#0f172a', padding: '12px 24px', borderRadius: '20px', display: 'flex', alignItems: 'center', gap: '32px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.3)', zIndex: 1000, border: '1px solid rgba(255,255,255,0.1)', backdropFilter: 'blur(10px)' }}>
-                    <div style={{ color: '#fff', fontSize: '0.95rem', fontWeight: 600 }}>
-                        <span style={{ color: '#3b82f6', fontWeight: 900, fontSize: '1.2rem' }}>{selectedItems.length}</span> properties selected
-                    </div>
-                    <div style={{ display: 'flex', gap: '12px' }}>
-                        <button
-                            className="btn-primary"
-                            style={{ background: '#25d366', borderColor: '#25d366', borderRadius: '12px', padding: '10px 24px', fontSize: '0.9rem' }}
-                            onClick={handleSendPortfolio}
-                        >
-                            <i className="fab fa-whatsapp"></i> Send Portfolio
-                        </button>
-                        <button
-                            className="btn-outline"
-                            style={{ color: '#fff', borderColor: 'rgba(255,255,255,0.2)', borderRadius: '12px', padding: '10px 24px', fontSize: '0.9rem' }}
-                            onClick={() => {
-                                toast.success(`Generated Comparison Sheet for ${selectedItems.length} items`);
-                                setSelectedItems([]);
-                            }}
-                        >
-                            <i className="fas fa-columns"></i> Compare Deals
-                        </button>
-                    </div>
-                    <button
-                        onClick={() => setSelectedItems([])}
-                        style={{ border: 'none', background: 'transparent', color: '#94a3b8', cursor: 'pointer', fontSize: '1.2rem' }}
-                    >
-                        <i className="fas fa-times-circle"></i>
-                    </button>
+                <div style={{ position: 'fixed', bottom: '24px', left: '50%', transform: 'translateX(-50%)', background: '#0f172a', padding: '12px 24px', borderRadius: '20px', display: 'flex', alignItems: 'center', gap: '20px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.3)', zIndex: 1000 }}>
+                    <span style={{ color: '#fff', fontWeight: 600 }}>{selectedItems.length} selected</span>
+                    <button className="btn-primary" onClick={handleSendPortfolio}>Send Portfolio</button>
                 </div>
             )}
 
-            {/* Communication Modals */}
-            <ComposeEmailModal
-                isOpen={isMailOpen}
-                onClose={() => setIsMailOpen(false)}
-                recipients={[lead]}
-                initialSubject={mailSubject}
-                initialBody={mailBody}
-                autoAttachments={mailAttachments}
-                initialTemplateId={mailTemplateId}
-            />
-            <SendMessageModal
-                isOpen={isMessageOpen}
-                onClose={() => setIsMessageOpen(false)}
-                initialRecipients={recipients}
-                initialTemplateId={initialTemplateId}
-                initialChannel={initialChannel}
-                initialProperties={selectedProperties}
-                onSend={(data, res) => {
-                    toast.success(res?.message || 'Message Sent!');
-                    setIsMessageOpen(false);
-                    setSelectedItems([]);
-                }}
-            />
-            <AlgorithmSettingsModal
-                isOpen={isSettingsOpen}
-                onClose={() => setIsSettingsOpen(false)}
-                weights={weights}
-                onSave={(newWeights) => {
-                    setWeights(newWeights);
-                    setIsSettingsOpen(false);
-                    toast.success('Algorithm weights updated!');
-                }}
-            />
-            <CreateActivityModal
-                isOpen={isActivityOpen}
-                onClose={() => setIsActivityOpen(false)}
-                initialData={activityInitialData}
-                onSave={(data) => {
-                    addActivity(data);
-                    setIsActivityOpen(false);
-                }}
-            />
+            <ComposeEmailModal isOpen={isMailOpen} onClose={() => setIsMailOpen(false)} recipients={[lead]} initialSubject={mailSubject} initialBody={mailBody} autoAttachments={mailAttachments} />
+            <SendMessageModal isOpen={isMessageOpen} onClose={() => setIsMessageOpen(false)} initialRecipients={recipients} initialTemplateId={initialTemplateId} initialChannel={initialChannel} initialProperties={selectedProperties} onSend={() => setIsMessageOpen(false)} />
+            <CreateActivityModal isOpen={isActivityOpen} onClose={() => setIsActivityOpen(false)} initialData={activityInitialData} onSave={() => setIsActivityOpen(false)} />
+            {showQuickFill && <QuickFillModal isOpen={showQuickFill} onClose={() => setShowQuickFill(false)} lead={lead} onUpdate={(u) => setLead(u)} getLookupValue={getLookupValue} />}
+            <AlgorithmSettingsModal isOpen={isWeightsOpen} onClose={() => setIsWeightsOpen(false)} weights={weights} onSave={(newWeights) => { setWeights(newWeights); setIsWeightsOpen(false); }} />
         </div>
     );
 };

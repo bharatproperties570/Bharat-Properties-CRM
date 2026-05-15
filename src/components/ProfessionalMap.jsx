@@ -141,13 +141,21 @@ const ProfessionalMap = ({
                 validCoords++;
                 const position = { lat, lng };
 
+                const getMarkerColor = () => {
+                    const intent = String(item.primaryDealIntent || '').toLowerCase();
+                    if (intent === 'sell') return '#ec4899'; // Pink
+                    if (intent === 'rent') return '#f59e0b'; // Yellow
+                    if (intent === 'lease') return '#3b82f6'; // Blue
+                    return item.status === 'Active' || (item.status && item.status.lookup_value === 'Active') ? '#10b981' : '#ef4444';
+                };
+
                 const marker = new window.google.maps.Marker({
                     position,
                     map: googleMapRef.current,
                     title: `${item.projectName || ''} ${item.block ? 'Block ' + item.block : ''} - Unit ${item.unitNo || item.unitNumber || ''}`.trim() || `Item ${index + 1}`,
                     icon: {
                         path: 'M12,2C8.1,2,5,5.1,5,9c0,5.2,7,13,7,13s7-7.8,7-13C19,5.1,15.9,2,12,2z M12,11.5c-1.4,0-2.5-1.1-2.5-2.5s1.1-2.5,2.5-2.5s2.5,1.1,2.5,2.5S13.4,11.5,12,11.5z',
-                        fillColor: item.status === 'Active' || (item.status && item.status.lookup_value === 'Active') ? '#10b981' : '#ef4444',
+                        fillColor: getMarkerColor(),
                         fillOpacity: 1,
                         strokeWeight: 1.5,
                         strokeColor: '#FFFFFF',

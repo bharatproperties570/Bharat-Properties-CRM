@@ -27,19 +27,31 @@ export const resolveLookup = async (type, value, parent_lookup_id = null) => {
         lookup_type: type, 
         lookup_value: { $regex: new RegExp(`^${escapeRegExp(trimmedVal)}$`, 'i') } 
     };
-    if (parent_lookup_id) query.parent_lookup_id = parent_lookup_id;
+    
+    // 🛡️ [DATA INTEGRITY] Only apply parent_lookup_id if it's a valid ObjectId string/object
+    // This prevents "Cast to ObjectId failed for value 'true'" errors if a boolean is accidentally passed
+    if (parent_lookup_id && mongoose.Types.ObjectId.isValid(parent_lookup_id)) {
+        query.parent_lookup_id = parent_lookup_id;
+    } else if (parent_lookup_id) {
+        console.warn(`[LOOKUP_RESOLVER] Invalid parent_lookup_id skipped for ${type}: "${parent_lookup_id}" (Type: ${typeof parent_lookup_id})`);
+    }
 
     const Lookup = getLookupModel();
     let lookup = await Lookup.findOne(query);
 
     // Create if not found
     if (!lookup) {
-        lookup = await Lookup.create({
+        const createData = {
             lookup_type: type,
-            lookup_value: trimmedVal,
-            parent_lookup_id: parent_lookup_id
-        });
-        console.log(`[LOOKUP_RESOLVER] Created new ${type}: "${trimmedVal}" (Parent: ${parent_lookup_id || 'None'})`);
+            lookup_value: trimmedVal
+        };
+        
+        if (parent_lookup_id && mongoose.Types.ObjectId.isValid(parent_lookup_id)) {
+            createData.parent_lookup_id = parent_lookup_id;
+        }
+
+        lookup = await Lookup.create(createData);
+        console.log(`[LOOKUP_RESOLVER] Created new ${type}: "${trimmedVal}" (Parent: ${mongoose.Types.ObjectId.isValid(parent_lookup_id) ? parent_lookup_id : 'None'})`);
     }
 
     return lookup._id;

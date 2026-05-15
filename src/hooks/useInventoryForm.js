@@ -443,6 +443,8 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
             const payload = { ...formData };
             
             // 1. Strip System Fields that shouldn't be sent back
+            delete payload._id;
+            delete payload.id;
             delete payload.history;
             delete payload.ownerHistory;
             delete payload.createdAt;

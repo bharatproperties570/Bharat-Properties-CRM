@@ -248,6 +248,22 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                 const totalDocs = response.data.totalCount || 0;
                 const pages = response.data.totalPages || 0;
 
+                const resolveLeadLookup = (val, type) => {
+                    if (!val) return null;
+                    if (typeof val === 'object') {
+                        const label = val.lookup_value || val.name || val.label;
+                        // If label is present and not an ID, return it
+                        if (label && !/^[0-9a-fA-F]{24}$/.test(String(label))) return label;
+                        // If label itself is an ID or missing, try resolving the ID
+                        val = val._id || val.id || val;
+                    }
+                    
+                    const resolved = getLookupValue(type, val);
+                    // NEVER return a raw 24-char hex string as a label
+                    if (!resolved || /^[0-9a-fA-F]{24}$/.test(String(resolved))) return null;
+                    return resolved;
+                };
+
                 const mappedLeads = sourceData.map((lead, index) => {
                     // Handle both API shape and Fallback
                     const contact = lead.contactDetails || {};
@@ -279,6 +295,9 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                         || (typeof contact.owner === 'string' && !/^[0-9a-fA-F]{24}$/.test(contact.owner) ? contact.owner : null)
                         || "Unassigned";
 
+                    const budgetMin = lead.budgetMin || lead.budget?.min || 0;
+                    const budgetMax = lead.budgetMax || lead.budget?.max || 0;
+
                     return {
                         ...lead,
                         _id: lead._id?.toString() || lead._id || `lead-${index}`,
@@ -296,29 +315,50 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                         lastActivityDate: lead.lastActivityAt || lead.updatedAt,
                         activities: lead.activities || [],
                         stage: lead.stage,
-                        stageLabel: lead.stage?.lookup_value || lead.stage || "New",
+                        stageLabel: resolveLeadLookup(lead.stage, 'Stage') || "New",
                         status: lead.status,
-                        statusLabel: lead.status?.lookup_value || lead.status || "New",
+                        statusLabel: resolveLeadLookup(lead.status, 'Status') || "New",
                         statusFallback: (typeof lead.status === 'object' && lead.status) ? lead.status : { label: "New", class: "new" },
 
                         // ===== REQUIREMENT =====
                         requirement: lead.requirement?._id || lead.requirement,
-                        requirementLabel: lead.requirement?.lookup_value || lead.requirement || "Any",
+                        requirementLabel: resolveLeadLookup(lead.requirement, 'Requirement') || "Any",
                         reqDisplay: {
-                            intent: lead.requirement?.lookup_value || lead.requirement || "Any",
-                            category: lead.propertyType,
-                            subCategory: (lead.subRequirement?.lookup_value || lead.subRequirement) || (lead.subType?.lookup_value || lead.subType),
-                            unitType: Array.isArray(lead.unitType) 
-                                ? lead.unitType.map(u => typeof u === 'object' ? (u.lookup_value || u.name) : (getLookupValue('UnitType', u) || u)).filter(Boolean).join(", ") 
-                                : (typeof lead.unitType === 'object' ? (lead.unitType?.lookup_value || lead.unitType?.name) : (getLookupValue('UnitType', lead.unitType) || lead.unitType || "")),
+                            intent: resolveLeadLookup(lead.requirement, 'Requirement') || "Any",
+                            category: resolveLeadLookup(lead.propertyType, 'Category') || "Any",
+                            subCategory: (() => {
+                                // 1. Try dedicated subRequirement field
+                                const subReq = resolveLeadLookup(lead.subRequirement, 'SubRequirement');
+                                if (subReq) return subReq;
+
+                                // 2. Try array-based subType (more common)
+                                if (Array.isArray(lead.subType)) {
+                                    return lead.subType
+                                        .map(s => resolveLeadLookup(s, 'SubCategory'))
+                                        .filter(Boolean)
+                                        .join(", ");
+                                }
+                                
+                                // 3. Fallback to scalar subType
+                                return resolveLeadLookup(lead.subType, 'SubCategory') || "";
+                            })(),
+                            sizeType: (() => {
+                                if (Array.isArray(lead.unitType)) {
+                                    return lead.unitType
+                                        .map(u => resolveLeadLookup(u, 'UnitType'))
+                                        .filter(Boolean)
+                                        .join(", ");
+                                }
+                                return resolveLeadLookup(lead.unitType, 'UnitType') || "";
+                            })(),
                             size: `${lead.areaMin || ""}${lead.areaMin && lead.areaMax ? "-" : ""}${lead.areaMax || ""} ${lead.areaMetric || ""}`.trim(),
                         },
 
                         budget: lead.budget?._id || lead.budget,
-                        budgetLabel: lead.budget?.lookup_value || lead.budget,
-                        budgetDisplay: (lead.budgetMin || lead.budgetMax)
-                            ? `₹${Number(lead.budgetMin || 0).toLocaleString()} - ₹${Number(lead.budgetMax || 0).toLocaleString()}`
-                            : (lead.budget?.lookup_value || lead.budget || "—"),
+                        budgetLabel: resolveLeadLookup(lead.budget, 'Budget'),
+                        budgetDisplay: (budgetMin || budgetMax)
+                            ? `₹${Number(budgetMin).toLocaleString()} - ₹${Number(budgetMax).toLocaleString()}`
+                            : (resolveLeadLookup(lead.budget, 'Budget') || "—"),
 
                         location: lead.location,
                         locationLines: {
@@ -1546,10 +1586,10 @@ const LeadItem = React.memo(function LeadItem({
                     <div style={{ fontWeight: 900, color: '#059669', fontSize: '0.9rem' }}>
                         {lead.budgetDisplay}
                     </div>
-                    {lead.reqDisplay?.unitType && (
+                    {lead.reqDisplay?.sizeType && (
                         <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 800, marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                             <i className="fas fa-bed" style={{ color: '#94a3b8' }}></i>
-                            {lead.reqDisplay.unitType}
+                            {lead.reqDisplay.sizeType}
                         </div>
                     )}
                 </div>
@@ -1872,7 +1912,7 @@ const LeadCard = React.memo(function LeadCard({
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem', marginTop: '6px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.7rem', color: '#64748b', fontWeight: 800 }}>
                          <i className="fas fa-bed" style={{ color: '#94a3b8' }}></i>
-                         {lead.reqDisplay?.unitType || 'Any Size'}
+                         {lead.reqDisplay?.sizeType || 'Any Size'}
                     </div>
                     <span style={{ fontWeight: 800, color: '#059669', fontSize: '0.85rem' }}>
                         {lead.budgetDisplay}

@@ -192,6 +192,23 @@ function DealsPage({ onNavigate, onAddActivity }) {
         }
     }, [currentPage, recordsPerPage, debouncedSearchTerm, sortConfig, filters]);
 
+    // 🧠 SENIOR PROFESSIONAL: Robust Lookup Resolver for Deals
+    const resolveDealLookup = useCallback((val, type) => {
+        if (!val) return null;
+        if (typeof val === 'object') {
+            const label = val.lookup_value || val.name || val.label;
+            // If label is present and not an ID, return it
+            if (label && !/^[0-9a-fA-F]{24}$/.test(String(label))) return label;
+            // If label itself is an ID or missing, try resolving the ID
+            val = val._id || val.id || val;
+        }
+        
+        const resolved = getLookupValue(type, val);
+        // NEVER return a raw 24-char hex string as a label
+        if (!resolved || /^[0-9a-fA-F]{24}$/.test(String(resolved))) return null;
+        return resolved;
+    }, [getLookupValue]);
+
     const handleSaveUploads = async (mediaData) => {
         try {
             const dealId = selectedIds[0];
@@ -861,6 +878,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                         onSelect={toggleSelect}
                                         onNavigate={onNavigate}
                                         getLookupValue={getLookupValue}
+                                        resolveDealLookup={resolveDealLookup}
                                         activeRowMenu={activeRowMenu}
                                         setActiveRowMenu={setActiveRowMenu}
                                         getUserName={getUserName}
@@ -1130,7 +1148,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
 
 // --- MEMOIZED COMPONENTS FOR PERFORMANCE ---
 
-const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLookupValue, activeRowMenu, setActiveRowMenu, onAction, dealScores = {}, getUserName, getTeamName, style }) => {
+const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLookupValue, resolveDealLookup, activeRowMenu, setActiveRowMenu, onAction, dealScores = {}, getUserName, getTeamName, style }) => {
     
     const s = dealScores[deal._id];
     const scoreVal = s ? s.score : (deal.dealProbability || 0);
@@ -1213,17 +1231,14 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
                 </div>
                 <div style={{ paddingLeft: '2px' }}>
                     <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#1e293b', lineHeight: 1.1 }}>
-                        {renderValue(getLookupValue('Category', deal.category) || getLookupValue('PropertyType', deal.propertyType), 'N/A')}
-                        {deal.subCategory ? ` - ${renderValue(getLookupValue('SubCategory', deal.subCategory))}` : ''}
+                        {renderValue(resolveDealLookup(deal.category, 'Category') || resolveDealLookup(deal.propertyType, 'PropertyType'), 'N/A')}
+                        {deal.subCategory ? ` - ${renderValue(resolveDealLookup(deal.subCategory, 'SubCategory'))}` : ''}
                     </div>
                     <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#2563eb', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <i className="fas fa-expand-arrows-alt" style={{ fontSize: '0.65rem' }}></i>
                         {(() => {
-                            const sizeFromLookup = getLookupValue('Size', deal.sizeConfig);
-                            // Ensure we don't show an ID as a fallback if lookup failed to find a label
-                            const isId = (val) => typeof val === 'string' && /^[0-9a-fA-F]{24}$/.test(val);
-                            
-                            if (sizeFromLookup && sizeFromLookup !== '-' && !isId(sizeFromLookup)) return renderValue(sizeFromLookup);
+                            const sizeFromLookup = resolveDealLookup(deal.sizeConfig, 'Size');
+                            if (sizeFromLookup) return renderValue(sizeFromLookup);
                             if (deal.sizeLabel) return renderValue(deal.sizeLabel);
                             if (deal.size) return `${renderValue(deal.size)} ${renderValue(deal.sizeUnit)}`;
                             return 'N/A';
@@ -1236,7 +1251,7 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
             <div className="super-cell">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px' }}>
                     <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.75rem' }}></i>
-                    <span className="text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>{renderValue(getLookupValue('Locality', deal.location) || getLookupValue('Area', deal.location) || getLookupValue('Location', deal.location))}</span>
+                    <span className="text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>{renderValue(resolveDealLookup(deal.location, 'Locality') || resolveDealLookup(deal.location, 'Area') || resolveDealLookup(deal.location, 'Location'))}</span>
                 </div>
                 {deal.projectName && (
                     <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '4px' }}>
@@ -1251,7 +1266,7 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
 
             {/* Col 4: Match */}
             <div style={{ lineHeight: 1.4, padding: '8px', background: '#f8fafc', borderRadius: '6px' }}>
-                <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.8rem', textTransform: 'capitalize', marginBottom: '4px' }}>{renderValue(getLookupValue('Intent', deal.intent))}</div>
+                <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.8rem', textTransform: 'capitalize', marginBottom: '4px' }}>{renderValue(resolveDealLookup(deal.intent, 'Intent'))}</div>
                 <div style={{ fontSize: '0.7rem' }}>
                     <span style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: '#fff', fontWeight: 700, padding: '3px 10px', borderRadius: '12px', boxShadow: '0 2px 4px rgba(102, 126, 234, 0.3)' }}>{deal.matched} Matches</span>
                 </div>

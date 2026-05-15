@@ -128,25 +128,98 @@ export const submitFeedback = async (req, res, next) => {
             sourceMeta: sourceMeta || {}
         });
 
-        // 🚀 SMART SYNC: Update Inventory History if linked
+        // 🚀 SMART SYNC: Update Inventory History and Activity Timeline
         if (inventoryId && mongoose.Types.ObjectId.isValid(inventoryId)) {
-            const feedbackNote = Object.values(responses).join(' | ');
-            await Inventory.findByIdAndUpdate(inventoryId, {
-                $push: {
-                    history: {
-                        type: 'Feedback',
-                        note: `Feedback Received via ${form.name}: ${feedbackNote}`,
-                        details: {
-                            submissionId: submission._id,
-                            rating: submissionRating,
-                            responses
-                        },
-                        date: new Date()
+            const inventory = await Inventory.findById(inventoryId).populate('owners associates.contact');
+            if (inventory) {
+                // [ENTERPRISE] Heuristic Field Resolution for Outcome, Reason, and Follow-up
+                let outcome = '';
+                let reason = '';
+                let nextFollowUp = null;
+
+                const fieldEntries = Object.entries(responses);
+                const formFields = form.sections.flatMap(s => s.fields);
+
+                for (const [fieldId, value] of fieldEntries) {
+                    const fieldDef = formFields.find(f => f.id === fieldId);
+                    if (!fieldDef) continue;
+
+                    const label = fieldDef.label.toLowerCase();
+                    if (label.includes('outcome')) outcome = value;
+                    else if (label.includes('reason')) reason = value;
+                    else if (label.includes('follow-up') || label.includes('next action')) {
+                        const d = new Date(value);
+                        if (!isNaN(d.getTime())) nextFollowUp = d;
                     }
-                },
-                $set: { lastContactedAt: new Date() }
-            });
-            console.log(`[FeedbackSync] Updated History for Inventory: ${inventoryId}`);
+                }
+
+                const feedbackNote = Object.values(responses).join(' | ');
+                const updatePayload = {
+                    $push: {
+                        history: {
+                            type: 'Feedback',
+                            note: `Feedback Received via ${form.name}: ${feedbackNote}`,
+                            details: {
+                                submissionId: submission._id,
+                                rating: submissionRating,
+                                responses,
+                                result: outcome,
+                                reason: reason
+                            },
+                            date: new Date()
+                        }
+                    },
+                    $set: { lastContactedAt: new Date() }
+                };
+
+                if (nextFollowUp) updatePayload.$set.followUpDate = nextFollowUp;
+
+                await Inventory.findByIdAndUpdate(inventoryId, updatePayload);
+
+                // [ENTERPRISE] Unified Activity Linking (One record, multiple timelines)
+                const relatedTo = [
+                    { id: inventory._id, name: inventory.unitNo || 'Property', model: 'Inventory' }
+                ];
+
+                // Add Owners
+                if (inventory.owners && inventory.owners.length > 0) {
+                    inventory.owners.forEach(owner => {
+                        relatedTo.push({ id: owner._id || owner, name: owner.name || 'Owner', model: 'Contact' });
+                    });
+                }
+
+                // Add Associates
+                if (inventory.associates && inventory.associates.length > 0) {
+                    inventory.associates.forEach(assoc => {
+                        const contactId = assoc.contact?._id || assoc.contact;
+                        if (contactId) {
+                            relatedTo.push({ id: contactId, name: assoc.contact?.name || assoc.name || 'Associate', model: 'Contact' });
+                        }
+                    });
+                }
+
+                // Add Lead if present
+                if (finalLeadId && mongoose.Types.ObjectId.isValid(finalLeadId)) {
+                    relatedTo.push({ id: finalLeadId, name: 'Target Lead', model: 'Lead' });
+                }
+
+                await Activity.create({
+                    type: 'Feedback',
+                    subject: `Feedback: ${outcome || 'Received'}`,
+                    description: feedbackNote,
+                    status: 'Completed',
+                    performedBy: 'System (Feedback Form)',
+                    dueDate: new Date(),
+                    entityType: 'Inventory',
+                    entityId: inventory._id,
+                    relatedTo,
+                    details: { submissionId: submission._id, outcome, reason },
+                    department: form.department,
+                    teams: form.teams
+                });
+
+                console.log(`[FeedbackSync] Unified Activity Logging Complete for ${relatedTo.length} entities linked to Inventory: ${inventoryId}`);
+            }
         }
 
         // 🚀 SMART SYNC: Update Lead Activity if linked

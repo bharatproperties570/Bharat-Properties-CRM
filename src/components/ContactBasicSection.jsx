@@ -361,7 +361,17 @@ const ContactBasicSection = React.memo(function ContactBasicSection({
             style={customSelectStyle}
           >
             <option value="">Select Owner</option>
-            {users.filter((user) => !formData.team || (user.team && (user.team === formData.team || user.team._id === formData.team))).map((user) => (
+            {users.filter((user) => {
+              if (!formData.team) return true;
+              const teamId = formData.team;
+              // Check singular team field
+              if (user.team && (user.team === teamId || user.team._id === teamId)) return true;
+              // Check plural teams array
+              if (user.teams && Array.isArray(user.teams)) {
+                return user.teams.some(t => (t === teamId || t._id === teamId));
+              }
+              return false;
+            }).map((user) => (
               <option key={user._id || user.id} value={user._id || user.id}>{user.name}</option>
             ))}
           </select>

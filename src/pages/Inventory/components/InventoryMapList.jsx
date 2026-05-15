@@ -44,15 +44,32 @@ const InventoryMapList = ({ items = [], onItemClick, getLookupValue }) => {
                         const statusVal = getLookupValue('Status', item.status);
                         const isActive = statusVal === 'Active' || String(item.status?.lookup_value) === 'Active' || String(item.status) === 'Active';
                         
+                        const getCardBackground = () => {
+                            const intent = String(item.primaryDealIntent || '').toLowerCase();
+                            if (intent === 'sell') return '#ffe4e6'; // Rose-100
+                            if (intent === 'rent') return '#fef9c3'; // Yellow-100
+                            if (intent === 'lease') return '#dbeafe'; // Blue-100
+                            return '#fff';
+                        };
+
+                        const getCardBorder = () => {
+                            const intent = String(item.primaryDealIntent || '').toLowerCase();
+                            if (intent === 'sell') return '2px solid #ec4899';
+                            if (intent === 'rent') return '2px solid #f59e0b';
+                            if (intent === 'lease') return '2px solid #3b82f6';
+                            return '1px solid #e2e8f0';
+                        };
+
                         return (
                             <div 
                                 key={item._id}
                                 className="map-property-card"
                                 style={{ 
                                     padding: '16px',
-                                    background: '#fff',
+                                    background: getCardBackground(),
                                     borderRadius: '12px',
-                                    border: '1px solid #e2e8f0',
+                                    border: getCardBorder(),
+                                    borderLeft: `6px solid ${getCardBorder().split(' ')[2]}`,
                                     marginBottom: '12px',
                                     cursor: 'pointer',
                                     transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',

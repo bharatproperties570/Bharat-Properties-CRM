@@ -96,7 +96,7 @@ const styles = {
 // ==================================================================================
 
 // MultiSelect Component
-const MultiSelectDropdown = ({ options, selected, onChange, placeholder, disabled }) => {
+const MultiSelectDropdown = ({ options, selected, onChange, placeholder, disabled, emptyMessage = "No options found" }) => {
     const [isOpen, setIsOpen] = useState(false);
     const containerRef = useRef(null);
 
@@ -151,7 +151,7 @@ const MultiSelectDropdown = ({ options, selected, onChange, placeholder, disable
                     {options.length === 0 ? (
                         <div style={{ padding: '16px', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem', fontStyle: 'italic' }}>
                             <i className="fas fa-info-circle" style={{ marginBottom: '8px', display: 'block', fontSize: '1.2rem', opacity: 0.5 }}></i>
-                            No blocks found for this project
+                            {emptyMessage}
                         </div>
                     ) : (
                         options.map(option => (
@@ -260,16 +260,43 @@ const InventoryFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
     const selectedCategories = filters.category || [];
     const selectedSubCategories = filters.subCategory || [];
 
+    // 🧠 [SENIOR HARDENING] Robust Configuration Resolver
+    const resolveCategoryConfig = (catName) => {
+        if (!catName) return null;
+        // 1. Direct Key Match (High Performance)
+        if (propertyConfig[catName]) return propertyConfig[catName];
+        
+        // 2. Case-Insensitive / Value Match (Fallback)
+        const entries = Object.entries(propertyConfig);
+        const found = entries.find(([key, val]) => 
+            key.toLowerCase() === catName.toLowerCase() || 
+            (val.name && val.name.toLowerCase() === catName.toLowerCase()) ||
+            (val.lookup_value && val.lookup_value.toLowerCase() === catName.toLowerCase())
+        );
+        return found ? found[1] : null;
+    };
+
     const availableSubCategories = selectedCategories.length > 0
-        ? selectedCategories.reduce((acc, cat) => propertyConfig[cat] ? [...acc, ...propertyConfig[cat].subCategories.map(sc => sc.name)] : acc, [])
+        ? selectedCategories.reduce((acc, cat) => {
+            const config = resolveCategoryConfig(cat);
+            if (config && config.subCategories) {
+                const subs = config.subCategories.map(sc => typeof sc === 'object' ? (sc.name || sc.lookup_value) : sc).filter(Boolean);
+                return [...acc, ...subs];
+            }
+            return acc;
+        }, [])
         : [];
 
     const availableSizeTypes = selectedSubCategories.length > 0
         ? selectedCategories.reduce((acc, cat) => {
-            if (propertyConfig[cat]) {
-                const matchingSubs = propertyConfig[cat].subCategories.filter(sc => selectedSubCategories.includes(sc.name));
-                const types = matchingSubs.reduce((tAcc, sub) => [...tAcc, ...(sub.types || []).map(t => t.name)], []);
-                return [...acc, ...types];
+            const config = resolveCategoryConfig(cat);
+            if (config && config.subCategories) {
+                const matchingSubs = config.subCategories.filter(sc => {
+                    const scName = typeof sc === 'object' ? (sc.name || sc.lookup_value) : sc;
+                    return selectedSubCategories.includes(scName);
+                });
+                const types = matchingSubs.reduce((tAcc, sub) => [...tAcc, ...(sub.types || []).map(t => typeof t === 'object' ? (t.name || t.lookup_value) : t)], []);
+                return [...acc, ...types.filter(Boolean)];
             }
             return acc;
         }, [])
@@ -357,6 +384,7 @@ const InventoryFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
                                         onFilterChange({ ...filters, category: val, subCategory: [], sizeType: [] });
                                     }}
                                     placeholder="Select Categories"
+                                    emptyMessage="No categories configured"
                                 />
                             </div>
                             <div>
@@ -369,6 +397,7 @@ const InventoryFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
                                     }}
                                     placeholder="Select Sub-Categories"
                                     disabled={selectedCategories.length === 0}
+                                    emptyMessage={selectedCategories.length === 0 ? "Select a category first" : "No sub-categories found"}
                                 />
                             </div>
                             <div>
@@ -471,6 +500,7 @@ const InventoryFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
                                     onChange={(val) => updateFilter('block', val)}
                                     placeholder={loadingBlocks ? "Loading blocks..." : "Select Blocks"}
                                     disabled={!filters.project || loadingBlocks}
+                                    emptyMessage={!filters.project ? "Select a project first" : "No blocks found for this project"}
                                 />
                             </div>
                         </div>
@@ -478,43 +508,7 @@ const InventoryFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
 
                     <div style={{ height: '1px', background: '#f1f5f9' }}></div>
 
-                    {/* 4. Orientation */}
-                    <section>
-                        <span style={styles.sectionTitle}>Orientation</span>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                            <div>
-                                <label style={styles.label}>Direction</label>
-                                <MultiSelectDropdown
-                                    options={masterFields.directions || []}
-                                    selected={filters.direction || []}
-                                    onChange={(val) => updateFilter('direction', val)}
-                                    placeholder="Select Directions"
-                                />
-                            </div>
-                            <div>
-                                <label style={styles.label}>Road Width</label>
-                                <MultiSelectDropdown
-                                    options={masterFields.roadWidths || []}
-                                    selected={filters.roadWidth || []}
-                                    onChange={(val) => updateFilter('roadWidth', val)}
-                                    placeholder="Select Road Widths"
-                                />
-                            </div>
-                            <div>
-                                <label style={styles.label}>Facing</label>
-                                <MultiSelectDropdown
-                                    options={masterFields.facings || []}
-                                    selected={filters.facing || []}
-                                    onChange={(val) => updateFilter('facing', val)}
-                                    placeholder="Select Facings"
-                                />
-                            </div>
-                        </div>
-                    </section>
-
-                    <div style={{ height: '1px', background: '#f1f5f9' }}></div>
-
-                    {/* 5. Feedback & Activity */}
+                    {/* 4. Feedback & Activity */}
                     <section>
                         <span style={styles.sectionTitle}>Feedback & Activity</span>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -573,6 +567,42 @@ const InventoryFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
                                         />
                                     </div>
                                 </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <div style={{ height: '1px', background: '#f1f5f9' }}></div>
+
+                    {/* 5. Orientation */}
+                    <section>
+                        <span style={styles.sectionTitle}>Orientation</span>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                            <div>
+                                <label style={styles.label}>Direction</label>
+                                <MultiSelectDropdown
+                                    options={masterFields.directions || []}
+                                    selected={filters.direction || []}
+                                    onChange={(val) => updateFilter('direction', val)}
+                                    placeholder="Select Directions"
+                                />
+                            </div>
+                            <div>
+                                <label style={styles.label}>Road Width</label>
+                                <MultiSelectDropdown
+                                    options={masterFields.roadWidths || []}
+                                    selected={filters.roadWidth || []}
+                                    onChange={(val) => updateFilter('roadWidth', val)}
+                                    placeholder="Select Road Widths"
+                                />
+                            </div>
+                            <div>
+                                <label style={styles.label}>Facing</label>
+                                <MultiSelectDropdown
+                                    options={masterFields.facings || []}
+                                    selected={filters.facing || []}
+                                    onChange={(val) => updateFilter('facing', val)}
+                                    placeholder="Select Facings"
+                                />
                             </div>
                         </div>
                     </section>

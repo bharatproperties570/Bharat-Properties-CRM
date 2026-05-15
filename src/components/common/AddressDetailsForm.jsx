@@ -48,10 +48,15 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address", dis
   // Generic Fetch Function
   const fetchLookup = useCallback(async (lookup_type, parent_lookup_id = null) => {
     try {
+      // 🛡️ [SENIOR FIX] Ensure parent_lookup_id is a raw string ID, not an object
+      const rawParentId = (typeof parent_lookup_id === 'object' && parent_lookup_id !== null)
+        ? (parent_lookup_id._id || parent_lookup_id.id)
+        : parent_lookup_id;
+
       const res = await api.get("/lookups", {
         params: {
           lookup_type,
-          parent_lookup_id,
+          parent_lookup_id: rawParentId,
           page: 1,
           limit: 1000,
         },
@@ -77,91 +82,82 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address", dis
 
   // Country → State
   useEffect(() => {
-    if (!address.country) {
+    const countryId = address?.country?._id || address?.country;
+    if (!countryId) {
       setStates([]);
       return;
     }
 
     const loadStates = async () => {
-      const data = await fetchLookup("State", address.country);
+      const data = await fetchLookup("State", countryId);
       setStates(data);
     };
     loadStates();
-  }, [address.country, fetchLookup]);
+  }, [address?.country, fetchLookup]);
 
   // State → City
   useEffect(() => {
-    if (!address.state) {
+    const stateId = address?.state?._id || address?.state;
+    if (!stateId) {
       setCities([]);
       return;
     }
 
     const loadCities = async () => {
-      const data = await fetchLookup("City", address.state);
+      const data = await fetchLookup("City", stateId);
       setCities(data);
     };
     loadCities();
-  }, [address.state, fetchLookup]);
+  }, [address?.state, fetchLookup]);
 
-  // City → Location
+  // City → Location & Tehsil
   useEffect(() => {
-    if (!address.city) {
+    const cityId = address?.city?._id || address?.city;
+    if (!cityId) {
       setLocations([]);
-      return;
-    }
-
-    const loadLocations = async () => {
-      const data = await fetchLookup("Location", address.city);
-      setLocations(data);
-    };
-    loadLocations();
-  }, [address.city, fetchLookup]);
-
-  // City → Tehsil (Parallel to Location)
-  useEffect(() => {
-    if (!address.city) {
       setTehsils([]);
       return;
     }
 
-    const loadTehsils = async () => {
-      const data = await fetchLookup("Tehsil", address.city);
-      setTehsils(data);
+    const loadCityChildren = async () => {
+      const [locData, tehsilData] = await Promise.all([
+        fetchLookup("Location", cityId),
+        fetchLookup("Tehsil", cityId)
+      ]);
+      setLocations(locData);
+      setTehsils(tehsilData);
     };
-    loadTehsils();
-  }, [address.city, fetchLookup]);
+    loadCityChildren();
+  }, [address?.city, fetchLookup]);
 
-  // Location / Tehsil (Same Level)
+  // Location → Post Office
   useEffect(() => {
-    if (!address.location) {
+    const locationId = address?.location?._id || address?.location;
+    if (!locationId) {
       setPostOffices([]);
       return;
     }
 
     const loadPO = async () => {
-      const data = await fetchLookup("PostOffice", address.location);
+      const data = await fetchLookup("PostOffice", locationId);
       setPostOffices(data);
     };
     loadPO();
-  }, [address.location, fetchLookup]);
+  }, [address?.location, fetchLookup]);
 
-  // Post Office → Pin Code (auto-fill only)
+  // Post Office → Pin Code
   useEffect(() => {
-    if (!address.postOffice) {
-      return;
-    }
+    const poId = address?.postOffice?._id || address?.postOffice;
+    if (!poId) return;
 
     const loadPin = async () => {
-      const data = await fetchLookup("Pincode", address.postOffice);
-
-      // If only one pincode available → auto select
-      if (data.length === 1) {
+      const data = await fetchLookup("Pincode", poId);
+      if (data.length === 1 && !address.pincode) {
         handleAddressChange({ pincode: data[0].lookup_value });
       }
     };
-
     loadPin();
-  }, [address.postOffice, fetchLookup, handleAddressChange]);
+  }, [address?.postOffice, fetchLookup, handleAddressChange]);
 
 
   return (
@@ -179,7 +175,7 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address", dis
           <div>
             <label style={labelStyle}>Country</label>
             <select
-              value={address.country || ""}
+              value={address.country?._id || address.country || ""}
               onChange={(e) =>
                 handleAddressChange({
                   country: e.target.value,
@@ -207,7 +203,7 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address", dis
           <div>
             <label style={labelStyle}>State</label>
             <select
-              value={address.state || ""}
+              value={address.state?._id || address.state || ""}
               onChange={(e) =>
                 handleAddressChange({
                   state: e.target.value,
@@ -234,7 +230,7 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address", dis
           <div>
             <label style={labelStyle}>City</label>
             <select
-              value={address.city || ""}
+              value={address.city?._id || address.city || ""}
               onChange={(e) =>
                 handleAddressChange({
                   city: e.target.value,
@@ -264,7 +260,7 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address", dis
           <div>
             <label style={labelStyle}>Location</label>
             <select
-              value={address.location || ""}
+              value={address.location?._id || address.location || ""}
               onChange={(e) =>
                 handleAddressChange({
                   location: e.target.value,
@@ -288,7 +284,7 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address", dis
           <div>
             <label style={labelStyle}>Tehsil</label>
             <select
-              value={address.tehsil || ""}
+              value={address.tehsil?._id || address.tehsil || ""}
               onChange={(e) =>
                 handleAddressChange({
                   tehsil: e.target.value,
@@ -310,7 +306,7 @@ const AddressDetailsForm = ({ address, onChange, title = "Personal Address", dis
           <div>
             <label style={labelStyle}>Post Office</label>
             <select
-              value={address.postOffice || ""}
+              value={address.postOffice?._id || address.postOffice || ""}
               onChange={(e) =>
                 handleAddressChange({
                   postOffice: e.target.value,

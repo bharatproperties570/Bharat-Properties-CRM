@@ -409,6 +409,7 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
         if (type.includes('sms')) return { icon: 'comment-alt', color: '#4f46e5', bg: '#f5f3ff' };
         if (type.includes('whatsapp')) return { icon: 'whatsapp', color: '#25d366', bg: '#f0fdf4', brand: true };
         if (type === 'messaging') return { icon: 'comment-dots', color: '#6366f1', bg: '#eef2ff' };
+        if (type.includes('feedback')) return { icon: 'comment-medical', color: '#ec4899', bg: '#fdf2f8' };
 
         return { icon: 'clock', color: '#64748b', bg: '#f8fafc' };
     };
@@ -764,6 +765,7 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                             <option value="email">Emails</option>
                             <option value="task">Tasks</option>
                             <option value="note">Notes</option>
+                            <option value="feedback">Feedback</option>
                         </select>
                     </div>
                 </div>
@@ -892,9 +894,13 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                                                     />
                                                 )}
                                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '12px', borderTop: '1px solid rgba(0,0,0,0.03)', paddingTop: '8px' }}>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                        <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600 }}>
-                                                            <i className="fas fa-user-circle" style={{ marginRight: '4px' }}></i> {item.actor || 'System'}
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                                        <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                            <i className="fas fa-user-circle"></i> {item.actor || 'System'}
+                                                        </div>
+                                                        <div style={{ fontSize: '0.65rem', color: '#cbd5e1', fontWeight: 600 }}>
+                                                            <i className="far fa-clock" style={{ marginRight: '4px' }}></i>
+                                                            {new Date(item.timestamp).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                                         </div>
                                                         {item.sourceEntity && item.sourceEntity !== entityType && (
                                                             <span style={{ 

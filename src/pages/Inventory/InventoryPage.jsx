@@ -100,6 +100,23 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
         return resolve(teamValue) || "-";
     }, [teams]);
 
+    // 🧠 SENIOR PROFESSIONAL: Robust Lookup Resolver for Inventory
+    const resolveInventoryLookup = useCallback((val, type) => {
+        if (!val) return null;
+        if (typeof val === 'object') {
+            const label = val.lookup_value || val.name || val.label;
+            // If label is present and not an ID, return it
+            if (label && !/^[0-9a-fA-F]{24}$/.test(String(label))) return label;
+            // If label itself is an ID or missing, try resolving the ID
+            val = val._id || val.id || val;
+        }
+        
+        const resolved = getLookupValue(type, val);
+        // NEVER return a raw 24-char hex string as a label
+        if (!resolved || /^[0-9a-fA-F]{24}$/.test(String(resolved))) return null;
+        return resolved;
+    }, [getLookupValue]);
+
     const getUserName = useCallback((uv) => {
         if (!uv) return "";
         const found = users.find(u => (u._id === uv) || (u.id === uv));
@@ -145,10 +162,11 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
         const p = getSelectedPropertyObj();
         if (p) {
             setSelectedDealData({
-                projectName: p.projectName || p.area || '',
-                block: p.block || '',
-                unitNo: p.unitNo || p.unitNumber || '',
-                propertyType: p.category || '',
+                inventoryId: p._id,
+                projectName: p.projectId?.name || renderValue(p.projectName) || renderValue(p.area) || '',
+                block: renderValue(p.block),
+                unitNo: renderValue(p.unitNo || p.unitNumber),
+                propertyType: resolveInventoryLookup(p.category || p.propertyType, 'PropertyType') || renderValue(p.category || p.propertyType),
                 size: p.size || '',
                 owner: { 
                     _id: p.owners?.[0]?._id || null,
@@ -279,6 +297,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                 toggleSelect={toggleSelect}
                                 handleSelectAll={handleSelectAll}
                                 getLookupValue={getLookupValue}
+                                resolveInventoryLookup={resolveInventoryLookup}
                                 onNavigate={onNavigate}
                                 getUserName={getUserName}
                                 getTeamName={getTeamName}

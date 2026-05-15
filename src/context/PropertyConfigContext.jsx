@@ -1143,8 +1143,26 @@ export const PropertyConfigProvider = ({ children }) => {
                 if (id) map.set(id.toString(), s.name || s.lookup_value);
             });
         }
+
+        // 🚀 SENIOR ENHANCEMENT: Crawl propertyConfig (System Settings) for orphaned IDs
+        const crawlConfig = (obj) => {
+            if (!obj || typeof obj !== 'object') return;
+            const id = obj.id || obj._id;
+            const name = obj.name || obj.label || obj.lookup_value;
+            if (id && name && typeof id === 'string' && id.length === 24) {
+                if (!map.has(id)) map.set(id, name);
+            }
+            Object.values(obj).forEach(val => {
+                if (typeof val === 'object' && val !== null) crawlConfig(val);
+            });
+        };
+
+        if (propertyConfig && Object.keys(propertyConfig).length > 0) {
+            crawlConfig(propertyConfig);
+        }
+
         return map;
-    }, [lookups, projects, sizes]);
+    }, [lookups, projects, sizes, propertyConfig]);
 
     const typeValueMap = React.useMemo(() => {
         const map = new Map(); // Map<normalizedType, Map<standardizedValue, id>>
@@ -1268,22 +1286,33 @@ export const PropertyConfigProvider = ({ children }) => {
         // Case A: ID is already a populated object
         if (typeof id === 'object') {
             const val = id.lookup_value || id.name || id.label || id.value || id.displayName;
-            if (val !== undefined && val !== null && typeof val !== 'object') return String(val);
-            return typeof id.toString === 'function' && id.toString() !== '[object Object]' ? id.toString() : null;
+            if (val !== undefined && val !== null && typeof val !== 'object') {
+                const valStr = String(val);
+                // PROFESSIONAL FIX: If the label itself is a 24-char ID, treat as unresolved
+                if (/^[0-9a-fA-F]{24}$/.test(valStr)) return null;
+                return valStr;
+            }
+            const strRepresentation = typeof id.toString === 'function' && id.toString() !== '[object Object]' ? id.toString() : null;
+            if (strRepresentation && /^[0-9a-fA-F]{24}$/.test(strRepresentation)) return null;
+            return strRepresentation;
         }
 
         const idStr = String(id).trim();
 
         // Case B: O(1) Instant Resolution using pre-calculated Map
         const resolved = lookupMap.get(idStr);
-        if (resolved) return String(resolved);
-
-        // Case C: ID is not a mongo ID (likely a raw string/numeric value)
-        if (!/^[0-9a-fA-F]{24}$/.test(idStr)) {
-            return idStr;
+        if (resolved) {
+            const resolvedStr = String(resolved);
+            if (/^[0-9a-fA-F]{24}$/.test(resolvedStr)) return null;
+            return resolvedStr;
         }
 
-        return null;
+        // Case C: Return raw value ONLY if it's NOT a 24-char hex ID
+        if (/^[0-9a-fA-F]{24}$/.test(idStr)) {
+            return null; // Mask the ID from the UI
+        }
+
+        return idStr;
     }, [lookupMap]);
 
     const findLookup = useCallback((type, value, parentId = null) => {

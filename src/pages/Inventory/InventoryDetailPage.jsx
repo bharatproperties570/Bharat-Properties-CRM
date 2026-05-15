@@ -253,13 +253,26 @@ export default function InventoryDetailPage({ inventoryId, onBack, onAddActivity
                                 const relatedEntities = [
                                     { type: 'Inventory', id: inventoryId }
                                 ];
+                                
+                                const seenContactIds = new Set();
+                                
                                 if (inventory.owners && Array.isArray(inventory.owners)) {
-                                    inventory.owners.forEach(o => { if (o._id || o.id) relatedEntities.push({ type: 'Contact', id: o._id || o.id }); });
+                                    inventory.owners.forEach(o => { 
+                                        const cId = o._id || o.id || o;
+                                        if (cId && typeof cId === 'string' && !seenContactIds.has(cId)) {
+                                            seenContactIds.add(cId);
+                                            relatedEntities.push({ type: 'Contact', id: cId }); 
+                                        }
+                                    });
                                 }
+                                
                                 if (inventory.associates && Array.isArray(inventory.associates)) {
                                     inventory.associates.forEach(a => {
-                                        const cId = a.contact?._id || a.contact?.id || a.id;
-                                        if (cId) relatedEntities.push({ type: 'Contact', id: cId });
+                                        const cId = a.contact?._id || a.contact?.id || a.contact || a.id || a;
+                                        if (cId && typeof cId === 'string' && !seenContactIds.has(cId)) {
+                                            seenContactIds.add(cId);
+                                            relatedEntities.push({ type: 'Contact', id: cId });
+                                        }
                                     });
                                 }
 

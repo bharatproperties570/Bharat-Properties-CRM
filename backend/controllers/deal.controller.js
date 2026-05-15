@@ -88,35 +88,77 @@ export const matchDeals = async (req, res) => {
         const bFlex = parseFloat(budgetFlexibility) / 100;
         const sFlex = parseFloat(sizeFlexibility) / 100;
 
-        const lead = await Lead.findById(leadId)
-            .populate('requirement', 'lookup_value')
-            .populate('propertyType', 'lookup_value')
-            .populate('subType', 'lookup_value')
-            .populate('facing', 'lookup_value')
-            .populate('direction', 'lookup_value')
-            .populate('roadWidth', 'lookup_value')
-            .populate('location', 'lookup_value')
-            .lean();
+        // ─── 0. Pre-fetch all lookups for high-speed resolution ───────────────────
+        const lookupTypes = ['Category', 'Intent', 'SubCategory', 'Status', 'PropertyType', 'UnitType', 'Locality', 'Area', 'Location', 'Size', 'City', 'State', 'Requirement'];
+        const allLookups = await Lookup.find({ 
+            lookup_type: { $in: lookupTypes } 
+        }).lean();
+        const lookupIdMap = new Map(allLookups.map(l => [String(l._id), l.lookup_value]));
+        const lookupValueMap = new Map(allLookups.map(l => [String(l.lookup_value).toLowerCase(), l]));
 
-        if (!lead) {
-            return res.status(404).json({ success: false, error: "Lead not found" });
-        }
+        const getLookupValueLocal = (val) => {
+            if (!val) return "";
+            if (val.lookup_value) return String(val.lookup_value).toLowerCase();
+            const idStr = String(val._id || val);
+            const resolved = lookupIdMap.get(idStr);
+            if (resolved) return resolved.toLowerCase();
+            // If it's a raw string that's not an ID, return it
+            if (!/^[0-9a-fA-F]{24}$/.test(idStr)) return idStr.toLowerCase();
+            return "";
+        };
 
-        const leadReq = String(lead.requirement?.lookup_value || lead.requirement || "").toLowerCase();
+        const getLookupLabelLocal = (val) => {
+            if (!val) return "Not Set";
+            if (val.lookup_value) return val.lookup_value;
+            const idStr = String(val._id || val);
+            const resolved = lookupIdMap.get(idStr);
+            if (resolved) return resolved;
+            if (!/^[0-9a-fA-F]{24}$/.test(idStr)) return idStr;
+            return "Unknown";
+        };
+
+        // ─── 1. Fetch Lead ────────────────────────────────────────────────────────
+        const lead = await Lead.findById(leadId).lean();
+        if (!lead) return res.status(404).json({ success: false, error: "Lead not found" });
+
+        // ─── 2. Extract Lead Signals with Robust Resolution ──────────────────────
+        const leadReq = getLookupValueLocal(lead.requirement);
+        const leadReqLabel = getLookupLabelLocal(lead.requirement);
+
         const leadCats = (Array.isArray(lead.propertyType) ? lead.propertyType : [])
-            .map(c => String(c?.lookup_value || c || "").toLowerCase())
+            .map(c => getLookupValueLocal(c))
             .filter(Boolean);
+        const leadCatsLabel = (Array.isArray(lead.propertyType) ? lead.propertyType : [])
+            .map(c => getLookupLabelLocal(c))
+            .filter(l => l !== "Unknown")
+            .join(' / ') || 'any';
 
-        // 1. Fetch potential deals
-        const visibilityFilter = await getVisibilityFilter(req.user);
+        // Multi-signal location array for broad recall
+        const leadProjects = (Array.isArray(lead.projectName) ? lead.projectName : [])
+            .map(p => String(p || "").toLowerCase()).filter(Boolean);
+        const leadSector = String(lead.sector || "").toLowerCase();
+        const leadLocValue = getLookupValueLocal(lead.location);
+        const leadLocArea = String(lead.locArea || "").toLowerCase();
+        const leadLocCity = String(lead.locCity || "").toLowerCase();
+        const leadBlocks = (Array.isArray(lead.locBlock) ? lead.locBlock : []).map(b => String(b || "").toLowerCase()).filter(Boolean);
 
-        // 🛠️ SENIOR DIAGNOSTIC LOG (Harden for potential undefined user)
-        if (req.user) {
-            console.log(`[VISIBLE_AUDIT] User: ${req.user.email}, Scope: ${req.user.dataScope}, Teams: ${JSON.stringify(req.user.teams?.map(t => t._id || t))}`);
-        } else {
-            console.log(`[VISIBLE_AUDIT] Anonymous request - Visibility restricted to public data.`);
+        // Budget signals
+        const lBudgetMin = parseFloat(lead.budgetMin) || 0;
+        const lBudgetMax = parseFloat(lead.budgetMax) > 0 ? parseFloat(lead.budgetMax) : Infinity;
+
+        // Area/Size signals
+        const lAreaMin = parseFloat(lead.areaMin) || 0;
+        const lAreaMax = parseFloat(lead.areaMax) > 0 ? parseFloat(lead.areaMax) : 0;
+
+        // ─── 3. Fetch potential deals ─────────────────────────────────────────────
+        let visibilityFilter = {};
+        try {
+            visibilityFilter = await getVisibilityFilter(req.user);
+        } catch (e) {
+            console.warn('[matchDeals] Visibility filter failed, using open filter:', e.message);
         }
-        console.log(`[VISIBLE_AUDIT] Generated Filter: ${JSON.stringify(visibilityFilter, null, 2)}`);
+
+        console.log(`[MATCH_DEBUG] Lead: ${lead.firstName} | Req: ${leadReq} (${leadReqLabel}) | Cats: ${leadCatsLabel} | Budget: ${lBudgetMin}-${lBudgetMax}`);
 
         const query = {
             ...visibilityFilter,
@@ -124,32 +166,9 @@ export const matchDeals = async (req, res) => {
             stage: { $nin: ["Cancelled", "Closed Lost", "Sold Out"] }
         };
 
-        // Note: category, intent, subCategory are Mixed and might contain strings instead of ObjectIds
-        // Attempting to populate these can cause a CastError if the value is "Sell", "Buy", etc.
-        const deals = await Deal.find(query)
-            .populate('inventoryId')
-            .populate('projectId')
-            .lean();
+        const deals = await Deal.find(query).populate('inventoryId').lean();
 
-        // Manual Robust Population for Lookups to prevent CastError
-        const lookupTypes = ['Category', 'Intent', 'SubCategory', 'Status', 'PropertyType', 'UnitType', 'Locality', 'Area', 'Location', 'Size', 'City', 'State'];
-        const allLookups = await Lookup.find({ 
-            lookup_type: { $in: lookupTypes } 
-        }).lean();
-        const lookupMap = new Map(allLookups.map(l => [String(l._id), l]));
-        const lookupValueMap = new Map(allLookups.map(l => [String(l.lookup_value).toLowerCase(), l]));
-
-        const enrichWithLookup = (item, field) => {
-            const val = item[field];
-            if (!val) return;
-            if (mongoose.Types.ObjectId.isValid(val)) {
-                item[field] = lookupMap.get(String(val)) || val;
-            } else if (typeof val === 'string') {
-                item[field] = lookupValueMap.get(val.toLowerCase()) || { lookup_value: val };
-            }
-        };
-
-        // 3. ENHANCEMENT: Fetch Dispatch Proof (Recent Activities)
+        // 4. Activity Intelligence: Fetch Dispatch Proof
         const dispatchActivities = await Activity.find({
             entityId: leadId,
             type: 'Marketing',
@@ -167,187 +186,274 @@ export const matchDeals = async (req, res) => {
             }
         });
 
+        // 5. Score and Map
+        const excludedDeals = [];
 
-        // 4. Score and Map
         const matchingDeals = deals
             .map(deal => {
-                // Enrich deals with manual lookup data before filtering
-                enrichWithLookup(deal, 'category');
-                enrichWithLookup(deal, 'intent');
-                enrichWithLookup(deal, 'subCategory');
-                enrichWithLookup(deal, 'propertyType');
-                enrichWithLookup(deal, 'location');
-                enrichWithLookup(deal, 'unitType');
-                return deal;
-            })
-            .filter(deal => {
-                const dealIntent = String(deal.intent?.lookup_value || deal.intent || "").toLowerCase();
-                const dealCategory = String(deal.category?.lookup_value || deal.category || "").toLowerCase();
+                const dealIntent = getLookupValueLocal(deal.intent);
+                const dealIntentLabel = getLookupLabelLocal(deal.intent);
+                const dealCategory = getLookupValueLocal(deal.category);
+                const dealCategoryLabel = getLookupLabelLocal(deal.category);
+                const dealLabel = deal.projectName || (deal.inventoryId?.projectName) || String(deal._id).slice(-6);
 
-                let intentMatched = false;
-                if (dealIntent.includes("sell") && (leadReq.includes("buy") || leadReq.includes("purchase"))) intentMatched = true;
-                else if (dealIntent.includes("rent") && (leadReq.includes("rent") || leadReq.includes("lease"))) intentMatched = true;
-                else if (dealIntent.includes("lease") && (leadReq.includes("lease") || leadReq.includes("rent"))) intentMatched = true;
-                else if ((dealIntent.includes("buy") || dealIntent.includes("purchase")) && leadReq.includes("sell")) intentMatched = true;
+                // Phase 3B: Intent exclusion with reason capture
+                let intentMatched = !dealIntent || !leadReq;
+                if (!intentMatched) {
+                    const d = dealIntent;
+                    const l = leadReq;
+                    if ((d.includes("sell") || d.includes("sale")) && (l.includes("buy") || l.includes("purchase") || l.includes("req"))) intentMatched = true;
+                    else if ((d.includes("rent") || d.includes("lease")) && (l.includes("rent") || l.includes("lease"))) intentMatched = true;
+                    else if ((d.includes("buy") || d.includes("purchase")) && (l.includes("sell") || l.includes("sale"))) intentMatched = true;
+                    else if (d === l || d.includes(l) || l.includes(d)) intentMatched = true;
+                }
 
-                if (!intentMatched) return false;
+                if (!intentMatched) {
+                    excludedDeals.push({
+                        _id: deal._id, projectName: dealLabel,
+                        unitNo: deal.unitNo || deal.inventoryId?.unitNo, 
+                        price: deal.price || deal.quotePrice,
+                        excludeReason: `Intent mismatch — deal is listed as "${dealIntentLabel}" but lead requires "${leadReqLabel}"`
+                    });
+                    return null;
+                }
 
-                let catMatched = false;
-                if (dealCategory.includes("res") && leadCats.some(c => c && c.includes("res"))) catMatched = true;
-                else if (dealCategory.includes("comm") && leadCats.some(c => c && c.includes("comm"))) catMatched = true;
-                else if (dealCategory.includes("ind") && leadCats.some(c => c && c.includes("ind"))) catMatched = true;
-                else if (!dealCategory || (leadCats.length === 0)) catMatched = true;
+                // Phase 3B: Category exclusion
+                let catMatched = !dealCategory || leadCats.length === 0;
+                if (!catMatched) {
+                    catMatched = (
+                        (dealCategory.includes("res") && leadCats.some(c => c.includes("res"))) ||
+                        (dealCategory.includes("comm") && leadCats.some(c => c.includes("comm"))) ||
+                        (dealCategory.includes("plot") && leadCats.some(c => c.includes("plot"))) ||
+                        (dealCategory.includes("agri") && leadCats.some(c => c.includes("agri"))) ||
+                        leadCats.some(c => dealCategory.includes(c) || c.includes(dealCategory))
+                    );
+                }
 
-                return catMatched;
-            })
-            .map(deal => {
-                // --- [ENTERPRISE MATCHING ENGINE V2] ---
+                if (!catMatched) {
+                    excludedDeals.push({
+                        _id: deal._id, projectName: dealLabel,
+                        unitNo: deal.unitNo || deal.inventoryId?.unitNo,
+                        price: deal.price || deal.quotePrice,
+                        excludeReason: `Category mismatch — deal is "${dealCategoryLabel}" but lead wants "${leadCatsLabel}"`
+                    });
+                    return null;
+                }
+
+                // --- SCORING ENGINE ---
                 let score = 0;
                 const matchDetails = [];
+                const scoreBreakdown = {
+                    location: { earned: 0, max: weights.location || 30, label: 'No location signal' },
+                    type:     { earned: 0, max: weights.type || 20,     label: 'No type data' },
+                    budget:   { earned: 0, max: weights.budget || 25,   label: 'No budget set' },
+                    size:     { earned: 0, max: weights.size || 25,     label: 'No size data' }
+                };
 
-                // 1. INTENT SYMMETRY (Pre-filtered, but verified here)
-                const dealIntent = String(deal.intent?.lookup_value || deal.intent || "").toLowerCase();
-                if (dealIntent) matchDetails.push(`Intent: ${dealIntent.toUpperCase()}`);
-
-                // 2. LOCATION PRECISION (Weight: 30%)
+                // 1. LOCATION PRECISION (Weight: 30%)
                 const locWeight = weights.location || 30;
-                const dealProjName = (deal.projectName || deal.projectId?.name || "").toLowerCase();
-                const dealSector = (deal.inventoryId?.sector || "").toLowerCase();
-                
-                const leadProjects = (Array.isArray(lead.projectName) ? lead.projectName : [])
-                    .map(p => String(p || "").toLowerCase());
-                const leadSector = String(lead.sector || "").toLowerCase();
-                const leadLocValue = String(lead.location?.lookup_value || "").toLowerCase();
+                const dealProjName = (deal.projectName || deal.inventoryId?.projectName || "").toLowerCase();
+                const dealSector = (deal.sector || deal.inventoryId?.sector || "").toLowerCase();
+                const dealLocality = getLookupValueLocal(deal.location || deal.inventoryId?.address?.locality);
+                const dealCity = getLookupValueLocal(deal.inventoryId?.address?.city);
+                const dealBlock = (deal.block || deal.inventoryId?.block || "").toLowerCase();
 
-                if (leadProjects.some(p => p && dealProjName.includes(p))) {
+                const locSignalsMatch = [
+                    leadProjects.some(p => p && (dealProjName.includes(p) || p.includes(dealProjName))),
+                    leadSector && dealSector && (dealSector.includes(leadSector) || leadSector.includes(dealSector)),
+                    leadLocArea && (dealLocality.includes(leadLocArea) || dealSector.includes(leadLocArea) || dealProjName.includes(leadLocArea)),
+                    leadLocCity && dealCity && (dealCity.includes(leadLocCity) || leadLocCity.includes(dealCity)),
+                    leadLocValue && (dealProjName.includes(leadLocValue) || dealLocality.includes(leadLocValue) || dealSector.includes(leadLocValue)),
+                    leadBlocks.some(b => b && dealBlock.includes(b))
+                ];
+
+                const locMatchCount = locSignalsMatch.filter(Boolean).length;
+                if (locMatchCount >= 2) {
                     score += locWeight;
-                    matchDetails.push("Target Project Match (+30%)");
-                } else if (leadSector && dealSector.includes(leadSector)) {
-                    score += locWeight * 0.9;
-                    matchDetails.push("Exact Sector Match (+27%)");
-                } else if (leadLocValue && dealProjName.includes(leadLocValue)) {
+                    scoreBreakdown.location = { earned: locWeight, max: locWeight, label: 'Strong multi-signal match' };
+                    matchDetails.push("Location Match");
+                } else if (locMatchCount === 1) {
                     score += locWeight * 0.7;
-                    matchDetails.push("City/Area Correlation (+21%)");
+                    scoreBreakdown.location = { earned: Math.round(locWeight * 0.7), max: locWeight, label: 'Partial location signal' };
+                    matchDetails.push("Area Correlation");
+                } else {
+                    scoreBreakdown.location = { earned: 0, max: locWeight, label: leadSector || leadLocArea || leadLocCity ? 'No matching location found' : 'Lead has no location set' };
                 }
 
-                // 3. PROPERTY TYPE SYMMETRY (Weight: 20%)
+                // 2. TYPE SYMMETRY (Weight: 20%)
                 const typeWeight = weights.type || 20;
-                const dealCat = (deal.category?.lookup_value || "").toLowerCase();
-                const dealSub = (deal.subCategory?.lookup_value || "").toLowerCase();
-                
-                const leadTypes = (Array.isArray(lead.propertyType) ? lead.propertyType : [])
-                    .map(t => String(t.lookup_value || t || "").toLowerCase());
-                const leadSubs = (Array.isArray(lead.subType) ? lead.subType : [])
-                    .map(s => String(s.lookup_value || s || "").toLowerCase());
+                const leadSubs = (Array.isArray(lead.subType) ? lead.subType : []).map(s => getLookupValueLocal(s)).filter(Boolean);
+                const dealSub = getLookupValueLocal(deal.subCategory || deal.inventoryId?.subCategory);
 
-                if (leadSubs.some(s => s && dealSub.includes(s))) {
+                if (leadSubs.length > 0 && dealSub && leadSubs.some(s => dealSub.includes(s) || s.includes(dealSub))) {
                     score += typeWeight;
-                    matchDetails.push("Exact Unit Specification Match (+20%)");
-                } else if (leadTypes.some(t => t && dealCat.includes(t))) {
-                    score += typeWeight * 0.6;
-                    matchDetails.push("Broad Category Match (+12%)");
+                    scoreBreakdown.type = { earned: typeWeight, max: typeWeight, label: 'Exact unit specification match' };
+                    matchDetails.push("Category Alignment");
+                } else if (leadCats.length > 0 && dealCategory && leadCats.some(t => dealCategory.includes(t) || t.includes(dealCategory))) {
+                    score += typeWeight * 0.75;
+                    scoreBreakdown.type = { earned: Math.round(typeWeight * 0.75), max: typeWeight, label: `Category match: ${dealCategoryLabel}` };
+                    matchDetails.push("Category Alignment");
+                } else if (leadCats.length === 0) {
+                    score += typeWeight * 0.4;
+                    scoreBreakdown.type = { earned: Math.round(typeWeight * 0.4), max: typeWeight, label: 'No specific type preference set' };
                 }
 
-                // 4. BUDGET NORMALIZATION (Weight: 25%)
+                // 3. BUDGET NORMALIZATION (Weight: 25%)
                 const budgetWeight = weights.budget || 25;
-                const dealPrice = deal.price || deal.quotePrice || 0;
-                const lMin = parseFloat(lead.budgetMin) || 0;
-                const lMax = parseFloat(lead.budgetMax) || Infinity;
-
-                if (dealPrice > 0) {
-                    if (dealPrice >= lMin && dealPrice <= lMax) {
+                const dealPrice = parseFloat(deal.price || deal.quotePrice) || 0;
+                if (dealPrice > 0 && lBudgetMax > 0) {
+                    if (dealPrice >= lBudgetMin && dealPrice <= lBudgetMax) {
                         score += budgetWeight;
-                        matchDetails.push("Perfect Budget Alignment (+25%)");
+                        scoreBreakdown.budget = { earned: budgetWeight, max: budgetWeight, label: `₹${(dealPrice/100000).toFixed(1)}L is within budget range` };
+                        matchDetails.push("Budget Fit");
                     } else {
-                        const lowBound = lMin * (1 - bFlex);
-                        const highBound = lMax * (1 + bFlex);
+                        const lowBound = lBudgetMin * (1 - bFlex);
+                        const highBound = lBudgetMax === Infinity ? Infinity : lBudgetMax * (1 + bFlex);
                         if (dealPrice >= lowBound && dealPrice <= highBound) {
                             score += budgetWeight * 0.7;
-                            matchDetails.push("Approximate Budget Match (+17%)");
+                            scoreBreakdown.budget = { earned: Math.round(budgetWeight * 0.7), max: budgetWeight, label: `₹${(dealPrice/100000).toFixed(1)}L within ±${budgetFlexibility}% tolerance` };
+                            matchDetails.push("Budget Fit");
+                        } else {
+                            const aboveBudget = dealPrice > lBudgetMax;
+                            scoreBreakdown.budget = { earned: 0, max: budgetWeight, label: `₹${(dealPrice/100000).toFixed(1)}L is ${aboveBudget ? 'above' : 'below'} budget range` };
                         }
                     }
-                } else {
-                    matchDetails.push("Price TBA (Review Required)");
+                } else if (dealPrice === 0) {
+                    score += budgetWeight * 0.3;
+                    scoreBreakdown.budget = { earned: Math.round(budgetWeight * 0.3), max: budgetWeight, label: 'Price not set — partial credit' };
+                    matchDetails.push("Price TBA");
                 }
 
-                // 5. SIZE/SPEC ALIGNMENT (Weight: 25%)
+                // 4. SIZE ALIGNMENT (Weight: 25%)
                 const sizeWeight = weights.size || 25;
-                const dealSize = parseFloat(deal.size) || (deal.inventoryId ? parseFloat(deal.inventoryId.size) : 0);
-                const leadSize = parseFloat(lead.size) || (lead.requirement ? parseFloat(lead.requirement.size) : 0);
-
-                if (dealSize > 0 && leadSize > 0) {
-                    const diff = Math.abs(dealSize - leadSize) / leadSize;
-                    if (diff <= sFlex) {
+                const dealSize = parseFloat(deal.size || deal.inventoryId?.size) || 0;
+                if (dealSize > 0 && lAreaMax > 0) {
+                    const aMin = lAreaMin * (1 - sFlex);
+                    const aMax = lAreaMax * (1 + sFlex);
+                    if (dealSize >= aMin && dealSize <= aMax) {
                         score += sizeWeight;
-                        matchDetails.push("Area/Size Match (+25%)");
-                    } else if (diff <= sFlex * 2) {
+                        scoreBreakdown.size = { earned: sizeWeight, max: sizeWeight, label: `${dealSize} Sq.Yd. within preferred range` };
+                        matchDetails.push("Size Fit");
+                    } else if (dealSize >= lAreaMin * (1 - sFlex * 2) && dealSize <= lAreaMax * (1 + sFlex * 2)) {
                         score += sizeWeight * 0.5;
-                        matchDetails.push("Partial Size Variance (+12%)");
+                        scoreBreakdown.size = { earned: Math.round(sizeWeight * 0.5), max: sizeWeight, label: `${dealSize} Sq.Yd. — approximate range` };
+                        matchDetails.push("Approx Size Match");
+                    } else {
+                        scoreBreakdown.size = { earned: 0, max: sizeWeight, label: `${dealSize} Sq.Yd. is outside preferred range` };
                     }
+                } else if (dealSize === 0 || lAreaMax === 0) {
+                    score += sizeWeight * 0.3;
+                    scoreBreakdown.size = { earned: Math.round(sizeWeight * 0.3), max: sizeWeight, label: lAreaMax === 0 ? 'Lead has no area preference' : 'Inventory size not recorded' };
                 }
 
-                // Final Polish
-                const invId = String(deal.inventoryId?._id || deal.inventoryId || "");
+                // --- MATCH DECAY ---
+                const invId = String(deal.inventoryId?._id || deal._id);
                 const lastDispatch = dispatchMap.get(invId) || null;
+                let decayFactor = 1;
+                let sharedStatus = null;
+                let daysSinceShared = null;
+
+                if (lastDispatch?.date) {
+                    daysSinceShared = (Date.now() - new Date(lastDispatch.date)) / (1000 * 60 * 60 * 24);
+                    if (daysSinceShared < 3) { decayFactor = 0.5; sharedStatus = 'hot'; }
+                    else if (daysSinceShared < 7) { decayFactor = 0.75; sharedStatus = 'recent'; }
+                    else if (daysSinceShared < 30) { decayFactor = 0.9; sharedStatus = 'stale'; }
+                }
+
+                const decayedScore = score * decayFactor;
+                if (decayedScore < 5) return null;
 
                 return {
                     ...deal,
-                    score: Math.min(Math.round(score), 100),
+                    score: Math.min(Math.round(decayedScore), 100),
+                    rawScore: Math.min(Math.round(score), 100),
                     matchDetails,
-                    lastDispatch
+                    scoreBreakdown,
+                    lastDispatch,
+                    sharedStatus,
+                    daysSinceShared: daysSinceShared ? Math.round(daysSinceShared) : null,
+                    // Re-inject labels for UI consistency
+                    intent: { lookup_value: dealIntentLabel },
+                    category: { lookup_value: dealCategoryLabel },
+                    location: { lookup_value: dealLocality || dealSector || dealProjName }
                 };
-            });
+            })
+            .filter(Boolean);
 
-        // 5. Final Enrichment with Inventory Details (for UI parity)
-        const inventoryIds = [...new Set(matchingDeals.map(d => d.inventoryId?._id || d.inventoryId).filter(Boolean))];
-        const inventoryMap = new Map();
-        if (inventoryIds.length > 0) {
-            const inventories = await mongoose.model('Inventory').find({ _id: { $in: inventoryIds } })
-                .populate('address.city')
-                .populate('address.state')
-                .populate('address.location')
-                .populate('address.pincode')
-                .populate('address.tehsil')
-                .populate('address.postOffice')
-                .populate('address.locality')
-                .populate('address.area')
-                .lean();
-            inventories.forEach(inv => inventoryMap.set(String(inv._id), inv));
+        const sorted = matchingDeals.sort((a,b) => b.score - a.score).slice(0, 50);
+
+        // ─── SMART SUGGESTIONS ────────────────────────────────────────────────────
+        const smartSuggestions = [];
+        const allPrices = deals.map(d => parseFloat(d.price || d.quotePrice) || 0).filter(p => p > 0);
+        const minAvailablePrice = allPrices.length ? Math.min(...allPrices) : 0;
+
+        if (lBudgetMax > 0 && minAvailablePrice > 0 && lBudgetMax < minAvailablePrice) {
+            smartSuggestions.push({
+                type: 'budget_too_low',
+                icon: 'fa-rupee-sign',
+                severity: 'high',
+                title: 'Budget Below Inventory Range',
+                message: `Lead's max budget (₹${(lBudgetMax/100000).toFixed(1)}L) is below available inventory (starts from ₹${(minAvailablePrice/100000).toFixed(1)}L).`,
+                action: 'Increase Budget Tolerance'
+            });
         }
 
-        const finalDeals = matchingDeals.map(deal => {
-            const dealObj = { ...deal };
-            const invId = dealObj.inventoryId?._id || dealObj.inventoryId;
-            const inventory = inventoryMap.get(String(invId));
+        if (!leadSector && !leadLocArea && !leadLocCity && leadProjects.length === 0) {
+            smartSuggestions.push({
+                type: 'missing_location',
+                icon: 'fa-map-marker-alt',
+                severity: 'high',
+                title: 'No Location Signal Set',
+                message: 'Adding a sector, city, or project preference would significantly improve match relevance.',
+                action: 'Add Location in Quick Fill'
+            });
+        }
 
-            if (inventory) {
-                // Metadata labels should always be live
-                dealObj.projectName = inventory.projectName || dealObj.projectName;
-                dealObj.block = inventory.block || dealObj.block;
-                dealObj.unitNo = inventory.unitNo || inventory.unitNumber || dealObj.unitNo;
-                dealObj.location = inventory.location || inventory.address?.locality || dealObj.location;
-                
-                // Add Size Metadata
-                dealObj.size = inventory.size || dealObj.size;
-                dealObj.sizeUnit = inventory.sizeUnit || inventory.unit || dealObj.sizeUnit;
-                dealObj.sizeLabel = inventory.sizeLabel || inventory.size_label || inventory.unitSpecification?.sizeLabel || dealObj.sizeLabel;
-                dealObj.sizeConfig = inventory.sizeConfig || inventory.size_config || inventory.unitSpecification?.sizeConfig || dealObj.sizeConfig;
-                dealObj.unitSpecification = inventory.unitSpecification || dealObj.unitSpecification;
-                
-                // Redundancy for nested object
-                if (dealObj.inventoryId && typeof dealObj.inventoryId === 'object') {
-                    dealObj.inventoryId.sizeLabel = inventory.sizeLabel || inventory.size_label || inventory.unitSpecification?.sizeLabel;
-                    dealObj.inventoryId.sizeConfig = inventory.sizeConfig || inventory.size_config || inventory.unitSpecification?.sizeConfig;
-                    dealObj.inventoryId.size = inventory.size;
-                    dealObj.inventoryId.sizeUnit = inventory.sizeUnit || inventory.unit;
-                    dealObj.inventoryId.unitSpecification = inventory.unitSpecification;
-                }
-            }
-            return dealObj;
+        const nearBudget = deals.filter(d => {
+            const p = parseFloat(d.price || d.quotePrice) || 0;
+            return p > lBudgetMax && p <= lBudgetMax * 1.4;
         });
+        if (nearBudget.length > 0 && sorted.length < 5) {
+            smartSuggestions.push({
+                type: 'tolerance_increase',
+                icon: 'fa-sliders-h',
+                severity: 'low',
+                title: `${nearBudget.length} Near-Miss Deals`,
+                message: `${nearBudget.length} deals are within 40% of lead's budget. Increase Budget Tolerance to see them.`,
+                action: 'Increase Budget Tolerance'
+            });
+        }
 
-        const sorted = finalDeals.sort((a,b) => b.score - a.score).slice(0, 50);
-        return res.status(200).json({ success: true, count: sorted.length, data: sorted });
+        if (excludedDeals.filter(d => d.excludeReason.includes('Intent')).length >= 3) {
+            smartSuggestions.push({
+                type: 'intent_mismatch',
+                icon: 'fa-exchange-alt',
+                severity: 'medium',
+                title: 'Deals Excluded by Intent Filter',
+                message: 'Multiple deals were excluded due to intent mismatch. Review lead requirement type.',
+                action: 'Review Lead Requirement'
+            });
+        }
+
+        if (lAreaMax === 0) {
+            smartSuggestions.push({
+                type: 'missing_area',
+                icon: 'fa-ruler-combined',
+                severity: 'low',
+                title: 'No Area Preference Set',
+                message: 'Adding an area range enables precise size scoring.',
+                action: 'Add Area in Quick Fill'
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            count: sorted.length,
+            data: sorted,
+            excludedCount: excludedDeals.length,
+            excluded: excludedDeals.slice(0, 10),
+            suggestions: smartSuggestions
+        });
     } catch (error) {
         console.error("[matchDeals Error]:", error);
         res.status(500).json({ success: false, error: error.message });
@@ -1232,6 +1338,73 @@ export const addDeal = async (req, res) => {
         CampaignEngine.launch(deal._id).catch(err =>
             console.error('[CampaignEngine] Auto-launch error for new deal:', err.message)
         );
+
+        // ─── PHASE 2B: Inverse Match Trigger (fire-and-forget) ─────────────────────
+        // Find top leads matching this new deal and notify their agents
+        setImmediate(async () => {
+            try {
+                const dealProjectName = (deal.projectName || '').toLowerCase();
+                const dealCategory = String(deal.category?.lookup_value || deal.category || '').toLowerCase();
+                const dealPrice = parseFloat(deal.price || deal.quotePrice) || 0;
+
+                // Find active leads that MIGHT match (broad pre-filter for speed)
+                const candidateLeads = await Lead.find({
+                    stage: { $nin: ['Closed', 'Lost', 'Junk'] },
+                    $or: [
+                        // Price range overlap (generous)
+                        { budgetMin: { $lte: dealPrice * 1.3 }, budgetMax: { $gte: dealPrice * 0.7 } },
+                        { budgetMin: 0, budgetMax: 0 },  // No budget set — still candidates
+                        // Project name match
+                        { projectName: { $regex: dealProjectName.slice(0, 10), $options: 'i' } }
+                    ]
+                })
+                .select('_id firstName lastName mobile assignment budgetMin budgetMax sector locCity requirement')
+                .limit(100)
+                .lean();
+
+                if (candidateLeads.length === 0) return;
+
+                // Score each candidate simply (no full engine — just budget + name signal)
+                const matched = candidateLeads
+                    .map(lead => {
+                        let score = 0;
+                        if (dealPrice > 0) {
+                            const lMin = parseFloat(lead.budgetMin) || 0;
+                            const lMax = parseFloat(lead.budgetMax) || Infinity;
+                            if (dealPrice >= lMin && dealPrice <= lMax) score += 50;
+                            else if (dealPrice >= lMin * 0.8 && dealPrice <= lMax * 1.2) score += 30;
+                        }
+                        const leadSector = (lead.sector || '').toLowerCase();
+                        const leadCity = (lead.locCity || '').toLowerCase();
+                        const dealSector = (deal.inventoryId?.sector || deal.sector || '').toLowerCase();
+                        if (dealSector && leadSector && dealSector.includes(leadSector)) score += 30;
+                        if (leadCity && dealProjectName.includes(leadCity)) score += 20;
+                        return { lead, score };
+                    })
+                    .filter(({ score }) => score >= 30)
+                    .sort((a, b) => b.score - a.score)
+                    .slice(0, 5); // Top 5 candidates
+
+                // Create notifications for each match
+                for (const { lead } of matched) {
+                    const agentId = lead.assignment?.assignedTo || req.user?._id;
+                    if (!agentId) continue;
+                    await createNotification({
+                        userId: agentId,
+                        type: 'deal_match',
+                        title: '🏠 New Property Matches a Lead',
+                        message: `${deal.projectName || 'New deal'} (${dealCategory}) may match ${lead.firstName} ${lead.lastName || ''}'s requirements. Budget: ₹${dealPrice > 0 ? (dealPrice / 100000).toFixed(1) + 'L' : 'TBA'}`,
+                        entityType: 'deal',
+                        entityId: deal._id,
+                        link: `/deals/${deal._id}`,
+                        metadata: { leadId: lead._id, leadName: `${lead.firstName} ${lead.lastName || ''}` }
+                    }).catch(() => {});
+                }
+                console.log(`[InverseMatch] Deal ${deal._id}: notified agents for ${matched.length} matching lead(s)`);
+            } catch (e) {
+                console.error('[InverseMatch] Background trigger error:', e.message);
+            }
+        });
 
         res.status(201).json({ success: true, data: deal });
     } catch (error) {

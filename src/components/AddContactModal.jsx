@@ -672,7 +672,13 @@ const AddContactModal = ({
     setIsSaving(true);
     const toastId = toast.loading(mode === "edit" ? "Updating contact..." : "Adding contact...");
 
-    // Validation: Mandatory Mobile Number
+    // Validation: Mandatory Fields
+    if (!formData.name || !formData.name.trim()) {
+      toast.error("First name is required", { id: toastId });
+      setIsSaving(false);
+      return;
+    }
+
     if (!formData.phones || formData.phones.length === 0 || !formData.phones[0].number) {
       toast.error("Mobile number is required", { id: toastId });
       setIsSaving(false);
@@ -715,10 +721,22 @@ const AddContactModal = ({
       // --- DATA NORMALIZATION FOR BACKEND ---
       let finalFormData = { ...formData };
 
-      // 🛡️ Senior Implementation: Recursive Reference Normalizer
+      // 🛡️ Senior Implementation: Recursive Reference Normalizer & Cleaner
       const deepNormalize = (obj) => {
         if (!obj || typeof obj !== 'object') return obj;
-        if (Array.isArray(obj)) return obj.map(item => deepNormalize(item));
+        if (Array.isArray(obj)) {
+          return obj
+            .map(item => deepNormalize(item))
+            .filter(item => {
+              if (!item) return false;
+              if (typeof item === 'object') {
+                // Filter out empty items in arrays (e.g., phones with no number)
+                const values = Object.values(item).filter(v => v !== null && v !== "" && v !== undefined && (Array.isArray(v) ? v.length > 0 : true));
+                return values.length > 0;
+              }
+              return true;
+            });
+        }
 
         const schemaContainers = [
           "phones", "emails", "personalAddress", "correspondenceAddress",
@@ -730,13 +748,15 @@ const AddContactModal = ({
 
         for (const key in normalized) {
           const value = normalized[key];
-          if (!value) continue;
+          if (value === null || value === undefined) continue;
 
           if (Array.isArray(value)) {
             if (referenceArrays.includes(key)) {
-              normalized[key] = value.map(i => (i && typeof i === 'object' && (i._id || i.id)) ? (i._id || i.id) : i);
+              normalized[key] = value
+                .map(i => (i && typeof i === 'object' && (i._id || i.id)) ? (i._id || i.id) : i)
+                .filter(Boolean);
             } else {
-              normalized[key] = value.map(item => deepNormalize(item));
+              normalized[key] = deepNormalize(value);
             }
             continue;
           }
@@ -760,8 +780,18 @@ const AddContactModal = ({
       const fieldsToStrip = ["_id", "id", "__v", "createdAt", "updatedAt", "fullName", "matchedEntityType"];
       fieldsToStrip.forEach(field => delete finalFormData[field]);
 
-      // Apply deep normalization to flatten lookup objects into IDs
+      // Apply deep normalization to flatten lookup objects into IDs and clean empty data
       finalFormData = deepNormalize(finalFormData);
+
+      // 🚀 Sync Top-level Assignment to Nested Object for Joi compatibility
+      if (finalFormData.team && (!finalFormData.assignment || !finalFormData.assignment.team || finalFormData.assignment.team.length === 0)) {
+        if (!finalFormData.assignment) finalFormData.assignment = {};
+        finalFormData.assignment.team = Array.isArray(finalFormData.team) ? finalFormData.team : [finalFormData.team];
+      }
+      if (finalFormData.owner && (!finalFormData.assignment || !finalFormData.assignment.assignedTo)) {
+        if (!finalFormData.assignment) finalFormData.assignment = {};
+        finalFormData.assignment.assignedTo = finalFormData.owner;
+      }
 
       // Final cleanup for documents (ensure unitNumber mapping is consistent)
       if (finalFormData.documents && finalFormData.documents.length > 0) {

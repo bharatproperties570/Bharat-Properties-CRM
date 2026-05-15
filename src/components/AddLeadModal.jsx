@@ -555,7 +555,6 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
         funding: '',
         timeline: '',
         furnishing: '',
-        propertyUnitType: [],
         transactionType: '',
         transactionFlexiblePercent: 50,
         sendMatchedDeal: [],
@@ -647,18 +646,18 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                 team: normalizeId(initialData.team) || prev.team,
                 owner: normalizeId(initialData.owner) || prev.owner,
                 visibleTo: initialData.visibleTo || prev.visibleTo,
-                requirement: getLookupValue('Requirement', initialData.requirement) || initialData.requirement || prev.requirement,
-                subRequirement: getLookupValue('SubRequirement', initialData.subRequirement) || initialData.subRequirement || prev.subRequirement,
+                requirement: getLookupValue('Requirement', initialData.requirement) || prev.requirement,
+                subRequirement: getLookupValue('SubRequirement', initialData.subRequirement) || prev.subRequirement,
                 location: normalizeId(initialData.location) || prev.location,
-                source: getLookupValue('Source', initialData.source) || initialData.source || prev.source,
-                status: getLookupValue('Status', initialData.status) || initialData.status || prev.status,
-                budget: getLookupValue('Budget', initialData.budget) || initialData.budget || prev.budget,
-                propertyType: Array.isArray(initialData.propertyType) ? initialData.propertyType.map(v => getLookupValue('Category', v) || v).filter(Boolean) : (initialData.propertyType ? [getLookupValue('Category', initialData.propertyType) || initialData.propertyType] : []),
-                subType: Array.isArray(initialData.subType) ? initialData.subType.map(v => getLookupValue('SubCategory', v) || v).filter(Boolean) : (initialData.subRequirement ? [getLookupValue('SubCategory', initialData.subRequirement) || initialData.subRequirement] : []),
-                unitType: Array.isArray(initialData.unitType) ? initialData.unitType.map(v => getLookupValue('UnitType', v) || v).filter(Boolean) : [],
-                facing: Array.isArray(initialData.facing) ? initialData.facing.map(v => getLookupValue('Facing', v) || v).filter(Boolean) : [],
-                roadWidth: Array.isArray(initialData.roadWidth) ? initialData.roadWidth.map(v => getLookupValue('RoadWidth', v) || v).filter(Boolean) : [],
-                direction: Array.isArray(initialData.direction) ? initialData.direction.map(v => getLookupValue('Direction', v) || v).filter(Boolean) : [],
+                source: getLookupValue('Source', initialData.source) || prev.source,
+                status: getLookupValue('Status', initialData.status) || prev.status,
+                budget: getLookupValue('Budget', initialData.budget) || prev.budget,
+                propertyType: Array.isArray(initialData.propertyType) ? initialData.propertyType.map(v => getLookupValue('Category', v)).filter(Boolean) : (initialData.propertyType ? [getLookupValue('Category', initialData.propertyType)].filter(Boolean) : []),
+                subType: Array.isArray(initialData.subType) ? initialData.subType.map(v => getLookupValue('SubCategory', v)).filter(Boolean) : (initialData.subRequirement ? [getLookupValue('SubCategory', initialData.subRequirement)].filter(Boolean) : []),
+                unitType: Array.isArray(initialData.unitType) ? initialData.unitType.map(v => getLookupValue('UnitType', v)).filter(Boolean) : [],
+                facing: Array.isArray(initialData.facing) ? initialData.facing.map(v => getLookupValue('Facing', v)).filter(Boolean) : [],
+                roadWidth: Array.isArray(initialData.roadWidth) ? initialData.roadWidth.map(v => getLookupValue('RoadWidth', v)).filter(Boolean) : [],
+                direction: Array.isArray(initialData.direction) ? initialData.direction.map(v => getLookupValue('Direction', v)).filter(Boolean) : [],
                 budgetMin: initialData.budgetMin || '',
                 budgetMax: initialData.budgetMax || '',
                 areaMin: initialData.areaMin || '',
@@ -693,7 +692,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                 tags: [],
                 team: '',
                 owner: '',
-                visibleTo: 'Public',
+                visibleTo: 'Everyone',
                 requirement: 'Buy',
                 propertyType: ['Residential'],
                 purpose: 'End use',
@@ -717,7 +716,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                 funding: '',
                 timeline: '',
                 furnishing: '',
-                propertyUnitType: [],
+                unitType: [],
                 transactionType: '',
                 transactionFlexiblePercent: 50,
                 sendMatchedDeal: [],
@@ -932,7 +931,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                     subSource: getLookupId('SubSource', formData.subSource) || "",
                     team: formData.team || "",
                     owner: formData.owner || "",
-                    visibleTo: formData.visibleTo || "Public",
+                    visibleTo: formData.visibleTo === "Public" ? "Everyone" : (formData.visibleTo || "Everyone"),
                 };
 
                 // Basic validation before sending to API
@@ -1045,70 +1044,70 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                 } else {
                     response = await api.post('/leads', finalLeadPayload);
                 }
-                if (!response.data || !response.data.success) {
-                    throw new Error("Failed to create lead: " + (response.data?.message || "Unknown error"));
+                } catch (leadError) {
+                    console.error("Error creating/updating lead:", leadError);
+                    alert("Failed to save lead. Please try again: " + (leadError.response?.data?.message || leadError.message));
+                    setIsSaving(false);
+                    return;
                 }
 
-                // Fire Triggers & Sequences on success
-                evaluateAndEnroll(leadPayload, 'leads');
+                // --- POST-SAVE SIDE EFFECTS (Non-Blocking) ---
+                try {
+                    // Fire Triggers & Sequences on success
+                    if (typeof evaluateAndEnroll === 'function') evaluateAndEnroll(leadPayload, 'leads');
 
-                if (mode === 'add') {
-                    fireEvent('lead_created', leadPayload, { entityType: 'leads' });
-                } else {
-                    const previousEntity = initialData || {};
-                    fireEvent('lead_updated', leadPayload, {
-                        entityType: 'leads',
-                        previousEntity
-                    });
-
-                    if (leadPayload.stage !== previousEntity.stage) {
-                        fireEvent('lead_stage_changed', leadPayload, {
+                    if (mode === 'add') {
+                        fireEvent('lead_created', leadPayload, { entityType: 'leads' });
+                    } else {
+                        const previousEntity = initialData || {};
+                        fireEvent('lead_updated', leadPayload, {
                             entityType: 'leads',
-                            previousValue: previousEntity.stage,
-                            currentValue: leadPayload.stage,
-                            previousEntity,
-                            // ── Enterprise: Source Stamp ───────────────────────────────────────────
-                            // 'manual_edit' = admin changed stage directly via lead form.
-                            // StageTransitionEngine fires with 'stage_engine' (backend).
-                            // This allows Triggers to distinguish source and apply different logic.
-                            triggeredBy: 'manual_edit'
-                        });
-                    }
-                    if (leadPayload.status !== previousEntity.status) {
-                        fireEvent('lead_status_changed', leadPayload, {
-                            entityType: 'leads',
-                            previousValue: previousEntity.status,
-                            currentValue: leadPayload.status,
                             previousEntity
                         });
+
+                        if (leadPayload.stage !== previousEntity.stage) {
+                            fireEvent('lead_stage_changed', leadPayload, {
+                                entityType: 'leads',
+                                previousValue: previousEntity.stage,
+                                currentValue: leadPayload.stage,
+                                previousEntity,
+                                triggeredBy: 'manual_edit'
+                            });
+                        }
+                        if (leadPayload.status !== previousEntity.status) {
+                            fireEvent('lead_status_changed', leadPayload, {
+                                entityType: 'leads',
+                                previousValue: previousEntity.status,
+                                currentValue: leadPayload.status,
+                                previousEntity
+                            });
+                        }
                     }
+                } catch (sideEffectError) {
+                    console.error("[POST-SAVE ERROR] Side effects failed but lead was saved:", sideEffectError);
                 }
-            } catch (leadError) {
-                console.error("Error creating lead:", leadError);
-                alert("Failed to save lead. Please try again: " + (leadError.response?.data?.message || leadError.message));
+
+                // --- FINAL UI UPDATE ---
+                if (typeof onAdd === 'function') onAdd(leadPayload);
+                window.dispatchEvent(new CustomEvent('lead-updated'));
+                window.dispatchEvent(new CustomEvent('contact-updated'));
+
+                // Show auto-assignment toast
+                if (response?.data?.assignedAgent?.userId) {
+                    const agentUser = users?.find(u => u._id === response.data.assignedAgent.userId);
+                    const agentName = agentUser?.fullName || agentUser?.name || 'an agent';
+                    const toastEl = document.createElement('div');
+                    toastEl.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#0f172a;color:#fff;padding:12px 24px;border-radius:10px;font-size:0.85rem;font-weight:500;z-index:99999;box-shadow:0 4px 20px rgba(0,0,0,0.35);display:flex;align-items:center;gap:10px;animation:fadeIn .3s ease;';
+                    toastEl.innerHTML = `<span style="color:#22c55e;font-size:1rem;">✓</span> Auto-assigned to <strong style="margin-left:4px">${agentName}</strong><span style="margin-left:8px;opacity:0.5;font-size:0.75rem;">via ${response.data.assignedAgent.ruleName}</span>`;
+                    document.body.appendChild(toastEl);
+                    setTimeout(() => toastEl.remove(), 4500);
+                }
+
                 setIsSaving(false);
-                return;
-            }
-
-            onAdd(leadPayload);
-            window.dispatchEvent(new CustomEvent('lead-updated'));
-            window.dispatchEvent(new CustomEvent('contact-updated'));
-
-            // Fix #6: Show auto-assignment toast if backend assigned the lead via DistributionRule
-            if (response.data?.assignedAgent?.userId) {
-                const agentUser = users?.find(u => u._id === response.data.assignedAgent.userId);
-                const agentName = agentUser?.fullName || agentUser?.name || 'an agent';
-                const toastEl = document.createElement('div');
-                toastEl.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#0f172a;color:#fff;padding:12px 24px;border-radius:10px;font-size:0.85rem;font-weight:500;z-index:99999;box-shadow:0 4px 20px rgba(0,0,0,0.35);display:flex;align-items:center;gap:10px;animation:fadeIn .3s ease;';
-                toastEl.innerHTML = `<span style="color:#22c55e;font-size:1rem;">✓</span> Auto-assigned to <strong style="margin-left:4px">${agentName}</strong><span style="margin-left:8px;opacity:0.5;font-size:0.75rem;">via ${response.data.assignedAgent.ruleName}</span>`;
-                document.body.appendChild(toastEl);
-                setTimeout(() => toastEl.remove(), 4500);
-            }
-
-            onClose();
+                if (typeof onClose === 'function') onClose();
 
         } catch (error) {
-            console.error("Error saving lead:", error);
+            console.error("General error in handleSave:", error);
             alert("An error occurred while saving. Please try again.");
             setIsSaving(false);
         }
@@ -2648,7 +2647,7 @@ const LocationSection = React.memo(function LocationSection({
                         </div>
                         <div>
                             <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Unit Type</label>
-                            <CustomMultiSelect options={masterFields.unitTypes || []} value={formData.propertyUnitType || []} onChange={(val) => handleInputChange('propertyUnitType', val)} placeholder="Select Unit Type" />
+                            <CustomMultiSelect options={masterFields.unitTypes || []} value={formData.unitType || []} onChange={(val) => handleInputChange('unitType', val)} placeholder="Select Unit Type" />
                         </div>
                     </div>
                 </div>

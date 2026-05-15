@@ -40,8 +40,9 @@ export const paginate = async (model, query, page, limit, sort = {}, populate = 
             };
         }
 
-        console.error(`[PAGINATION ERROR] Model: ${model.modelName} | Page: ${page} | Limit: ${limit}`);
+        console.error(`[PAGINATION ERROR] Model: ${model.modelName} | Page: ${pageNum} | Limit: ${limitNum}`);
         console.error(`[PAGINATION ERROR] Query: ${JSON.stringify(query)}`);
+        console.error(`[PAGINATION ERROR] Stack: ${error.stack}`);
         console.error(`[PAGINATION ERROR] Error Message: ${error.message}`);
 
         // If it's a CastError, it might be in one of the records

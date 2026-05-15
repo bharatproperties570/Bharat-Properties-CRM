@@ -1,5 +1,5 @@
 import express from "express";
-import { getLeads, addLead, updateLead, deleteLead, bulkDeleteLeads, getLeadById, importLeads, checkDuplicatesImport, matchLeads, toggleLeadInterest } from "../controllers/lead.controller.js";
+import { getLeads, addLead, updateLead, deleteLead, bulkDeleteLeads, getLeadById, importLeads, checkDuplicatesImport, matchLeads, toggleLeadInterest, snoozeLeadMatch } from "../controllers/lead.controller.js";
 import { authenticate } from "../src/middlewares/auth.middleware.js";
 import { validateBusinessRules } from "../src/middlewares/businessRule.middleware.js";
 
@@ -17,6 +17,7 @@ router.post("/", validateBusinessRules('leads'), addLead);
 router.put("/:id", validateBusinessRules('leads'), updateLead);
 router.post("/bulk-delete", bulkDeleteLeads);
 router.put("/interest/:inventoryId", toggleLeadInterest);
+router.put("/match/snooze/:inventoryId", snoozeLeadMatch);
 router.delete("/:id", deleteLead);
 
 export default router;

@@ -249,6 +249,7 @@ const ImportDataPage = () => {
                 });
                 setResolutions(initialResolutions);
                 setPlannedUpdates(response.data.plannedUpdates || []);
+                setDuplicates(response.data.duplicates || []); // 🚀 Store matches for transparency
 
                 if (response.data.conflictCount > 0) {
                     toast.error(`Detected ${response.data.conflictCount} data conflicts.`);
@@ -769,21 +770,22 @@ const ImportDataPage = () => {
                                     </div>
                                 )}
 
-                                {module === 'propertyOwners' && plannedUpdates.length > 0 && (
+                                {module === 'propertyOwners' && (plannedUpdates.length > 0 || duplicates.length > 0) && (
                                     <div style={{ marginBottom: '32px' }}>
                                         <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                            <i className="fas fa-sync-alt" style={{ color: '#2563eb' }}></i> Contacts to be Updated ({plannedUpdates.length})
+                                            <i className="fas fa-search" style={{ color: '#2563eb' }}></i> Matched Records Analysis ({plannedUpdates.length + (duplicates || []).length})
                                         </h3>
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '400px', overflowY: 'auto', padding: '4px' }}>
+                                            {/* Show Planned Updates (with Diffs) */}
                                             {plannedUpdates.map((update, idx) => (
-                                                <div key={idx} style={{ padding: '16px', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                                                <div key={`upd-${idx}`} style={{ padding: '16px', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
                                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                                                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                                             <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: '#eff6ff', color: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>
                                                                 {update.name?.charAt(0) || 'C'}
                                                             </div>
                                                             <div>
-                                                                <div style={{ fontWeight: 700, color: '#1e293b' }}>{update.name}</div>
+                                                                <div style={{ fontWeight: 700, color: '#1e293b' }}>{update.name} <span style={{ fontSize: '0.7rem', color: '#2563eb', background: '#dbeafe', padding: '2px 6px', borderRadius: '4px', marginLeft: '8px' }}>UPDATE PLANNED</span></div>
                                                                 <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{update.mobile} • Unit: {update.unitNo}</div>
                                                             </div>
                                                         </div>
@@ -802,6 +804,26 @@ const ImportDataPage = () => {
                                                                 </div>
                                                             </div>
                                                         ))}
+                                                    </div>
+                                                </div>
+                                            ))}
+
+                                            {/* Show Perfect Matches (No Diffs) */}
+                                            {(duplicates || []).filter(d => !plannedUpdates.some(p => p.mobile === d.mobile)).map((match, idx) => (
+                                                <div key={`match-${idx}`} style={{ padding: '16px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', opacity: 0.8 }}>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                                            <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: '#f1f5f9', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>
+                                                                {match.name?.charAt(0) || 'M'}
+                                                            </div>
+                                                            <div>
+                                                                <div style={{ fontWeight: 700, color: '#475569' }}>{match.name || match.lookup_value || 'Existing Contact'} <span style={{ fontSize: '0.7rem', color: '#16a34a', background: '#dcfce7', padding: '2px 6px', borderRadius: '4px', marginLeft: '8px' }}>VERIFIED MATCH (NO CHANGES)</span></div>
+                                                                <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{match.mobile || match.lookup_value || 'Matched by Identity'}</div>
+                                                            </div>
+                                                        </div>
+                                                        <div style={{ fontSize: '0.75rem', color: '#16a34a', fontWeight: 700 }}>
+                                                            <i className="fas fa-check-circle"></i> Ready
+                                                        </div>
                                                     </div>
                                                 </div>
                                             ))}

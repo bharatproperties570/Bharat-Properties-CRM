@@ -8,6 +8,7 @@ const InventoryTable = ({
     toggleSelect,
     handleSelectAll,
     getLookupValue,
+    resolveInventoryLookup,
     onNavigate,
     getUserName,
     getTeamName
@@ -41,7 +42,7 @@ const InventoryTable = ({
                 <div>Orientation</div>
                 <div>Owner Profile</div>
                 <div>Associate Contact</div>
-                <div>Intersaction</div>
+                <div>Interaction</div>
                 <div style={{ textAlign: 'right' }}>Assignment</div>
             </div>
 
@@ -55,15 +56,33 @@ const InventoryTable = ({
                         const statusVal = getLookupValue('Status', item.status);
                         const isActive = statusVal === 'Active' || String(item.status?.lookup_value) === 'Active' || String(item.status) === 'Active';
                         const isSelected = selectedIds.includes(item._id);
+                        
+                        const getRowBackground = () => {
+                            if (isSelected) return '#f1f5f9';
+                            const intent = String(item.primaryDealIntent || '').toLowerCase();
+                            if (intent === 'sell') return '#ffe4e6'; // Rose-100
+                            if (intent === 'rent') return '#fef9c3'; // Yellow-100
+                            if (intent === 'lease') return '#dbeafe'; // Blue-100
+                            return '#fff';
+                        };
+
+                        const getRowBorder = () => {
+                            const intent = String(item.primaryDealIntent || '').toLowerCase();
+                            if (intent === 'sell') return '4px solid #ec4899';
+                            if (intent === 'rent') return '4px solid #f59e0b';
+                            if (intent === 'lease') return '4px solid #3b82f6';
+                            return '1px solid #f1f5f9';
+                        };
 
                         return (
                             <div 
                                 key={item._id || index}
                                 className={`list-item inventory-list-grid ${isSelected ? 'selected-row' : ''}`}
                                 style={{ 
-                                    background: '#fff',
+                                    background: getRowBackground(),
                                     padding: '12px 1.5rem 12px 0.75rem',
                                     borderBottom: '1px solid #f1f5f9',
+                                    borderLeft: getRowBorder(),
                                     cursor: 'pointer',
                                     transition: 'background 0.2s',
                                     display: 'grid',
@@ -110,11 +129,11 @@ const InventoryTable = ({
                                     </div>
                                     <div style={{ paddingLeft: '2px' }}>
                                         <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#1e293b', lineHeight: 1.1 }}>
-                                            {renderValue(getLookupValue('Category', item.category))} | {renderValue(getLookupValue('SubCategory', item.subCategory))}
+                                            {renderValue(resolveInventoryLookup(item.category, 'Category'))} | {renderValue(resolveInventoryLookup(item.subCategory, 'SubCategory'))}
                                         </div>
                                         <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#2563eb', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                             <i className="fas fa-expand-arrows-alt" style={{ fontSize: '0.65rem' }}></i>
-                                            {renderValue(getLookupValue('Size', item.sizeConfig)) || renderValue(item.sizeLabel) || `${renderValue(item.size)} ${renderValue(item.sizeUnit) || (typeof item.size === 'object' ? renderValue(item.size?.unit) : '')}`}
+                                            {renderValue(resolveInventoryLookup(item.sizeConfig, 'Size')) || renderValue(item.sizeLabel) || `${renderValue(item.size)} ${renderValue(item.sizeUnit) || (typeof item.size === 'object' ? renderValue(item.size?.unit) : '')}`}
                                         </div>
                                     </div>
                                 </div>
@@ -136,12 +155,10 @@ const InventoryTable = ({
                                         <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.8rem' }}></i>
                                         <span className="text-ellipsis">
                                             {(() => {
-                                                const locality = getLookupValue('Location', item.address?.locality) || getLookupValue('Area', item.address?.area) || getLookupValue('Location', item.address?.location);
-                                                const city = getLookupValue('City', item.address?.city);
-                                                const cleanLocality = (locality && !/^[0-9a-fA-F]{24}$/.test(locality)) ? locality : (item.address?.location?.lookup_value || item.address?.locality?.lookup_value || item.address?.location || item.address?.locality || '');
-                                                const cleanCity = (city && !/^[0-9a-fA-F]{24}$/.test(city)) ? city : (item.address?.city?.lookup_value || item.address?.city || '');
-                                                const pincode = getLookupValue('Pincode', item.address?.pincode) || item.address?.pincode || '';
-                                                return `${renderValue(cleanLocality)}${cleanCity ? ', ' + renderValue(cleanCity) : ''}${pincode && pincode !== '-' ? ' - ' + renderValue(pincode) : ''}`;
+                                                const locality = resolveInventoryLookup(item.address?.locality, 'Locality') || resolveInventoryLookup(item.address?.area, 'Area') || resolveInventoryLookup(item.address?.location, 'Location');
+                                                const city = resolveInventoryLookup(item.address?.city, 'City');
+                                                const pincode = resolveInventoryLookup(item.address?.pincode, 'Pincode') || item.address?.pincode || '';
+                                                return `${renderValue(locality)}${city ? ', ' + renderValue(city) : ''}${pincode && pincode !== '-' ? ' - ' + renderValue(pincode) : ''}`;
                                             })()}
                                         </span>
                                     </div>
@@ -157,22 +174,11 @@ const InventoryTable = ({
                                 {/* Col 4: Orientation */}
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
                                     {(() => {
-                                        const orientationLabel = getLookupValue('Orientation', item.orientation);
-                                        const facingLabel = getLookupValue('Facing', item.facing);
+                                        const orientationLabel = resolveInventoryLookup(item.orientation, 'Orientation');
+                                        const facingLabel = resolveInventoryLookup(item.facing, 'Facing');
                                         
                                          // Prioritize non-placeholder values
-                                        let val = orientationLabel;
-                                        if (!val || val === '-' || val === 'None') val = facingLabel;
-                                        
-                                        // Fallback to raw values if labels fail
-                                        if (!val || val === '-' || val === 'None') {
-                                            val = (typeof item.orientation === 'string' && item.orientation !== '-') ? item.orientation : 
-                                                  (item.orientation?.lookup_value || item.orientation?.name);
-                                        }
-                                        if (!val || val === '-' || val === 'None') {
-                                            val = (typeof item.facing === 'string' && item.facing !== '-') ? item.facing : 
-                                                  (item.facing?.lookup_value || item.facing?.name);
-                                        }
+                                        const val = orientationLabel || facingLabel;
      
                                          if (!val || val === '-' || val === 'None') return null;
                                         return (
@@ -183,7 +189,7 @@ const InventoryTable = ({
                                         );
                                     })()}
                                     {(() => {
-                                        const dir = getLookupValue('Direction', item.direction);
+                                        const dir = resolveInventoryLookup(item.direction, 'Direction');
                                         if (!dir) return null;
                                         return (
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.72rem', color: '#64748b', fontWeight: 700 }}>
@@ -193,7 +199,7 @@ const InventoryTable = ({
                                         );
                                     })()}
                                     {(() => {
-                                        const rw = getLookupValue('RoadWidth', item.roadWidth) || item.roadWidth;
+                                        const rw = resolveInventoryLookup(item.roadWidth, 'RoadWidth') || item.roadWidth;
                                         if (!rw) return null;
                                         return (
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.72rem', color: '#64748b', fontWeight: 600, whiteSpace: 'nowrap' }}>
@@ -230,22 +236,56 @@ const InventoryTable = ({
                                     )}
                                 </div>
 
-                                {/* Col 7: Intersaction */}
+                                {/* Col 7: Interaction */}
                                 <div className="super-cell">
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
-                                        <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: isActive ? '#22c55e' : '#94a3b8' }}></span>
-                                        <span style={{ fontSize: '0.7rem', fontWeight: 800, color: isActive ? '#16a34a' : '#64748b', textTransform: 'uppercase' }}>
-                                            {renderValue(getLookupValue('Status', item.status))}
-                                        </span>
-                                    </div>
                                     {(() => {
                                         const history = item.history || [];
-                                        const latest = history.filter(h => h.type === 'Feedback' || h.result).sort((a,b) => new Date(b.date) - new Date(a.date))[0];
-                                        if (!latest && !item.nextActionDate) return null;
+                                        // Find latest feedback interaction
+                                        const latest = history.filter(h => h.type === 'Feedback' || h.details?.responses).sort((a,b) => new Date(b.date) - new Date(a.date))[0];
+                                        
+                                        const outcome = latest?.details?.result;
+                                        const reason = latest?.details?.reason;
+                                        const feedbackDate = latest?.date ? new Date(latest.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : (latest?.performedAt ? new Date(latest.performedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : null);
+                                        const followUp = item.followUpDate ? new Date(item.followUpDate).toLocaleDateString() : null;
+
                                         return (
-                                            <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                                {latest?.result || (item.nextActionDate ? 'Next: ' + new Date(item.nextActionDate).toLocaleDateString() : '')}
-                                            </div>
+                                            <>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                                                    <div style={{ 
+                                                        padding: '2px 8px', 
+                                                        borderRadius: '4px', 
+                                                        fontSize: '0.58rem', 
+                                                        fontWeight: 900, 
+                                                        background: isActive ? '#22c55e' : '#64748b',
+                                                        color: '#fff',
+                                                        textTransform: 'uppercase',
+                                                        letterSpacing: '0.5px',
+                                                        width: 'fit-content'
+                                                    }}>
+                                                        {isActive ? 'Active' : 'Inactive'}
+                                                    </div>
+                                                    {feedbackDate && (
+                                                        <span style={{ fontSize: '0.62rem', color: '#94a3b8', fontWeight: 700, opacity: 0.8 }}>
+                                                            {feedbackDate}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                                    {outcome && (
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                            <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0f172a' }}>{outcome}</span>
+                                                            {reason && <span style={{ fontSize: '0.62rem', color: '#64748b', fontWeight: 600 }}>({reason})</span>}
+                                                        </div>
+                                                    )}
+                                                    {followUp && (
+                                                        <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#2563eb', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                            <i className="far fa-calendar-alt" style={{ fontSize: '0.6rem' }}></i>
+                                                            Follow-up: {followUp}
+                                                        </div>
+                                                    )}
+                                                    {!outcome && !followUp && <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontStyle: 'italic' }}>No Recent Feedback</span>}
+                                                </div>
+                                            </>
                                         );
                                     })()}
                                 </div>

@@ -50,10 +50,11 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
         price: '',
         quotePrice: '',
         pricingMode: 'Total', // Total, Rate
-        ratePrice: '', // Per Sq. Yard/Meter/Feet
-        quoteRatePrice: '', // New: For bidirectional quote calc
+        priceUnit: 'SqYard', // Metric: SqYard, sqMeter, sq feet, marla, kananl, acre, hectare
+        ratePrice: '', // Per selected metric
+        quoteRatePrice: '', 
         priceInWords: '',
-        quotePriceInWords: '', // New: Words for quote
+        quotePriceInWords: '',
         pricingNature: {
             negotiable: false,
             fixed: false
@@ -107,18 +108,18 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
         date: new Date().toISOString().split('T')[0]
     });
 
-    const getUnitLabel = (size) => {
-        if (!size) return "Sq Yard";
-        const sizeStr = typeof size === 'object' ? (size.lookup_value || size.name || size.label || size.value || "") : String(size);
-        if (!sizeStr) return "Sq Yard";
+    const METRIC_FACTORS = {
+        'SqYard': 1,
+        'sqMeter': 1.19599,
+        'sq feet': 0.111111,
+        'marla': 25,
+        'kananl': 500,
+        'acre': 4840,
+        'hectare': 11959.9
+    };
 
-        const lowerSize = String(sizeStr).toLowerCase();
-        if (lowerSize.includes('sq yard')) return 'Sq Yard';
-        if (lowerSize.includes('sq meter') || lowerSize.includes('sq mtr')) return 'Sq Meter';
-        if (lowerSize.includes('sq feet') || lowerSize.includes('sq ft')) return 'Sq Feet';
-        if (lowerSize.includes('marla')) return 'Marla';
-        if (lowerSize.includes('kanal')) return 'Kanal';
-        return "Sq Yard"; // Default fallback
+    const getUnitLabel = (size) => {
+        return formData.priceUnit || "SqYard";
     };
 
     const unitLabel = getUnitLabel(formData.size);
@@ -132,12 +133,48 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
     };
 
     const initialInheritanceRef = useRef(false);
+    const [existingDeals, setExistingDeals] = useState([]);
+    const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
+
+    const fetchExistingDeals = useCallback(async (invId) => {
+        if (!invId) {
+            setExistingDeals([]);
+            return;
+        }
+        setIsCheckingDuplicate(true);
+        try {
+            const response = await api.get('/deals', { 
+                params: { 
+                    inventoryId: invId, 
+                    limit: 10,
+                    stage: 'Open,Quote,Negotiation,Booked,Closed Won' 
+                } 
+            });
+            if (response.data && response.data.success) {
+                setExistingDeals(response.data.records || []);
+            }
+        } catch (error) {
+            console.error("Error checking duplicate deals:", error);
+        } finally {
+            setIsCheckingDuplicate(false);
+        }
+    }, []);
 
     useEffect(() => {
         if (!isOpen) {
             initialInheritanceRef.current = false;
+            setExistingDeals([]);
+        } else if (formData.inventoryId) {
+            fetchExistingDeals(formData.inventoryId);
         }
-    }, [isOpen]);
+    }, [isOpen, formData.inventoryId, fetchExistingDeals]);
+
+    const duplicateDeal = formData.intent === 'Sell' ? existingDeals.find(d => {
+        const dIntent = (d.intent?.lookup_value || d.intent || '').toLowerCase();
+        return dIntent === 'sell' && d._id !== deal?._id;
+    }) : null;
+
+    const isFormLocked = !!duplicateDeal;
 
     const normalizeId = (val) => (val && typeof val === 'object') ? (val._id || val.id) : val;
 
@@ -160,22 +197,33 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                 const newOwner = typeof deal.owner === 'object' ? { ...prev.owner, ...deal.owner } : (deal.owner ? { ...prev.owner, _id: deal.owner } : prev.owner);
                 const newAssociate = typeof deal.associatedContact === 'object' ? { ...prev.associatedContact, ...deal.associatedContact } : (deal.associatedContact ? { ...prev.associatedContact, _id: deal.associatedContact } : prev.associatedContact);
                 
-                return {
+                const finalPrice = initialPrice || deal.price || prev.price;
+                const finalQuotePrice = deal.quotePrice || prev.quotePrice;
+
+                const updated = {
                     ...prev,
                     ...deal,
-                    price: initialPrice || deal.price || prev.price,
+                    projectName: deal.projectName || prev.projectName,
+                    block: deal.block || prev.block,
+                    unitNo: deal.unitNo || prev.unitNo,
+                    price: finalPrice,
+                    priceInWords: numberToIndianWords(finalPrice),
+                    quotePrice: finalQuotePrice,
+                    quotePriceInWords: numberToIndianWords(finalQuotePrice),
                     intent: intent,
                     owner: newOwner,
                     associatedContact: newAssociate,
                     assignedTo: normalizeId(deal.assignedTo) || prev.assignedTo,
                     team: normalizeId(deal.team) || prev.team,
-                    category: getLookupValue('Category', deal.category),
-                    subCategory: getLookupValue('SubCategory', deal.subCategory),
-                    propertyType: getLookupValue('PropertyType', deal.propertyType),
+                    category: getLookupValue('Category', deal.category) || deal.category,
+                    subCategory: getLookupValue('SubCategory', deal.subCategory) || deal.subCategory,
+                    propertyType: getLookupValue('PropertyType', deal.propertyType) || deal.propertyType,
                     status: deal.status || 'Open',
                     isOwnerSelected: !!newOwner._id || !!newOwner.name,
                     isAssociateSelected: !!newAssociate._id || !!newAssociate.name
                 };
+
+                return updated;
             });
 
             // If we have unit data but not inventoryId, it's likely a direct inventory-to-deal transition
@@ -234,6 +282,9 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
         );
 
         if (unit) {
+            // Fetch existing deals for duplicate check
+            fetchExistingDeals(unit._id);
+
             setFormData(prev => {
                 const newSize = unit.size || prev.size;
 
@@ -241,9 +292,9 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                 let updates = {
                     unitNo,
                     inventoryId: unit._id,
-                    propertyType: unit.type || unit.category || prev.propertyType,
-                    category: unit.category || '',
-                    subCategory: unit.subCategory || '',
+                    propertyType: getLookupValue('PropertyType', unit.type || unit.category) || prev.propertyType,
+                    category: getLookupValue('Category', unit.category) || '',
+                    subCategory: getLookupValue('SubCategory', unit.subCategory) || '',
                     size: newSize,
                     sizeUnit: unit.sizeUnit || prev.sizeUnit,
 
@@ -290,30 +341,33 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
 
                 // Trigger Recalculation logic if size changed
                 if (newSize && newSize !== prev.size) {
-                    const sizeVal = parseFloat(newSize.toString().replace(/[^0-9.]/g, '') || '0');
-                    if (sizeVal > 0) {
+                    const sizeValSqYard = parseFloat(newSize.toString().replace(/[^0-9.]/g, '') || '0');
+                    const factor = METRIC_FACTORS[prev.priceUnit] || 1;
+                    const sizeInMetric = sizeValSqYard / factor;
+
+                    if (sizeValSqYard > 0) {
                         // Recalculate based on current Pricing Mode
                         if (prev.pricingMode === 'Rate') {
                             if (prev.ratePrice) {
-                                const total = Math.round(sizeVal * parseFloat(prev.ratePrice || 0));
+                                const total = Math.round(sizeInMetric * parseFloat(prev.ratePrice || 0));
                                 updates.price = total.toString();
                                 updates.priceInWords = numberToIndianWords(total);
                             }
                             if (prev.quoteRatePrice) {
-                                const totalQuote = Math.round(sizeVal * parseFloat(prev.quoteRatePrice || 0));
+                                const totalQuote = Math.round(sizeInMetric * parseFloat(prev.quoteRatePrice || 0));
                                 updates.quotePrice = totalQuote.toString();
                                 updates.quotePriceInWords = numberToIndianWords(totalQuote);
                             }
                         } else {
-                            // If Mode is Total, Update Rates based on new Size?
-                            // Usually if Size changes but Total Price is fixed, Rate changes.
                             if (prev.price) {
-                                const rate = Math.round(parseFloat(prev.price) / sizeVal);
+                                const rate = Math.round(parseFloat(prev.price) / sizeInMetric);
                                 updates.ratePrice = rate.toString();
+                                updates.priceInWords = numberToIndianWords(prev.price);
                             }
                             if (prev.quotePrice) {
-                                const rateQuote = Math.round(parseFloat(prev.quotePrice) / sizeVal);
+                                const rateQuote = Math.round(parseFloat(prev.quotePrice) / sizeInMetric);
                                 updates.quoteRatePrice = rateQuote.toString();
+                                updates.quotePriceInWords = numberToIndianWords(prev.quotePrice);
                             }
                         }
                     }
@@ -329,18 +383,22 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
     }, [units]);
 
     // Pricing Logic Helpers
-    const calculatePriceValues = (type, value, currentSize, mode) => {
-        const sizeVal = parseFloat(currentSize ? currentSize.toString().replace(/[^0-9.]/g, '') : '0');
+    const calculatePriceValues = (type, value, currentSize, mode, metric) => {
+        const sizeValSqYard = parseFloat(currentSize ? currentSize.toString().replace(/[^0-9.]/g, '') : '0');
         const numValue = parseFloat(value || '0');
+        const factor = METRIC_FACTORS[metric || formData.priceUnit] || 1;
 
         let updates = {};
 
         if (mode === 'Rate') {
-            // User entered RATE
+            // User entered RATE (per Metric)
             updates[type === 'expected' ? 'ratePrice' : 'quoteRatePrice'] = value;
 
-            if (!isNaN(sizeVal) && sizeVal > 0 && !isNaN(numValue)) {
-                const total = Math.round(sizeVal * numValue);
+            if (!isNaN(sizeValSqYard) && sizeValSqYard > 0 && !isNaN(numValue)) {
+                // Total Price = (Size in Metric) * Rate
+                // Size in Metric = Size in SqYard / Factor
+                const sizeInMetric = sizeValSqYard / factor;
+                const total = Math.round(sizeInMetric * numValue);
                 updates[type === 'expected' ? 'price' : 'quotePrice'] = total.toString();
                 updates[type === 'expected' ? 'priceInWords' : 'quotePriceInWords'] = numberToIndianWords(total);
             } else {
@@ -352,8 +410,10 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
             updates[type === 'expected' ? 'price' : 'quotePrice'] = value;
             updates[type === 'expected' ? 'priceInWords' : 'quotePriceInWords'] = numberToIndianWords(value);
 
-            if (!isNaN(sizeVal) && sizeVal > 0 && !isNaN(numValue)) {
-                const rate = Math.round(numValue / sizeVal);
+            if (!isNaN(sizeValSqYard) && sizeValSqYard > 0 && !isNaN(numValue)) {
+                // Rate = Total / Size in Metric
+                const sizeInMetric = sizeValSqYard / factor;
+                const rate = Math.round(numValue / sizeInMetric);
                 updates[type === 'expected' ? 'ratePrice' : 'quoteRatePrice'] = rate.toString();
             } else {
                 updates[type === 'expected' ? 'ratePrice' : 'quoteRatePrice'] = '';
@@ -365,25 +425,30 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
     const handlePriceChange = useCallback((field, value) => {
         setFormData(prev => {
             try {
-                // Determine context
                 const isQuote = field === 'quotePrice' || field === 'quoteRatePrice';
                 const type = isQuote ? 'quote' : 'expected';
-
-                // Calculate new values
                 const updates = calculatePriceValues(
                     type,
                     value,
                     prev.size,
-                    prev.pricingMode
+                    prev.pricingMode,
+                    prev.priceUnit
                 );
-
                 return { ...prev, ...updates };
             } catch (error) {
                 console.error("Error in handlePriceChange:", error);
                 return prev;
             }
         });
-    }, []);
+    }, [calculatePriceValues]);
+
+    const handleMetricChange = (metric) => {
+        setFormData(prev => {
+            const updates = calculatePriceValues('expected', prev.price, prev.size, 'Total', metric);
+            const quoteUpdates = calculatePriceValues('quote', prev.quotePrice, prev.size, 'Total', metric);
+            return { ...prev, ...updates, ...quoteUpdates, priceUnit: metric };
+        });
+    };
 
     const handlePricingNatureChange = (type) => {
         setFormData(prev => ({
@@ -466,17 +531,20 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
         if (isOpen && formData.projectName) fetchUnits();
     }, [formData.projectName, formData.block, isOpen, restrictToProperties]);
 
-    // NEW EVENT: Auto-trigger inheritance when units load
     useEffect(() => {
         if (isOpen && formData.unitNo && units.length > 0 && !initialInheritanceRef.current) {
-            const unit = units.find(u => (u.unitNo === formData.unitNo || u.unitNumber === formData.unitNo));
-            // Trigger inheritance IF we have a matching unit AND we are in "New Deal from Template" mode
-            if (unit && !deal?._id) {
+            const searchVal = String(formData.unitNo).toLowerCase().trim();
+            const unit = units.find(u => 
+                String(u.unitNo || u.unitNumber || '').toLowerCase().trim() === searchVal
+            );
+            
+            if (unit) {
+                console.log('[AddDealModal] Auto-selecting unit:', unit.unitNo);
                 initialInheritanceRef.current = true;
-                handleUnitChange(formData.unitNo);
+                handleUnitChange(unit.unitNo || unit.unitNumber);
             }
         }
-    }, [units, formData.unitNo, isOpen, handleUnitChange, deal?._id]);
+    }, [units, isOpen, formData.unitNo, handleUnitChange]);
 
 
 
@@ -485,6 +553,11 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
         const toastId = toast.loading('Saving deal...');
 
         try {
+            if (isFormLocked) {
+                toast.error("Cannot save: A Sell deal already exists for this unit.");
+                setIsSaving(false);
+                return;
+            }
             if (validateAsync) {
                 const validationResult = await validateAsync('deals', formData);
                 if (!validationResult.isValid) {
@@ -692,7 +765,15 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                                     disabled={isLoadingProjects}
                                 >
                                     <option value="">{isLoadingProjects ? 'Loading...' : 'Select Project'}</option>
-                                    {projects.map(p => <option key={p._id || p.id} value={p.name}>{p.name}</option>)}
+                                    {projects.map(p => (
+                                        <option 
+                                            key={p._id || p.id} 
+                                            value={p.name}
+                                            selected={formData.projectName && p.name && p.name.trim().toLowerCase() === formData.projectName.trim().toLowerCase()}
+                                        >
+                                            {p.name}
+                                        </option>
+                                    ))}
                                 </select>
                             </div>
                             <div>
@@ -783,6 +864,30 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                     </div>
 
                     <div style={sectionStyle}>
+                        {isFormLocked && (
+                            <div style={{
+                                backgroundColor: '#fef2f2', border: '1px solid #fee2e2', borderRadius: '12px',
+                                padding: '15px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '15px',
+                                animation: 'slideDown 0.3s ease-out'
+                            }}>
+                                <div style={{ backgroundColor: '#ef4444', color: '#fff', width: '40px', height: '40px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', flexShrink: 0 }}>
+                                    <i className="fas fa-exclamation-triangle"></i>
+                                </div>
+                                <div style={{ flex: 1 }}>
+                                    <h5 style={{ margin: '0 0 4px 0', color: '#991b1b', fontWeight: 700, fontSize: '0.95rem' }}>Duplicate Deal Detected</h5>
+                                    <p style={{ margin: 0, color: '#b91c1c', fontSize: '0.85rem', fontWeight: 500 }}>
+                                        A "Sell" deal already exists for this unit. Pricing and key fields are locked to prevent duplicates. 
+                                        {duplicateDeal.dealId && <span style={{ marginLeft: '5px', fontWeight: 700 }}>(Ref: {duplicateDeal.dealId})</span>}
+                                    </p>
+                                </div>
+                                <button 
+                                    onClick={() => setFormData(prev => ({ ...prev, intent: 'Rent' }))}
+                                    style={{ padding: '8px 16px', borderRadius: '8px', border: '1px solid #ef4444', backgroundColor: '#fff', color: '#ef4444', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer' }}
+                                >
+                                    Switch to Rent
+                                </button>
+                            </div>
+                        )}
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                                 <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>Pricing</h4>
@@ -802,30 +907,45 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                                     </span>
                                 )}
                             </div>
-                            {/* Pricing Mode Toggle */}
-                            <div style={{ display: 'flex', backgroundColor: '#f1f5f9', padding: '4px', borderRadius: '8px' }}>
-                                <button
-                                    onClick={() => setFormData(prev => ({ ...prev, pricingMode: 'Total' }))}
-                                    style={{
-                                        padding: '6px 16px', borderRadius: '6px', border: 'none', fontSize: '0.85rem', fontWeight: 600,
-                                        cursor: 'pointer', backgroundColor: formData.pricingMode === 'Total' ? '#fff' : 'transparent',
-                                        color: formData.pricingMode === 'Total' ? '#0f172a' : '#64748b',
-                                        boxShadow: formData.pricingMode === 'Total' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none'
-                                    }}
-                                >
-                                    Total Amount
-                                </button>
-                                <button
-                                    onClick={() => setFormData(prev => ({ ...prev, pricingMode: 'Rate' }))}
-                                    style={{
-                                        padding: '6px 16px', borderRadius: '6px', border: 'none', fontSize: '0.85rem', fontWeight: 600,
-                                        cursor: 'pointer', backgroundColor: formData.pricingMode === 'Rate' ? '#fff' : 'transparent',
-                                        color: formData.pricingMode === 'Rate' ? '#0f172a' : '#64748b',
-                                        boxShadow: formData.pricingMode === 'Rate' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none'
-                                    }}
-                                >
-                                    Per Unit Rate
-                                </button>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <div style={{ display: 'flex', backgroundColor: '#f1f5f9', padding: '4px', borderRadius: '8px' }}>
+                                    <button
+                                        onClick={() => setFormData(prev => ({ ...prev, pricingMode: 'Total' }))}
+                                        style={{
+                                            padding: '6px 16px', borderRadius: '6px', border: 'none', fontSize: '0.85rem', fontWeight: 600,
+                                            cursor: 'pointer', backgroundColor: formData.pricingMode === 'Total' ? '#fff' : 'transparent',
+                                            color: formData.pricingMode === 'Total' ? '#0f172a' : '#64748b',
+                                            boxShadow: formData.pricingMode === 'Total' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none'
+                                        }}
+                                    >
+                                        Total Amount
+                                    </button>
+                                    <button
+                                        onClick={() => setFormData(prev => ({ ...prev, pricingMode: 'Rate' }))}
+                                        style={{
+                                            padding: '6px 16px', borderRadius: '6px', border: 'none', fontSize: '0.85rem', fontWeight: 600,
+                                            cursor: 'pointer', backgroundColor: formData.pricingMode === 'Rate' ? '#fff' : 'transparent',
+                                            color: formData.pricingMode === 'Rate' ? '#0f172a' : '#64748b',
+                                            boxShadow: formData.pricingMode === 'Rate' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none'
+                                        }}
+                                    >
+                                        Price Per Unit
+                                    </button>
+                                </div>
+                                {formData.pricingMode === 'Rate' && (
+                                    <select
+                                        value={formData.priceUnit}
+                                        onChange={(e) => handleMetricChange(e.target.value)}
+                                        style={{
+                                            padding: '6px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.85rem',
+                                            fontWeight: 600, backgroundColor: '#fff', color: '#0f172a', outline: 'none', cursor: 'pointer'
+                                        }}
+                                    >
+                                        {Object.keys(METRIC_FACTORS).map(metric => (
+                                            <option key={metric} value={metric}>{metric}</option>
+                                        ))}
+                                    </select>
+                                )}
                             </div>
                         </div>
 
@@ -843,10 +963,11 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                             </div>
                             <div style={{ position: 'relative' }}>
                                 <input
-                                    style={{ ...inputStyle, paddingRight: (formData.pricingMode === 'Total' && formData.ratePrice) ? '130px' : (formData.pricingMode === 'Rate' && formData.price) ? '160px' : '12px' }}
+                                    style={{ ...inputStyle, paddingRight: (formData.pricingMode === 'Total' && formData.ratePrice) ? '130px' : (formData.pricingMode === 'Rate' && formData.price) ? '160px' : '12px', backgroundColor: isFormLocked ? '#f8fafc' : '#fff' }}
                                     value={formData.pricingMode === 'Total' ? formData.price : formData.ratePrice}
                                     onChange={e => handlePriceChange(formData.pricingMode === 'Total' ? 'price' : 'ratePrice', e.target.value)}
                                     placeholder={formData.pricingMode === 'Total' ? `Enter total ${(formData.intent === 'Rent' || formData.intent === 'Lease') ? 'rent' : 'expected amount'}` : `Enter rate per ${unitLabel}`}
+                                    readOnly={isFormLocked}
                                 />
                                 {formData.pricingMode === 'Total' && formData.ratePrice && (
                                     <div style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', color: '#64748b', fontWeight: 600, background: '#f8fafc', padding: '4px 8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
@@ -875,10 +996,11 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                             </div>
                             <div style={{ position: 'relative' }}>
                                 <input
-                                    style={{ ...inputStyle, paddingRight: (formData.pricingMode === 'Total' && formData.quoteRatePrice) ? '130px' : (formData.pricingMode === 'Rate' && formData.quotePrice) ? '160px' : '12px' }}
+                                    style={{ ...inputStyle, paddingRight: (formData.pricingMode === 'Total' && formData.quoteRatePrice) ? '130px' : (formData.pricingMode === 'Rate' && formData.quotePrice) ? '160px' : '12px', backgroundColor: isFormLocked ? '#f8fafc' : '#fff' }}
                                     value={formData.pricingMode === 'Total' ? formData.quotePrice : formData.quoteRatePrice}
                                     onChange={e => handlePriceChange(formData.pricingMode === 'Total' ? 'quotePrice' : 'quoteRatePrice', e.target.value)}
                                     placeholder={formData.pricingMode === 'Total' ? `Enter total ${(formData.intent === 'Rent' || formData.intent === 'Lease') ? 'rent' : 'quote amount'}` : `Enter quote rate per ${unitLabel}`}
+                                    readOnly={isFormLocked}
                                 />
                                 {formData.pricingMode === 'Total' && formData.quoteRatePrice && (
                                     <div style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', color: '#64748b', fontWeight: 600, background: '#f8fafc', padding: '4px 8px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>

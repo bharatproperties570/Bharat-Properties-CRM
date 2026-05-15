@@ -1,4 +1,6 @@
+import mongoose from "mongoose";
 import Lookup from "../models/Lookup.js";
+
 
 export const getLookups = async (req, res) => {
     try {
@@ -16,33 +18,23 @@ export const getLookups = async (req, res) => {
         if (lookup_type) {
             const types = String(lookup_type).split(',').map(t => t.trim()).filter(Boolean);
             
-            if (types.length > 1) {
-                // Multi-type support
-                query.lookup_type = { $in: types.map(t => new RegExp(`^${t.replace(/\s+/g, '')}$`, 'i')) };
-                // Also support the raw types with spaces
-                query.$or = [
-                    { lookup_type: { $in: types.map(t => new RegExp(`^${t}$`, 'i')) } },
-                    { lookup_type: { $in: types.map(t => new RegExp(`^${t.replace(/\s+/g, '')}$`, 'i')) } }
-                ];
-            } else {
-                // Single type support (Legacy/Standard)
-                const normalizedType = lookup_type.replace(/\s+/g, '');
-                query.$or = [
-                    { lookup_type: { $regex: new RegExp(`^${lookup_type}$`, 'i') } },
-                    { lookup_type: { $regex: new RegExp(`^${normalizedType}$`, 'i') } }
-                ];
+            if (types.length > 0) {
+                // Multi-type support with Case-Insensitive Regex for both raw and normalized types
+                const regexes = types.flatMap(t => [
+                    new RegExp(`^${t.replace(/\s+/g, '')}$`, 'i'),
+                    new RegExp(`^${t}$`, 'i')
+                ]);
+                query.lookup_type = { $in: regexes };
             }
         }
 
         if (parent_lookup_id && parent_lookup_id !== "null" && parent_lookup_id !== "undefined") {
-            // Only add to query if it's a valid hex string for ObjectId
-            if (/^[0-9a-fA-F]{24}$/.test(parent_lookup_id)) {
-                query.parent_lookup_id = parent_lookup_id;
+            if (mongoose.Types.ObjectId.isValid(parent_lookup_id)) {
+                query.parent_lookup_id = new mongoose.Types.ObjectId(parent_lookup_id);
             } else {
-                console.warn(`[LOOKUP_FETCH] Invalid parent_lookup_id provided: ${parent_lookup_id}`);
-                return res.json({ status: "success", data: [] });
+                console.warn(`[LOOKUP_FETCH] Skipping invalid parent_lookup_id: ${parent_lookup_id}`);
             }
-        } else if (parent_lookup_id === "null") {
+        } else if (parent_lookup_id === "null" || parent_lookup_id === null) {
             query.parent_lookup_id = null;
         }
 

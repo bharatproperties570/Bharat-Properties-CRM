@@ -33,14 +33,22 @@ class UnifiedAIService {
             try {
                 console.log(`[UnifiedAI] Attempting ${options.systemPrompt ? 'System' : 'Standard'} generation with: ${provider}`);
                 
+                // 🛠️ SENIOR FIX: If we are falling back to a provider that is NOT the preferred one,
+                // we should NOT force the model name from options, as it's likely specific to the preferred provider.
+                const currentOptions = { ...options };
+                if (provider !== preferred && currentOptions.model) {
+                    console.log(`[UnifiedAI] Failover detected. Stripping incompatible model '${currentOptions.model}' for provider '${provider}'`);
+                    delete currentOptions.model;
+                }
+
                 if (options.systemPrompt) {
                     // ── Generate with System Prompt (Persona Injection) ──
                     switch (provider) {
                         case 'openai':
-                            return await openAIService.generateWithSystem(options.systemPrompt, prompt, options);
+                            return await openAIService.generateWithSystem(options.systemPrompt, prompt, currentOptions);
                         case 'gemini':
                         case 'google':
-                            return await geminiService.generateWithSystem(options.systemPrompt, prompt, options);
+                            return await geminiService.generateWithSystem(options.systemPrompt, prompt, currentOptions);
                         default:
                             continue;
                     }
@@ -48,12 +56,12 @@ class UnifiedAIService {
                     // ── Standard Generation (User Prompt Only) ──
                     switch (provider) {
                         case 'openai':
-                            return await openAIService.generateContent(prompt, options);
+                            return await openAIService.generateContent(prompt, currentOptions);
                         case 'gemini':
                         case 'google':
-                            return await geminiService.generateContent(prompt, options);
+                            return await geminiService.generateContent(prompt, currentOptions);
                         case 'claude':
-                            return await claudeService.generateContent(prompt, options);
+                            return await claudeService.generateContent(prompt, currentOptions);
                         default:
                             continue;
                     }

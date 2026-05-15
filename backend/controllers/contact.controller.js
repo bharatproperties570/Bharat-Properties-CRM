@@ -366,8 +366,27 @@ export const createContact = async (req, res, next) => {
         delete data.updatedAt;
         delete data.fullName;
 
-        const { error } = createContactSchema.validate(data);
-        if (error) return res.status(400).json({ success: false, error: error.details[0].message });
+        // 🛡️ Senior Implementation: Strip unknown fields to prevent 400 errors from frontend temporary state
+        const { error, value: cleanData } = createContactSchema.validate(data, { stripUnknown: true });
+
+        if (error) {
+            console.error(`[VALIDATION_ERROR] createContact: ${error.details[0].message}`, {
+                field: error.details[0].path,
+                value: error.details[0].context?.value
+            });
+            return res.status(400).json({ 
+                success: false, 
+                message: error.details[0].message,
+                details: error.details 
+            });
+        }
+
+        // Use the cleaned data from Joi
+        const contactData = { ...cleanData };
+
+        // Normalize visibleTo (Public -> Everyone) for backward compatibility
+        if (contactData.visibleTo === 'Public') contactData.visibleTo = 'Everyone';
+        if (contactData.assignment?.visibleTo === 'Public') contactData.assignment.visibleTo = 'Everyone';
 
         // Resolve All Reference Fields
         const cleanEmptyStrings = (obj) => {
@@ -383,13 +402,13 @@ export const createContact = async (req, res, next) => {
 
         // 🔒 Enterprise Isolation: Auto-tag with creator's department and teams
         if (req.user) {
-            if (req.user.department && !data.department) data.department = req.user.department;
-            if (req.user.teams && req.user.teams.length > 0 && (!data.teams || data.teams.length === 0)) {
-                data.teams = req.user.teams.map(t => t._id || t);
+            if (req.user.department && !contactData.department) contactData.department = req.user.department;
+            if (req.user.teams && req.user.teams.length > 0 && (!contactData.teams || contactData.teams.length === 0)) {
+                contactData.teams = req.user.teams.map(t => t._id || t);
             }
         }
 
-        const contact = await Contact.create(data);
+        const contact = await Contact.create(contactData);
 
         // Sync to Google
         googleSyncQueue.add('syncContact', { contactId: contact._id }).catch(() => { });
@@ -414,7 +433,11 @@ export const updateContact = async (req, res, next) => {
         // Validate
         const { error, value: cleanData } = updateContactSchema.validate(updateData, { stripUnknown: true });
         if (error) {
-            console.error("[updateContact] Validation Error:", JSON.stringify(error.details, null, 2));
+            console.error(`[VALIDATION_ERROR] updateContact: ${error.details[0].message}`, {
+                id: req.params.id,
+                field: error.details[0].path,
+                value: error.details[0].context?.value
+            });
             return res.status(400).json({ 
                 success: false, 
                 error: error.details[0].message,

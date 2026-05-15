@@ -2,9 +2,10 @@ import "dotenv/config";
 import app from "./app.js";
 import connectDB from "./config/db.js";
 import NurtureBot from "./services/NurtureBot.js";
+import { initMatchingScheduler } from "./services/matchingScheduler.js";
 
 // 🧠 SENIOR ARCHITECTURE: Initialize background workers
-import "./src/workers/marketingWorker.js"; 
+import "./src/workers/marketingWorker.js";
 
 // dotenv.config(); 
 
@@ -26,6 +27,11 @@ connectDB().then(() => {
 
         // Run immediately on startup
         NurtureBot.processPendingLeads().catch(() => {});
+
+        // ─── Phase 4B: Scheduled Re-Match Engine ─────────────────────────────────
+        // Runs every 6 hours. Finds new deals added since last run and notifies
+        // agents of qualified leads that match those properties.
+        initMatchingScheduler();
     });
 }).catch(err => {
     console.error("❌ Failed to connect to DB", err);

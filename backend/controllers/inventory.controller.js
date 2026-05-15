@@ -1,6 +1,7 @@
 import Inventory from "../models/Inventory.js";
 import Lead from "../models/Lead.js";
 import Lookup from "../models/Lookup.js";
+import Activity from "../models/Activity.js";
 import User from "../models/User.js";
 
 import Contact from "../models/Contact.js";
@@ -11,6 +12,7 @@ import mongoose from "mongoose";
 import { getVisibilityFilter } from "../utils/visibility.js";
 
 import DuplicationRule from "../models/DuplicationRule.js";
+import { normalizePhone } from "../utils/normalization.js";
 import { resolveLookup, resolveHierarchicalAddress } from "../utils/lookupResolver.js";
 import Deal from "../models/Deal.js"; // Explicitly load to prevent registration errors
 import { syncDocumentsToContact } from "../utils/sync.js";
@@ -20,12 +22,6 @@ import { createNotification } from "./notification.controller.js";
 const escapeRegExp = (string) => {
     if (!string) return '';
     return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-};
-
-const normalizePhone = (phone) => {
-    if (!phone) return '';
-    // Strip everything except digits
-    return String(phone).replace(/\D/g, '');
 };
 
 /**
@@ -41,20 +37,27 @@ const resolveMultiFilter = async (type, values) => {
 
     await Promise.all(vals.map(async (v) => {
         if (mongoose.Types.ObjectId.isValid(v)) {
-            results.ids.push(new mongoose.Types.ObjectId(v.toString()));
+            const objId = new mongoose.Types.ObjectId(v.toString());
+            results.ids.push(objId);
             results.idStrings.push(v.toString());
+            
+            // Reverse Lookup: Find the name for this ID to include it in the query too
+            const lookup = await mongoose.model('Lookup').findById(objId).select('lookup_value').lean();
+            if (lookup?.lookup_value) results.names.push(lookup.lookup_value);
             return;
         }
         
         results.names.push(v);
-        const lookup = await mongoose.model('Lookup').findOne({ 
+        const lookups = await mongoose.model('Lookup').find({ 
             lookup_type: type, 
             lookup_value: { $regex: new RegExp(`^${escapeRegExp(v)}$`, 'i') } 
         }).select('_id').lean();
         
-        if (lookup) {
-            results.ids.push(lookup._id);
-            results.idStrings.push(lookup._id.toString());
+        if (lookups.length > 0) {
+            lookups.forEach(l => {
+                results.ids.push(l._id);
+                results.idStrings.push(l._id.toString());
+            });
         }
     }));
 
@@ -399,14 +402,21 @@ export const getInventory = async (req, res) => {
         const activeCount = stats.active[0]?.count || 0;
         const inactiveCount = stats.inactive[0]?.count || 0;
 
-        // Enrichment: Resolve category names for stats
+        // Enrichment: Resolve category names for stats and merge duplicates
         const categoryResultIds = categoryStatsAggregation.map(c => c._id).filter(id => mongoose.Types.ObjectId.isValid(id));
         const categoryDocs = await Lookup.find({ _id: { $in: categoryResultIds } }).select('lookup_value').lean();
         const categoryMap = new Map(categoryDocs.map(d => [d._id.toString(), d.lookup_value]));
 
-        const categoryStats = categoryStatsAggregation.map(c => ({
-            name: categoryMap.get(c._id?.toString()) || String(c._id || 'Unknown'),
-            count: c.count
+        const categoryStatsMap = new Map();
+        categoryStatsAggregation.forEach(c => {
+            const rawName = categoryMap.get(c._id?.toString()) || String(c._id || 'Unknown');
+            const name = rawName.trim().toUpperCase();
+            categoryStatsMap.set(name, (categoryStatsMap.get(name) || 0) + c.count);
+        });
+
+        const categoryStats = Array.from(categoryStatsMap.entries()).map(([name, count]) => ({
+            name,
+            count
         }));
 
         // Apply Status Category Filter if requested (optimized + legacy string support)
@@ -449,10 +459,24 @@ export const getInventory = async (req, res) => {
         // Fetch paginated results
         const results = await paginate(Inventory, query, Number(page), Number(limit), finalSortOption, populateFields, collation);
 
-        // Check for deals
+        // Check for deals and their intents
         const inventoryIds = results.records.map(item => item._id);
-        const deals = await Deal.find({ inventoryId: { $in: inventoryIds } }).select('inventoryId').lean();
-        const dealInventoryIds = new Set(deals.map(d => d.inventoryId?.toString()).filter(Boolean));
+        const deals = await Deal.find({ inventoryId: { $in: inventoryIds } })
+            .select('inventoryId intent')
+            .populate('intent', 'lookup_value')
+            .lean();
+
+        // Create a map of inventoryId -> [intents]
+        const inventoryDealMap = new Map();
+        deals.forEach(d => {
+            const invId = d.inventoryId?.toString();
+            if (invId) {
+                const intentVal = String(d.intent?.lookup_value || d.intent || '').toLowerCase();
+                if (!inventoryDealMap.has(invId)) inventoryDealMap.set(invId, new Set());
+                inventoryDealMap.get(invId).add(intentVal);
+            }
+        });
+
         const uniqueLookupIds = new Set();
         const categoricalFields = ['category', 'subCategory', 'status', 'unitType', 'facing', 'direction', 'orientation', 'sizeConfig', 'roadWidth', 'builtupType'];
         const uniqueUserIds = new Set();
@@ -504,7 +528,32 @@ export const getInventory = async (req, res) => {
                 if (val && mongoose.Types.ObjectId.isValid(val)) {
                     itemObj[f] = lookupMap.get(val.toString()) || val;
                 } else if (Array.isArray(val)) {
-                    itemObj[f] = val.map(v => (v && mongoose.Types.ObjectId.isValid(v)) ? (lookupMap.get(v.toString()) || v) : v);
+                    const uniqueMap = new Map();
+                    val.forEach(v => {
+                        if (!v) return;
+                        let id = null;
+                        let label = null;
+
+                        if (mongoose.Types.ObjectId.isValid(v)) {
+                            id = v.toString();
+                            const resolved = lookupMap.get(id);
+                            label = resolved?.lookup_value || id;
+                        } else if (typeof v === 'object' && v.lookup_value) {
+                            id = v._id?.toString();
+                            label = v.lookup_value;
+                        } else if (typeof v === 'string') {
+                            label = v;
+                        }
+
+                        if (label) {
+                            const cleanLabel = label.trim();
+                            const key = cleanLabel.toLowerCase();
+                            if (!uniqueMap.has(key)) {
+                                uniqueMap.set(key, id ? { _id: id, lookup_value: cleanLabel } : { lookup_value: cleanLabel });
+                            }
+                        }
+                    });
+                    itemObj[f] = Array.from(uniqueMap.values());
                 }
             });
 
@@ -525,9 +574,20 @@ export const getInventory = async (req, res) => {
             if (Array.isArray(itemObj.teams)) itemObj.teams = itemObj.teams.map(t => (t && mongoose.Types.ObjectId.isValid(t)) ? (teamMap.get(t.toString()) || t) : t);
             if (itemObj.projectId && mongoose.Types.ObjectId.isValid(itemObj.projectId)) itemObj.projectId = projectMap.get(itemObj.projectId.toString()) || itemObj.projectId;
 
+            const dealIntents = Array.from(inventoryDealMap.get(itemObj._id.toString()) || []);
+            let primaryDealIntent = null;
+            if (dealIntents.length > 0) {
+                if (dealIntents.includes('sell')) primaryDealIntent = 'sell';
+                else if (dealIntents.includes('rent')) primaryDealIntent = 'rent';
+                else if (dealIntents.includes('lease')) primaryDealIntent = 'lease';
+                else primaryDealIntent = dealIntents[0];
+            }
+
             return {
                 ...itemObj,
-                hasDeal: dealInventoryIds.has(itemObj._id.toString())
+                hasDeal: dealIntents.length > 0,
+                dealIntents,
+                primaryDealIntent
             };
         });
 
@@ -796,15 +856,15 @@ export const addInventory = async (req, res) => {
         }
 
         // Resolve Reference Fields to prevent CastErrors
-        if (data.category !== undefined) data.category = await resolveLookup('Category', data.category, false);
-        if (data.subCategory !== undefined) data.subCategory = await resolveLookup('SubCategory', data.subCategory, false);
-        if (data.unitType !== undefined) data.unitType = await resolveLookup('UnitType', data.unitType, false);
-        if (data.status !== undefined) data.status = await resolveLookup('Status', data.status, false); else if (!data.status) data.status = await resolveLookup('Status', 'Inactive', false);
-        if (data.facing !== undefined) data.facing = await resolveLookup('Facing', data.facing, false);
-        if (data.direction !== undefined) data.direction = await resolveLookup('Direction', data.direction, false);
-        if (data.orientation !== undefined) data.orientation = await resolveLookup('Orientation', data.orientation, false);
-        if (data.intent !== undefined) data.intent = await resolveLookup('Intent', data.intent, false);
-        if (data.builtupType !== undefined) data.builtupType = await resolveLookup('BuiltupType', data.builtupType, false);
+        if (data.category !== undefined) data.category = await resolveLookup('Category', data.category);
+        if (data.subCategory !== undefined) data.subCategory = await resolveLookup('SubCategory', data.subCategory);
+        if (data.unitType !== undefined) data.unitType = await resolveLookup('UnitType', data.unitType);
+        if (data.status !== undefined) data.status = await resolveLookup('Status', data.status); else if (!data.status) data.status = await resolveLookup('Status', 'Inactive');
+        if (data.facing !== undefined) data.facing = await resolveLookup('Facing', data.facing);
+        if (data.direction !== undefined) data.direction = await resolveLookup('Direction', data.direction);
+        if (data.orientation !== undefined) data.orientation = await resolveLookup('Orientation', data.orientation);
+        if (data.intent !== undefined) data.intent = await resolveLookup('Intent', data.intent);
+        if (data.builtupType !== undefined) data.builtupType = await resolveLookup('BuiltupType', data.builtupType);
         if (data.assignedTo) data.assignedTo = await resolveUser(data.assignedTo);
         if (data.teams) data.teams = await resolveTeam(data.teams);
         else if (data.team) data.team = await resolveTeam(data.team);
@@ -886,7 +946,7 @@ export const updateInventory = async (req, res) => {
                 // If it's a string that is NOT a 24-char hex ID, resolve it via Lookup
                 const isStrictId = typeof data[field] === 'string' && /^[0-9a-fA-F]{24}$/.test(data[field]);
                 if (data[field] && !isStrictId) {
-                    data[field] = await resolveLookup(type, data[field], true);
+                    data[field] = await resolveLookup(type, data[field]);
                 } else if (isStrictId) {
                     // 🛡️ [DATA INTEGRITY] Ensure string IDs are cast to proper ObjectIds for Mixed field consistency
                     data[field] = new mongoose.Types.ObjectId(data[field]);
@@ -935,6 +995,65 @@ export const updateInventory = async (req, res) => {
                 details: interaction.details
             }));
             data.$push = { history: { $each: historyToPush } };
+            
+            // [ENTERPRISE] Create Unified Activity Log for Timeline Parity
+            // This ensures that interaction intelligence is visible on all related timelines.
+            try {
+                // Fetch the current inventory to get the full list of owners/associates
+                const currentInv = await Inventory.findById(req.params.id).populate('owners associates.contact');
+                if (currentInv) {
+                    for (const interaction of data.interactions) {
+                        const relatedTo = [
+                            { id: currentInv._id, name: currentInv.unitNo || 'Property', model: 'Inventory' }
+                        ];
+
+                        // Add Owners
+                        if (currentInv.owners && currentInv.owners.length > 0) {
+                            currentInv.owners.forEach(owner => {
+                                const ownerId = owner._id || owner;
+                                if (!relatedTo.some(r => r.id.toString() === ownerId.toString())) {
+                                    relatedTo.push({ id: ownerId, name: owner.name || 'Owner', model: 'Contact' });
+                                }
+                            });
+                        }
+
+                        // Add Associates
+                        if (currentInv.associates && currentInv.associates.length > 0) {
+                            currentInv.associates.forEach(assoc => {
+                                const contactId = assoc.contact?._id || assoc.contact;
+                                if (contactId && !relatedTo.some(r => r.id.toString() === contactId.toString())) {
+                                    relatedTo.push({ id: contactId, name: assoc.contact?.name || assoc.name || 'Associate', model: 'Contact' });
+                                }
+                            });
+                        }
+
+                        // Special Case: If a specific owner/associate name was selected but not found in formal links
+                        // (e.g. legacy data or manual name entry), we've already added them if they were in currentInv.
+                        // But we ensure the logic is robust.
+
+                        await Activity.create({
+                            type: 'Feedback',
+                            subject: interaction.details?.result ? `Interaction: ${interaction.details.result}` : 'Property Interaction Logged',
+                            description: interaction.note || 'Interaction recorded on property profile.',
+                            status: 'Completed',
+                            performedBy: interaction.actor || (req.user ? (req.user.fullName || req.user.name) : 'System'),
+                            dueDate: interaction.date || new Date(),
+                            entityType: 'Inventory',
+                            entityId: currentInv._id,
+                            relatedTo,
+                            details: {
+                                ...interaction.details,
+                                source: 'InventoryProfile'
+                            },
+                            department: currentInv.department,
+                            teams: currentInv.teams
+                        });
+                    }
+                }
+            } catch (actErr) {
+                console.error("[InventorySync] Failed to create activity log:", actErr.message);
+            }
+            
             delete data.interactions;
         }
 
@@ -1271,7 +1390,7 @@ export const importInventory = async (req, res) => {
                     block: item.block || item.sector || item['Block'] || item['Sector'],
                     unitNo: item.unitNo || item.unitNumber || item['Unit No'] || item['Unit Number'],
                     unitNumber: item.unitNo || item.unitNumber || item['Unit No'] || item['Unit Number'],
-                    builtupType: await resolveLookup('BuiltupType', item.builtupType || item['Builtup Type'], true),
+                    builtupType: await resolveLookup('BuiltupType', item.builtupType || item['Builtup Type']),
 
                     price: {
                         value: parseFloat(item.price || item.cost || item['Price'] || 0),
@@ -1306,7 +1425,7 @@ export const importInventory = async (req, res) => {
                     address: {
                         hNo: item.hNo || item['H No'],
                         street: item.street || item['Street'],
-                        country: await resolveLookup('Country', item.country || item['Country'] || 'India', true),
+                        country: await resolveLookup('Country', item.country || item['Country'] || 'India'),
                         state: null,
                         city: null,
                         locality: null,
@@ -1353,9 +1472,9 @@ export const importInventory = async (req, res) => {
                 // Trigger Hierarchical Resolution
                 await result.resolveHierarchicalAddress();
 
-                result.category = await resolveLookup('Category', item.category || item.type || item['Category'] || item['Property Category'], false);
-                result.subCategory = await resolveLookup('SubCategory', item.subCategory || item['SubCategory'] || item['Property Category'], false);
-                result.unitType = await resolveLookup('UnitType', item.unitType || item['Unit Type'], false);
+                result.category = await resolveLookup('Category', item.category || item.type || item['Category'] || item['Property Category']);
+                result.subCategory = await resolveLookup('SubCategory', item.subCategory || item['SubCategory'] || item['Property Category']);
+                result.unitType = await resolveLookup('UnitType', item.unitType || item['Unit Type']);
 
                 const sizeResult = await resolveSizeLookup(
                     item.sizeLabel || item.sizeConfig || item['Size Label'] || item['Size Label*'],
@@ -1365,7 +1484,7 @@ export const importInventory = async (req, res) => {
                     item.subCategory || item['Sub Category']
                 );
                 result.sizeConfig = sizeResult?.id;
-                result.status = await resolveLookup('Status', item.status || item['Status'] || 'Inactive', false);
+                result.status = await resolveLookup('Status', item.status || item['Status'] || 'Inactive');
 
                 if (sizeResult?.metadata) {
                     const meta = sizeResult.metadata;
@@ -1685,6 +1804,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
             noMobileCount: 0,
             conflicts: [], // 🛡️ ENTERPRISE: Structured conflicts for UI resolution
             plannedUpdates: [], // 🚀 [SENIOR] Detailed field-level diffs for review
+            duplicates: [], // 🚀 Track all matches for UI transparency
             errors: []
         };
 
@@ -1798,7 +1918,8 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                 const propertyTag = `${shortProject}_${(inventory.unitNo || '').replace(/\s+/g, '')}`;
 
                 // Resolution of assignment details (CACHED)
-                const rowAssignedTo = (await cachedResolveUser(rawAssignedTo)) || req.user._id;
+                const resolvedUser = await cachedResolveUser(rawAssignedTo);
+                const rowAssignedTo = resolvedUser || req.user._id; // Only fallback if Excel is empty, otherwise use resolved
                 const rowTeam = (await cachedResolveTeam(rawTeam)) || req.user.team;
                 const rowVisibleTo = rawVisibleTo;
 
@@ -1848,9 +1969,11 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                     if (mobile && contactCache.has(mobile)) {
                         ownerId = contactCache.get(mobile);
                         results.contactsFound++;
+                        results.duplicates.push({ name: 'Cached Contact', mobile: mobile });
                     } else if (!mobile && name && fatherName && contactCache.has(compositeKey)) {
                         ownerId = contactCache.get(compositeKey);
                         results.contactsFound++;
+                        results.duplicates.push({ name: 'Cached Contact (Identity)', mobile: 'In-File Duplicate' });
                     } else {
                         // 🚀 [HARDENED] Search for existing contact (Mobile first, then Legal Identity)
                         let contactByMobile = mobile ? await Contact.findOne({ 'phones.number': mobile }) : null;
@@ -1887,12 +2010,12 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                         if (existingContact && (!mobile || (contactByMobile && contactByMobile._id.equals(existingContact._id)))) {
                             ownerId = existingContact._id;
                             results.contactsFound++;
+                            results.duplicates.push({ name: existingContact.name, mobile: mobile || existingContact.phones?.[0]?.number, _id: existingContact._id });
 
                             // 🚀 [SENIOR] Diff Detection for Preview
                             const diffs = [];
                             if (name && existingContact.name !== name) diffs.push({ field: 'Name', old: existingContact.name, new: name });
                             if (fatherName && existingContact.fatherName !== fatherName) diffs.push({ field: 'Father Name', old: existingContact.fatherName, new: fatherName });
-                            
                             const addrFields = ['hNo', 'street', 'location', 'area', 'city', 'state', 'pincode'];
                             addrFields.forEach(f => {
                                 const newVal = personalAddress[f];
@@ -1955,9 +2078,11 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                                     await existingContact.save();
                                     ownerId = existingContact._id;
                                     results.contactsFound++;
+                                    results.duplicates.push({ name: existingContact.name, mobile: mobile || existingContact.phones?.[0]?.number, _id: existingContact._id });
                                 } else if (resolution === 'KEEP_SYSTEM') {
                                     ownerId = existingContact._id;
                                     results.contactsFound++;
+                                    results.duplicates.push({ name: existingContact.name, mobile: mobile || existingContact.phones?.[0]?.number, _id: existingContact._id });
                                 } else if (resolution === 'CREATE_NEW') {
                                     const resolvedAddress = await resolveHierarchicalAddress(personalAddress);
                                     const newContact = await Contact.create({
@@ -1976,6 +2101,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                         else {
                             if (dryRun) {
                                 ownerId = "SIMULATED_ID";
+                                results.contactsCreated++;
                             } else {
                                 const resolvedAddress = await resolveHierarchicalAddress(personalAddress);
                                 const newContact = await Contact.create({
@@ -2124,6 +2250,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
             conflictCount: results.conflicts.length,
             conflicts: results.conflicts,
             plannedUpdates: results.plannedUpdates,
+            duplicates: results.duplicates || [], // 🚀 Return matches for UI transparency
             successLogs: results.successLogs,
             errors: results.errors
         });

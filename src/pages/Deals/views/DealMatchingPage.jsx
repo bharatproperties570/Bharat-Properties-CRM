@@ -8,51 +8,22 @@ import { useActivities } from '../../../context/ActivityContext';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import { formatIndianCurrency } from '../../../utils/numberToWords';
 
-
 const DealMatchingPage = ({ onNavigate, dealId }) => {
     const { addActivity } = useActivities();
     const { lookups, projects } = usePropertyConfig();
+    
+    // Core Data State
     const [deal, setDeal] = useState(null);
-    const [leads, setLeads] = useState([]);
+    const [matchedLeads, setMatchedLeads] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [matchingLoading, setMatchingLoading] = useState(false);
 
-    useEffect(() => {
-        if (!dealId) {
-            setLoading(false);
-            return;
-        }
+    // Refinement State (Matching Parameters)
+    const [budgetFlexibility, setBudgetFlexibility] = useState(20); 
+    const [sizeFlexibility, setSizeFlexibility] = useState(20); 
 
-        const fetchData = async () => {
-            setLoading(true);
-            try {
-                // Fetch specific deal
-                const dealRes = await api.get(`deals/${dealId}`);
-                if (dealRes.data && dealRes.data.success) {
-                    setDeal(dealRes.data.deal);
-                } else {
-                    console.error("Deal fetch unsuccessful:", dealRes.data);
-                }
-
-                // Fetch leads for matching
-                const leadsRes = await api.get('leads', { params: { limit: 1000 } });
-                if (leadsRes.data && leadsRes.data.success) {
-                    setLeads(leadsRes.data.records || []);
-                }
-            } catch (error) {
-                console.error("Error fetching match data:", error);
-                toast.error("Failed to load match data");
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        fetchData();
-    }, [dealId]);
-
-    // State for Bulk Selection
+    // Selection & Communication State
     const [selectedLeads, setSelectedLeads] = useState([]);
-
-    // Communication Modals State
     const [isMailOpen, setIsMailOpen] = useState(false);
     const [isMessageOpen, setIsMessageOpen] = useState(false);
     const [isActivityOpen, setIsActivityOpen] = useState(false);
@@ -61,694 +32,362 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
     const [activityInitialData, setActivityInitialData] = useState(null);
     const [mailSubject, setMailSubject] = useState('');
     const [mailBody, setMailBody] = useState('');
-    const [mailAttachments, setMailAttachments] = useState([]);
 
-    // Refinement State
-    const [budgetFlexibility, setBudgetFlexibility] = useState(10); // % flexibility
-    const [sizeFlexibility, setSizeFlexibility] = useState(10); // % flexibility
-
-    const getStrictLookupValue = useCallback((type, id) => {
-        if (!id) return null;
-        const lookupSource = lookups || {};
-
-        if (typeof id === 'object') {
-            const val = id.lookup_value || id.name || id.label || id.value || id;
-            if (id.lookup_type && id.lookup_type.replace(/\s+/g, '') !== type.replace(/\s+/g, '')) {
-                return null;
+    // 1. Initial Deal Particulars Fetch
+    useEffect(() => {
+        if (!dealId) return;
+        const fetchDeal = async () => {
+            setLoading(true);
+            try {
+                const res = await api.get(`deals/${dealId}`);
+                if (res.data?.success) setDeal(res.data.deal);
+            } catch (err) {
+                console.error("Deal Fetch Error:", err);
+                toast.error("Failed to load deal particulars");
+            } finally {
+                setLoading(false);
             }
-            return typeof val === 'object' ? val.lookup_value || val.name : val;
-        }
+        };
+        fetchDeal();
+    }, [dealId]);
 
-        const normalizedType = type ? type.replace(/\s+/g, '') : type;
-        if (lookupSource[normalizedType]) {
-            const found = lookupSource[normalizedType].find(l =>
-                l._id === id || l.id === id || (typeof id === 'string' && l.lookup_value === id)
-            );
-            if (found) return found.lookup_value;
+    // 2. Matching Engine Implementation (Server-Side)
+    const fetchMatches = useCallback(async () => {
+        if (!dealId) return;
+        setMatchingLoading(true);
+        try {
+            const res = await api.get('leads/match', {
+                params: {
+                    dealId,
+                    budgetFlexibility,
+                    sizeFlexibility
+                }
+            });
+            if (res.data?.success) {
+                setMatchedLeads(res.data.matchingLeads || []);
+            }
+        } catch (err) {
+            console.error("Matching Engine Failure:", err);
+            toast.error("Matching engine encountered a technical error");
+        } finally {
+            setMatchingLoading(false);
         }
+    }, [dealId, budgetFlexibility, sizeFlexibility]);
 
-        // Project Resolution Fallback
-        if (type === 'Locality' || type === 'Project') {
-            const project = projects?.find(p => p._id === id || p.id === id || p.name === id);
-            if (project) return project.name;
-        }
+    // Debounced matching to prevent server strain during slider movement
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            fetchMatches();
+        }, 400);
+        return () => clearTimeout(timer);
+    }, [fetchMatches]);
 
-        if (typeof id === 'string' && !id.match(/^[0-9a-fA-F]{24}$/)) {
-            return id;
-        }
-        return null;
-    }, [lookups, projects]);
-
+    // 🚀 ENTERPRISE HYDRATION RESOLVER
     const renderVal = useCallback((v, type = null) => {
-        if (!v) return v;
-        if (type) {
-            const resolved = getStrictLookupValue(type, v);
-            if (resolved) return resolved;
+        if (v === null || v === undefined || v === '') return 'N/A';
+        
+        // A. Handle Measurement Objects { value, unit }
+        if (typeof v === 'object' && v.value !== undefined) {
+            return `${v.value} ${v.unit || ''}`.trim();
         }
-        if (typeof v === 'object') {
-            if (v.value !== undefined && v.unit !== undefined) return `${v.value} ${v.unit}`;
-            return v.lookup_value || v.name || v.label || v.value || JSON.stringify(v);
+
+        // B. Handle Populated Lookup Objects
+        if (typeof v === 'object' && (v.lookup_value || v.name || v.label)) {
+            return v.lookup_value || v.name || v.label;
         }
-        // If it's a string, try to resolve it against common types if no type provided
+
+        // C. Handle IDs (Resolve from context)
         if (typeof v === 'string' && v.match(/^[0-9a-fA-F]{24}$/)) {
-            // Check projects first
+            // Check Projects
             const project = projects?.find(p => p._id === v || p.id === v);
             if (project) return project.name;
 
-            // Attempt auto-resolution for common types if type is missing
-            const types = [
-                'PropertyType', 'Locality', 'City', 'State',
-                'Category', 'SubCategory', 'LeadStage', 'LeadSource',
-                'UnitType', 'BuiltupType', 'FurnishingType', 'Size',
-                'Facing', 'Direction', 'Budget'
-            ];
-            for (const t of types) {
-                const resolved = getStrictLookupValue(t, v);
-                if (resolved) return resolved;
-            }
-        }
-        return v;
-    }, [getStrictLookupValue, projects]);
-
-    const parsePrice = (priceStr) => {
-        if (!priceStr && priceStr !== 0) return 0;
-        if (typeof priceStr === 'number') return priceStr;
-        return parseFloat(String(priceStr).replace(/,/g, '').replace(/[^\d.]/g, '')) || 0;
-    };
-
-    const parseBudget = (budgetStr) => {
-        if (!budgetStr && budgetStr !== 0) return { min: 0, max: 0 };
-        if (typeof budgetStr === 'number') return { min: budgetStr, max: budgetStr };
-        const numbers = String(budgetStr).replace(/[^\d-]/g, '').split('-').map(n => parseFloat(n) || 0);
-        if (numbers.length === 1) return { min: numbers[0], max: numbers[0] };
-        return { min: numbers[0], max: numbers[1] };
-    };
-
-    const parseSizeSqYard = (sizeStr) => {
-        if (!sizeStr) return 0;
-        const str = String(sizeStr);
-        const match = str.match(/\(([\d.]+)\s*Sq Yard\)/);
-        if (match) return parseFloat(match[1]);
-        const marlaMatch = str.match(/([\d.]+)\s*Marla/);
-        if (marlaMatch) return parseFloat(marlaMatch[1]) * 30.25;
-        return parseFloat(str.replace(/[^\d.]/g, '')) || 0;
-    };
-
-    const matchedLeads = useMemo(() => {
-        if (!deal || leads.length === 0) return [];
-
-        const dealPrice = parsePrice(deal.price);
-        const dealSize = parseSizeSqYard(deal.size);
-
-        return leads.map((lead) => {
-            let score = 0;
-            const details = {
-                project: 'mismatch',
-                type: 'mismatch',
-                budget: 'mismatch',
-                size: 'mismatch'
-            };
-
-            const gaps = [];
-
-            // Project/Location Match (30 points)
-            const resolvedLeadLoc = renderVal(lead.location, 'Locality');
-            const resolvedDealLoc = renderVal(deal.location, 'Locality');
-            const areaText = (resolvedLeadLoc || '').toLowerCase();
-            const projectMatch = deal.projectName && areaText.includes(String(deal.projectName).toLowerCase());
-            const locationMatch = resolvedDealLoc && areaText.includes(String(resolvedDealLoc).toLowerCase());
-
-            if (projectMatch || locationMatch) {
-                score += 30;
-                details.project = 'match';
-            } else {
-                gaps.push('Location Mismatch');
-            }
-
-            // Type Match (20 points)
-            const dealType = String(renderVal(deal.propertyType, 'PropertyType') || '').toLowerCase();
-            const leadType = String(renderVal(lead.req?.type, 'PropertyType') || '').toLowerCase();
-            if (dealType && leadType && (dealType.includes(leadType) || leadType.includes(dealType))) {
-                score += 20;
-                details.type = 'match';
-            } else {
-                gaps.push('Property Type Mismatch');
-            }
-
-            // Budget Match (25 points)
-            const budget = parseBudget(lead.budget?.lookup_value || lead.budget);
-            const budgetTolerance = (budget.max - budget.min || budget.max) * (budgetFlexibility / 100);
-
-            if (dealPrice >= (budget.min - budgetTolerance) && dealPrice <= (budget.max + budgetTolerance)) {
-                score += 25;
-                details.budget = dealPrice >= budget.min && dealPrice <= budget.max ? 'match' : 'partial';
-            } else {
-                gaps.push('Budget Out of Range');
-            }
-
-            // Size Match (25 points)
-            if (lead.req?.size) {
-                const leadSize = parseSizeSqYard(lead.req.size);
-                if (leadSize > 0 && dealSize > 0) {
-                    const diff = Math.abs(dealSize - leadSize);
-                    const tolerance = leadSize * (sizeFlexibility / 100);
-
-                    if (diff <= tolerance) {
-                        const proximity = Math.max(0, 25 - (diff / leadSize) * 100);
-                        score += proximity;
-                        details.size = diff === 0 ? 'match' : 'partial';
-                    } else {
-                        gaps.push('Size Mismatch');
-                    }
-                } else {
-                    score += 10;
-                    details.size = 'partial';
+            // Check Lookups
+            if (lookups) {
+                for (const group of Object.values(lookups)) {
+                    const found = group.find(l => l._id === v || l.id === v);
+                    if (found) return found.lookup_value;
                 }
             }
-
-            return {
-                ...lead,
-                matchPercentage: Math.round(score),
-                matchDetails: details,
-                gaps,
-                leadScore: lead.score?.val || 0,
-                leadStage: lead.stage || 'Prospect'
-            };
-        })
-            .filter(l => l.matchPercentage > 10)
-            .sort((a, b) => b.matchPercentage - a.matchPercentage);
-    }, [deal, budgetFlexibility, sizeFlexibility, leads, renderVal]);
-
-    if (loading) {
-        return (
-            <div style={{ padding: '40px', textAlign: 'center' }}>
-                <div className="loading-spinner"></div>
-                <p>Loading matching leads...</p>
-            </div>
-        );
-    }
-
-    if (!deal) {
-        return (
-            <div style={{ padding: '80px 40px', textAlign: 'center', background: '#f8fafc', minHeight: '100vh' }}>
-                <div style={{ maxWidth: '400px', margin: '0 auto', background: '#fff', padding: '40px', borderRadius: '16px', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}>
-                    <div style={{ width: '64px', height: '64px', background: '#fee2e2', color: '#ef4444', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', fontSize: '1.5rem' }}>
-                        <i className="fas fa-exclamation-triangle"></i>
-                    </div>
-                    <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#1e293b', marginBottom: '8px' }}>Deal Not Found</h2>
-                    <p style={{ color: '#64748b', marginBottom: '24px' }}>The deal you're looking for might have been deleted or moved.</p>
-                    <button
-                        onClick={() => onNavigate('deals')}
-                        style={{ background: '#3b82f6', color: '#fff', border: 'none', padding: '12px 24px', borderRadius: '8px', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px' }}
-                    >
-                        <i className="fas fa-arrow-left"></i> Go back to Deals
-                    </button>
-                </div>
-            </div>
-        );
-    }
-
-    const handleSelectAll = (e) => {
-        if (e.target.checked) {
-            setSelectedLeads(matchedLeads.map(l => l.mobile));
-        } else {
-            setSelectedLeads([]);
         }
-    };
 
-    const handleSelectLead = (mobile) => {
-        setSelectedLeads(prev =>
-            prev.includes(mobile) ? prev.filter(m => m !== mobile) : [...prev, mobile]
-        );
-    };
+        // D. Handle Arrays
+        if (Array.isArray(v)) {
+            if (v.length === 0) return 'N/A';
+            return v.map(item => renderVal(item)).join(', ');
+        }
 
-    const generateEmailContent = () => {
-        const subject = `🔥 Priority Deal: Exclusive ${renderVal(deal.propertyType, 'PropertyType')} in ${renderVal(deal.location, 'Locality')}!`;
-        let body = `Dear Partner,<br><br>`;
-        body += `We have an exclusive property listing that perfectly aligns with your current requirements. This <strong>${renderVal(deal.propertyType, 'PropertyType')}</strong> at <strong>${renderVal(deal.location, 'Locality')}</strong> represents a significant opportunity in the current market.<br><br>`;
+        // E. Prevent [object Object]
+        if (typeof v === 'object') {
+            try {
+                return v.lookup_value || v.name || v.value || JSON.stringify(v);
+            } catch (e) {
+                return 'Complex Data';
+            }
+        }
 
-        body += `<div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; margin-bottom: 24px; font-family: sans-serif; background: #fff; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">`;
-        body += `<div style="display: flex; gap: 20px; align-items: flex-start;">`;
+        return String(v);
+    }, [lookups, projects]);
 
-        // Deal Image (if available) - Currently using a placeholder as deal doesn't have images in state yet
-        // In a real scenario, we'd use deal.images[0]
-        body += `<div style="width: 200px; height: 140px; border-radius: 12px; overflow: hidden; flex-shrink: 0; background: #3b82f6; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 2.5rem;">`;
-        body += `<i class="fas fa-home"></i>`;
-        body += `</div>`;
-
-        body += `<div>`;
-        body += `<h2 style="margin: 0; color: #1e293b; font-size: 1.4rem;">🏠 ${renderVal(deal.propertyType, 'PropertyType')}</h2>`;
-        body += `<p style="margin: 6px 0; color: #64748b; font-size: 1rem;"><i class="fas fa-map-marker-alt"></i> ${renderVal(deal.location, 'Locality')} ${deal.projectName ? `| ${renderVal(deal.projectName)}` : ''}</p>`;
-        body += `<p style="margin: 8px 0; color: #475569; font-size: 0.95rem;">📏 Size: <strong>${renderVal(deal.size)}</strong></p>`;
-        body += `<p style="margin: 12px 0; color: #10b981; font-weight: 800; font-size: 1.5rem;">💰 Price: ${formatIndianCurrency(deal.price)}</p>`;
-        body += `</div>`;
-        body += `</div>`;
-        body += `</div>`;
-
-        body += `This property has been vetted by our experts and is ready for immediate site visits.<br><br>`;
-        body += `<strong>Would you like to schedule a visit for your client(s) this weekend?</strong><br><br>`;
-        body += `Looking forward to your swift response.<br><br>`;
-        body += `<br>`;
-        body += `Best regards,<br>`;
-        body += `<strong>${renderVal(deal.assignedTo || deal.assigned || 'Bharat Properties')}</strong><br>`;
-        body += `Ph: +91-${deal.assignedTo?.mobile || '99155-XXXXX'}`;
-
-        // Attachments (Can be extended to use deal documents)
-        const attachments = [];
-
-        return { subject, body, attachments };
-    };
-
+    // Batch Communication Handlers (missing functions that were causing ReferenceError)
     const handleBatchMail = () => {
-        const selected = matchedLeads.filter(l => selectedLeads.includes(l.mobile));
-        const { subject, body, attachments } = generateEmailContent(selected);
-        setMailSubject(subject);
-        setMailBody(body);
-        setMailAttachments(attachments);
-        setSelectedContactsForMail(selected);
+        const contactsForMail = matchedLeads.filter(l => selectedLeads.includes(l.mobile));
+        setSelectedContactsForMail(contactsForMail);
+        setMailSubject(`Property Match: ${renderVal(deal.propertyType)} at ${renderVal(deal.location)}`);
+        setMailBody(`Dear Lead,\n\nWe have found a matching property for your requirement.\n\nProperty: ${renderVal(deal.propertyType)}\nLocation: ${renderVal(deal.location)}\nPrice: ${formatIndianCurrency(deal.price)}\n\nPlease contact us for more details.`);
         setIsMailOpen(true);
-        toast.success(`Generated personalized email for ${selected.length} leads`);
     };
 
     const handleBatchMessage = () => {
-        const selected = matchedLeads.filter(l => selectedLeads.includes(l.mobile));
-        setSelectedContactsForMessage(selected);
+        const contactsForMsg = matchedLeads.filter(l => selectedLeads.includes(l.mobile));
+        setSelectedContactsForMessage(contactsForMsg);
         setIsMessageOpen(true);
     };
 
-    const handleWhatsApp = (mobile, name) => {
-        const message = `Hi ${name}, I have a property that perfectly matches your requirement: ${renderVal(deal.propertyType, 'PropertyType')} at ${renderVal(deal.location, 'Locality')}. Price: ${formatIndianCurrency(deal.price)}. Let me know if you are interested!`;
-        window.open(`https://wa.me/91${mobile}?text=${encodeURIComponent(message)}`, '_blank');
+    const handleBatchWhatsApp = () => {
+        const selected = matchedLeads.filter(l => selectedLeads.includes(l.mobile));
+        const loc = deal ? renderVal(deal.location) : '';
+        const price = deal ? formatIndianCurrency(deal.price || 0) : '';
+        selected.forEach(l => {
+            const msg = `Hi ${l.firstName}, we have a property matching your requirement at ${loc}. Price: ${price}. Interested?`;
+            window.open(`https://wa.me/91${l.mobile}?text=${encodeURIComponent(msg)}`, '_blank');
+        });
     };
 
-    const getStageColor = (stage) => {
-        const stageStr = String(stage?.lookup_value || stage || '').toLowerCase();
-        switch (stageStr) {
-            case 'site visit': return { bg: '#eff6ff', color: '#2563eb' };
-            case 'negotiation': return { bg: '#f3e8ff', color: '#9333ea' };
-            case 'closure': return { bg: '#f0fdf4', color: '#16a34a' };
-            case 'follow-up': return { bg: '#fff7ed', color: '#ea580c' };
-            default: return { bg: '#f8fafc', color: '#64748b' };
-        }
+    // Communication Handlers
+    const handleWhatsApp = (lead) => {
+        const msg = `Hi ${lead.firstName}, I found a property matching your requirement: ${renderVal(deal.propertyType)} at ${renderVal(deal.location)}. Price: ${formatIndianCurrency(deal.price)}. Interested?`;
+        window.open(`https://wa.me/91${lead.mobile}?text=${encodeURIComponent(msg)}`, '_blank');
     };
 
-    const getStatusColor = (status) => {
-        switch (status) {
-            case 'match': return '#10b981';
-            case 'partial': return '#f59e0b';
-            default: return '#94a3b8';
-        }
+    const handleSelectLead = (mobile) => {
+        setSelectedLeads(prev => prev.includes(mobile) ? prev.filter(m => m !== mobile) : [...prev, mobile]);
     };
+
+    if (loading) return (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', gap: '20px', background: '#f8fafc' }}>
+            <div className="loading-spinner"></div>
+            <h3 style={{ fontWeight: 800, color: '#1e293b' }}>Initializing Matching Engine...</h3>
+        </div>
+    );
+
+    if (!deal) return <div style={{ padding: '40px', textAlign: 'center' }}>Deal not found.</div>;
 
     return (
-        <div style={{ background: '#f1f5f9', minHeight: '100vh', padding: '24px', pb: '100px' }}>
+        <div style={{ background: '#f1f5f9', minHeight: '100vh', padding: '24px' }}>
             {/* Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                     <button
                         onClick={() => onNavigate('deals')}
-                        style={{ border: 'none', background: '#fff', width: '40px', height: '40px', borderRadius: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem', color: '#475569', transition: 'all 0.2s' }}
+                        onMouseOver={e => e.currentTarget.style.background = '#f8fafc'}
+                        onMouseOut={e => e.currentTarget.style.background = '#fff'}
                     >
-                        <i className="fas fa-arrow-left" style={{ color: '#1e293b' }}></i>
+                        <i className="fas fa-arrow-left" style={{ fontSize: '0.8rem' }}></i> Back to Deals
                     </button>
                     <div>
-                        <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>Deal Match Center</h1>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
-                            <span style={{ fontSize: '0.85rem', color: '#64748b' }}>Matching leads for:</span>
-                            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#2563eb', background: '#eff6ff', padding: '2px 8px', borderRadius: '4px' }}>{renderVal(deal.propertyType, 'PropertyType')} | {deal.id}</span>
-                        </div>
+                        <h1 style={{ fontSize: '1.5rem', fontWeight: 900, color: '#0f172a', margin: 0 }}>Deal Match Center</h1>
+                        <p style={{ margin: 0, color: '#64748b', fontSize: '0.85rem' }}>
+                            <span style={{ fontWeight: 700, color: '#2563eb' }}>{renderVal(deal.propertyType)}</span> in {renderVal(deal.location)}
+                        </p>
                     </div>
                 </div>
-                <div style={{ display: 'flex', gap: '12px' }}>
-                    <button
-                        className="btn-outline"
-                        style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff' }}
-                        onClick={() => {
-                            const panel = document.getElementById('refine-matches-panel');
-                            if (panel) panel.scrollIntoView({ behavior: 'smooth' });
-                            else toast('Please use the Refine Matches panel below');
-                        }}
-                    >
-                        <i className="fas fa-filter"></i> Filters
-                    </button>
-                    <button
-                        className="btn-primary"
-                        style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-                        onClick={() => {
-                            const text = `*New Deal Alert!* 🏠\n\n*${renderVal(deal.propertyType, 'PropertyType')}* in *${renderVal(deal.location, 'Locality')}*\nSize: ${renderVal(deal.size)}\nPrice: ${formatIndianCurrency(deal.price)}\n\nContact: ${renderVal(deal.assignedTo || deal.assigned || 'Bharat Properties Team')}`;
-                            navigator.clipboard.writeText(text);
-                            toast.success("Deal details copied to clipboard!");
-                        }}
-                    >
-                        <i className="fas fa-share-alt"></i> Share Deal
-                    </button>
-                </div>
+                <button className="btn-primary" onClick={() => toast.success("Deal link copied!") }>
+                    <i className="fas fa-share-alt"></i> Share Deal
+                </button>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: '24px' }}>
-                {/* Deal Snapshot */}
+                {/* Side Control Panel */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                    <div style={{ background: '#fff', borderRadius: '20px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0' }}>
-                        <h3 style={{ fontSize: '1rem', fontWeight: 800, color: '#0f172a', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <i className="fas fa-info-circle" style={{ color: '#3b82f6' }}></i> Deal Particulars
-                        </h3>
-
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                            <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px' }}>
-                                <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Property Info</label>
-                                <p style={{ fontSize: '1.1rem', fontWeight: 700, color: '#0f172a', margin: '4px 0' }}>{renderVal(deal.propertyType, 'PropertyType')}</p>
-                                <p style={{ fontSize: '0.85rem', color: '#64748b', margin: 0 }}>{renderVal(deal.location, 'Locality')} {deal.projectName ? `| ${renderVal(deal.projectName)}` : ''}</p>
+                    <div style={{ background: '#fff', borderRadius: '20px', padding: '24px', border: '1px solid #e2e8f0' }}>
+                        <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: '20px' }}>Deal Snapshot</h3>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                            <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '12px', gridColumn: '1 / span 2' }}>
+                                <small style={{ fontWeight: 700, color: '#94a3b8', fontSize: '0.65rem' }}>UNIT PRICE</small>
+                                <p style={{ margin: 0, fontWeight: 900, fontSize: '1.2rem', color: '#059669' }}>{formatIndianCurrency(deal.price || deal.quotePrice)}</p>
                             </div>
-
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                                <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '12px' }}>
-                                    <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Size</label>
-                                    <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a', margin: '2px 0' }}>{String(deal.size || '').split('(')[0]}</p>
-                                </div>
-                                <div style={{ background: '#ecfdf5', padding: '12px', borderRadius: '12px' }}>
-                                    <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#059669', textTransform: 'uppercase' }}>Price</label>
-                                    <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#059669', margin: '2px 0' }}>{formatIndianCurrency(deal.price)}</p>
-                                </div>
+                            <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '10px' }}>
+                                <small style={{ fontWeight: 700, color: '#94a3b8', fontSize: '0.6rem' }}>SIZE / AREA</small>
+                                <p style={{ margin: 0, fontWeight: 800, fontSize: '0.85rem' }}>
+                                    {(() => {
+                                        const s = deal.size?.value || deal.size || 0;
+                                        if (s > 0) return `${s} ${deal.sizeUnit || 'Sq.Ft.'}`;
+                                        if (deal.inventoryId?.length && deal.inventoryId?.width) {
+                                            return `${deal.inventoryId.length * deal.inventoryId.width} ${deal.sizeUnit || 'Sq.Ft.'} (Calc)`;
+                                        }
+                                        return 'N/A';
+                                    })()}
+                                </p>
                             </div>
-
-                            <div>
-                                <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', display: 'block', marginBottom: '8px' }}>Assigned Agent</label>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                    <div style={{ width: '36px', height: '36px', background: '#3b82f6', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem', fontWeight: 800, color: '#fff' }}>
-                                        {renderVal(deal.assignedTo || deal.assigned || 'B').charAt(0)}
+                            <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '10px' }}>
+                                <small style={{ fontWeight: 700, color: '#94a3b8', fontSize: '0.6rem' }}>STATUS</small>
+                                <p style={{ margin: 0, fontWeight: 800, fontSize: '0.85rem', color: '#f59e0b' }}>{renderVal(deal.stage || 'Open')}</p>
+                            </div>
+                            
+                            <div style={{ gridColumn: '1 / span 2', borderTop: '1px solid #f1f5f9', paddingTop: '12px', marginTop: '4px' }}>
+                                <div style={{ marginBottom: '10px' }}>
+                                    <small style={{ fontWeight: 700, color: '#94a3b8', fontSize: '0.6rem', textTransform: 'uppercase' }}>Project</small>
+                                    <div style={{ fontWeight: 800, fontSize: '0.85rem', color: '#1e293b' }}>{renderVal(deal.projectName || deal.inventoryId?.projectName)}</div>
+                                </div>
+                                <div style={{ display: 'flex', gap: '20px' }}>
+                                    <div>
+                                        <small style={{ fontWeight: 700, color: '#94a3b8', fontSize: '0.6rem', textTransform: 'uppercase' }}>Unit No</small>
+                                        <div style={{ fontWeight: 800, fontSize: '0.85rem' }}>{deal.unitNo || deal.inventoryId?.unitNo || '-'}</div>
                                     </div>
                                     <div>
-                                        <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a', margin: 0 }}>{renderVal(deal.assignedTo || deal.assigned || 'Bharat Properties Team')}</p>
-                                        <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0 }}>Sales Manager</p>
+                                        <small style={{ fontWeight: 700, color: '#94a3b8', fontSize: '0.6rem', textTransform: 'uppercase' }}>Block</small>
+                                        <div style={{ fontWeight: 800, fontSize: '0.85rem' }}>{deal.block || deal.inventoryId?.block || '-'}</div>
                                     </div>
+                                </div>
+                                <div style={{ marginTop: '10px' }}>
+                                    <small style={{ fontWeight: 700, color: '#94a3b8', fontSize: '0.6rem', textTransform: 'uppercase' }}>Locality</small>
+                                    <div style={{ fontWeight: 800, fontSize: '0.85rem', color: '#2563eb' }}>{renderVal(deal.location || deal.inventoryId?.address?.locality)}</div>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    {/* Interactive Refinement */}
-                    <div id="refine-matches-panel" style={{ background: '#fff', borderRadius: '20px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0', position: 'sticky', top: '24px' }}>
-                        <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#64748b', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                            <i className="fas fa-filter" style={{ color: '#f59e0b' }}></i> Refine Matches
-                        </h3>
-
+                    <div style={{ background: '#fff', borderRadius: '20px', padding: '24px', border: '1px solid #e2e8f0', position: 'sticky', top: '24px' }}>
+                        <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: '20px' }}>Refinement Engine</h3>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                             <div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                                    <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1e293b' }}>Budget Flexibility</label>
-                                    <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#3b82f6' }}>±{budgetFlexibility}%</span>
+                                    <label style={{ fontSize: '0.85rem', fontWeight: 700 }}>Budget Tolerance</label>
+                                    <span style={{ color: '#2563eb', fontWeight: 800 }}>±{budgetFlexibility}%</span>
                                 </div>
-                                <input
-                                    type="range"
-                                    min="0" max="50"
-                                    value={budgetFlexibility}
-                                    onChange={(e) => setBudgetFlexibility(parseInt(e.target.value))}
-                                    style={{ width: '100%', cursor: 'pointer', accentColor: '#3b82f6' }}
-                                />
-                                <p style={{ fontSize: '0.65rem', color: '#64748b', marginTop: '4px' }}>Expand budget range for matching leads.</p>
+                                <input type="range" min="0" max="100" value={budgetFlexibility} onChange={(e) => setBudgetFlexibility(parseInt(e.target.value))} style={{ width: '100%' }} />
                             </div>
-
                             <div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                                    <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1e293b' }}>Size Flexibility</label>
-                                    <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#10b981' }}>±{sizeFlexibility}%</span>
+                                    <label style={{ fontSize: '0.85rem', fontWeight: 700 }}>Size Tolerance</label>
+                                    <span style={{ color: '#10b981', fontWeight: 800 }}>±{sizeFlexibility}%</span>
                                 </div>
-                                <input
-                                    type="range"
-                                    min="0" max="50"
-                                    value={sizeFlexibility}
-                                    onChange={(e) => setSizeFlexibility(parseInt(e.target.value))}
-                                    style={{ width: '100%', cursor: 'pointer', accentColor: '#10b981' }}
-                                />
-                                <p style={{ fontSize: '0.65rem', color: '#64748b', marginTop: '4px' }}>Allow deviation in required size matching.</p>
+                                <input type="range" min="0" max="100" value={sizeFlexibility} onChange={(e) => setSizeFlexibility(parseInt(e.target.value))} style={{ width: '100%' }} />
                             </div>
                         </div>
                     </div>
                 </div>
 
                 {/* Match Results List */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                    {/* List Controls */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 8px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            <input
-                                type="checkbox"
-                                style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-                                onChange={handleSelectAll}
-                                checked={selectedLeads.length === matchedLeads.length && matchedLeads.length > 0}
-                            />
-                            <span style={{ fontSize: '0.9rem', fontWeight: 600, color: '#64748b' }}>Select All Verified Matches</span>
+                <div style={{ position: 'relative' }}>
+                    {matchingLoading && (
+                        <div style={{ position: 'absolute', top: '-15px', left: '50%', transform: 'translateX(-50%)', background: '#2563eb', color: '#fff', padding: '4px 16px', borderRadius: '100px', fontSize: '0.75rem', fontWeight: 800, zIndex: 10, boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
+                            <i className="fas fa-sync fa-spin"></i> UPDATING MATCHES...
                         </div>
-                        <div style={{ fontSize: '0.85rem', color: '#64748b' }}>
-                            Sorted by <span style={{ fontWeight: 700, color: '#0f172a' }}>Match Accuracy</span>
-                        </div>
+                    )}
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', opacity: matchingLoading ? 0.6 : 1, transition: 'opacity 0.2s' }}>
+                        {matchedLeads.length === 0 ? (
+                            <div style={{ background: '#fff', padding: '80px', borderRadius: '20px', textAlign: 'center', border: '1px solid #e2e8f0' }}>
+                                <i className="fas fa-user-slash" style={{ fontSize: '2.5rem', color: '#cbd5e1', marginBottom: '16px' }}></i>
+                                <h3 style={{ color: '#1e293b' }}>No Matching Leads Found</h3>
+                                <p style={{ color: '#64748b' }}>Broaden your tolerance filters to see potential prospects.</p>
+                            </div>
+                        ) : (
+                            matchedLeads.map((lead) => (
+                                <div key={lead._id} style={{ background: '#fff', borderRadius: '16px', padding: '20px 24px', border: `1px solid ${selectedLeads.includes(lead.mobile) ? '#2563eb' : '#e2e8f0'}`, boxShadow: selectedLeads.includes(lead.mobile) ? '0 0 0 3px rgba(37,99,235,0.1)' : '0 1px 3px rgba(0,0,0,0.04)', display: 'grid', gridTemplateColumns: '32px 64px 1fr auto', gap: '16px', alignItems: 'center', transition: 'all 0.2s' }}>
+                                    <input type="checkbox" checked={selectedLeads.includes(lead.mobile)} onChange={() => handleSelectLead(lead.mobile)} style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#2563eb' }} />
+
+                                    <div style={{ position: 'relative', width: '60px', height: '60px', flexShrink: 0 }}>
+                                        <svg width="60" height="60" viewBox="0 0 64 64">
+                                            <circle cx="32" cy="32" r="28" fill="none" stroke="#f1f5f9" strokeWidth="5" />
+                                            <circle cx="32" cy="32" r="28" fill="none" stroke={lead.score >= 80 ? '#10b981' : lead.score >= 50 ? '#f59e0b' : '#3b82f6'} strokeWidth="5" strokeDasharray="176" strokeDashoffset={176 * (1 - lead.score / 100)} transform="rotate(-90 32 32)" strokeLinecap="round" />
+                                        </svg>
+                                        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                                            <span style={{ fontWeight: 900, fontSize: '0.8rem', color: '#0f172a', lineHeight: 1 }}>{lead.score}%</span>
+                                            <span style={{ fontSize: '0.5rem', color: '#94a3b8', fontWeight: 600 }}>MATCH</span>
+                                        </div>
+                                    </div>
+
+                                    <div style={{ minWidth: 0 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
+                                            <h4 style={{ margin: 0, color: '#0f172a', fontSize: '1rem', fontWeight: 800 }}>{lead.firstName} {lead.lastName}</h4>
+                                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#2563eb', background: '#eff6ff', padding: '1px 7px', borderRadius: '20px', border: '1px solid #bfdbfe', flexShrink: 0 }}>{renderVal(lead.stage) !== 'N/A' ? renderVal(lead.stage) : 'Lead'}</span>
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#64748b', fontSize: '0.8rem', marginBottom: '6px' }}>
+                                            <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.7rem' }}></i>
+                                            <span>{renderVal(lead.location) !== 'N/A' ? renderVal(lead.location) : lead.locArea || 'Location N/A'}</span>
+                                            {lead.mobile && <><span style={{ color: '#e2e8f0' }}>·</span><span>{lead.mobile}</span></>}
+                                        </div>
+                                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '6px' }}>
+                                            {lead.budgetMin > 0 && <span style={{ fontSize: '0.72rem', color: '#059669', fontWeight: 700, background: '#f0fdf4', padding: '2px 8px', borderRadius: '6px', border: '1px solid #bbf7d0' }}>₹{formatIndianCurrency(lead.budgetMin)} – ₹{formatIndianCurrency(lead.budgetMax)}</span>}
+                                            {lead.areaMin > 0 && <span style={{ fontSize: '0.72rem', color: '#7c3aed', fontWeight: 700, background: '#faf5ff', padding: '2px 8px', borderRadius: '6px', border: '1px solid #e9d5ff' }}>{lead.areaMin}–{lead.areaMax} {lead.areaMetric || 'Sq.Yd.'}</span>}
+                                        </div>
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
+                                            {(lead.matchReasons || []).map((reason, i) => (
+                                                <span key={i} style={{ fontSize: '0.62rem', fontWeight: 700, padding: '2px 7px', borderRadius: '5px', background: '#ecfdf5', color: '#065f46', border: '1px solid #a7f3d0', textTransform: 'uppercase', letterSpacing: '0.3px' }}>{reason}</span>
+                                            ))}
+                                            {(!lead.matchReasons || lead.matchReasons.length === 0) && (
+                                                <span style={{ fontSize: '0.62rem', color: '#94a3b8', fontStyle: 'italic' }}>Partial Match</span>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-end' }}>
+                                        <div style={{ display: 'flex', gap: '6px' }}>
+                                            <button
+                                                title="Call"
+                                                onClick={() => window.open(`tel:${lead.mobile}`)}
+                                                style={{ width: '36px', height: '36px', borderRadius: '10px', border: '1px solid #dcfce7', background: '#f0fdf4', color: '#15803d', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem', transition: 'all 0.15s' }}
+                                                onMouseOver={e => { e.currentTarget.style.background = '#dcfce7'; e.currentTarget.style.borderColor = '#86efac'; }}
+                                                onMouseOut={e => { e.currentTarget.style.background = '#f0fdf4'; e.currentTarget.style.borderColor = '#dcfce7'; }}
+                                            ><i className="fas fa-phone-alt"></i></button>
+                                            <button
+                                                title="WhatsApp"
+                                                onClick={() => handleWhatsApp(lead)}
+                                                style={{ width: '36px', height: '36px', borderRadius: '10px', border: '1px solid #dcfce7', background: '#f0fdf4', color: '#16a34a', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.95rem', transition: 'all 0.15s' }}
+                                                onMouseOver={e => { e.currentTarget.style.background = '#dcfce7'; }}
+                                                onMouseOut={e => { e.currentTarget.style.background = '#f0fdf4'; }}
+                                            ><i className="fab fa-whatsapp"></i></button>
+                                            <button
+                                                title="Send SMS"
+                                                onClick={() => { setSelectedContactsForMessage([lead]); setIsMessageOpen(true); }}
+                                                style={{ width: '36px', height: '36px', borderRadius: '10px', border: '1px solid #dbeafe', background: '#eff6ff', color: '#1d4ed8', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem', transition: 'all 0.15s' }}
+                                                onMouseOver={e => { e.currentTarget.style.background = '#dbeafe'; }}
+                                                onMouseOut={e => { e.currentTarget.style.background = '#eff6ff'; }}
+                                            ><i className="fas fa-comment-alt"></i></button>
+                                            <button
+                                                title="Email"
+                                                onClick={() => { setSelectedContactsForMail([lead]); setMailSubject(`Property Match for ${lead.firstName}`); setIsMailOpen(true); }}
+                                                style={{ width: '36px', height: '36px', borderRadius: '10px', border: '1px solid #ede9fe', background: '#f5f3ff', color: '#6d28d9', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem', transition: 'all 0.15s' }}
+                                                onMouseOver={e => { e.currentTarget.style.background = '#ede9fe'; }}
+                                                onMouseOut={e => { e.currentTarget.style.background = '#f5f3ff'; }}
+                                            ><i className="fas fa-envelope"></i></button>
+                                        </div>
+                                        <button
+                                            onClick={() => { setActivityInitialData({ activityType: 'Site Visit', relatedTo: [{ id: lead.mobile, name: `${lead.firstName} ${lead.lastName || ''}`.trim() }] }); setIsActivityOpen(true); }}
+                                            style={{ padding: '7px 16px', borderRadius: '10px', border: '1px solid #e2e8f0', background: '#fff', color: '#374151', fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.15s' }}
+                                            onMouseOver={e => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.borderColor = '#94a3b8'; }}
+                                            onMouseOut={e => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = '#e2e8f0'; }}
+                                        ><i className="fas fa-calendar-plus" style={{ marginRight: '6px', color: '#2563eb' }}></i>Schedule Visit</button>
+                                    </div>
+                                </div>
+                            ))
+                        )}
                     </div>
-
-                    {matchedLeads.map((lead, idx) => (
-                        <div
-                            key={lead.mobile + idx}
-                            style={{
-                                background: '#fff',
-                                borderRadius: '20px',
-                                padding: '24px',
-                                boxShadow: selectedLeads.includes(lead.mobile) ? '0 0 0 2px #3b82f6, 0 4px 6px -1px rgba(0, 0, 0, 0.1)' : '0 1px 3px rgba(0,0,0,0.05)',
-                                border: '1px solid #e2e8f0',
-                                display: 'grid',
-                                gridTemplateColumns: '40px 80px 1fr 240px',
-                                gap: '20px',
-                                alignItems: 'center',
-                                transition: 'all 0.2s',
-                                cursor: 'default'
-                            }}
-                        >
-                            <input
-                                type="checkbox"
-                                style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-                                checked={selectedLeads.includes(lead.mobile)}
-                                onChange={() => handleSelectLead(lead.mobile)}
-                            />
-
-                            {/* Match Score Thermometer */}
-                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
-                                <div style={{ position: 'relative', width: '64px', height: '64px' }}>
-                                    <svg width="64" height="64" viewBox="0 0 64 64">
-                                        <circle cx="32" cy="32" r="28" fill="none" stroke="#f1f5f9" strokeWidth="6" />
-                                        <circle
-                                            cx="32" cy="32" r="28" fill="none"
-                                            stroke={lead.matchPercentage > 70 ? '#10b981' : lead.matchPercentage > 40 ? '#f59e0b' : '#3b82f6'}
-                                            strokeWidth="6"
-                                            strokeDasharray={2 * Math.PI * 28}
-                                            strokeDashoffset={2 * Math.PI * 28 * (1 - lead.matchPercentage / 100)}
-                                            strokeLinecap="round"
-                                            transform="rotate(-90 32 32)"
-                                        />
-                                    </svg>
-                                    <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                                        <span style={{ fontSize: '0.9rem', fontWeight: 900, color: '#0f172a' }}>{lead.matchPercentage}%</span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Lead Info */}
-                            <div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                    <h4
-                                        style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#2563eb', cursor: 'pointer', textDecoration: 'none' }}
-                                        onClick={() => onNavigate('contact-detail', lead.mobile)}
-                                        onMouseOver={(e) => e.target.style.textDecoration = 'underline'}
-                                        onMouseOut={(e) => e.target.style.textDecoration = 'none'}
-                                    >
-                                        {lead.name}
-                                    </h4>
-                                    <div style={{ background: lead.leadScore > 80 ? '#fef2f2' : '#f0f9ff', color: lead.leadScore > 80 ? '#dc2626' : '#2563eb', padding: '2px 8px', borderRadius: '100px', fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                        <i className={`fas fa-thermometer-${lead.leadScore > 80 ? 'full' : lead.leadScore > 50 ? 'half' : 'empty'}`}></i>
-                                        {lead.leadScore > 80 ? 'Hot' : 'Warm'} ({lead.leadScore})
-                                    </div>
-                                </div>
-
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '6px' }}>
-                                    <span style={{ fontSize: '0.8rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                        <i className="fas fa-map-marker-alt" style={{ fontSize: '0.75rem' }}></i> {renderVal(lead.location, 'Locality')}
-                                    </span>
-                                    <span style={{
-                                        fontSize: '0.75rem',
-                                        color: getStageColor(lead.leadStage).color,
-                                        fontWeight: 800,
-                                        background: getStageColor(lead.leadStage).bg,
-                                        padding: '4px 12px',
-                                        borderRadius: '8px',
-                                        textTransform: 'uppercase',
-                                        letterSpacing: '0.5px'
-                                    }}>
-                                        {renderVal(lead.leadStage)}
-                                    </span>
-                                </div>
-
-                                {/* Match Analysis Badges */}
-                                <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
-                                    <div
-                                        title={`Deal: ${deal.projectName || 'N/A'} | Lead: ${renderVal(lead.location, 'Locality')}`}
-                                        style={{ fontSize: '0.65rem', fontWeight: 700, padding: '4px 8px', borderRadius: '6px', border: `1px solid ${getStatusColor(lead.matchDetails.project)}`, color: getStatusColor(lead.matchDetails.project), display: 'flex', alignItems: 'center', gap: '4px', cursor: 'help' }}
-                                    >
-                                        <i className={`fas fa-${lead.matchDetails.project === 'match' ? 'check-circle' : 'circle'}`}></i> PROJECT
-                                    </div>
-                                    <div
-                                        title={`Deal: ${renderVal(deal.propertyType, 'PropertyType')} | Lead: ${renderVal(lead.req?.type, 'PropertyType')}`}
-                                        style={{ fontSize: '0.65rem', fontWeight: 700, padding: '4px 8px', borderRadius: '6px', border: `1px solid ${getStatusColor(lead.matchDetails.type)}`, color: getStatusColor(lead.matchDetails.type), display: 'flex', alignItems: 'center', gap: '4px', cursor: 'help' }}
-                                    >
-                                        <i className={`fas fa-${lead.matchDetails.type === 'match' ? 'check-circle' : 'circle'}`}></i> TYPE
-                                    </div>
-                                    <div
-                                        title={`Deal: ${formatIndianCurrency(deal.price)} | Lead: ${renderVal(lead.budget, 'Budget')}`}
-                                        style={{ fontSize: '0.65rem', fontWeight: 700, padding: '4px 8px', borderRadius: '6px', border: `1px solid ${getStatusColor(lead.matchDetails.budget)}`, color: getStatusColor(lead.matchDetails.budget), display: 'flex', alignItems: 'center', gap: '4px', cursor: 'help' }}
-                                    >
-                                        <i className={`fas fa-${lead.matchDetails.budget === 'match' ? 'check-circle' : 'circle'}`}></i> BUDGET
-                                    </div>
-                                    <div
-                                        title={`Deal: ${deal.size} | Lead: ${renderVal(lead.req?.size, 'Size')}`}
-                                        style={{ fontSize: '0.65rem', fontWeight: 700, padding: '4px 8px', borderRadius: '6px', border: `1px solid ${getStatusColor(lead.matchDetails.size)}`, color: getStatusColor(lead.matchDetails.size), display: 'flex', alignItems: 'center', gap: '4px', cursor: 'help' }}
-                                    >
-                                        <i className={`fas fa-${lead.matchDetails.size === 'match' ? 'check-circle' : 'circle'}`}></i> SIZE
-                                    </div>
-                                </div>
-
-                                {/* Gaps Display */}
-                                {lead.gaps && lead.gaps.length > 0 && (
-                                    <div style={{ display: 'flex', gap: '6px', marginTop: '10px' }}>
-                                        {lead.gaps.map((gap, i) => (
-                                            <span key={i} style={{ fontSize: '0.6rem', fontWeight: 700, color: '#ef4444', background: '#fef2f2', padding: '2px 6px', borderRadius: '4px', border: '1px solid #fee2e2' }}>
-                                                {gap}
-                                            </span>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Actions */}
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                <div style={{ display: 'flex', gap: '8px' }}>
-                                    <button
-                                        onClick={() => window.open(`tel:${lead.mobile}`)}
-                                        title="Call Lead"
-                                        style={{ flex: 1, padding: '10px', borderRadius: '12px', border: '1px solid #dcfce7', background: '#f0fdf4', color: '#166534', cursor: 'pointer' }}
-                                    >
-                                        <i className="fas fa-phone-alt"></i>
-                                    </button>
-                                    <button
-                                        onClick={() => handleWhatsApp(lead.mobile, lead.name)}
-                                        title="WhatsApp"
-                                        style={{ flex: 1, padding: '10px', borderRadius: '12px', border: '1px solid #dcfce7', background: '#f0fdf4', color: '#166534', cursor: 'pointer' }}
-                                    >
-                                        <i className="fab fa-whatsapp"></i>
-                                    </button>
-                                    <button
-                                        onClick={() => {
-                                            setSelectedContactsForMessage([lead]);
-                                            setIsMessageOpen(true);
-                                        }}
-                                        title="Send SMS"
-                                        style={{ flex: 1, padding: '10px', borderRadius: '12px', border: '1px solid #eff6ff', background: '#f0f9ff', color: '#1e40af', cursor: 'pointer' }}
-                                    >
-                                        <i className="fas fa-comment-alt"></i>
-                                    </button>
-                                </div>
-                                <button
-                                    className="btn-primary"
-                                    style={{ width: '100%', padding: '8px', borderRadius: '10px', fontSize: '0.8rem', fontWeight: 700, display: 'flex', justifyContent: 'center', alignItems: 'center' }}
-                                    onClick={() => {
-                                        setActivityInitialData({
-                                            activityType: 'Site Visit',
-                                            status: 'Not Started',
-                                            purpose: 'Property Visit',
-                                            relatedTo: [{ id: lead.mobile, name: lead.name }],
-                                            visitedProperties: [{
-                                                project: renderVal(deal.projectName) || renderVal(deal.location, 'Locality') || renderVal(deal.propertyType, 'PropertyType'),
-                                                block: '',
-                                                property: deal.unitNo || deal.id,
-                                                result: '',
-                                                feedback: ''
-                                            }]
-                                        });
-                                        setIsActivityOpen(true);
-                                    }}
-                                >
-                                    Log Site Visit Interest
-                                </button>
-                            </div>
-                        </div>
-                    ))}
                 </div>
             </div>
 
-            {/* Batch Action Bar */}
+            {/* Batch Broadcast Bar */}
             {selectedLeads.length > 0 && (
-                <div style={{ position: 'fixed', bottom: '24px', left: '50%', transform: 'translateX(-50%)', background: '#0f172a', padding: '16px 32px', borderRadius: '100px', display: 'flex', alignItems: 'center', gap: '32px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2)', zIndex: 1000, border: '1px solid #334155' }}>
-                    <div style={{ color: '#fff', fontSize: '0.95rem', fontWeight: 600 }}>
-                        <span style={{ color: '#3b82f6', fontSize: '1.1rem', fontWeight: 800 }}>{selectedLeads.length}</span> leads selected for broadcast
+                <div style={{ position: 'fixed', bottom: '28px', left: '50%', transform: 'translateX(-50%)', background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', padding: '14px 24px', borderRadius: '16px', display: 'flex', alignItems: 'center', gap: '12px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.4)', zIndex: 1000, border: '1px solid rgba(255,255,255,0.08)', backdropFilter: 'blur(12px)', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingRight: '12px', borderRight: '1px solid rgba(255,255,255,0.12)' }}>
+                        <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: '0.85rem', color: '#fff' }}>{selectedLeads.length}</div>
+                        <span style={{ color: '#e2e8f0', fontWeight: 600, fontSize: '0.9rem' }}>leads selected</span>
                     </div>
-                    <div style={{ height: '24px', width: '1px', background: '#334155' }}></div>
-                    <div style={{ display: 'flex', gap: '16px' }}>
-                        <button
-                            onClick={handleBatchMail}
-                            style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-                        >
-                            <i className="fas fa-envelope" style={{ color: '#94a3b8' }}></i> Batch Email
-                        </button>
-                        <button
-                            onClick={handleBatchMessage}
-                            style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-                        >
-                            <i className="fas fa-comment-alt" style={{ color: '#94a3b8' }}></i> Batch SMS
-                        </button>
-                        <button
-                            onClick={() => {
-                                toast.success(`Shared Deal ID ${deal.id} with ${selectedLeads.length} contacts!`);
-                                setSelectedLeads([]);
-                            }}
-                            style={{ background: '#3b82f6', border: 'none', color: '#fff', padding: '8px 20px', borderRadius: '100px', fontSize: '0.9rem', fontWeight: 700, cursor: 'pointer' }}
-                        >
-                            <i className="fab fa-whatsapp"></i> Broadcast on WA
-                        </button>
-                    </div>
-                    <button
-                        onClick={() => setSelectedLeads([])}
-                        style={{ border: 'none', background: 'transparent', color: '#94a3b8', cursor: 'pointer' }}
-                    >
-                        <i className="fas fa-times"></i>
-                    </button>
+                    <button onClick={handleBatchWhatsApp} style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '8px 14px', borderRadius: '10px', background: '#25d366', border: 'none', color: '#fff', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer', transition: 'all 0.15s' }} onMouseOver={e => e.currentTarget.style.background='#22c55e'} onMouseOut={e => e.currentTarget.style.background='#25d366'}><i className="fab fa-whatsapp"></i> WhatsApp</button>
+                    <button onClick={handleBatchMail} style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '8px 14px', borderRadius: '10px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', color: '#e2e8f0', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer', transition: 'all 0.15s' }} onMouseOver={e => e.currentTarget.style.background='rgba(255,255,255,0.15)'} onMouseOut={e => e.currentTarget.style.background='rgba(255,255,255,0.08)'}><i className="fas fa-envelope"></i> Email</button>
+                    <button onClick={handleBatchMessage} style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '8px 14px', borderRadius: '10px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', color: '#e2e8f0', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer', transition: 'all 0.15s' }} onMouseOver={e => e.currentTarget.style.background='rgba(255,255,255,0.15)'} onMouseOut={e => e.currentTarget.style.background='rgba(255,255,255,0.08)'}><i className="fas fa-comment"></i> SMS</button>
+                    <button onClick={() => setSelectedLeads([])} style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: '#94a3b8', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem', transition: 'all 0.15s' }} onMouseOver={e => e.currentTarget.style.background='rgba(255,255,255,0.12)'} onMouseOut={e => e.currentTarget.style.background='rgba(255,255,255,0.06)'}><i className="fas fa-times"></i></button>
                 </div>
             )}
 
-            {/* Communication Modals */}
-            <ComposeEmailModal
-                isOpen={isMailOpen}
-                onClose={() => setIsMailOpen(false)}
-                recipients={selectedContactsForMail}
-                initialSubject={mailSubject}
-                initialBody={mailBody}
-                autoAttachments={mailAttachments}
-            />
-            <SendMessageModal
-                isOpen={isMessageOpen}
-                onClose={() => setIsMessageOpen(false)}
-                initialRecipients={selectedContactsForMessage?.map(contact => ({
-                    ...contact,
-                    phone: contact.phone || contact.mobile
-                })) || []}
-                onSend={(data, res) => {
-                    toast.success(res?.message || 'Message Sent!');
-                    setIsMessageOpen(false);
-                }}
-            />
-            <CreateActivityModal
-                isOpen={isActivityOpen}
-                onClose={() => setIsActivityOpen(false)}
-                initialData={activityInitialData}
-                onSave={(data) => {
-                    addActivity(data);
-                    setIsActivityOpen(false);
-                }}
-            />
+            {/* Modals */}
+            <ComposeEmailModal isOpen={isMailOpen} onClose={() => setIsMailOpen(false)} recipients={selectedContactsForMail} initialSubject={mailSubject} initialBody={mailBody} />
+            <SendMessageModal isOpen={isMessageOpen} onClose={() => setIsMessageOpen(false)} initialRecipients={selectedContactsForMessage.map(c => ({ ...c, phone: c.mobile }))} onSend={() => setIsMessageOpen(false)} />
+            <CreateActivityModal isOpen={isActivityOpen} onClose={() => setIsActivityOpen(false)} initialData={activityInitialData} onSave={(data) => { addActivity(data); setIsActivityOpen(false); }} />
         </div>
     );
 };

@@ -481,6 +481,7 @@ export const getUnifiedTimeline = async (req, res) => {
 
         // 0.1 Fetch Entity Mobile for wider conversation matching
         let leadDoc = null;
+        let mobileForLookup = null;
         if (entityType.toLowerCase() === 'lead') {
             leadDoc = await Lead.findById(objId).populate('source subSource campaign').lean();
             if (leadDoc?.mobile) mobileForLookup = normalizePhone(leadDoc.mobile);
@@ -491,11 +492,28 @@ export const getUnifiedTimeline = async (req, res) => {
             }
         }
 
-        // 1. Fetch Activities (Unrestricted for authorized parent view)
-        const activities = await Activity.find({
-            entityId: objId,
-            entityType: { $regex: new RegExp(`^${escapeRegExp(entityType)}$`, 'i') }
-        })
+        // 1. Fetch Activities (Primary + Related Links + Mobile Matching)
+        // [SENIOR HARDENING]: Match by ID (ObjectId or String) across primary and related fields
+        // We remove strict entityType matching to ensure activities linked to contacts but related to properties appear.
+        const activityQuery = {
+            $or: [
+                { entityId: objId },
+                { entityId: entityId },
+                { "relatedTo.id": objId },
+                { "relatedTo.id": entityId }
+            ]
+        };
+
+        // Add Mobile Matching for Contacts/Leads (Omnichannel Intelligence)
+        if (mobileForLookup) {
+            activityQuery.$or.push(
+                { "participants.mobile": mobileForLookup },
+                { "details.mobile": mobileForLookup },
+                { "details.phone": mobileForLookup }
+            );
+        }
+
+        const activities = await Activity.find(activityQuery)
             .populate('assignedTo', 'fullName name')
             .lean();
 
@@ -537,7 +555,7 @@ export const getUnifiedTimeline = async (req, res) => {
             ...activities.map(a => ({
                 _id: a._id,
                 source: 'activity',
-                type: a.type?.toLowerCase() === 'whatsapp' ? 'whatsapp' : a.type.toLowerCase(),
+                type: a.type?.toLowerCase() === 'whatsapp' ? 'whatsapp' : (a.type?.toLowerCase() === 'feedback' ? 'feedback' : a.type.toLowerCase()),
                 timestamp: a.completedAt || a.performedAt || a.createdAt || a.dueDate,
                 title: a.subject,
                 description: a.description,

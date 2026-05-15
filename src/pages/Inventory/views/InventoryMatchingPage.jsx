@@ -8,9 +8,11 @@ import { useActivities } from '../../../context/ActivityContext';
 import { fixDriveUrl } from '../../../utils/helpers';
 import { renderValue } from '../../../utils/renderUtils';
 import { formatIndianCurrency } from '../../../utils/numberToWords';
+import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 
 const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
     const { addActivity } = useActivities();
+    const { getLookupValue } = usePropertyConfig();
     const [inventory, setInventory] = useState(null);
     const [leads, setLeads] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -90,6 +92,23 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
         fetchData();
     }, [inventoryId, fetchMatches]);
 
+    // 🧠 SENIOR PROFESSIONAL: Robust Lookup Resolver for Matching
+    const resolveLookup = useCallback((val, type) => {
+        if (!val) return null;
+        if (typeof val === 'object') {
+            const label = val.lookup_value || val.name || val.label;
+            // If label is present and not an ID, return it
+            if (label && !/^[0-9a-fA-F]{24}$/.test(String(label))) return label;
+            // If label itself is an ID or missing, try resolving the ID
+            val = val._id || val.id || val;
+        }
+        
+        const resolved = getLookupValue(type, val);
+        // NEVER return a raw 24-char hex string as a label
+        if (!resolved || /^[0-9a-fA-F]{24}$/.test(String(resolved))) return null;
+        return resolved;
+    }, [getLookupValue]);
+
     const matchedLeads = useMemo(() => {
         if (!leads) return [];
         // Filtering based on flexibility if needed, but backend already handles matching
@@ -147,9 +166,9 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
     };
 
     const generateEmailContent = () => {
-        const subject = `🔥 New Matching Property: ${inventory.propertyType} in ${inventory.location?.name || 'Prime Location'}!`;
+        const subject = `🔥 New Matching Property: ${renderValue(resolveLookup(inventory.propertyType, 'Category') || inventory.propertyType)} in ${renderValue(resolveLookup(inventory.location, 'Locality') || inventory.location?.name || 'Prime Location')}!`;
         let body = `Dear Client,<br><br>`;
-        body += `We have found a property that matches your requirements. This <strong>${inventory.propertyType}</strong> at <strong>${inventory.location?.name || 'Prime Location'}</strong> is available for immediate viewing.<br><br>`;
+        body += `We have found a property that matches your requirements. This <strong>${renderValue(resolveLookup(inventory.propertyType, 'Category') || inventory.propertyType)}</strong> at <strong>${renderValue(resolveLookup(inventory.location, 'Locality') || inventory.location?.name || 'Prime Location')}</strong> is available for immediate viewing.<br><br>`;
 
         body += `<div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; margin-bottom: 24px; font-family: sans-serif; background: #fff; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">`;
         body += `<div style="display: flex; gap: 20px; align-items: flex-start;">`;
@@ -162,9 +181,9 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
         body += `</div>`;
 
         body += `<div>`;
-        body += `<h2 style="margin: 0; color: #1e293b; font-size: 1.4rem;">🏠 ${inventory.propertyType}</h2>`;
-        body += `<p style="margin: 6px 0; color: #64748b; font-size: 1rem;"><i class="fas fa-map-marker-alt"></i> ${inventory.location?.name || 'Location N/A'}</p>`;
-        body += `<p style="margin: 8px 0; color: #475569; font-size: 0.95rem;">📏 Size: <strong>${renderValue(inventory.size || inventory.area)}</strong></p>`;
+        body += `<h2 style="margin: 0; color: #1e293b; font-size: 1.4rem;">🏠 ${renderValue(resolveLookup(inventory.propertyType, 'Category') || inventory.propertyType)}</h2>`;
+        body += `<p style="margin: 6px 0; color: #64748b; font-size: 1rem;"><i class="fas fa-map-marker-alt"></i> ${renderValue(resolveLookup(inventory.location, 'Locality') || inventory.location?.name || 'Location N/A')}</p>`;
+        body += `<p style="margin: 8px 0; color: #475569; font-size: 0.95rem;">📏 Size: <strong>${renderValue(resolveLookup(inventory.sizeConfig, 'Size') || inventory.size || inventory.area)}</strong></p>`;
         body += `<p style="margin: 12px 0; color: #10b981; font-weight: 800; font-size: 1.5rem;">💰 Price: ${formatIndianCurrency(inventory.price || inventory.demand)}</p>`;
         body += `</div>`;
         body += `</div>`;
@@ -201,7 +220,7 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
     };
 
     const handleWhatsApp = (mobile, name) => {
-        const message = `Hi ${name}, checking if you are interested in this property: ${renderValue(inventory.propertyType)} at ${renderValue(inventory.location?.name)}. Price: ${formatIndianCurrency(inventory.price || inventory.demand)}.`;
+        const message = `Hi ${name}, checking if you are interested in this property: ${renderValue(resolveLookup(inventory.propertyType, 'Category') || inventory.propertyType)} at ${renderValue(resolveLookup(inventory.location, 'Locality') || inventory.location?.name)}. Price: ${formatIndianCurrency(inventory.price || inventory.demand)}.`;
         window.open(`https://wa.me/91${mobile}?text=${encodeURIComponent(message)}`, '_blank');
     };
 
@@ -239,7 +258,7 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
                         <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>Inventory Match Center</h1>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
                             <span style={{ fontSize: '0.85rem', color: '#64748b' }}>Matching leads for:</span>
-                            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#2563eb', background: '#eff6ff', padding: '2px 8px', borderRadius: '4px' }}>{renderValue(inventory.propertyType)} | {renderValue(inventory.unitNo)}</span>
+                            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#2563eb', background: '#eff6ff', padding: '2px 8px', borderRadius: '4px' }}>{renderValue(resolveLookup(inventory.propertyType, 'Category'))} | {renderValue(inventory.unitNo)}</span>
                         </div>
                     </div>
                 </div>
@@ -259,7 +278,7 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
                         className="btn-primary"
                         style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
                         onClick={() => {
-                            const text = `*New Property Alert!* 🏠\n\n*${renderValue(inventory.propertyType)}* in *${renderValue(inventory.location?.name || 'Prime Location')}*\nSize: ${renderValue(inventory.size)}\nPrice: ${formatIndianCurrency(inventory.price || inventory.demand)}\n\nContact: ${renderValue(inventory.assignedTo) || 'Bharat Properties'}`;
+                            const text = `*New Property Alert!* 🏠\n\n*${renderValue(resolveLookup(inventory.propertyType, 'Category') || inventory.propertyType)}* in *${renderValue(resolveLookup(inventory.location, 'Locality') || inventory.location?.name || 'Prime Location')}*\nSize: ${renderValue(resolveLookup(inventory.sizeConfig, 'Size') || inventory.size)}\nPrice: ${formatIndianCurrency(inventory.price || inventory.demand)}\n\nContact: ${renderValue(inventory.assignedTo) || 'Bharat Properties'}`;
                             navigator.clipboard.writeText(text);
                             toast.success("Property details copied to clipboard!");
                         }}
@@ -280,14 +299,14 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                             <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px' }}>
                                 <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Property Info</label>
-                                <p style={{ fontSize: '1.1rem', fontWeight: 700, color: '#0f172a', margin: '4px 0' }}>{renderValue(inventory.propertyType)}</p>
-                                <p style={{ fontSize: '0.85rem', color: '#64748b', margin: 0 }}>{renderValue(inventory.location?.name)}</p>
+                                <p style={{ fontSize: '1.1rem', fontWeight: 700, color: '#0f172a', margin: '4px 0' }}>{renderValue(resolveLookup(inventory.propertyType, 'Category') || inventory.propertyType)}</p>
+                                <p style={{ fontSize: '0.85rem', color: '#64748b', margin: 0 }}>{renderValue(resolveLookup(inventory.location, 'Locality') || inventory.location?.name)}</p>
                             </div>
 
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                                 <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '12px' }}>
                                     <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Size</label>
-                                    <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a', margin: '2px 0' }}>{renderValue(inventory.size || inventory.area)}</p>
+                                    <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a', margin: '2px 0' }}>{renderValue(resolveLookup(inventory.sizeConfig, 'Size') || inventory.size || inventory.area)}</p>
                                 </div>
                                 <div style={{ background: '#ecfdf5', padding: '12px', borderRadius: '12px' }}>
                                     <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#059669', textTransform: 'uppercase' }}>Price</label>
@@ -438,7 +457,7 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
 
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '6px' }}>
                                     <span style={{ fontSize: '0.8rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                        <i className="fas fa-map-marker-alt" style={{ fontSize: '0.75rem' }}></i> {lead.location}
+                                        <i className="fas fa-map-marker-alt" style={{ fontSize: '0.75rem' }}></i> {renderValue(resolveLookup(lead.location, 'Locality') || lead.location)}
                                     </span>
                                     <span style={{
                                         fontSize: '0.75rem',
@@ -457,13 +476,13 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
                                 {/* Match Analysis Badges */}
                                 <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
                                     <div
-                                        title={`Property: ${renderValue(inventory.location?.name) || 'N/A'} | Lead: ${renderValue(lead.location)}`}
+                                        title={`Property: ${renderValue(resolveLookup(inventory.location, 'Locality') || inventory.location?.name) || 'N/A'} | Lead: ${renderValue(resolveLookup(lead.location, 'Locality') || lead.location)}`}
                                         style={{ fontSize: '0.65rem', fontWeight: 700, padding: '4px 8px', borderRadius: '6px', border: `1px solid ${getStatusColor(lead.matchDetails.project)}`, color: getStatusColor(lead.matchDetails.project), display: 'flex', alignItems: 'center', gap: '4px', cursor: 'help' }}
                                     >
                                         <i className={`fas fa-${lead.matchDetails.project === 'match' ? 'check-circle' : 'circle'}`}></i> LOCATION
                                     </div>
                                     <div
-                                        title={`Property: ${renderValue(inventory.propertyType)} | Lead: ${renderValue(lead.req?.type)}`}
+                                        title={`Property: ${renderValue(resolveLookup(inventory.propertyType, 'Category'))} | Lead: ${renderValue(resolveLookup(lead.req?.type, 'Category') || lead.req?.type)}`}
                                         style={{ fontSize: '0.65rem', fontWeight: 700, padding: '4px 8px', borderRadius: '6px', border: `1px solid ${getStatusColor(lead.matchDetails.type)}`, color: getStatusColor(lead.matchDetails.type), display: 'flex', alignItems: 'center', gap: '4px', cursor: 'help' }}
                                     >
                                         <i className={`fas fa-${lead.matchDetails.type === 'match' ? 'check-circle' : 'circle'}`}></i> TYPE
@@ -475,7 +494,7 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
                                         <i className={`fas fa-${lead.matchDetails.budget === 'match' ? 'check-circle' : 'circle'}`}></i> BUDGET
                                     </div>
                                     <div
-                                        title={`Property: ${renderValue(inventory.size || inventory.area)} | Lead: ${renderValue(lead.req?.size)}`}
+                                        title={`Property: ${renderValue(resolveLookup(inventory.sizeConfig, 'Size') || inventory.size || inventory.area)} | Lead: ${renderValue(resolveLookup(lead.req?.size, 'Size') || lead.req?.size)}`}
                                         style={{ fontSize: '0.65rem', fontWeight: 700, padding: '4px 8px', borderRadius: '6px', border: `1px solid ${getStatusColor(lead.matchDetails.size)}`, color: getStatusColor(lead.matchDetails.size), display: 'flex', alignItems: 'center', gap: '4px', cursor: 'help' }}
                                     >
                                         <i className={`fas fa-${lead.matchDetails.size === 'match' ? 'check-circle' : 'circle'}`}></i> SIZE
