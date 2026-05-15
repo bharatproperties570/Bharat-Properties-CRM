@@ -56,6 +56,7 @@ import aiAgentRoutes from "./routes/aiAgent.routes.js";
 import dynamicFormRoutes from "./routes/dynamicForm.routes.js";
 import companyGroupRoutes from "./routes/companyGroup.routes.js";
 import portfolioRoutes from "./routes/portfolio.routes.js";
+import discoveryRoutes from "./src/modules/discovery/discovery.routes.js";
 
 const app = express();
 
@@ -185,6 +186,7 @@ app.use("/api/whatsapp-config", whatsappActionRoutes);
 app.use("/api/dynamic-forms", dynamicFormRoutes);
 app.use("/api/company-groups", companyGroupRoutes);
 app.use("/api/portfolios", portfolioRoutes);
+app.use("/api/discovery", discoveryRoutes);
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
 app.all("*", (req, res, next) => {
