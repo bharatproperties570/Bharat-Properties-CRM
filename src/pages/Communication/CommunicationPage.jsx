@@ -1315,8 +1315,8 @@ function AIBotView({ T, isDark, convos, selected, onSelect, onTakeover, onRefres
                             {/* CRM context badges */}
                             {selected.lead && (
                                 <div style={{ display:'flex', gap:'8px', flexWrap:'wrap' }}>
-                                    {selected.lead.status && <span style={{padding:'3px 9px',borderRadius:'20px',fontSize:'0.63rem',fontWeight:800,background:'#6366f115',color:'#818cf8'}}>Stage: {selected.lead.status}</span>}
-                                    {selected.lead.source && <span style={{padding:'3px 9px',borderRadius:'20px',fontSize:'0.63rem',fontWeight:800,background:'#22c55e15',color:'#22c55e'}}>Source: {selected.lead.source}</span>}
+                                    {selected.lead.status && <span style={{padding:'3px 9px',borderRadius:'20px',fontSize:'0.63rem',fontWeight:800,background:'#6366f115',color:'#818cf8'}}>Stage: {typeof selected.lead.status === 'object' ? (selected.lead.status.lookup_value || selected.lead.status.name) : selected.lead.status}</span>}
+                                    {selected.lead.source && <span style={{padding:'3px 9px',borderRadius:'20px',fontSize:'0.63rem',fontWeight:800,background:'#22c55e15',color:'#22c55e'}}>Source: {typeof selected.lead.source === 'object' ? (selected.lead.source.lookup_value || selected.lead.source.name) : selected.lead.source}</span>}
                                     {selected.lead.intent_index && <span style={{padding:'3px 9px',borderRadius:'20px',fontSize:'0.63rem',fontWeight:800,background:'#f59e0b15',color:'#f59e0b'}}>Intent: {selected.lead.intent_index}%</span>}
                                 </div>
                             )}
@@ -1528,7 +1528,7 @@ function AIBotView({ T, isDark, convos, selected, onSelect, onTakeover, onRefres
                                         <div style={{fontSize:'0.58rem',color:T.text3,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:'3px'}}>CRM Context</div>
                                         <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
                                             {selected.lead.budget && <span style={{fontSize:'0.65rem',color:T.text2,fontWeight:600}}>💰 {selected.lead.budget}</span>}
-                                            {selected.lead.location && <span style={{fontSize:'0.65rem',color:T.text2,fontWeight:600}}>📍 {selected.lead.location}</span>}
+                                            {selected.lead.location && <span style={{fontSize:'0.65rem',color:T.text2,fontWeight:600}}>📍 {typeof selected.lead.location === 'object' ? (selected.lead.location.lookup_value || selected.lead.location.name) : selected.lead.location}</span>}
                                             {selected.lead.requirementType && <span style={{fontSize:'0.65rem',color:T.text2,fontWeight:600}}>🏠 {selected.lead.requirementType}</span>}
                                             {selected.lead.campaign && <span style={{fontSize:'0.65rem',color:T.text2,fontWeight:600}}>📢 {selected.lead.campaign}</span>}
                                             {!selected.lead.budget && !selected.lead.location && !selected.lead.requirementType && (

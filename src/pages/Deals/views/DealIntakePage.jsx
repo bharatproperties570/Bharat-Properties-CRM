@@ -1455,8 +1455,8 @@ const DealIntakePage = () => {
                                                                     {manualSearchResults.map(res => (
                                                                         <div key={res.id} onClick={() => { setSelectedInventory(res); setStage(3); setIsManualLinkOpen(false); }}
                                                                             style={{ padding: '8px', background: '#fff', borderBottom: '1px solid #e2e8f0', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                                            <span style={{ fontWeight: 700 }}>Unit {res.unitNo}</span>
-                                                                            <span style={{ fontSize: '0.8rem', color: '#64748b' }}>{res.location}</span>
+                                                                            <span style={{ fontWeight: 700 }}>Unit {typeof res.unitNo === 'object' ? (res.unitNo.lookup_value || res.unitNo.name) : res.unitNo}</span>
+                                                                            <span style={{ fontSize: '0.8rem', color: '#64748b' }}>{typeof res.location === 'object' ? (res.location.lookup_value || res.location.name) : res.location}</span>
                                                                         </div>
                                                                     ))}
                                                                 </div>
@@ -1726,10 +1726,10 @@ const DealIntakePage = () => {
                                                             <div>
                                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                                                                     <div style={{ fontWeight: 700, fontSize: '1rem', color: '#0f172a' }}>{match.deal.title}</div>
-                                                                    <div style={{ padding: '2px 8px', background: '#e2e8f0', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 700 }}>{match.deal.status}</div>
+                                                                    <div style={{ padding: '2px 8px', background: '#e2e8f0', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 700 }}>{typeof match.deal.status === 'object' ? (match.deal.status.lookup_value || match.deal.status.name) : match.deal.status}</div>
                                                                     <div style={{ padding: '2px 8px', background: '#FEF3C7', color: '#B45309', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 700 }}>{match.deal.price}</div>
                                                                 </div>
-                                                                <div style={{ color: '#64748b', fontSize: '0.9rem' }}>{match.deal.location} | {match.deal.type}</div>
+                                                                <div style={{ color: '#64748b', fontSize: '0.9rem' }}>{typeof match.deal.location === 'object' ? (match.deal.location.lookup_value || match.deal.location.name) : match.deal.location} | {typeof match.deal.type === 'object' ? (match.deal.type.lookup_value || match.deal.type.name) : match.deal.type}</div>
                                                             </div>
                                                             <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                                                                 <div style={{ textAlign: 'right' }}>

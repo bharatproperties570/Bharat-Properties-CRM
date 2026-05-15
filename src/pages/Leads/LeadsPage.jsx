@@ -1300,7 +1300,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                                 <img src={item.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                             </div>
                                             <div style={{ flex: 1, minWidth: 0 }}>
-                                                <div style={{ fontWeight: 800, fontSize: '0.75rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.propertyType || item.type} at {item.location}</div>
+                                                <div style={{ fontWeight: 800, fontSize: '0.75rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{typeof (item.propertyType || item.type) === 'object' ? ((item.propertyType || item.type).lookup_value || (item.propertyType || item.type).name) : (item.propertyType || item.type)} at {typeof item.location === 'object' ? (item.location.lookup_value || item.location.name) : item.location}</div>
                                                 <div style={{ fontSize: '0.65rem', color: '#64748b' }}>₹{renderValue(item.price)} • {renderValue(item.size)}</div>
                                             </div>
                                             <div style={{ background: item.matchPercentage > 80 ? '#dcfce7' : '#fef3c7', color: item.matchPercentage > 80 ? '#166534' : '#92400e', padding: '2px 6px', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 900, flexShrink: 0 }}>

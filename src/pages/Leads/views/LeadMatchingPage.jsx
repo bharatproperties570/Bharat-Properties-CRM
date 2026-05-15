@@ -329,7 +329,8 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                 for (let i = 0; i < qualifying.length; i++) {
                     const deal = qualifying[i];
                     const phone = lead.mobile || lead.phone || '';
-                    const msg = `Hi ${lead.firstName || lead.name}, I found a match: ${deal.projectName || deal.location}. Interested?`;
+                    const locationString = typeof deal.location === 'object' ? (deal.location.lookup_value || deal.location.name) : deal.location;
+                    const msg = `Hi ${lead.firstName || lead.name}, I found a match: ${deal.projectName || locationString}. Interested?`;
                     if (phone) window.open(`https://wa.me/91${phone.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
                     if (i < qualifying.length - 1) await new Promise(r => setTimeout(r, 600));
                 }
