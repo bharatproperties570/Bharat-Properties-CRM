@@ -57,6 +57,7 @@ import dynamicFormRoutes from "./routes/dynamicForm.routes.js";
 import companyGroupRoutes from "./routes/companyGroup.routes.js";
 import portfolioRoutes from "./routes/portfolio.routes.js";
 import discoveryRoutes from "./src/modules/discovery/discovery.routes.js";
+import intakeWebhookRoutes from "./src/modules/webhooks/whatsapp.routes.js";
 
 const app = express();
 
@@ -177,7 +178,7 @@ app.use("/api/notification-settings", notificationSettingRoutes);
 app.use("/api/public", publicRoutes);
 app.use("/api/settings/google", googleSettingsRoutes);
 app.use("/api/webhooks", webhookRoutes);   // Marketing automation webhooks
-// app.use("/api/marketing", marketingRoutes); // Moved up
+app.use("/api/intake-webhooks", intakeWebhookRoutes); // AI Auto-Verification webhooks
 app.use("/api/settings/ai", integrationSettingsRoutes);
 app.use("/api/settings/ai-agents", aiAgentRoutes);
 app.use("/api/conversations", conversationRoutes);

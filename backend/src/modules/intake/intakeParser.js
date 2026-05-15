@@ -120,7 +120,7 @@ export const parseContent = async (text) => {
     const contactRegex = /(?:\+91|91|0)?[6-9]\d{9}/g;
     const phones = [...new Set(text.match(contactRegex) || [])].map(p => p.slice(-10));
 
-    return {
+    let parsedResult = {
         intent,
         category: propertyCategory,
         type: propertyType,
@@ -138,4 +138,30 @@ export const parseContent = async (text) => {
         allContacts: phones.map(p => ({ mobile: p, name: 'Unknown' })), // Aligned with frontend
         raw: text.substring(0, 500) // Keep snippet
     };
+
+    // 7. Confidence Check & LLM Fallback
+    const isMissingCoreFields = !parsedResult.specs.price || !parsedResult.location || parsedResult.location === 'Unspecified';
+    if (isMissingCoreFields && text.length < 2000) { // Only send reasonable sized texts
+        try {
+            // Lazy import to avoid circular deps or heavy init
+            const { default: llmService } = await import('../../../services/ai/LLMService.js');
+            const llmResult = await llmService.extractPropertyData(text);
+            
+            if (llmResult) {
+                console.log(`[IntakeParser] LLM Fallback Successful for missing fields`);
+                // Merge LLM results over regex if missing
+                if (!parsedResult.specs.price && llmResult.price) parsedResult.specs.price = llmResult.price;
+                if (!parsedResult.specs.size && llmResult.size) parsedResult.specs.size = llmResult.size;
+                if (parsedResult.location === 'Unspecified' && llmResult.location) parsedResult.location = llmResult.location;
+                if (parsedResult.type === 'Unknown' && llmResult.property_type) parsedResult.type = llmResult.property_type;
+                if (llmResult.intent && ['BUYER', 'SELLER', 'TENANT', 'LANDLORD'].includes(llmResult.intent)) {
+                    parsedResult.intent = llmResult.intent;
+                }
+            }
+        } catch (e) {
+            console.error(`[IntakeParser] LLM Fallback Failed:`, e.message);
+        }
+    }
+
+    return parsedResult;
 };
