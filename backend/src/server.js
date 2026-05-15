@@ -19,6 +19,7 @@ import "./workers/enrichmentWorker.js";
 import "./workers/cronWorker.js";
 import "./workers/googleSyncWorker.js";
 import "./workers/marketingWorker.js"; 
+import "../services/intakeQueue/IntakeQueue.js"; // Unified Intake Queue Worker
 import NurtureBot from "../services/NurtureBot.js";
 import { ensureRedisRunning } from "./utils/redisLauncher.js";
 

@@ -18,6 +18,7 @@
     "clsx": "^2.1.0",
     "dompurify": "^3.3.3",
     "expo": "^55.0.0",
+    "googleapis": "^171.4.0",
     "jspdf": "^4.2.0",
     "jspdf-autotable": "^5.0.7",
     "jszip": "^3.10.1",

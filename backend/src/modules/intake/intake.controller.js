@@ -4,13 +4,14 @@ import JSZip from 'jszip';
 import pdf from 'pdf-parse';
 import path from 'path';
 import { parseContent } from './intakeParser.js';
+import Intake from '../../../models/Intake.js';
+import { addToIntakeQueue } from '../../services/intakeQueue/IntakeQueue.js';
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
 }
-import Intake from '../../../models/Intake.js';
 
 /**
  * Get all intake records
@@ -59,25 +60,20 @@ export const updateIntakeStatus = async (req, res) => {
 };
 
 /**
- * Create a manual intake record
+ * Create a manual intake record using the Unified Queue
  */
 export const createIntake = async (req, res) => {
     try {
         const { source, content, campaignName } = req.body;
-        const parsed = await parseContent(content);
+        
+        // Directly push to the new Queue architecture
+        const result = await addToIntakeQueue('manual', { text: content, source, campaignName }, req.user?.id);
+        
+        if (!result.success) {
+            return res.status(409).json({ success: false, message: result.message, data: { _id: result.intakeId } });
+        }
 
-        const intake = await Intake.create({
-            source: source || 'Manual',
-            content,
-            campaignName,
-            category: 'new',
-            status: 'Raw Received',
-            receivedAt: new Date(),
-            meta: {
-                parsedData: parsed
-            }
-        });
-        res.status(201).json({ success: true, data: intake });
+        res.status(201).json({ success: true, message: 'Intake queued successfully', data: { _id: result.intakeId } });
     } catch (error) {
         console.error("[Intake:Create Error]:", error);
         res.status(500).json({ success: false, message: error.message });
@@ -156,7 +152,7 @@ export const processOCR = async (req, res) => {
 };
 
 /**
- * Process a ZIP file for text/CSV content
+ * Process a ZIP file for text/CSV content using Unified Queue
  */
 export const processZIP = async (req, res) => {
     try {
@@ -164,72 +160,29 @@ export const processZIP = async (req, res) => {
             return res.status(400).json({ success: false, message: "No ZIP file uploaded" });
         }
 
-        console.log(`[Intake:ZIP] Processing ZIP: ${req.file.filename}`);
-        const data = fs.readFileSync(req.file.path);
-        const zip = new JSZip();
-        const contents = await zip.loadAsync(data);
+        const result = await addToIntakeQueue('zip', {
+            filePath: req.file.path,
+            originalName: req.file.originalname,
+            mimeType: req.file.mimetype
+        }, req.user?.id);
 
-        const extractedTexts = [];
-
-        for (const filename of Object.keys(contents.files)) {
-            const file = contents.files[filename];
-
-            if (file.dir || filename.startsWith('__MACOSX') || filename.split('/').pop().startsWith('.')) {
-                continue;
-            }
-
-            const lowerName = filename.toLowerCase();
-            if (lowerName.endsWith('.txt') || lowerName.endsWith('.csv')) {
-                const text = await file.async('string');
-                extractedTexts.push({
-                    filename,
-                    content: text,
-                    size: text.length,
-                    type: lowerName.endsWith('.csv') ? 'CSV' : 'TEXT'
-                });
-            }
-        }
-
-        // Create Intake Records for each significant file or one consolidated?
-        // Let's consolidate for now to keep the UI clean, or create multiple if requested.
-        // Consolidation is safer for "Importing WhatsApp Zip".
-        const consolidatedContent = extractedTexts.map(t => `--- File: ${t.filename} ---\n${t.content}`).join('\n\n');
-
-        const parsedItems = await Promise.all(extractedTexts.map(t => parseContent(t.content)));
-
-        const intake = await Intake.create({
-            source: 'WhatsApp',
-            content: consolidatedContent,
-            category: 'new',
-            status: 'Raw Received',
-            receivedAt: new Date(),
-            meta: {
-                fileName: req.file.originalname,
-                mimeType: req.file.mimetype,
-                parsedData: parsedItems // Full parsed data for each file
-            }
-        });
-
-        // Cleanup
-        if (fs.existsSync(req.file.path)) {
-            fs.unlinkSync(req.file.path);
+        if (!result.success) {
+            return res.status(409).json({ success: false, message: result.message, data: { _id: result.intakeId } });
         }
 
         res.status(200).json({
             success: true,
-            data: intake
+            message: 'ZIP queued for processing',
+            data: { _id: result.intakeId }
         });
     } catch (error) {
         console.error("[Intake:ZIP Error]:", error);
-        if (req.file && fs.existsSync(req.file.path)) {
-            fs.unlinkSync(req.file.path);
-        }
         res.status(500).json({ success: false, message: error.message });
     }
 };
 
 /**
- * Process a PDF file
+ * Process a PDF file using Unified Queue
  */
 export const processPDF = async (req, res) => {
     try {
@@ -237,67 +190,23 @@ export const processPDF = async (req, res) => {
             return res.status(400).json({ success: false, message: "No PDF file uploaded" });
         }
 
-        console.log(`[Intake:PDF] Processing PDF: ${req.file.filename}`);
-        const dataBuffer = fs.readFileSync(req.file.path);
+        const result = await addToIntakeQueue('pdf', {
+            filePath: req.file.path,
+            originalName: req.file.originalname,
+            mimeType: req.file.mimetype
+        }, req.user?.id);
 
-        const data = await pdf(req.file.path);
-        const extractedText = data.text;
-        const metadata = data.info || {};
-        
-        // Combine text with useful metadata (Title, Author, Subject, Keywords) for better parsing
-        const metadataText = [
-            metadata.Title,
-            metadata.Author,
-            metadata.Subject,
-            metadata.Keywords
-        ].filter(Boolean).join(' ');
-
-        // Determine final content and if it's likely a scan
-        let finalContent = extractedText;
-        let isScanLikely = false;
-
-        // If extracted text is very short and metadata is also sparse, it's likely a scan or image-only PDF
-        if (extractedText.trim().length < 50 && metadataText.trim().length < 10) {
-            isScanLikely = true;
-            finalContent = `[SYSTEM NOTE: This PDF appears to be a scan or image-only file. Automatic text extraction was limited. Please use the 'Camera' intake for OCR processing if needed.]\n\n` + extractedText;
-        } else if (metadataText.trim().length > 0) {
-            // Prepend metadata if available and not a likely scan
-            finalContent = `${metadataText}\n\n${extractedText}`;
-        }
-
-
-        const parsed = await parseContent(finalContent);
-
-        const intake = await Intake.create({
-            source: 'Tribune',
-            content: finalContent,
-            category: 'new',
-            status: isScanLikely ? 'Needs Review' : 'Raw Received',
-            receivedAt: new Date(),
-            meta: {
-                fileName: req.file.originalname,
-                mimeType: req.file.mimetype,
-                info: data.info,
-                pages: data.numpages,
-                parsedData: parsed,
-                wasScanSynced: isScanLikely
-            }
-        });
-
-        // Cleanup
-        if (fs.existsSync(req.file.path)) {
-            fs.unlinkSync(req.file.path);
+        if (!result.success) {
+            return res.status(409).json({ success: false, message: result.message, data: { _id: result.intakeId } });
         }
 
         res.status(200).json({
             success: true,
-            data: intake
+            message: 'PDF queued for processing',
+            data: { _id: result.intakeId }
         });
     } catch (error) {
         console.error("[Intake:PDF Error]:", error);
-        if (req.file && fs.existsSync(req.file.path)) {
-            fs.unlinkSync(req.file.path);
-        }
         res.status(500).json({ success: false, message: error.message });
     }
 };
