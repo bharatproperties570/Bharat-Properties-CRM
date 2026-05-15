@@ -976,10 +976,15 @@ const DealIntakePage = () => {
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
                                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                                         <span style={{ fontSize: '0.7rem', fontWeight: 800, color: item.source === 'WhatsApp' ? '#22c55e' : '#f59e0b', background: item.source === 'WhatsApp' ? '#dcfce7' : '#fef3c7', padding: '2px 8px', borderRadius: '4px' }}>{item.source}</span>
-                                        {item.status === 'Needs Review' && (
-                                            <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#ef4444', background: '#fee2e2', padding: '2px 8px', borderRadius: '4px', border: '1px solid #fecaca' }}>
+                                        {(item.status === 'Needs Review' || item.verification_status === 'needs_review' || item.verification_status === 'suspicious') && (
+                                            <span style={{ 
+                                                fontSize: '0.65rem', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', 
+                                                color: item.verification_status === 'suspicious' ? '#b91c1c' : '#ef4444', 
+                                                background: item.verification_status === 'suspicious' ? '#fef2f2' : '#fee2e2', 
+                                                border: item.verification_status === 'suspicious' ? '1px solid #fca5a5' : '1px solid #fecaca' 
+                                            }}>
                                                 <i className="fas fa-exclamation-circle" style={{ marginRight: '4px' }}></i>
-                                                NEEDS REVIEW
+                                                {item.verification_status === 'suspicious' ? 'SUSPICIOUS' : 'NEEDS REVIEW'}
                                             </span>
                                         )}
                                         {(item.category || 'new') && (item.category || 'new') !== 'new' && (
@@ -1166,6 +1171,86 @@ const DealIntakePage = () => {
                                     <button style={{ padding: '6px 12px', background: '#fff', border: '1px solid #fed7aa', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700, color: '#c2410c', cursor: 'pointer' }}>
                                         View Existing
                                     </button>
+                                </div>
+                            )}
+
+                            {/* AI Verification Layer Panel */}
+                            {(currentItem?.verification_status || currentItem?.confidence_score) && (
+                                <div style={{ 
+                                    marginBottom: '16px', background: '#f8fafc', border: '1px solid #cbd5e1', 
+                                    borderRadius: '8px', overflow: 'hidden' 
+                                }}>
+                                    <div style={{ 
+                                        padding: '12px 16px', display: 'flex', justifyContent: 'space-between', 
+                                        alignItems: 'center', borderBottom: '1px solid #e2e8f0', background: '#fff' 
+                                    }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <i className="fas fa-robot" style={{ color: '#6366f1' }}></i>
+                                            <span style={{ fontWeight: 800, fontSize: '0.9rem', color: '#1e293b' }}>AI Verification Layer</span>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                            {/* Confidence Score Badge */}
+                                            {currentItem.confidence_score !== undefined && (
+                                                <span style={{
+                                                    fontSize: '0.75rem', fontWeight: 700, padding: '4px 10px', borderRadius: '12px',
+                                                    background: currentItem.confidence_score >= 80 ? '#dcfce7' : currentItem.confidence_score >= 50 ? '#fef3c7' : '#fee2e2',
+                                                    color: currentItem.confidence_score >= 80 ? '#16a34a' : currentItem.confidence_score >= 50 ? '#d97706' : '#dc2626',
+                                                    border: '1px solid currentColor'
+                                                }}>
+                                                    Confidence: {currentItem.confidence_score}%
+                                                </span>
+                                            )}
+                                            {/* Verification Status Badge */}
+                                            {currentItem.verification_status && (
+                                                <span style={{
+                                                    fontSize: '0.75rem', fontWeight: 700, padding: '4px 10px', borderRadius: '12px',
+                                                    background: currentItem.verification_status === 'verified' ? '#d1fae5' : currentItem.verification_status === 'suspicious' ? '#fee2e2' : '#f1f5f9',
+                                                    color: currentItem.verification_status === 'verified' ? '#059669' : currentItem.verification_status === 'suspicious' ? '#b91c1c' : '#475569',
+                                                    border: '1px solid currentColor'
+                                                }}>
+                                                    {currentItem.verification_status.toUpperCase().replace('_', ' ')}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                    
+                                    <div style={{ padding: '16px', display: 'flex', gap: '20px' }}>
+                                        {/* Risk Flags */}
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ fontSize: '0.7rem', fontWeight: 800, color: '#64748b', marginBottom: '8px' }}>RISK FLAGS</div>
+                                            {(!currentItem.risk_flags || currentItem.risk_flags.length === 0) ? (
+                                                <div style={{ fontSize: '0.85rem', color: '#10b981', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                    <i className="fas fa-check-circle"></i> No risks detected
+                                                </div>
+                                            ) : (
+                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                                    {currentItem.risk_flags.map((flag, i) => (
+                                                        <span key={i} style={{
+                                                            fontSize: '0.75rem', fontWeight: 600, padding: '4px 8px', borderRadius: '4px',
+                                                            background: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5', display: 'flex', alignItems: 'center', gap: '4px'
+                                                        }}>
+                                                            <i className="fas fa-exclamation-triangle" style={{ fontSize: '0.65rem' }}></i>
+                                                            {flag.toUpperCase().replace(/_/g, ' ')}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                        
+                                        {/* AI Notes */}
+                                        <div style={{ flex: 2, borderLeft: '1px solid #e2e8f0', paddingLeft: '20px' }}>
+                                            <div style={{ fontSize: '0.7rem', fontWeight: 800, color: '#64748b', marginBottom: '8px' }}>AI ANALYSIS NOTES</div>
+                                            {(!currentItem.verification_notes || currentItem.verification_notes.length === 0) ? (
+                                                <div style={{ fontSize: '0.85rem', color: '#94a3b8' }}>No notes available.</div>
+                                            ) : (
+                                                <ul style={{ margin: 0, paddingLeft: '16px', fontSize: '0.85rem', color: '#475569' }}>
+                                                    {currentItem.verification_notes.map((note, i) => (
+                                                        <li key={i} style={{ marginBottom: '4px' }}>{note}</li>
+                                                    ))}
+                                                </ul>
+                                            )}
+                                        </div>
+                                    </div>
                                 </div>
                             )}
 

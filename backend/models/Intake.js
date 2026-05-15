@@ -52,7 +52,12 @@ const intakeSchema = new mongoose.Schema({
     contact_numbers: [{ type: String }],
     seller_intent: { type: String, enum: ['sell', 'rent', 'lease', 'unknown'], default: 'unknown' },
     extracted_entities: { type: mongoose.Schema.Types.Mixed },
-    verification_status: { type: String, enum: ['unverified', 'pending', 'verified', 'rejected'], default: 'unverified' },
+    
+    // AI Verification Layer
+    verification_status: { type: String, enum: ['unverified', 'pending', 'verified', 'needs_review', 'suspicious', 'rejected'], default: 'unverified' },
+    confidence_score: { type: Number, min: 0, max: 100, default: 0 },
+    verification_notes: [{ type: String }],
+    risk_flags: [{ type: String }],
 
     // Legacy fields
     content: { type: String },

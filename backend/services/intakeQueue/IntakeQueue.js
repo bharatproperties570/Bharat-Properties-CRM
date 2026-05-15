@@ -1,6 +1,7 @@
 import { Queue, Worker } from 'bullmq';
 import Intake from '../../models/Intake.js';
 import connectorRegistry from '../intakeConnectors/ConnectorRegistry.js';
+import aiVerificationEngine from '../intakeVerification/AIVerificationEngine.js';
 
 const connection = {
     host: process.env.REDIS_HOST || 'localhost',
@@ -63,14 +64,20 @@ const intakeWorker = new Worker('UnifiedIntakeQueue', async job => {
         // 3. Process the data (extract, normalize, validate)
         const normalizedData = await connector.process(rawData);
 
-        // 4. Update the DB record with output schema
+        // 4. Temporarily assign normalized data for Verification Engine to use
         Object.assign(intake, normalizedData);
-        intake.status = 'Processed';
+
+        // 5. Run AI Verification Layer
+        const verificationResult = await aiVerificationEngine.verify(intake);
+        Object.assign(intake, verificationResult);
+
+        // 6. Finalize Status
+        intake.status = 'Processed'; // Overriding base processing status, but preserving verification_status
         intake.createdBy = userId;
         
         await intake.save();
         
-        console.log(`[UnifiedIntake] Successfully processed intake: ${intakeId}`);
+        console.log(`[UnifiedIntake] Successfully processed and verified intake: ${intakeId}`);
     } catch (error) {
         console.error(`[UnifiedIntake] Error processing intake: ${intakeId}`, error);
         
