@@ -66,6 +66,17 @@ const intakeSchema = new mongoose.Schema({
         merge_suggestions: [{ type: String }]
     },
 
+    // AI Assistant Layer
+    ai_assistant: {
+        summary: { type: String },
+        seller_intent: { type: String },
+        next_action: { type: String },
+        whatsapp_response: { type: String },
+        is_hot_deal: { type: Boolean, default: false },
+        urgency: { type: String, enum: ['High', 'Medium', 'Low', 'Unknown'], default: 'Unknown' },
+        verification_actions: [{ type: String }]
+    },
+
     // Legacy fields
     content: { type: String },
     receivedAt: { type: Date, default: Date.now },

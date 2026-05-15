@@ -2,6 +2,7 @@ import { Queue, Worker } from 'bullmq';
 import Intake from '../../models/Intake.js';
 import connectorRegistry from '../intakeConnectors/ConnectorRegistry.js';
 import aiVerificationEngine from '../intakeVerification/AIVerificationEngine.js';
+import intakeAIAssistantEngine from '../intakeVerification/IntakeAIAssistantEngine.js';
 
 const connection = {
     host: process.env.REDIS_HOST || 'localhost',
@@ -71,7 +72,11 @@ const intakeWorker = new Worker('UnifiedIntakeQueue', async job => {
         const verificationResult = await aiVerificationEngine.verify(intake);
         Object.assign(intake, verificationResult);
 
-        // 6. Finalize Status
+        // 6. Run AI Assistant Layer
+        const aiAssistantResult = intakeAIAssistantEngine.analyze(intake);
+        intake.ai_assistant = aiAssistantResult;
+
+        // 7. Finalize Status
         intake.status = 'Processed'; // Overriding base processing status, but preserving verification_status
         intake.createdBy = userId;
         

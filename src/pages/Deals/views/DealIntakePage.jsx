@@ -1303,6 +1303,63 @@ const DealIntakePage = () => {
                                         </div>
                                     )}
 
+                                    {/* Intake AI Assistant Panel */}
+                                    {currentItem.ai_assistant && (
+                                        <div style={{ padding: '16px', borderTop: '1px solid #e2e8f0', background: '#f8fafc' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                                                <i className="fas fa-magic" style={{ color: '#8b5cf6' }}></i>
+                                                <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#6d28d9', textTransform: 'uppercase' }}>
+                                                    Intake AI Assistant
+                                                </div>
+                                                {currentItem.ai_assistant.is_hot_deal && (
+                                                    <span style={{ background: '#fef08a', color: '#a16207', fontSize: '0.65rem', fontWeight: 800, padding: '2px 8px', borderRadius: '12px', marginLeft: 'auto' }}>
+                                                        <i className="fas fa-fire"></i> HOT DEAL
+                                                    </span>
+                                                )}
+                                            </div>
+                                            
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                                                <div style={{ background: '#fff', border: '1px solid #e2e8f0', padding: '10px', borderRadius: '6px' }}>
+                                                    <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#94a3b8', marginBottom: '4px' }}>SUMMARY</div>
+                                                    <div style={{ fontSize: '0.85rem', color: '#334155', fontWeight: 600 }}>{currentItem.ai_assistant.summary}</div>
+                                                </div>
+                                                <div style={{ background: '#fff', border: '1px solid #e2e8f0', padding: '10px', borderRadius: '6px' }}>
+                                                    <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#94a3b8', marginBottom: '4px' }}>SELLER INTENT</div>
+                                                    <div style={{ fontSize: '0.85rem', color: '#334155', fontWeight: 600 }}>{currentItem.ai_assistant.seller_intent}</div>
+                                                </div>
+                                                <div style={{ background: '#fff', border: '1px solid #e2e8f0', padding: '10px', borderRadius: '6px' }}>
+                                                    <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#94a3b8', marginBottom: '4px' }}>RECOMMENDED ACTION</div>
+                                                    <div style={{ fontSize: '0.85rem', color: '#059669', fontWeight: 700 }}>{currentItem.ai_assistant.next_action}</div>
+                                                </div>
+                                                <div style={{ background: '#fff', border: '1px solid #e2e8f0', padding: '10px', borderRadius: '6px' }}>
+                                                    <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#94a3b8', marginBottom: '4px' }}>URGENCY</div>
+                                                    <div style={{ fontSize: '0.85rem', color: currentItem.ai_assistant.urgency === 'High' ? '#dc2626' : currentItem.ai_assistant.urgency === 'Medium' ? '#d97706' : '#334155', fontWeight: 600 }}>{currentItem.ai_assistant.urgency}</div>
+                                                </div>
+                                            </div>
+
+                                            {currentItem.ai_assistant.whatsapp_response && (
+                                                <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '12px', borderRadius: '6px', marginBottom: '12px' }}>
+                                                    <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#166534', marginBottom: '4px', display: 'flex', justifyContent: 'space-between' }}>
+                                                        <span><i className="fab fa-whatsapp"></i> SUGGESTED WHATSAPP RESPONSE</span>
+                                                        <span onClick={() => { navigator.clipboard.writeText(currentItem.ai_assistant.whatsapp_response); toast.success('Copied!'); }} style={{ cursor: 'pointer', textDecoration: 'underline' }}>Copy</span>
+                                                    </div>
+                                                    <div style={{ fontSize: '0.85rem', color: '#14532d', fontStyle: 'italic' }}>"{currentItem.ai_assistant.whatsapp_response}"</div>
+                                                </div>
+                                            )}
+
+                                            {currentItem.ai_assistant.verification_actions && currentItem.ai_assistant.verification_actions.length > 0 && (
+                                                <div style={{ background: '#fff', border: '1px solid #e2e8f0', padding: '10px', borderRadius: '6px' }}>
+                                                    <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#94a3b8', marginBottom: '4px' }}>VERIFICATION ACTIONS</div>
+                                                    <ul style={{ margin: 0, paddingLeft: '16px', fontSize: '0.8rem', color: '#475569' }}>
+                                                        {currentItem.ai_assistant.verification_actions.map((action, idx) => (
+                                                            <li key={idx}>{action}</li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+
                                 </div>
                             )}
 
