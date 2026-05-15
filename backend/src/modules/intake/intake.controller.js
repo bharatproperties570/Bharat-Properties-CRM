@@ -210,3 +210,40 @@ export const processPDF = async (req, res) => {
         res.status(500).json({ success: false, message: error.message });
     }
 };
+
+/**
+ * Process a Public URL (Property Listing, Builder Page, etc.)
+ */
+export const processURL = async (req, res) => {
+    try {
+        const { url, source_type = 'public_url' } = req.body;
+
+        if (!url) {
+            return res.status(400).json({ success: false, message: "URL is required" });
+        }
+
+        // Basic URL validation
+        try {
+            new URL(url);
+        } catch (e) {
+            return res.status(400).json({ success: false, message: "Invalid URL format" });
+        }
+
+        const result = await addToIntakeQueue(source_type, {
+            url: url
+        }, req.user?.id);
+
+        if (!result.success) {
+            return res.status(409).json({ success: false, message: result.message, data: { _id: result.intakeId } });
+        }
+
+        res.status(200).json({
+            success: true,
+            message: 'URL queued for processing',
+            data: { _id: result.intakeId }
+        });
+    } catch (error) {
+        console.error("[Intake:URL Error]:", error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};

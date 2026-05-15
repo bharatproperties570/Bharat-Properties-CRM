@@ -531,6 +531,7 @@ export const intakeAPI = {
         formData.append('image', file);
         return apiRequest('/intake/ocr', { method: 'POST', body: formData });
     },
+    processURL: (url) => apiRequest('/intake/url', { method: 'POST', body: JSON.stringify({ url }) }),
 };
 
 // Auth API

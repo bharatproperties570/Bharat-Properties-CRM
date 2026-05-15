@@ -1,6 +1,6 @@
 import express from 'express';
 import { uploadImageOnly, uploadZipOnly, uploadPdfOnly } from '../../middlewares/upload.middleware.js';
-import { processOCR, processZIP, processPDF, getIntakes, getIntakeById, updateIntakeStatus, createIntake, deleteIntake } from './intake.controller.js';
+import { processOCR, processZIP, processPDF, processURL, getIntakes, getIntakeById, updateIntakeStatus, createIntake, deleteIntake } from './intake.controller.js';
 import { authenticate } from "../../../src/middlewares/auth.middleware.js";
 
 const router = express.Router();
@@ -50,5 +50,11 @@ router.post('/zip', uploadZipOnly.single('file'), processZIP);
  * @desc    Process a PDF file
  */
 router.post('/pdf', uploadPdfOnly.single('file'), processPDF);
+
+/**
+ * @route   POST /api/intake/url
+ * @desc    Process a Public URL
+ */
+router.post('/url', processURL);
 
 export default router;

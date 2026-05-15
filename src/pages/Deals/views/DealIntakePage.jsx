@@ -422,7 +422,36 @@ const DealIntakePage = () => {
         }
     };
 
+    const handleURLImport = async () => {
+        if (!newSourceContent.trim()) {
+            toast.error('Please enter a valid URL');
+            return;
+        }
 
+        try {
+            new URL(newSourceContent);
+        } catch {
+            toast.error('Invalid URL format');
+            return;
+        }
+
+        const toastId = toast.loading('Fetching URL via backend queue...');
+        try {
+            const response = await intakeAPI.processURL(newSourceContent);
+            
+            if (response.success) {
+                toast.success('URL queued for processing!', { id: toastId });
+                setNewSourceContent('');
+                setCampaignName('');
+                setCampaignSource('Website');
+                setIsAddModalOpen(false);
+                loadIntakeHistory(); // Refresh queue view
+            }
+        } catch (error) {
+            console.error(error);
+            toast.error(error.message || 'Failed to fetch URL', { id: toastId });
+        }
+    };
 
     // Process selected file when Add Intake button is clicked
     const handleFileImport = async () => {
@@ -1940,7 +1969,26 @@ const DealIntakePage = () => {
                                             gap: '6px'
                                         }}
                                     >
-                                        <i className="fas fa-file-import"></i> Import File
+                                        <i className="fas fa-file-import"></i> File
+                                    </button>
+                                    <button
+                                        onClick={() => setContentInputMode('url')}
+                                        style={{
+                                            flex: 1,
+                                            padding: '10px',
+                                            borderRadius: '6px',
+                                            border: contentInputMode === 'url' ? '2px solid #8b5cf6' : '1px solid #e2e8f0',
+                                            background: contentInputMode === 'url' ? '#f5f3ff' : '#fff',
+                                            fontWeight: 600,
+                                            color: contentInputMode === 'url' ? '#6d28d9' : '#64748b',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: '6px'
+                                        }}
+                                    >
+                                        <i className="fas fa-link"></i> Public URL
                                     </button>
                                 </div>
 
@@ -1957,6 +2005,23 @@ const DealIntakePage = () => {
                                             <strong>Tip:</strong> Use keywords like "Need", "Buy" for Buyer Detection.
                                         </div>
                                     </>
+                                ) : contentInputMode === 'url' ? (
+                                    <div style={{ padding: '20px', background: '#f5f3ff', borderRadius: '12px', border: '1px solid #ddd6fe' }}>
+                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#4c1d95', marginBottom: '8px' }}>
+                                            <i className="fas fa-globe" style={{ marginRight: '6px' }}></i>
+                                            Public Webpage URL
+                                        </label>
+                                        <input
+                                            type="url"
+                                            value={newSourceContent}
+                                            onChange={e => setNewSourceContent(e.target.value)}
+                                            placeholder="https://www.example.com/property-listing"
+                                            style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #c4b5fd', fontSize: '0.9rem' }}
+                                        />
+                                        <p style={{ fontSize: '0.75rem', color: '#6d28d9', marginTop: '10px', lineHeight: '1.4' }}>
+                                            The system will fetch the HTML, clean it, and run AI extraction to build the intake record automatically.
+                                        </p>
+                                    </div>
                                 ) : (
                                     <div style={{ padding: '30px', border: '2px dashed #cbd5e1', borderRadius: '12px', textAlign: 'center', background: '#f8fafc' }}>
                                         <div style={{ display: 'flex', justifyContent: 'center', gap: '24px', marginBottom: '20px' }}>
@@ -2020,10 +2085,11 @@ const DealIntakePage = () => {
                                     Cancel
                                 </button>
                                 <button
-                                    onClick={contentInputMode === 'paste' ? handleAddIntake : handleFileImport}
+                                    onClick={contentInputMode === 'paste' ? handleAddIntake : contentInputMode === 'url' ? handleURLImport : handleFileImport}
                                     style={{ padding: '10px 20px', borderRadius: '6px', border: 'none', background: '#3b82f6', color: '#fff', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
                                 >
-                                    <i className={contentInputMode === 'paste' ? 'fas fa-plus' : 'fas fa-file-import'}></i> Add Intake
+                                    <i className={contentInputMode === 'paste' ? 'fas fa-plus' : contentInputMode === 'url' ? 'fas fa-cloud-download-alt' : 'fas fa-file-import'}></i> 
+                                    {contentInputMode === 'paste' ? 'Add Intake' : contentInputMode === 'url' ? 'Fetch URL' : 'Import File'}
                                 </button>
                             </div>
                         </div>
