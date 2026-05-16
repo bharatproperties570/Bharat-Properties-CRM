@@ -33,25 +33,22 @@ export const handleWhatsAppReply = async (req, res) => {
                 if (recentIntake) {
                     console.log(`[AutoVerify] Received WhatsApp reply for Intake ${recentIntake._id}`);
                     
-                    // 2. Use LLM or Heuristics to parse the reply and extract missing fields
-                    // (Simulated LLM Parsing here)
-                    const normalizedReply = textContent.toLowerCase();
+                    // 2. Use LLM to parse the reply and extract missing fields
+                    const { default: llmService } = await import('../../../services/ai/LLMService.js');
+                    const llmResult = await llmService.extractPropertyData(textContent);
                     let updated = false;
 
-                    // If price was missing, check if reply contains price
-                    if (!recentIntake.price && (normalizedReply.includes('cr') || normalizedReply.includes('lac') || normalizedReply.includes('lakh'))) {
-                        const priceMatch = normalizedReply.match(/(\d+(\.\d+)?)\s?(cr|crore|lac|lakh)/i);
-                        if (priceMatch) {
-                            recentIntake.price = priceMatch[0];
+                    if (llmResult) {
+                        if (!recentIntake.price && llmResult.price) {
+                            recentIntake.price = llmResult.price;
                             updated = true;
                         }
-                    }
-
-                    // If size was missing
-                    if (!recentIntake.size && (normalizedReply.includes('sqyd') || normalizedReply.includes('sqft') || normalizedReply.includes('gaz'))) {
-                        const sizeMatch = normalizedReply.match(/(\d+(\.\d+)?)\s?(sqyd|sqft|gaz|kanal|marla)/i);
-                        if (sizeMatch) {
-                            recentIntake.size = sizeMatch[0];
+                        if (!recentIntake.size && llmResult.size) {
+                            recentIntake.size = llmResult.size;
+                            updated = true;
+                        }
+                        if (!recentIntake.location && llmResult.location) {
+                            recentIntake.location = llmResult.location;
                             updated = true;
                         }
                     }

@@ -24,11 +24,19 @@ export const generateBotResponse = async (message, context = {}, options = {}) =
     try {
         const targetUseCase = options.useCase || 'whatsapp_live';
         // Find the active AI Agent designated for the target use case
-        const agent = await AiAgent.findOne({ useCases: targetUseCase, isActive: true });
+        let agent = await AiAgent.findOne({ useCases: targetUseCase, isActive: true });
         
         if (!agent) {
-            console.warn(`No active AI Agent found for '${targetUseCase}' use case.`);
-            return { success: false, error: 'AI Agent Off' };
+            console.warn(`No active AI Agent found for '${targetUseCase}' in DB. Using Default Enterprise Fallback Agent.`);
+            // Fallback Enterprise Configuration
+            agent = {
+                provider: 'openai',
+                modelName: 'gpt-4o-mini',
+                systemPrompt: `You are Bharat Properties AI Assistant, a highly professional real estate expert. 
+Your goal is to assist clients with property inquiries, capture missing details, and provide matching inventory.
+Be concise, polite, and never reveal sensitive backend IDs.`,
+                memoryAccess: ['communications', 'deals', 'inventory']
+            };
         }
 
         // Use the agent's system prompt for persona, and the user message + context for the request
