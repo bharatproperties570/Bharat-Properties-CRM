@@ -20,12 +20,14 @@ import NurtureBot from '../services/NurtureBot.js';
 import { createNotification } from './notification.controller.js';
 import mongoose from 'mongoose';
 import { generateBotResponse } from '../services/aiBot.service.js';
+import WhatsAppService from '../services/WhatsAppService.js';
 import axios from 'axios';
 import IntegrationSettings from '../models/IntegrationSettings.js';
 import { normalizePhone } from '../utils/normalization.js';
 import Contact from '../models/Contact.js';
 import SystemSetting from '../src/modules/systemSettings/system.model.js';
 import Activity from '../models/Activity.js';
+import fs from 'fs';
 
 // ── POST /api/webhooks/lead ───────────────────────────────────────────────────
 export const captureLeadWebhook = async (req, res) => {
@@ -192,11 +194,6 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
     try {
         const body = req.body;
 
-        // 🛠️ SENIOR DIAGNOSTIC: Write to a persistent file to confirm hits
-        const fs = await import('fs');
-        const diagnosticLog = `[${new Date().toISOString()}] WhatsApp Live Webhook Received: ${JSON.stringify(body)}\n`;
-        fs.appendFileSync('whatsapp_webhook_hits.log', diagnosticLog);
-
         if (body.object) {
             const entryValue = body.entry?.[0]?.changes?.[0]?.value;
             if (!entryValue) return res.sendStatus(200);
@@ -205,34 +202,12 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
             if (entryValue.statuses && entryValue.statuses[0]) {
                 const statusUpdate = entryValue.statuses[0];
                 const wamid = statusUpdate.id;
-                const status = statusUpdate.status; // 'delivered', 'read', 'failed', 'sent'
-                
-                let activityStatus = 'Sent';
-                if (status === 'delivered') activityStatus = 'Delivered';
-                if (status === 'read') activityStatus = 'Read';
-                if (status === 'failed') activityStatus = 'Failed';
+                const status = statusUpdate.status;
 
-                // Update the Activity that matches this msgId (Intelligent fallback for Campaign vs Direct Message)
-                const updatedActivity = await Activity.findOneAndUpdate(
-                    { 
-                        $or: [
-                            { 'details.msgId':     wamid },
-                            { 'details.messageId': wamid }
-                        ]
-                    },
-                    { 
-                        $set: { 
-                            status: activityStatus,
-                            'details.lastStatusUpdate': new Date(),
-                            'details.actualStatus': status // Store raw Meta status for precision
-                        } 
-                    },
-                    { new: true }
+                await Conversation.updateOne(
+                    { "messages.waId": wamid },
+                    { $set: { "messages.$.status": status } }
                 );
-
-                if (updatedActivity) {
-                    console.log(`[WhatsApp Webhook] ✅ Updated Activity ${updatedActivity._id} to ${activityStatus}`);
-                }
                 return res.sendStatus(200);
             }
 
@@ -240,17 +215,11 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
             if (entryValue.messages && entryValue.messages[0]) {
                 const messageObj = entryValue.messages[0];
                 const fromNumber = messageObj.from;
-                const msgType = messageObj.type; // 'text', 'image', 'document', 'location', 'contacts', etc.
+                const msgType = messageObj.type;
                 
                 let messageText = messageObj.text?.body || '';
                 let attachment = null;
 
-                // 🚀 Professional Debug: Log raw payload if it contains the technical placeholder
-                if (messageText.includes('[Media Attachment]')) {
-                    console.log('[WhatsApp Webhook] Technical Placeholder Detected. Raw Message Object:', JSON.stringify(messageObj, null, 2));
-                }
-
-                // 🚀 Handle Interactive Messages (Buttons / Lists)
                 if (msgType === 'button') {
                     messageText = messageObj.button?.text || messageObj.button?.payload || '';
                 } else if (msgType === 'interactive') {
@@ -262,10 +231,9 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                     }
                 }
 
-                // 🚀 Resolve Media Content
                 const waService = (await import('../services/WhatsAppService.js')).default;
                 
-                if (msgType === 'image' || msgType === 'document' || msgType === 'video' || msgType === 'audio' || msgType === 'sticker') {
+                if (['image', 'document', 'video', 'audio', 'sticker'].includes(msgType)) {
                     const mediaData = messageObj[msgType];
                     try {
                         const downloaded = await waService.downloadMedia(mediaData.id);
@@ -298,161 +266,128 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
                         type: 'contacts',
                         contacts: messageObj.contacts
                     };
-                    messageText = `👤 Contact Card: ${messageObj.contacts[0]?.name?.formatted_name || 'Shared Contact'}`;
+                    messageText = `👤 Shared ${messageObj.contacts?.length || 1} Contact(s)`;
                 }
 
                 if (!messageText && !attachment) return res.sendStatus(200);
 
                 const normalizedMobile = normalizePhone(fromNumber);
-                
-                // 🚀 Resolve Identity (Lead/Contact)
                 let lead = await Lead.findOne({ mobile: normalizedMobile });
                 let contact = await Contact.findOne({ 'phones.number': normalizedMobile });
 
-                // 🚀 Enterprise Intake Engine Integration
                 const intakeEngine = (await import('../src/utils/intakeEngine.js')).default;
                 const intakeResult = await intakeEngine.processIntake({
                     mobile: fromNumber,
-                    name: entryValue.contacts?.[0]?.profile?.name || 'WhatsApp User',
                     message: messageText,
-                    source: 'WhatsApp'
+                    source: 'whatsapp_live_bot',
+                    fromNumber: fromNumber,
+                    metadata: {
+                        wa_id: messageObj.from,
+                        profile_name: body.entry?.[0]?.changes?.[0]?.value?.contacts?.[0]?.profile?.name
+                    }
                 });
-
-                if (intakeResult.type === 'LEAD') {
-                    lead = intakeResult.data;
-                } else if (intakeResult.type === 'DEAL' || intakeResult.type === 'INVENTORY') {
-                    // Logic already handled in intakeEngine, but we capture the ref
-                    contact = await Contact.findOne({ 'phones.number': normalizedMobile });
-                }
 
                 const entityId = lead?._id || contact?._id || intakeResult.data?._id || null;
                 const entityType = lead ? 'Lead' : (contact ? 'Contact' : (intakeResult.type === 'DEAL' ? 'Deal' : (intakeResult.type === 'INVENTORY' ? 'Inventory' : 'Unknown')));
 
-                // 2. Find or Create Conversation
                 let conversation = await Conversation.findOne({ 
                     phoneNumber: normalizedMobile,
                     status: 'active' 
                 });
 
                 if (!conversation) {
-                    conversation = await Conversation.create({
-                        lead: lead?._id || null,
-                        contact: contact?._id || null,
-                        channel: 'whatsapp',
+                    conversation = new Conversation({
                         phoneNumber: normalizedMobile,
+                        entityType,
+                        entityId,
+                        source: 'WhatsApp',
                         status: 'active',
-                        messages: [],
-                        metadata: { isMatched: !!(lead || contact) }
+                        messages: []
                     });
                 }
 
-                // 3. User Message
-                conversation.messages.push({ 
-                    role: 'user', 
+                conversation.messages.push({
+                    role: 'user',
                     content: messageText,
-                    metadata: attachment ? { attachment } : null 
+                    timestamp: new Date(),
+                    waId: messageObj.id,
+                    metadata: { attachment }
                 });
                 await conversation.save();
 
-                // [NOTIFICATION] Notify Lead/Contact Owner
                 const targetUserId = lead?.assignment?.assignedTo || lead?.owner || contact?.owner || null;
                 const NotificationEngine = (await import('../services/NotificationEngine.js')).default;
                 
                 await NotificationEngine.notifyWhatsApp(
                     targetUserId,
-                    lead?.firstName || contact?.fullName || contact?.name || fromNumber,
+                    fromNumber,
                     messageText,
-                    lead ? `/leads/${lead._id}` : (contact ? `/contacts/${contact._id}` : '/communication'),
+                    entityType === 'Lead' ? `/leads/${entityId}` : (entityType === 'Contact' ? `/contacts/${entityId}` : ''),
                     entityId
                 );
 
-                // 3.1 Create formal Activity Log
                 const activityDept = lead?.department || contact?.department || null;
                 await Activity.create({
                     type: 'WhatsApp',
-                    subject: `Inbound WhatsApp: ${messageText.substring(0, 40)}${messageText.length > 40 ? '...' : ''}`,
-                    entityId: entityId,
-                    entityType: entityType,
-                    status: 'Completed',
-                    performedBy: 'WhatsApp User',
-                    dueDate: new Date(),
+                    subject: `Incoming WhatsApp Message`,
                     description: messageText,
-                    department: activityDept,
-                    details: {
-                        direction: 'incoming',
-                        platform: 'whatsapp',
+                    direction: 'inbound',
+                    status: 'completed',
+                    performedBy: targetUserId,
+                    entityType,
+                    entityId,
+                    metadata: {
+                        wa_id: messageObj.id,
                         from: fromNumber,
-                        conversationId: conversation._id,
-                        attachment: attachment
+                        attachment,
+                        department: activityDept
                     }
                 }).catch(err => console.error('[WhatsApp Live Bot] Failed to create Activity:', err.message));
 
-                // 4. Generate AI Response (Only if it's text or has a caption)
                 const chatHistoryContext = conversation.messages.map(m => `${m.role}: ${m.content}`).join('\n');
                 
-                // 🧠 Neural Context Injection (Phase 1: Identity Awareness)
                 const aiContext = {
                     chatHistory: chatHistoryContext,
-                    lead: lead ? {
-                        id: lead._id,
-                        firstName: lead.firstName,
-                        lastName: lead.lastName,
-                        mobile: lead.mobile,
-                        status: lead.status,
-                        intentIndex: lead.intent_index,
-                        description: lead.description,
-                        customFields: lead.customFields
+                    userName: body.entry?.[0]?.changes?.[0]?.value?.contacts?.[0]?.profile?.name || 'Client',
+                    entity: lead || contact ? {
+                        name: lead?.name || contact?.name,
+                        type: entityType,
+                        id: entityId,
+                        stage: lead?.stage || contact?.stage,
+                        requirements: lead?.requirements || contact?.requirements,
+                        description: lead?.description,
+                        customFields: lead?.customFields
                     } : null,
                     entityType: entityType,
                     intakeResult: intakeResult
                 };
 
-                const aiResult = await generateBotResponse(messageText, aiContext);
+                const aiResult = await generateBotResponse(messageText, aiContext, { 
+                    useCase: conversation.currentUseCase || 'whatsapp_live' 
+                });
 
                 if (aiResult.success && aiResult.reply) {
-                    const setting = await SystemSetting.findOne({ key: 'meta_wa_config' }).lean();
-                    const config = setting?.value;
-                    const token = config?.token || config?.apiKey;
-                    const phoneId = config?.phoneId;
+                    const sendResult = await WhatsAppService.sendMessage(fromNumber, aiResult.reply);
 
-                    if (token && phoneId) {
-                        try {
-                            await axios.post(
-                                `https://graph.facebook.com/v19.0/${phoneId}/messages`,
-                                {
-                                    messaging_product: "whatsapp",
-                                    recipient_type: "individual",
-                                    to: fromNumber,
-                                    type: "text",
-                                    text: { preview_url: false, body: aiResult.reply }
-                                },
-                                {
-                                    headers: {
-                                        'Authorization': `Bearer ${token}`,
-                                        'Content-Type': 'application/json'
-                                    }
-                                }
-                            );
+                    if (sendResult.success) {
+                        conversation.messages.push({ role: 'assistant', content: aiResult.reply });
+                        await conversation.save();
 
-                            conversation.messages.push({ role: 'assistant', content: aiResult.reply });
-                            await conversation.save();
-
-                            if (lead) {
-                                lead.intent_index = Math.min(100, (lead.intent_index || 40) + 2);
-                                await lead.save();
-                            }
-                        } catch (waError) {
-                            console.error('[WhatsApp Live Bot] Failed to send reply:', waError.response?.data || waError.message);
+                        if (lead) {
+                            lead.intent_index = Math.min(100, (lead.intent_index || 40) + 2);
+                            await lead.save();
                         }
+                    } else {
+                        console.error(`[WhatsApp Live Bot] Failed to send reply to ${fromNumber}:`, sendResult.error);
                     }
                 }
             }
-            res.sendStatus(200); // Always return 200 OK to FB
+            res.sendStatus(200); 
         } else {
             res.sendStatus(404);
         }
     } catch (error) {
-        console.error('[WebhookController] whatsAppLiveBotWebhook error:', error);
+        console.error(`[WebhookController] whatsAppLiveBotWebhook error:`, error.message);
         res.sendStatus(500);
     }
 };

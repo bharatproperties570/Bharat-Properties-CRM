@@ -5,7 +5,7 @@ import pdf from 'pdf-parse';
 import path from 'path';
 import { parseContent } from './intakeParser.js';
 import Intake from '../../../models/Intake.js';
-import { addToIntakeQueue } from '../../services/intakeQueue/IntakeQueue.js';
+import { addToIntakeQueue } from '../../../services/intakeQueue/IntakeQueue.js';
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(process.cwd(), 'uploads');

@@ -14,6 +14,16 @@ import {
 } from '../controllers/webhook.controller.js';
 
 const router = express.Router();
+import fs from 'fs';
+import path from 'path';
+
+// 🔍 Webhook Audit Logger
+router.use((req, res, next) => {
+    const logPath = path.join(process.cwd(), 'whatsapp_webhook_hits.log');
+    const logEntry = `[${new Date().toISOString()}] ${req.method} ${req.url} - IP: ${req.ip}\n`;
+    fs.appendFileSync(logPath, logEntry);
+    next();
+});
 
 // ── Public endpoints (called by landing pages / external services) ─────────────
 router.post('/lead',             captureLeadWebhook);        // Lead capture from campaigns

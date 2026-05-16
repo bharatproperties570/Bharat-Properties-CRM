@@ -1,12 +1,12 @@
 import express from 'express';
 import { getConfigs, createConfig, updateConfig, deleteConfig, triggerConfig } from './discovery.controller.js';
-import { authenticate, authorizeRole } from '../../middlewares/auth.middleware.js';
+import { authenticate, authorize } from '../../middlewares/auth.middleware.js';
 
 const router = express.Router();
 
 // All routes require authentication and admin role
 router.use(authenticate);
-router.use(authorizeRole(['Admin', 'SuperAdmin']));
+router.use(authorize(['Admin', 'SuperAdmin']));
 
 router.get('/', getConfigs);
 router.post('/', createConfig);

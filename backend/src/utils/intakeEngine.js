@@ -6,6 +6,7 @@ import Deal from '../../models/Deal.js';
 import Contact from '../../models/Contact.js';
 import Activity from '../../models/Activity.js';
 import { normalizePhone } from '../../utils/normalization.js';
+import DealVerificationService from '../../services/DealVerificationService.js';
 
 /**
  * Enterprise Grade Intake Engine
@@ -39,6 +40,7 @@ const parsePrice = (priceStr) => {
  * Detects intent from message text
  */
 const detectIntent = (text, entities) => {
+    if (!text) return 'UNKNOWN';
     const lower = text.toLowerCase();
     
     // 1. Explicit Seller Signals
@@ -59,6 +61,7 @@ const detectIntent = (text, entities) => {
  * Extracts entities (Project, Unit, Price) from text
  */
 const extractEntities = async (text) => {
+    if (!text) return { project: null, unitNumber: null, price: 0, rawPrice: null };
     const lower = text.toLowerCase();
     
     // 1. Project Detection (Look up projects in DB)
@@ -142,16 +145,24 @@ export const processIntake = async ({ mobile, name, email, message, source = 'Wh
         await inventory.save();
 
         if (entities.price > 0) {
-            const deal = await Deal.create({
-                name: `Resale: ${entities.project.name} - ${entities.unitNumber}`,
-                inventory: inventory._id,
-                price: entities.price,
-                stage: await resolveLeadLookup('DealStage', 'New'),
-                source: await resolveLeadLookup('Source', source),
-                contact: contact?._id || null,
-                remarks: `Auto-created via Enterprise Intake Engine. Detected Price: ${entities.rawPrice}`
-            });
-            return { type: 'DEAL', data: deal, inventory };
+                const deal = await Deal.create({
+                    name: `Resale: ${entities.project.name} - ${entities.unitNumber}`,
+                    inventory: inventory._id,
+                    price: entities.price,
+                    projectName: entities.project.name,
+                    stage: await resolveLeadLookup('DealStage', 'New'),
+                    source: await resolveLeadLookup('Source', source),
+                    contact: contact?._id || null,
+                    remarks: `Auto-created via Enterprise Intake Engine. Detected Price: ${entities.rawPrice}`
+                });
+
+                // 🚀 TRIGGER AI VERIFICATION
+                await DealVerificationService.triggerVerification(deal, { 
+                    mobile: normalizedMobile, 
+                    name: name || (contact ? `${contact.name} ${contact.surname}` : 'Client') 
+                });
+
+                return { type: 'DEAL', data: deal, inventory };
         }
 
         return { type: 'INVENTORY', data: inventory };

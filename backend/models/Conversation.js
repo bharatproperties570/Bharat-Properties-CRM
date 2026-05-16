@@ -48,6 +48,10 @@ const conversationSchema = new mongoose.Schema({
         enum: ['active', 'handed_off', 'resolved'],
         default: 'active'
     },
+    currentUseCase: {
+        type: String,
+        default: 'whatsapp_live'
+    },
     messages: [messageSchema],
     metadata: {
         type: mongoose.Schema.Types.Mixed,

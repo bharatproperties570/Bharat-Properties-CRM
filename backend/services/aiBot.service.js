@@ -30,8 +30,8 @@ export const generateBotResponse = async (message, context = {}, options = {}) =
             console.warn(`No active AI Agent found for '${targetUseCase}' in DB. Using Default Enterprise Fallback Agent.`);
             // Fallback Enterprise Configuration
             agent = {
-                provider: 'openai',
-                modelName: 'gpt-4o-mini',
+                provider: 'gemini',
+                modelName: 'gemini-1.5-flash',
                 systemPrompt: `You are Bharat Properties AI Assistant, a highly professional real estate expert. 
 Your goal is to assist clients with property inquiries, capture missing details, and provide matching inventory.
 Be concise, polite, and never reveal sensitive backend IDs.`,
