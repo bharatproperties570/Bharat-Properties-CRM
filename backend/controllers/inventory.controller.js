@@ -343,7 +343,18 @@ export const getInventory = async (req, res) => {
         applyDeepFilter(query, 'subCategory', subCategoryFilter);
         
         // 🚀 [SENIOR] Property Type / Size Type Filter (e.g. 1 BHK, 2 BHK, Shop, etc.)
-        const sizeTypeFilter = await resolveMultiFilter('PropertyType', sizeTypeReq);
+        // Resolve against both 'PropertyType' and 'Size' to ensure full coverage (parity with frontend resolveInventoryLookup)
+        const sizeTypeFilter1 = await resolveMultiFilter('PropertyType', sizeTypeReq);
+        const sizeTypeFilter2 = await resolveMultiFilter('Size', sizeTypeReq);
+        
+        // Combine values from both resolutions
+        const combinedValues = [
+            ...(sizeTypeFilter1?.$in || []),
+            ...(sizeTypeFilter2?.$in || [])
+        ];
+        
+        const sizeTypeFilter = combinedValues.length > 0 ? { $in: [...new Set(combinedValues)] } : null;
+
         if (sizeTypeFilter) {
             // Special case: Size Type can be in either sizeType or sizeConfig
             const conditions = [
