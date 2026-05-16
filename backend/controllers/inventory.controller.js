@@ -82,35 +82,52 @@ const resolveMultiFilter = async (type, values) => {
         ...results.names
     ])];
 
-    if (allMatches.length === 0) return null;
+    // Deduplicate all possible matches (Polymorphic: IDs + Strings + Names)
+    // 🚀 [SENIOR HARDENING] Use Regex for all names to ensure case-insensitive matching in Mixed fields
+    const nameRegexes = results.names.map(name => new RegExp(`^${escapeRegExp(name.trim())}$`, 'i'));
 
-    // Construct a polymorphic query condition that handles:
-    // a) Direct match (ID or String)
-    // b) Nested object match (._id or .lookup_value)
-    const conditions = [];
-    
-    const validIds = results.ids;
-    const validNames = [...new Set(results.names)];
-
-    if (validIds.length > 0) {
-        conditions.push({ $in: validIds });
-        // Also support field being a nested object with an _id
-        // We handle this in the main getInventory logic by wrapping the filter if needed
-    }
-    
-    if (validNames.length > 0) {
-        conditions.push({ $in: validNames });
-    }
-
-    // For simplicity and performance, we return the expanded list of matches for an $in query
-    // Mongoose with Mixed types will try to match against any of these
     const finalValues = [...new Set([
-        ...validIds,
-        ...validNames
+        ...results.ids, 
+        ...results.idStrings, 
+        ...nameRegexes
     ])];
+
+    if (finalValues.length === 0) return null;
 
     return { $in: finalValues };
 };
+
+/**
+ * 🚀 [SENIOR UTILITY] Apply Deep Filter for Mixed-type Lookup Fields
+ * Handles:
+ * 1. Direct value match { field: { $in: values } }
+ * 2. Nested ID match { 'field._id': { $in: values } }
+ * 3. Nested lookup_value match { 'field.lookup_value': { $in: values } }
+ * 4. Nested name match { 'field.name': { $in: values } }
+ */
+const applyDeepFilter = (query, field, filterValue) => {
+    if (!filterValue) return;
+
+    const conditions = [
+        { [field]: filterValue },
+        { [`${field}._id`]: filterValue },
+        { [`${field}.id`]: filterValue },
+        { [`${field}.lookup_value`]: filterValue },
+        { [`${field}.name`]: filterValue }
+    ];
+
+    if (query.$or) {
+        if (!query.$and) {
+            const existingOr = query.$or;
+            delete query.$or;
+            query.$and = [{ $or: existingOr }];
+        }
+        query.$and.push({ $or: conditions });
+    } else {
+        query.$or = conditions;
+    }
+};
+
 
 
 const populateFields = [
@@ -133,7 +150,7 @@ export const getInventory = async (req, res) => {
             category, subCategory, unitType, status, 
             project, block, location, area, contactId, 
             statusCategory, ownerPhone, feedbackOutcome, feedbackReason,
-            minSize, maxSize, sizeMin, sizeMax,
+            minSize, maxSize, sizeMin, sizeMax, sizeType,
             followUpFrom, followUpTo
         } = req.query;
         const visibilityFilter = await getVisibilityFilter(req.user);
@@ -269,8 +286,20 @@ export const getInventory = async (req, res) => {
                 { ownerName: { $regex: search, $options: "i" } },
                 { ownerPhone: { $regex: search, $options: "i" } },
                 { description: { $regex: search, $options: "i" } },
-                { projectName: { $regex: search, $options: "i" } }
+                { projectName: { $regex: search, $options: "i" } },
+                { sizeLabel: { $regex: search, $options: "i" } },
+                { sizeType: { $regex: search, $options: "i" } },
+                { "sizeType.lookup_value": { $regex: search, $options: "i" } },
+                { "sizeConfig.lookup_value": { $regex: search, $options: "i" } }
             ];
+            
+            // If the search term is a number, try matching against numeric size
+            const searchNum = parseFloat(search.replace(/,/g, ''));
+            if (!isNaN(searchNum)) {
+                searchConditions.push({ "size.value": searchNum });
+                searchConditions.push({ "size": searchNum });
+            }
+
             if (query.$or) {
                 query.$and = [
                     { $or: query.$or },
@@ -304,40 +333,88 @@ export const getInventory = async (req, res) => {
             query.status = { $in: [...inactiveStatusIds, ...inactiveStatusIds.map(id => id.toString()), ...inactiveStatusNames] };
         } else {
             const statusFilter = await resolveMultiFilter('Status', statusReq);
-            if (statusFilter) query.status = statusFilter;
+            applyDeepFilter(query, 'status', statusFilter);
         }
 
         const categoryFilter = await resolveMultiFilter('Category', categoryReq);
-        if (categoryFilter) query.category = categoryFilter;
+        applyDeepFilter(query, 'category', categoryFilter);
 
         const subCategoryFilter = await resolveMultiFilter('SubCategory', subCategoryReq);
-        if (subCategoryFilter) query.subCategory = subCategoryFilter;
+        applyDeepFilter(query, 'subCategory', subCategoryFilter);
         
         // 🚀 [SENIOR] Property Type / Size Type Filter (e.g. 1 BHK, 2 BHK, Shop, etc.)
         const sizeTypeFilter = await resolveMultiFilter('PropertyType', sizeTypeReq);
-        if (sizeTypeFilter) query.sizeType = sizeTypeFilter;
+        if (sizeTypeFilter) {
+            // Special case: Size Type can be in either sizeType or sizeConfig
+            const conditions = [
+                { sizeType: sizeTypeFilter },
+                { 'sizeType._id': sizeTypeFilter },
+                { 'sizeType.lookup_value': sizeTypeFilter },
+                { sizeConfig: sizeTypeFilter },
+                { 'sizeConfig._id': sizeTypeFilter },
+                { 'sizeConfig.lookup_value': sizeTypeFilter }
+            ];
+
+            if (query.$or) {
+                if (!query.$and) {
+                    const existingOr = query.$or;
+                    delete query.$or;
+                    query.$and = [{ $or: existingOr }];
+                }
+                query.$and.push({ $or: conditions });
+            } else {
+                query.$or = conditions;
+            }
+        }
 
         const unitTypeFilter = await resolveMultiFilter('UnitType', unitTypeReq);
-        if (unitTypeFilter) query.unitType = unitTypeFilter;
+        applyDeepFilter(query, 'unitType', unitTypeFilter);
 
 
         // [ORIENTATION FILTERS]
         const directionFilter = await resolveMultiFilter('Direction', req.query.direction || req.query['direction[]']);
-        if (directionFilter) query.direction = directionFilter;
+        applyDeepFilter(query, 'direction', directionFilter);
 
         const roadWidthFilter = await resolveMultiFilter('RoadWidth', req.query.roadWidth || req.query['roadWidth[]']);
-        if (roadWidthFilter) query.roadWidth = roadWidthFilter;
+        applyDeepFilter(query, 'roadWidth', roadWidthFilter);
 
         const facingFilter = await resolveMultiFilter('Facing', req.query.facing || req.query['facing[]']);
-        if (facingFilter) query.facing = facingFilter;
+        applyDeepFilter(query, 'facing', facingFilter);
         
         // [SIZE RANGE FILTERS]
         const finalMinSize = minSize || sizeMin;
         const finalMaxSize = maxSize || sizeMax;
         if (finalMinSize || finalMaxSize) {
-            query['size.value'] = {};
-            if (finalMinSize) query['size.value'].$gte = parseFloat(finalMinSize);
-            if (finalMaxSize) query['size.value'].$lte = parseFloat(finalMaxSize);
+            const min = finalMinSize ? parseFloat(String(finalMinSize).replace(/,/g, '')) : NaN;
+            const max = finalMaxSize ? parseFloat(String(finalMaxSize).replace(/,/g, '')) : NaN;
+
+            if (!isNaN(min) || !isNaN(max)) {
+                // Support both new { value, unit } structure and legacy flat number structure
+                const sizeConditions = [];
+                
+                const buildQuery = (m, x) => {
+                    const q = {};
+                    if (!isNaN(m)) q.$gte = m;
+                    if (!isNaN(x)) q.$lte = x;
+                    return q;
+                };
+
+                const rangeQuery = buildQuery(min, max);
+                sizeConditions.push({ 'size.value': rangeQuery });
+                sizeConditions.push({ 'size': rangeQuery });
+
+                if (query.$or) {
+                    // If we already have an $or (e.g. from phone search), we must wrap in $and
+                    if (!query.$and) {
+                        const existingOr = query.$or;
+                        delete query.$or;
+                        query.$and = [{ $or: existingOr }];
+                    }
+                    query.$and.push({ $or: sizeConditions });
+                } else {
+                    query.$or = sizeConditions;
+                }
+            }
         }
 
         // [FOLLOW-UP DATE FILTERS]
@@ -398,6 +475,9 @@ export const getInventory = async (req, res) => {
         // We need a separate query for category stats that ignores the category filter
         const categoryStatsQuery = { ...query };
         delete categoryStatsQuery.category;
+
+        // 🧠 [SENIOR DIAGNOSTIC] Final Query Inspection
+        console.log(`[INVENTORY_QUERY_AUDIT] Final Query Filter: ${JSON.stringify(query, null, 2)}`);
 
         let statsAggregation = [], categoryStatsAggregation = [];
         try {
