@@ -43,15 +43,31 @@ const ImportDataPage = () => {
     const [blocks, setBlocks] = useState([]);
 
     const handleProjectChange = (projectId) => {
-        console.log("[ImportData] Project selected:", projectId);
+        console.log("[ImportData] Project selected ID:", projectId);
         setSelectedProject(projectId);
         setSelectedBlock('');
-        const project = projects.find(p => p._id === projectId || p.id === projectId);
+        
+        if (!projectId) {
+            setBlocks([]);
+            return;
+        }
+
+        const project = projects.find(p => String(p._id || p.id) === String(projectId));
+        
         if (project) {
-            console.log("[ImportData] Found project, blocks count:", project.blocks?.length || 0);
-            setBlocks(project.blocks || []);
+            console.log("[ImportData] Found project:", project.name);
+            console.log("[ImportData] Blocks raw data:", project.blocks);
+            
+            if (Array.isArray(project.blocks) && project.blocks.length > 0) {
+                console.log(`[ImportData] Found ${project.blocks.length} blocks.`);
+                setBlocks(project.blocks);
+            } else {
+                console.warn(`[ImportData] Project "${project.name}" has no blocks or blocks is not an array.`);
+                setBlocks([]);
+            }
         } else {
-            console.warn("[ImportData] Project not found in list for ID:", projectId);
+            console.warn("[ImportData] Project not found in context projects list for ID:", projectId);
+            console.log("[ImportData] Available project IDs:", projects.map(p => p._id || p.id));
             setBlocks([]);
         }
     };

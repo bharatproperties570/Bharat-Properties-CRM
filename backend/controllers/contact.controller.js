@@ -1039,3 +1039,76 @@ export const checkDuplicatesImport = async (req, res, next) => {
         next(error);
     }
 };
+
+export const getContactStats = async (req, res, next) => {
+    try {
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        
+        // 1. Basic counts from Contact collection
+        const totalCount = await Contact.countDocuments(visibilityFilter);
+        
+        // Use lookup values to find IDs for professional categories
+        const lookups = await Lookup.find({
+            lookup_type: { $in: ['ProfessionalCategory', 'ProfessionalSubCategory', 'ProfessionCategory', 'ProfessionSubCategory', 'Stage'] }
+        }).lean();
+
+        const findLookupIds = (regex, type) => lookups.filter(l => (!type || l.lookup_type === type) && regex.test(l.lookup_value)).map(l => l._id);
+
+        const agentIds = findLookupIds(/Real Estate Agent/i);
+        const investorIds = findLookupIds(/Investor/i);
+        const salesIds = findLookupIds(/Sales|Sales Person|Sales Executive/i);
+        const bookedStageIds = findLookupIds(/^Booked$/i, 'Stage');
+
+        // 2. Aggregate counts for professional categories
+        const [agents, investors, sales] = await Promise.all([
+            Contact.countDocuments({ ...visibilityFilter, $or: [{ professionCategory: { $in: agentIds } }, { professionSubCategory: { $in: agentIds } }] }),
+            Contact.countDocuments({ ...visibilityFilter, $or: [{ professionCategory: { $in: investorIds } }, { professionSubCategory: { $in: investorIds } }] }),
+            Contact.countDocuments({ ...visibilityFilter, $or: [{ professionCategory: { $in: salesIds } }, { professionSubCategory: { $in: salesIds } }] })
+        ]);
+
+        // 3. Count Property Owners (linked to Inventory)
+        const inventoryQuery = { ...visibilityFilter };
+        const ownerIdsInInventory = await Inventory.distinct('owners', inventoryQuery);
+        const propertyOwnersCount = await Contact.countDocuments({ ...visibilityFilter, _id: { $in: ownerIdsInInventory } });
+
+        // 4. [NEW LOGIC] Count Prospects (Contacts with associated Leads)
+        const prospectContactIds = await Lead.distinct('contactDetails', visibilityFilter);
+        const prospectsCount = await Contact.countDocuments({ ...visibilityFilter, _id: { $in: prospectContactIds } });
+
+        // 5. [NEW LOGIC] Count Customers
+        // A: Leads with 'Booked' stage
+        const bookedLeadContactIds = await Lead.distinct('contactDetails', { ...visibilityFilter, stage: { $in: bookedStageIds } });
+        
+        // B: Closed Bookings (Sellers and Buyers)
+        const closedBookingQuery = { ...visibilityFilter, 'closingDetails.isClosed': true };
+        const [closedBuyers, closedSellers] = await Promise.all([
+            Booking.distinct('lead', closedBookingQuery),
+            Booking.distinct('seller', closedBookingQuery)
+        ]);
+
+        // Merge all customer candidates
+        const allCustomerIds = new Set([
+            ...bookedLeadContactIds.map(id => id.toString()),
+            ...closedBuyers.map(id => id.toString()),
+            ...closedSellers.map(id => id.toString())
+        ]);
+
+        const customersCount = await Contact.countDocuments({ ...visibilityFilter, _id: { $in: Array.from(allCustomerIds) } });
+
+        res.status(200).json({
+            success: true,
+            stats: {
+                total: totalCount,
+                prospects: prospectsCount,
+                customers: customersCount,
+                propertyOwners: propertyOwnersCount,
+                realEstateAgents: agents,
+                salesPersons: sales,
+                investors: investors
+            }
+        });
+    } catch (error) {
+        console.error("[ERROR] getContactStats failed:", error);
+        next(error);
+    }
+};

@@ -352,6 +352,15 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
   const [contacts, setContacts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [totalRecords, setTotalRecords] = useState(0);
+  const [stats, setStats] = useState({
+    total: 0,
+    prospects: 0,
+    customers: 0,
+    propertyOwners: 0,
+    realEstateAgents: 0,
+    salesPersons: 0,
+    investors: 0
+  });
 
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
   const [filters, setFilters] = useState({});
@@ -372,6 +381,17 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
 
   const debouncedSearchTerm = useDebounce(searchTerm, 500);
 
+  const fetchStats = useCallback(async () => {
+    try {
+      const response = await api.get('contacts/stats');
+      if (response.data && response.data.success) {
+        setStats(response.data.stats);
+      }
+    } catch (error) {
+      console.error("Error fetching contact stats:", error);
+    }
+  }, []);
+
   const fetchContacts = useCallback(async () => {
     setLoading(true);
     try {
@@ -388,6 +408,8 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
         console.log("[Contacts Debug] Data loaded:", response.data.records?.length, "Total:", response.data.totalCount);
         setContacts(response.data.records || []);
         setTotalRecords(response.data.totalCount || 0);
+        // Refresh stats whenever contacts are fetched/updated
+        fetchStats();
       } else {
         console.warn("[Contacts Debug] API Error or no data:", response.data);
         toast.error("Failed to fetch contacts: Invalid API response");
@@ -399,7 +421,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
     } finally {
       setLoading(false);
     }
-  }, [currentPage, recordsPerPage, debouncedSearchTerm, sortConfig]);
+  }, [currentPage, recordsPerPage, debouncedSearchTerm, sortConfig, fetchStats]);
 
   useEffect(() => {
     const handleSync = () => fetchContacts();
@@ -814,12 +836,19 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
         </div>
       </div>
 
-      <footer className="summary-footer" style={{ height: "60px", padding: "0 var(--row-padding)" }}>
-        <div className="summary-label" style={{ background: "#334155", color: "#fff", padding: "4px 12px", borderRadius: "6px", fontSize: "0.7rem" }}>SUMMARY</div>
-        <div style={{ display: "flex", gap: "20px" }}>
-          <div className="stat-pill">TOTAL CONTACTS <strong>{totalRecords}</strong></div>
-          <div className="stat-pill">PROSPECTS <strong>{contacts.filter(c => c.category === "Prospect").length}</strong></div>
-          <div className="stat-pill">CUSTOMERS <strong>{contacts.filter(c => c.category === "Customer").length}</strong></div>
+      <footer className="summary-footer" style={{ height: "auto", minHeight: "60px", padding: "12px var(--row-padding)", flexWrap: "wrap", gap: "15px" }}>
+        <div className="summary-label" style={{ background: "#334155", color: "#fff", padding: "4px 12px", borderRadius: "6px", fontSize: "0.7rem", fontWeight: 700 }}>SUMMARY</div>
+        <div style={{ display: "flex", gap: "15px", flexWrap: "wrap", alignItems: "center" }}>
+          <div className="stat-pill">TOTAL <strong>{stats.total || totalRecords}</strong></div>
+          <div className="stat-pill" style={{ background: "#f0fdf4", color: "#166534" }}>PROPERTY OWNERS <strong>{stats.propertyOwners || 0}</strong></div>
+          <div className="stat-pill" style={{ background: "#fef2f2", color: "#991b1b" }}>INVESTORS <strong>{stats.investors || 0}</strong></div>
+          <div className="stat-pill" style={{ background: "#eff6ff", color: "#1e40af" }}>AGENTS <strong>{stats.realEstateAgents || 0}</strong></div>
+          <div className="stat-pill" style={{ background: "#fdf4ff", color: "#86198f" }}>SALES <strong>{stats.salesPersons || 0}</strong></div>
+          
+          <div style={{ width: "1px", height: "20px", background: "#e2e8f0", margin: "0 5px" }}></div>
+          
+          <div className="stat-pill" style={{ opacity: 0.8 }}>PROSPECTS <strong>{stats.prospects || 0}</strong></div>
+          <div className="stat-pill" style={{ opacity: 0.8 }}>CUSTOMERS <strong>{stats.customers || 0}</strong></div>
         </div>
       </footer>
 

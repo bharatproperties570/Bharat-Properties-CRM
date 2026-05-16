@@ -1,5 +1,5 @@
 import express from "express";
-import { getContacts, createContact, updateContact, deleteContact, bulkDeleteContacts, getContact, searchDuplicates, importContacts, checkDuplicatesImport, getContactUsage, syncAllContacts } from "../controllers/contact.controller.js";
+import { getContacts, getContactStats, createContact, updateContact, deleteContact, bulkDeleteContacts, getContact, searchDuplicates, importContacts, checkDuplicatesImport, getContactUsage, syncAllContacts } from "../controllers/contact.controller.js";
 import { authenticate } from "../src/middlewares/auth.middleware.js";
 import { validateBusinessRules } from "../src/middlewares/businessRule.middleware.js";
 
@@ -9,6 +9,7 @@ const router = express.Router();
 router.use(authenticate);
 
 router.get("/", getContacts);
+router.get("/stats", getContactStats);
 router.get("/search/duplicates", searchDuplicates);
 router.post("/import", importContacts);
 router.post("/check-duplicates", checkDuplicatesImport);

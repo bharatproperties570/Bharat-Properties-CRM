@@ -1494,10 +1494,17 @@ export const PropertyConfigProvider = ({ children }) => {
                                 console.log('[PropertyConfigContext] Syncing dynamic_projects:', setting.value);
                                 setProjects(prev => {
                                     const dynamicProjs = Array.isArray(setting.value) ? setting.value : [];
-                                    // Merge dynamic projects with existing ones, avoiding duplicates by name
-                                    const existingNames = new Set(prev.map(p => (p.name || '').toLowerCase()));
-                                    const newUnique = dynamicProjs.filter(p => p.name && !existingNames.has(p.name.toLowerCase()));
-                                    return [...prev, ...newUnique];
+                                    const projectMap = new Map();
+                                    
+                                    // Start with existing projects
+                                    prev.forEach(p => projectMap.set((p.name || '').toLowerCase(), p));
+                                    
+                                    // Merge dynamic projects (replace if name matches)
+                                    dynamicProjs.forEach(p => {
+                                        if (p.name) projectMap.set(p.name.toLowerCase(), p);
+                                    });
+                                    
+                                    return Array.from(projectMap.values());
                                 });
                                 break;
 
@@ -1532,18 +1539,11 @@ export const PropertyConfigProvider = ({ children }) => {
 
                     if (projectsRes.data && projectsRes.data.success && Array.isArray(projectsRes.data.data)) {
                         const apiProjects = projectsRes.data.data;
-                        setProjects(prev => {
-                            const existingNames = new Set(prev.map(p => (p.name || '').toLowerCase()));
-                            const newUnique = apiProjects.filter(p => p.name && !existingNames.has(p.name.toLowerCase()));
-                            return [...prev, ...newUnique];
-                        });
+                        console.log(`[PropertyConfigContext] Received ${apiProjects.length} authoritative projects from API.`);
+                        setProjects(apiProjects); // authoritative source
                     } else if (Array.isArray(projectsRes.data)) {
                         const apiProjects = projectsRes.data;
-                        setProjects(prev => {
-                            const existingNames = new Set(prev.map(p => (p.name || '').toLowerCase()));
-                            const newUnique = apiProjects.filter(p => p.name && !existingNames.has(p.name.toLowerCase()));
-                            return [...prev, ...newUnique];
-                        });
+                        setProjects(apiProjects);
                     }
                 } catch (projError) {
                     console.error('[PropertyConfigContext] Failed to fetch projects:', projError);
