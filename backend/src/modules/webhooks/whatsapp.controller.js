@@ -1,8 +1,7 @@
 import Intake from '../../../models/Intake.js';
 import aiVerificationEngine from '../../../services/intakeVerification/AIVerificationEngine.js';
 import intakeAIAssistantEngine from '../../../services/intakeVerification/IntakeAIAssistantEngine.js';
-// Mock LLM Service import for parsing replies
-// import llmService from '../../../services/ai/LLMService.js';
+import DealVerificationService from '../../../services/DealVerificationService.js';
 
 /**
  * Webhook endpoint for WhatsApp Business API
@@ -10,7 +9,6 @@ import intakeAIAssistantEngine from '../../../services/intakeVerification/Intake
  */
 export const handleWhatsAppReply = async (req, res) => {
     try {
-        // Standard WhatsApp API payload (Meta)
         const { entry } = req.body;
         
         if (!entry || !entry[0].changes) {
@@ -20,11 +18,25 @@ export const handleWhatsAppReply = async (req, res) => {
         const change = entry[0].changes[0].value;
         if (change.messages && change.messages[0]) {
             const message = change.messages[0];
-            const senderPhone = message.from; // e.g. "919876543210"
+            const senderPhone = message.from; 
             const textContent = message.text?.body;
 
             if (textContent) {
-                // 1. Find the pending Intake waiting for verification from this number
+                console.log(`[WhatsAppWebhook] Processing message from ${senderPhone}`);
+
+                // 1. Check if this is a reply to an active Deal Verification (v2.0 Logic)
+                const handledByDealService = await DealVerificationService.processVerificationReply(
+                    senderPhone,
+                    textContent,
+                    req.body
+                );
+
+                if (handledByDealService) {
+                    console.log(`[WhatsAppWebhook] ✅ Message handled by DealVerificationService for ${senderPhone}`);
+                    return res.status(200).send('EVENT_RECEIVED');
+                }
+
+                // 2. FALLBACK: Find the pending Intake waiting for verification
                 const recentIntake = await Intake.findOne({
                     status: { $in: ['Processed', 'Queued', 'Processing'] },
                     contact_numbers: senderPhone
