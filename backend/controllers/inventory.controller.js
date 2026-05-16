@@ -83,8 +83,10 @@ const resolveMultiFilter = async (type, values) => {
     ])];
 
     // Deduplicate all possible matches (Polymorphic: IDs + Strings + Names)
-    // 🚀 [SENIOR HARDENING] Use Regex for all names to ensure case-insensitive matching in Mixed fields
-    const nameRegexes = results.names.map(name => new RegExp(`^${escapeRegExp(name.trim())}$`, 'i'));
+    // 🚀 [SENIOR HARDENING] Use flexible Regex for all names
+    // This allows matching "3 BHK" against "3 BHK Apartment" or "3 BHK Villa" 
+    // ensuring consistency with global search behavior.
+    const nameRegexes = results.names.map(name => new RegExp(escapeRegExp(name.trim()), 'i'));
 
     const finalValues = [...new Set([
         ...results.ids, 
@@ -356,14 +358,15 @@ export const getInventory = async (req, res) => {
         const sizeTypeFilter = combinedValues.length > 0 ? { $in: [...new Set(combinedValues)] } : null;
 
         if (sizeTypeFilter) {
-            // Special case: Size Type can be in either sizeType or sizeConfig
+            // Special case: Size Type can be in sizeType, sizeConfig, or sizeLabel
             const conditions = [
                 { sizeType: sizeTypeFilter },
                 { 'sizeType._id': sizeTypeFilter },
                 { 'sizeType.lookup_value': sizeTypeFilter },
                 { sizeConfig: sizeTypeFilter },
                 { 'sizeConfig._id': sizeTypeFilter },
-                { 'sizeConfig.lookup_value': sizeTypeFilter }
+                { 'sizeConfig.lookup_value': sizeTypeFilter },
+                { sizeLabel: sizeTypeFilter }
             ];
 
             if (query.$or) {
