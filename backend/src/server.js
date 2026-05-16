@@ -1,3 +1,7 @@
+import { File, Blob } from 'buffer';
+if (typeof global.File === 'undefined') global.File = File;
+if (typeof global.Blob === 'undefined') global.Blob = Blob;
+
 import connectDB from "./config/db.js";
 import config from "./config/env.js";
 import mongoose from "mongoose";
