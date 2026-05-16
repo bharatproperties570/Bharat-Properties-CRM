@@ -476,9 +476,6 @@ export const getInventory = async (req, res) => {
         const categoryStatsQuery = { ...query };
         delete categoryStatsQuery.category;
 
-        // 🧠 [SENIOR DIAGNOSTIC] Final Query Inspection
-        console.log(`[INVENTORY_QUERY_AUDIT] Final Query Filter: ${JSON.stringify(query, null, 2)}`);
-
         let statsAggregation = [], categoryStatsAggregation = [];
         try {
             [statsAggregation, categoryStatsAggregation] = await Promise.all([
