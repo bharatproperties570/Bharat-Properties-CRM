@@ -19,9 +19,9 @@ import "./workers/enrichmentWorker.js";
 import "./workers/cronWorker.js";
 import "./workers/googleSyncWorker.js";
 import "./workers/marketingWorker.js"; 
-import "/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/services/intakeQueue/IntakeQueue.js"; // Unified Intake Queue Worker
-import googleDiscoveryService from "/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/services/discovery/GoogleDiscoveryService.js";
-import NurtureBot from "/Users/bharatproperties/.gemini/antigravity/scratch/bharat-properties-crm/backend/services/NurtureBot.js";
+import "../services/intakeQueue/IntakeQueue.js"; // Unified Intake Queue Worker
+import googleDiscoveryService from "../services/discovery/GoogleDiscoveryService.js";
+import NurtureBot from "../services/NurtureBot.js";
 import { ensureRedisRunning } from "./utils/redisLauncher.js";
 
 const logStartup = (msg) => {
