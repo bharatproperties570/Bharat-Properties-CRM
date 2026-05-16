@@ -58,6 +58,7 @@ import companyGroupRoutes from "./routes/companyGroup.routes.js";
 import portfolioRoutes from "./routes/portfolio.routes.js";
 import discoveryRoutes from "./src/modules/discovery/discovery.routes.js";
 import intakeWebhookRoutes from "./src/modules/webhooks/whatsapp.routes.js";
+import whatsappWebhookV2 from "./routes/whatsapp_webhook.v2.js";
 
 const app = express();
 
@@ -187,6 +188,7 @@ app.use("/api/notification-settings", notificationSettingRoutes);
 app.use("/api/public", publicRoutes);
 app.use("/api/settings/google", googleSettingsRoutes);
 app.use("/api/webhooks", webhookRoutes);   // Marketing automation webhooks
+app.use("/api/social/webhook", whatsappWebhookV2); // High-performance WhatsApp Webhook v2.0
 app.use("/api/intake-webhooks", intakeWebhookRoutes); // AI Auto-Verification webhooks
 app.use("/api/settings/ai", integrationSettingsRoutes);
 app.use("/api/settings/ai-agents", aiAgentRoutes);
