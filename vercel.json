@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "https://crm-bharat-api-v5.loca.lt/api/$1"
+      "destination": "https://api.bharatproperties.co/api/$1"
     },
     {
       "source": "/(.*)",
