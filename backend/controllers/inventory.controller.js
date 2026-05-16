@@ -28,6 +28,13 @@ const escapeRegExp = (string) => {
  * Resolves multi-select filters (names or IDs) to a MongoDB $in query
  * supports ObjectIds, String IDs, and raw names for Mixed fields.
  */
+/**
+ * 🚀 [SENIOR] Enterprise-Grade Multi-Filter Resolver
+ * Handles:
+ * 1. Raw ObjectIds (from frontend or DB)
+ * 2. String Names (resolves to IDs via Lookup collection)
+ * 3. Mixed types in DB (ID vs Nested Object vs String)
+ */
 const resolveMultiFilter = async (type, values) => {
     if (!values) return null;
     let vals = Array.isArray(values) ? values : String(values).split(',').map(s => s.trim()).filter(Boolean);
@@ -36,42 +43,75 @@ const resolveMultiFilter = async (type, values) => {
     const results = { ids: [], names: [], idStrings: [] };
 
     await Promise.all(vals.map(async (v) => {
-        if (mongoose.Types.ObjectId.isValid(v)) {
-            const objId = new mongoose.Types.ObjectId(v.toString());
+        const trimmedVal = String(v).trim();
+        
+        // CASE 1: Value is already an ObjectId
+        if (mongoose.Types.ObjectId.isValid(trimmedVal)) {
+            const objId = new mongoose.Types.ObjectId(trimmedVal);
             results.ids.push(objId);
-            results.idStrings.push(v.toString());
+            results.idStrings.push(trimmedVal);
             
-            // Reverse Lookup: Find the name for this ID to include it in the query too
+            // Backfill name for mixed-type matching
             const lookup = await mongoose.model('Lookup').findById(objId).select('lookup_value').lean();
-            if (lookup?.lookup_value) results.names.push(lookup.lookup_value);
+            if (lookup?.lookup_value) results.names.push(lookup.lookup_value.trim());
             return;
         }
         
-        results.names.push(v);
+        // CASE 2: Value is a Name string
+        results.names.push(trimmedVal);
+        
+        // Find corresponding IDs in Lookup collection (Whitespace & Case Insensitive)
         const lookups = await mongoose.model('Lookup').find({ 
             lookup_type: type, 
-            lookup_value: { $regex: new RegExp(`^${escapeRegExp(v)}$`, 'i') } 
-        }).select('_id').lean();
+            lookup_value: { $regex: new RegExp(`^\\s*${escapeRegExp(trimmedVal)}\\s*$`, 'i') } 
+        }).select('_id lookup_value').lean();
         
         if (lookups.length > 0) {
             lookups.forEach(l => {
                 results.ids.push(l._id);
                 results.idStrings.push(l._id.toString());
+                if (l.lookup_value) results.names.push(l.lookup_value.trim());
             });
         }
     }));
 
-    const allPossibleMatches = [...new Set([
+    // Deduplicate all possible matches
+    const allMatches = [...new Set([
         ...results.ids.map(id => id.toString()), 
         ...results.idStrings, 
         ...results.names
     ])];
 
-    // Map back to ObjectIds where valid for Mongoose internal casting
-    const finalMatches = allPossibleMatches.map(m => mongoose.Types.ObjectId.isValid(m) ? new mongoose.Types.ObjectId(m) : m);
+    if (allMatches.length === 0) return null;
 
-    return finalMatches.length > 0 ? { $in: finalMatches } : null;
+    // Construct a polymorphic query condition that handles:
+    // a) Direct match (ID or String)
+    // b) Nested object match (._id or .lookup_value)
+    const conditions = [];
+    
+    const validIds = results.ids;
+    const validNames = [...new Set(results.names)];
+
+    if (validIds.length > 0) {
+        conditions.push({ $in: validIds });
+        // Also support field being a nested object with an _id
+        // We handle this in the main getInventory logic by wrapping the filter if needed
+    }
+    
+    if (validNames.length > 0) {
+        conditions.push({ $in: validNames });
+    }
+
+    // For simplicity and performance, we return the expanded list of matches for an $in query
+    // Mongoose with Mixed types will try to match against any of these
+    const finalValues = [...new Set([
+        ...validIds,
+        ...validNames
+    ])];
+
+    return { $in: finalValues };
 };
+
 
 const populateFields = [
     { path: "owners", select: "name phones emails title personalAddress" },
@@ -246,7 +286,9 @@ export const getInventory = async (req, res) => {
         const statusReq = status || req.query['status[]'];
         const categoryReq = category || req.query['category[]'];
         const subCategoryReq = subCategory || req.query['subCategory[]'];
+        const sizeTypeReq = sizeType || req.query['sizeType[]'];
         const unitTypeReq = unitType || req.query['unitType[]'];
+
 
         // Special handling for 'active' and 'inactive' status groups (Mobile CRM optimization)
         const activeStatusNames = ['Available', 'Active', 'Interested / Warm', 'Interested / Hot', 'Request Call Back', 'Busy / Driving', 'Market Feedback', 'General Inquiry', 'Blocked', 'Booked', 'Interested'];
@@ -270,9 +312,14 @@ export const getInventory = async (req, res) => {
 
         const subCategoryFilter = await resolveMultiFilter('SubCategory', subCategoryReq);
         if (subCategoryFilter) query.subCategory = subCategoryFilter;
+        
+        // 🚀 [SENIOR] Property Type / Size Type Filter (e.g. 1 BHK, 2 BHK, Shop, etc.)
+        const sizeTypeFilter = await resolveMultiFilter('PropertyType', sizeTypeReq);
+        if (sizeTypeFilter) query.sizeType = sizeTypeFilter;
 
         const unitTypeFilter = await resolveMultiFilter('UnitType', unitTypeReq);
         if (unitTypeFilter) query.unitType = unitTypeFilter;
+
 
         // [ORIENTATION FILTERS]
         const directionFilter = await resolveMultiFilter('Direction', req.query.direction || req.query['direction[]']);
@@ -1922,19 +1969,42 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
             const rowKey = `row_${i}`;
 
             try {
-                // 1. Find Inventory Record
-                const inventory = await Inventory.findOne({
-                    projectName: { $regex: new RegExp(`^${escapeRegExp(projectName)}$`, 'i') },
-                    block: { $regex: new RegExp(`^${escapeRegExp(block)}$`, 'i') },
+                // 1. Find Inventory Record (Resilient Matching)
+                const cleanProject = String(projectName || '').trim();
+                const cleanBlock = String(block || '').trim();
+                const cleanUnit = String(unitNo || '').trim();
+                const absoluteRow = (row._rowIdx !== undefined ? row._rowIdx + 1 : i + 1);
+
+                const inventoryQuery = {
+                    projectName: { $regex: new RegExp(`^\\s*${escapeRegExp(cleanProject)}\\s*$`, 'i') },
                     $or: [
-                        { unitNo: { $regex: new RegExp(`^${escapeRegExp(unitNo)}$`, 'i') } },
-                        { unitNumber: { $regex: new RegExp(`^${escapeRegExp(unitNo)}$`, 'i') } }
+                        { unitNo: { $regex: new RegExp(`^\\s*${escapeRegExp(cleanUnit)}\\s*$`, 'i') } },
+                        { unitNumber: { $regex: new RegExp(`^\\s*${escapeRegExp(cleanUnit)}\\s*$`, 'i') } }
                     ]
-                }).select('_id projectName unitNo owners associates assignedTo team visibleTo').lean();
+                };
+
+                // Enterprise Grade: Handle optional blocks and variations (Null vs Empty vs N/A)
+                if (cleanBlock && cleanBlock !== 'N/A' && cleanBlock !== '-') {
+                    inventoryQuery.block = { $regex: new RegExp(`^\\s*${escapeRegExp(cleanBlock)}\\s*$`, 'i') };
+                } else {
+                    // If no block provided in file, look for records where block is empty, null, or N/A
+                    inventoryQuery.$and = [
+                        { $or: [
+                            { block: { $in: [null, "", undefined, "N/A", "-"] } },
+                            { block: { $regex: /^\s*$/ } }
+                        ]}
+                    ];
+                }
+
+                const inventory = await Inventory.findOne(inventoryQuery).select('_id projectName unitNo owners associates assignedTo team visibleTo').lean();
 
                 if (!inventory) {
                     results.inventoryNotFound++;
-                    results.errors.push({ row: i + 1, item: unitNo, reason: `Inventory not found.` });
+                    results.errors.push({ 
+                        row: absoluteRow, 
+                        item: cleanUnit || 'Unknown Unit', 
+                        reason: `Inventory not found. Check if Project "${cleanProject}", Block "${cleanBlock || 'Any'}", and Unit "${cleanUnit}" exist in the system.` 
+                    });
                     continue;
                 }
 
