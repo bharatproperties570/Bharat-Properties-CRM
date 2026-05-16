@@ -1,4 +1,5 @@
 import fs from 'fs';
+import path from 'path';
 import JSZip from 'jszip';
 import BaseConnector from './BaseConnector.js';
 import { parseContent } from '../../src/modules/intake/intakeParser.js';
@@ -10,11 +11,18 @@ class ZipConnector extends BaseConnector {
     }
 
     async process(inputData) {
-        const { filePath, originalName, user_id } = inputData;
+        const { filePath: rawPath, originalName, user_id } = inputData;
+        const filePath = path.isAbsolute(rawPath) ? rawPath : path.resolve(process.cwd(), rawPath);
+        
+        console.log(`[ZipConnector] Processing file: ${filePath}`);
+        console.log(`[ZipConnector] Current Working Directory: ${process.cwd()}`);
+        
+        if (!fs.existsSync(filePath)) {
+            console.error(`[ZipConnector] CRITICAL ERROR: File NOT found at ${filePath}`);
+            throw new Error(`File not found at: ${filePath}`);
+        }
         
         const data = fs.readFileSync(filePath);
-        const zip = new JSZip();
-        const contents = await zip.loadAsync(data);
         
         const extractedTexts = [];
 

@@ -5,7 +5,10 @@ import pdf from 'pdf-parse';
 import path from 'path';
 import { parseContent } from './intakeParser.js';
 import Intake from '../../../models/Intake.js';
+import AutomatedIntakeSource from '../../../models/AutomatedIntakeSource.js';
 import { addToIntakeQueue } from '../../../services/intakeQueue/IntakeQueue.js';
+import automatedIntakeService from '../../../services/intakeQueue/AutomatedIntakeService.js';
+import connectorRegistry from '../../../services/intakeConnectors/ConnectorRegistry.js';
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(process.cwd(), 'uploads');
@@ -67,7 +70,7 @@ export const createIntake = async (req, res) => {
         const { source, content, campaignName } = req.body;
         
         // Directly push to the new Queue architecture
-        const result = await addToIntakeQueue('manual', { text: content, source, campaignName }, req.user?.id);
+        const result = await addToIntakeQueue('manual', { text: content, source, campaignName }, req.user?._id || req.user?.id);
         
         if (!result.success) {
             return res.status(409).json({ success: false, message: result.message, data: { _id: result.intakeId } });
@@ -101,6 +104,8 @@ export const deleteIntake = async (req, res) => {
 export const processOCR = async (req, res) => {
     try {
         if (!req.file) {
+            console.warn("[Intake:OCR] No file in request. Body:", req.body);
+            console.warn("[Intake:OCR] Headers:", req.headers);
             return res.status(400).json({ success: false, message: "No image file uploaded" });
         }
 
@@ -157,6 +162,8 @@ export const processOCR = async (req, res) => {
 export const processZIP = async (req, res) => {
     try {
         if (!req.file) {
+            console.warn("[Intake:ZIP] No file in request. Body:", req.body);
+            console.warn("[Intake:ZIP] Headers:", req.headers);
             return res.status(400).json({ success: false, message: "No ZIP file uploaded" });
         }
 
@@ -164,7 +171,7 @@ export const processZIP = async (req, res) => {
             filePath: req.file.path,
             originalName: req.file.originalname,
             mimeType: req.file.mimetype
-        }, req.user?.id);
+        }, req.user?._id || req.user?.id);
 
         if (!result.success) {
             return res.status(409).json({ success: false, message: result.message, data: { _id: result.intakeId } });
@@ -187,6 +194,8 @@ export const processZIP = async (req, res) => {
 export const processPDF = async (req, res) => {
     try {
         if (!req.file) {
+            console.warn("[Intake:PDF] No file in request. Body:", req.body);
+            console.warn("[Intake:PDF] Headers:", req.headers);
             return res.status(400).json({ success: false, message: "No PDF file uploaded" });
         }
 
@@ -194,7 +203,7 @@ export const processPDF = async (req, res) => {
             filePath: req.file.path,
             originalName: req.file.originalname,
             mimeType: req.file.mimetype
-        }, req.user?.id);
+        }, req.user?._id || req.user?.id);
 
         if (!result.success) {
             return res.status(409).json({ success: false, message: result.message, data: { _id: result.intakeId } });
@@ -216,22 +225,28 @@ export const processPDF = async (req, res) => {
  */
 export const processURL = async (req, res) => {
     try {
-        const { url, source_type = 'public_url' } = req.body;
+        const { url, source = 'Website', source_type = 'public_url' } = req.body;
 
-        if (!url) {
+        if (!url || typeof url !== 'string' || url.trim() === '') {
             return res.status(400).json({ success: false, message: "URL is required" });
+        }
+
+        let urlToProcess = url.trim();
+        if (!urlToProcess.startsWith('http://') && !urlToProcess.startsWith('https://')) {
+            urlToProcess = `https://${urlToProcess}`;
         }
 
         // Basic URL validation
         try {
-            new URL(url);
+            new URL(urlToProcess);
         } catch (e) {
             return res.status(400).json({ success: false, message: "Invalid URL format" });
         }
 
         const result = await addToIntakeQueue(source_type, {
-            url: url
-        }, req.user?.id);
+            url: urlToProcess,
+            source: source
+        }, req.user?._id || req.user?.id);
 
         if (!result.success) {
             return res.status(409).json({ success: false, message: result.message, data: { _id: result.intakeId } });
@@ -247,3 +262,114 @@ export const processURL = async (req, res) => {
         res.status(500).json({ success: false, message: error.message });
     }
 };
+
+/**
+ * Create a new automated intake source (monitor)
+ */
+export const createAutomatedSource = async (req, res) => {
+    try {
+        const { url, source = 'Automated Monitor', frequency = 'daily' } = req.body;
+
+        if (!url || typeof url !== 'string' || url.trim() === '') {
+            return res.status(400).json({ success: false, message: "URL is required" });
+        }
+
+        let urlToProcess = url.trim();
+        if (!urlToProcess.startsWith('http://') && !urlToProcess.startsWith('https://')) {
+            urlToProcess = `https://${urlToProcess}`;
+        }
+
+        // Basic URL validation
+        try {
+            new URL(urlToProcess);
+        } catch (e) {
+            return res.status(400).json({ success: false, message: "Invalid URL format" });
+        }
+
+        const automatedSource = await AutomatedIntakeSource.create({
+            url: urlToProcess,
+            source,
+            frequency,
+            createdBy: req.user?._id || req.user?.id
+        });
+
+        // Schedule the job immediately
+        automatedIntakeService.scheduleSource(automatedSource);
+
+        res.status(201).json({
+            success: true,
+            message: 'Automated monitor created successfully',
+            data: automatedSource
+        });
+    } catch (error) {
+        if (error.code === 11000) {
+            return res.status(409).json({ success: false, message: "You are already monitoring this URL" });
+        }
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+/**
+ * Get all automated intake sources for the current user
+ */
+export const getAutomatedSources = async (req, res) => {
+    try {
+        const sources = await AutomatedIntakeSource.find({ createdBy: req.user?._id || req.user?.id }).sort({ createdAt: -1 });
+        res.status(200).json({ success: true, data: sources });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+/**
+ * Toggle an automated source (active/inactive)
+ */
+export const toggleAutomatedSource = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const source = await AutomatedIntakeSource.findOne({ _id: id, createdBy: req.user?._id || req.user?.id });
+
+        if (!source) {
+            return res.status(404).json({ success: false, message: "Source not found" });
+        }
+
+        source.is_active = !source.is_active;
+        await source.save();
+
+        if (source.is_active) {
+            automatedIntakeService.scheduleSource(source);
+        } else {
+            automatedIntakeService.stopSource(source._id);
+        }
+
+        res.status(200).json({
+            success: true,
+            message: `Monitor ${source.is_active ? 'activated' : 'deactivated'}`,
+            data: source
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+/**
+ * Delete an automated source
+ */
+export const deleteAutomatedSource = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const source = await AutomatedIntakeSource.findOneAndDelete({ _id: id, createdBy: req.user?._id || req.user?.id });
+
+        if (!source) {
+            return res.status(404).json({ success: false, message: "Source not found" });
+        }
+
+        // Stop the scheduled job
+        automatedIntakeService.stopSource(id);
+
+        res.status(200).json({ success: true, message: 'Monitor deleted successfully' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+

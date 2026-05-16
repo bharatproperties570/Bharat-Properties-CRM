@@ -1,6 +1,10 @@
 import express from 'express';
 import { uploadImageOnly, uploadZipOnly, uploadPdfOnly } from '../../middlewares/upload.middleware.js';
-import { processOCR, processZIP, processPDF, processURL, getIntakes, getIntakeById, updateIntakeStatus, createIntake, deleteIntake } from './intake.controller.js';
+import { 
+    processOCR, processZIP, processPDF, processURL, 
+    getIntakes, getIntakeById, updateIntakeStatus, createIntake, deleteIntake,
+    createAutomatedSource, getAutomatedSources, toggleAutomatedSource, deleteAutomatedSource
+} from './intake.controller.js';
 import { authenticate } from "../../../src/middlewares/auth.middleware.js";
 
 const router = express.Router();
@@ -56,5 +60,13 @@ router.post('/pdf', uploadPdfOnly.single('file'), processPDF);
  * @desc    Process a Public URL
  */
 router.post('/url', processURL);
+
+/**
+ * Automated Monitor Routes
+ */
+router.post('/monitors', createAutomatedSource);
+router.get('/monitors', getAutomatedSources);
+router.patch('/monitors/:id/toggle', toggleAutomatedSource);
+router.delete('/monitors/:id', deleteAutomatedSource);
 
 export default router;

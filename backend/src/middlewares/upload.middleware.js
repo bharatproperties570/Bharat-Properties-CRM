@@ -22,7 +22,9 @@ const ALLOWED_MIME_TYPES = {
     'video/x-msvideo': ['.avi'],
     // Archives
     'application/zip': ['.zip'],
-    'application/x-zip-compressed': ['.zip']
+    'application/x-zip-compressed': ['.zip'],
+    'application/x-zip': ['.zip'],
+    'application/octet-stream': ['.zip', '.csv', '.txt']
 };
 
 const storage = multer.diskStorage({

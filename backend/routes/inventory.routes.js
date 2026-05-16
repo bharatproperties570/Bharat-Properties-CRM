@@ -1,5 +1,5 @@
 import express from "express";
-import { getInventory, getInventoryById, addInventory, updateInventory, deleteInventory, bulkDeleteInventory, matchInventory, importInventory, checkDuplicatesImport, bulkUpdatePropertyOwners, getUniqueBlocks } from "../controllers/inventory.controller.js";
+import { getInventory, getInventoryById, addInventory, updateInventory, deleteInventory, bulkDeleteInventory, matchInventory, importInventory, checkDuplicatesImport, bulkUpdatePropertyOwners, getUniqueBlocks, getSuggestedOwners } from "../controllers/inventory.controller.js";
 import { authenticate } from "../src/middlewares/auth.middleware.js";
 
 const router = express.Router();
@@ -9,6 +9,7 @@ router.use(authenticate);
 
 router.get("/match", matchInventory);
 router.get("/blocks", getUniqueBlocks);
+router.get("/:id/suggested-owners", getSuggestedOwners);
 router.get("/:id", getInventoryById);
 router.get("/", getInventory);
 router.put("/:id", updateInventory);

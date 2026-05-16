@@ -3,6 +3,7 @@ import { renderValue } from '../../../utils/renderUtils';
 import { getInitials, fixDriveUrl, getYoutubeId } from '../../../utils/helpers';
 import PropertyOwnerSection from '../../../components/Shared/PropertyOwnerSection';
 import MediaVaultSection from '../../../components/Shared/MediaVaultSection';
+import OwnerSuggestionSection from './OwnerSuggestionSection';
 
 const InventorySidebar = ({
     inventory,
@@ -11,7 +12,8 @@ const InventorySidebar = ({
     onUploadClick,
     onMediaClick,
     onMediaView,
-    activeLeadsCount
+    activeLeadsCount,
+    refresh
 }) => {
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -109,6 +111,11 @@ const InventorySidebar = ({
                     )}
                 </div>
             </div>
+            
+            <OwnerSuggestionSection 
+                inventory={inventory} 
+                onRefresh={refresh}
+            />
 
             {/* Inventory Lifecycle Section */}
             <div style={{ marginTop: '24px', paddingTop: '24px', borderTop: '1px solid #f1f5f9' }}>

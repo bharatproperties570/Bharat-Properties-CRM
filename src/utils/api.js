@@ -233,11 +233,31 @@ const apiRequest = async (endpoint, options = {}) => {
             const axiosConfig = {
                 url,
                 method: options.method || 'GET',
-                data: options.body ? (typeof options.body === 'string' ? JSON.parse(options.body) : options.body) : undefined,
                 params: options.params,
-                headers: options.headers,
+                headers: { ...options.headers },
                 ...options
             };
+
+            // 🛡️ Senior Strategy: Explicitly handle Data and Content-Type
+            const isFormData = options.body instanceof FormData || 
+                               (options.body && typeof options.body === 'object' && options.body.constructor && options.body.constructor.name === 'FormData');
+
+            if (isFormData) {
+                // For FormData, we must ensure Content-Type is undefined so Axios/Browser sets it with boundary
+                console.log(`[API Trace] FormData detected for ${url}`);
+                axiosConfig.headers['Content-Type'] = undefined;
+                axiosConfig.data = options.body;
+            } else if (options.body) {
+                // For JSON or other bodies, normalize to object if string
+                axiosConfig.data = typeof options.body === 'string' ? JSON.parse(options.body) : options.body;
+                if (!axiosConfig.headers['Content-Type']) {
+                    axiosConfig.headers['Content-Type'] = 'application/json';
+                }
+            }
+
+            // Clean up config to prevent Axios from getting confused by extra 'body' or other fetch-only keys
+            delete axiosConfig.body;
+            delete axiosConfig.headers['body']; // Just in case it leaked in via spread
 
             // Remove bodies for GET/DELETE if they were mistakenly passed
             if (['GET', 'HEAD'].includes(axiosConfig.method.toUpperCase())) {
@@ -512,7 +532,7 @@ export const parsingRulesAPI = {
 
 // Intake API
 export const intakeAPI = {
-    getAll: () => apiRequest('/intake'),
+    getIntakes: () => apiRequest('/intake'),
     getById: (id) => apiRequest(`/intake/${id}`),
     createIntake: (data) => apiRequest('/intake', { method: 'POST', body: JSON.stringify(data) }),
     updateStatus: (id, status) => apiRequest(`/intake/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
@@ -531,7 +551,7 @@ export const intakeAPI = {
         formData.append('image', file);
         return apiRequest('/intake/ocr', { method: 'POST', body: formData });
     },
-    processURL: (url) => apiRequest('/intake/url', { method: 'POST', body: JSON.stringify({ url }) }),
+    processURL: (url, source = 'Website') => apiRequest('/intake/url', { method: 'POST', body: JSON.stringify({ url, source }) }),
 };
 
 // Auth API

@@ -327,8 +327,8 @@ export const getInventory = async (req, res) => {
         // Only populate fields that are reliably ObjectIds (Contact references)
         // category, status, etc. in Inventory seem to be stored as objects or strings already
         const populateFields = [
-            { path: "owners", select: "name phones" },
-            { path: "associates.contact", select: "name phones" },
+            { path: "owners", select: "name phones emails title personalAddress correspondenceAddress" },
+            { path: "associates.contact", select: "name phones emails title personalAddress correspondenceAddress" },
             { path: "projectId" },
             { path: "team", select: "name" },
             { path: "teams", select: "name" },
@@ -497,7 +497,7 @@ export const getInventory = async (req, res) => {
             if (Array.isArray(itemObj.teams)) itemObj.teams.forEach(t => { if (t && mongoose.Types.ObjectId.isValid(t)) uniqueTeamIds.add(t.toString()); });
             if (itemObj.projectId && mongoose.Types.ObjectId.isValid(itemObj.projectId)) uniqueProjectIds.add(itemObj.projectId.toString());
 
-            // Address lookups
+            // Address lookups (Inventory)
             if (itemObj.address) {
                 const addrFields = ['city', 'state', 'locality', 'area', 'location', 'pincode', 'tehsil', 'postOffice'];
                 addrFields.forEach(f => {
@@ -505,6 +505,23 @@ export const getInventory = async (req, res) => {
                     if (val && mongoose.Types.ObjectId.isValid(val)) uniqueLookupIds.add(val.toString());
                 });
             }
+
+            // Contact Address lookups (Owners & Associates)
+            const resolveContactAddrs = (contact) => {
+                if (!contact) return;
+                const addrFields = ['city', 'state', 'locality', 'area', 'location', 'pincode', 'pinCode', 'tehsil', 'postOffice'];
+                ['personalAddress', 'correspondenceAddress'].forEach(addrType => {
+                    if (contact[addrType]) {
+                        addrFields.forEach(f => {
+                            const val = contact[addrType][f];
+                            if (val && mongoose.Types.ObjectId.isValid(val)) uniqueLookupIds.add(val.toString());
+                        });
+                    }
+                });
+            };
+
+            if (Array.isArray(itemObj.owners)) itemObj.owners.forEach(resolveContactAddrs);
+            if (Array.isArray(itemObj.associates)) itemObj.associates.forEach(a => resolveContactAddrs(a.contact));
         });
 
         const [lookups, users, teams, projects] = await Promise.all([
@@ -558,15 +575,30 @@ export const getInventory = async (req, res) => {
             });
 
             // Hydrate Address
-            if (itemObj.address) {
+            const hydrateAddr = (addrObj) => {
+                if (!addrObj) return;
                 const addrFields = ['city', 'state', 'locality', 'area', 'location', 'pincode', 'tehsil', 'postOffice'];
                 addrFields.forEach(f => {
-                    const val = itemObj.address[f];
+                    const val = addrObj[f];
                     if (val && mongoose.Types.ObjectId.isValid(val)) {
-                        itemObj.address[f] = lookupMap.get(val.toString()) || val;
+                        addrObj[f] = lookupMap.get(val.toString()) || val;
                     }
                 });
-            }
+            };
+
+            if (itemObj.address) hydrateAddr(itemObj.address);
+
+            // Hydrate Contact Addresses
+            if (Array.isArray(itemObj.owners)) itemObj.owners.forEach(o => {
+                hydrateAddr(o.personalAddress);
+                hydrateAddr(o.correspondenceAddress);
+            });
+            if (Array.isArray(itemObj.associates)) itemObj.associates.forEach(a => {
+                if (a.contact) {
+                    hydrateAddr(a.contact.personalAddress);
+                    hydrateAddr(a.contact.correspondenceAddress);
+                }
+            });
 
             // Hydrate Relational
             if (itemObj.assignedTo && mongoose.Types.ObjectId.isValid(itemObj.assignedTo)) itemObj.assignedTo = userMap.get(itemObj.assignedTo.toString()) || itemObj.assignedTo;
@@ -2277,5 +2309,133 @@ export const getUniqueBlocks = async (req, res) => {
     } catch (error) {
         console.error("[GET_BLOCKS_ERROR]", error);
         res.status(500).json({ success: false, error: "Failed to fetch blocks" });
+    }
+};
+
+/**
+ * Enterprise Elite Suggested Owners Engine v2
+ * High-performance, secure, and fuzzy matching for property stakeholders.
+ */
+export const getSuggestedOwners = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const inventory = await Inventory.findById(id).lean();
+        if (!inventory) return res.status(404).json({ success: false, message: "Inventory not found" });
+
+        // 1. [NORMALIZATION] Prepare search vectors
+        const unitRaw = (inventory.unitNo || inventory.unitNumber || "").trim();
+        if (!unitRaw) return res.status(200).json({ success: true, data: [] });
+
+        // Fuzzy unit pattern: Matches "101" in "101", "A-101", "101/B", "Flat 101"
+        const fuzzyUnitPattern = new RegExp(`.*${escapeRegExp(unitRaw)}.*`, 'i');
+        
+        const existingContactIds = [
+            ...(inventory.owners || []),
+            ...(inventory.associates || []).map(a => a.contact)
+        ].map(c => c?.toString()).filter(Boolean);
+
+        // 2. [SECURITY] Apply Hardened Visibility Filters
+        const visibilityFilter = await getVisibilityFilter(req.user);
+
+        const searchQueries = [];
+
+        // Logic A: Unit + City (High Confidence)
+        if (inventory.address?.city) {
+            searchQueries.push({
+                $or: [
+                    { 'personalAddress.hNo': { $regex: fuzzyUnitPattern }, 'personalAddress.city': inventory.address.city },
+                    { 'correspondenceAddress.hNo': { $regex: fuzzyUnitPattern }, 'correspondenceAddress.city': inventory.address.city }
+                ]
+            });
+        }
+
+        // Logic B: Unit + Location/Area/Project Context (Intelligence Fallback)
+        const locationVal = inventory.address?.location || inventory.address?.area || inventory.address?.locality || inventory.projectName;
+        if (locationVal) {
+            searchQueries.push({
+                $or: [
+                    { 
+                        'personalAddress.hNo': { $regex: fuzzyUnitPattern }, 
+                        $or: [
+                            { 'personalAddress.location': locationVal },
+                            { 'personalAddress.area': locationVal },
+                            { 'personalAddress.locality': locationVal }
+                        ] 
+                    },
+                    { 
+                        'correspondenceAddress.hNo': { $regex: fuzzyUnitPattern }, 
+                        $or: [
+                            { 'correspondenceAddress.location': locationVal },
+                            { 'correspondenceAddress.area': locationVal },
+                            { 'correspondenceAddress.locality': locationVal }
+                        ] 
+                    }
+                ]
+            });
+        }
+
+        if (searchQueries.length === 0) return res.status(200).json({ success: true, data: [] });
+
+        // 3. [EXECUTION] Secure Query with exclusions
+        const suggestedContacts = await Contact.find({ 
+            $and: [
+                { $or: searchQueries },
+                { _id: { $nin: existingContactIds } },
+                visibilityFilter
+            ]
+        })
+        .select('name phones emails personalAddress correspondenceAddress title visibleTo assignedTo assignment teams')
+        .limit(10)
+        .lean();
+
+        // 4. [HYDRATION] Resolve all lookup references for UI parity
+        const uniqueLookupIds = new Set();
+        suggestedContacts.forEach(c => {
+            const addrFields = ['city', 'state', 'locality', 'area', 'location', 'pincode', 'pinCode', 'tehsil', 'postOffice'];
+            ['personalAddress', 'correspondenceAddress'].forEach(type => {
+                if (c[type]) {
+                    addrFields.forEach(f => {
+                        const val = c[type][f];
+                        if (val && mongoose.Types.ObjectId.isValid(val)) uniqueLookupIds.add(val.toString());
+                    });
+                }
+            });
+            if (c.title && mongoose.Types.ObjectId.isValid(c.title)) uniqueLookupIds.add(c.title.toString());
+        });
+
+        const lookups = uniqueLookupIds.size > 0 
+            ? await Lookup.find({ _id: { $in: [...uniqueLookupIds] } }).select('lookup_value').lean() 
+            : [];
+        const lookupMap = new Map(lookups.map(l => [l._id.toString(), l.lookup_value]));
+
+        // 5. [SCORING] Finalize Data & Rank by matching vectors
+        const finalData = suggestedContacts.map(c => {
+            const cObj = { ...c };
+            const hydrate = (addr) => {
+                if (!addr) return;
+                const addrFields = ['city', 'state', 'locality', 'area', 'location', 'pincode', 'pinCode', 'tehsil', 'postOffice'];
+                addrFields.forEach(f => {
+                    const val = addr[f];
+                    if (val && mongoose.Types.ObjectId.isValid(val)) addr[f] = lookupMap.get(val.toString()) || val;
+                });
+            };
+            hydrate(cObj.personalAddress);
+            hydrate(cObj.correspondenceAddress);
+            if (cObj.title && mongoose.Types.ObjectId.isValid(cObj.title)) cObj.title = lookupMap.get(cObj.title.toString()) || cObj.title;
+            
+            // Intelligence Scoring (Internal UI hint)
+            let score = 0;
+            const hNo = (cObj.personalAddress?.hNo || cObj.correspondenceAddress?.hNo || "").toString();
+            if (hNo === unitRaw) score += 50; // Exact H.No Match
+            else if (hNo.includes(unitRaw)) score += 30; // Partial Match
+            
+            cObj.matchConfidence = score;
+            return cObj;
+        }).sort((a, b) => b.matchConfidence - a.matchConfidence);
+
+        res.status(200).json({ success: true, data: finalData });
+    } catch (error) {
+        console.error("[ENTERPRISE_SUGGESTED_OWNERS_ERROR]", error);
+        res.status(500).json({ success: false, error: error.message });
     }
 };

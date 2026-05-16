@@ -94,6 +94,15 @@ app.use(cors({
     optionsSuccessStatus: 204
 }));
 
+// 🛡️ Debug Middleware: Trace incoming multipart/form-data headers
+app.use((req, res, next) => {
+    if (req.originalUrl.includes('/intake')) {
+        console.log(`[Intake Trace] ${req.method} ${req.originalUrl}`);
+        console.log(`[Intake Trace] Content-Type: ${req.headers['content-type']}`);
+    }
+    next();
+});
+
 app.use(compression());
 app.use(express.json({ limit: "10mb" }));
 app.use(cookieParser());

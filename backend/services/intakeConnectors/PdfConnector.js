@@ -1,4 +1,5 @@
 import fs from 'fs';
+import path from 'path';
 import pdf from 'pdf-parse';
 import BaseConnector from './BaseConnector.js';
 import { parseContent } from '../../src/modules/intake/intakeParser.js';
@@ -11,10 +12,19 @@ class PdfConnector extends BaseConnector {
 
     async process(inputData) {
         // inputData should contain the path to the uploaded PDF
-        const { filePath, originalName, user_id } = inputData;
+        const { filePath: rawPath, originalName, user_id } = inputData;
+        const filePath = path.isAbsolute(rawPath) ? rawPath : path.resolve(process.cwd(), rawPath);
+
+        console.log(`[PdfConnector] Processing file: ${filePath}`);
+        console.log(`[PdfConnector] Current Working Directory: ${process.cwd()}`);
+        
+        if (!fs.existsSync(filePath)) {
+            console.error(`[PdfConnector] CRITICAL ERROR: File NOT found at ${filePath}`);
+            throw new Error(`File not found at: ${filePath}`);
+        }
         
         const dataBuffer = fs.readFileSync(filePath);
-        const data = await pdf(filePath);
+        const data = await pdf(dataBuffer);
         
         const extractedText = data.text;
         const metadata = data.info || {};

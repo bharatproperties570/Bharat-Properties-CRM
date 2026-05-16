@@ -20,6 +20,7 @@ import "./workers/cronWorker.js";
 import "./workers/googleSyncWorker.js";
 import "./workers/marketingWorker.js"; 
 import "../services/intakeQueue/IntakeQueue.js"; // Unified Intake Queue Worker
+import automatedIntakeService from "../services/intakeQueue/AutomatedIntakeService.js";
 import googleDiscoveryService from "../services/discovery/GoogleDiscoveryService.js";
 import NurtureBot from "../services/NurtureBot.js";
 import { ensureRedisRunning } from "./utils/redisLauncher.js";
@@ -44,6 +45,7 @@ async function startServer() {
         await connectDB();
         // Initialize background tasks after DB is ready
         googleDiscoveryService.initialize();
+        automatedIntakeService.initialize();
     } catch (dbErr) {
         console.error("⚠️ MongoDB Connection Error:", dbErr.message);
     }

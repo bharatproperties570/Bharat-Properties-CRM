@@ -315,6 +315,7 @@ export default function InventoryDetailPage({ inventoryId, onBack, onAddActivity
                             console.log('Parent onMediaView called with:', data);
                             setMediaViewer({ isOpen: true, data });
                         }}
+                        refresh={refresh}
                     />
                 </div>
             </main>

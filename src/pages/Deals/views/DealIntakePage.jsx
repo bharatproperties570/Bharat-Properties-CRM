@@ -26,6 +26,8 @@ const DealIntakePage = () => {
 
     // New Intake State
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+    const [isMonitorModalOpen, setIsMonitorModalOpen] = useState(false);
+    const [monitoredSources, setMonitoredSources] = useState([]);
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [isImporting, setIsImporting] = useState(false);
     const [selectedFile, setSelectedFile] = useState(null); // New state for 2-step import
@@ -34,6 +36,7 @@ const DealIntakePage = () => {
 
     // Campaign Details State
     const [campaignName, setCampaignName] = useState('');
+    const [isAutomated, setIsAutomated] = useState(false);
     const [campaignSource, setCampaignSource] = useState('WhatsApp');
     // const [campaignDate, setCampaignDate] = useState('');
     const [contentInputMode, setContentInputMode] = useState('paste'); // 'paste' or 'import'
@@ -79,20 +82,57 @@ const DealIntakePage = () => {
 
     // ===== DUPLICATE DETECTION & DATA PERSISTENCE UTILITIES =====
 
-    // Load intake history from backend
-    const loadIntakeHistory = useCallback(async () => {
+    const loadIntakeHistory = async () => {
         try {
-            const response = await intakeAPI.getAll();
+            const response = await intakeAPI.getIntakes();
             if (response.success) {
-                setIntakeItems(response.data);
+                setIntakeItems(response.data.map(item => ({
+                    ...item,
+                    id: item._id
+                })));
                 setIntakeLoadError(null);
             }
         } catch (error) {
-            console.error('Error loading intake history:', error);
-            setIntakeLoadError(error.message);
-            toast.error('Failed to load intake history');
+            console.error(error);
+            setIntakeLoadError(error.message || "Failed to connect to backend");
         }
-    }, []);
+    };
+
+    const loadMonitoredSources = async () => {
+        try {
+            const response = await api.get('/intake/monitors');
+            if (response.data.success) {
+                setMonitoredSources(response.data.data);
+            }
+        } catch (error) {
+            console.error("Failed to load monitored sources", error);
+        }
+    };
+
+    const handleToggleMonitor = async (id) => {
+        try {
+            const response = await api.patch(`/intake/monitors/${id}/toggle`);
+            if (response.data.success) {
+                toast.success(response.data.message);
+                loadMonitoredSources();
+            }
+        } catch (error) {
+            toast.error("Failed to toggle monitor");
+        }
+    };
+
+    const handleDeleteMonitor = async (id) => {
+        if (!window.confirm("Are you sure you want to stop monitoring this URL?")) return;
+        try {
+            const response = await api.delete(`/intake/monitors/${id}`);
+            if (response.data.success) {
+                toast.success("Monitor deleted");
+                loadMonitoredSources();
+            }
+        } catch (error) {
+            toast.error("Failed to delete monitor");
+        }
+    };
 
     // Check if intake is duplicate based on property details (95% match)
 
@@ -428,22 +468,45 @@ const DealIntakePage = () => {
             return;
         }
 
+        let urlToProcess = newSourceContent.trim();
+        
+        // 🛡️ Senior Strategy: Auto-fix common protocol typos (e.g. https//: -> https://)
+        if (urlToProcess.includes('//:')) {
+            urlToProcess = urlToProcess.replace('//:', '://');
+        }
+
+        // Auto-prepend https:// if protocol is missing (e.g. www.99acres.com -> https://www.99acres.com)
+        if (!urlToProcess.match(/^[a-zA-Z]+:\/\//) && urlToProcess.length > 3) {
+            urlToProcess = 'https://' + urlToProcess;
+        }
+
         try {
-            new URL(newSourceContent);
+            new URL(urlToProcess);
         } catch {
-            toast.error('Invalid URL format');
+            toast.error('Invalid URL format. Please enter a valid website link.');
             return;
         }
 
-        const toastId = toast.loading('Fetching URL via backend queue...');
+        const toastId = toast.loading(isAutomated ? 'Setting up automated monitor...' : 'Fetching URL via backend queue...');
         try {
-            const response = await intakeAPI.processURL(newSourceContent);
+            let response;
+            if (isAutomated) {
+                // Call the new automated monitor endpoint
+                response = await api.post('/intake/monitors', {
+                    url: urlToProcess,
+                    source: campaignSource || 'Website',
+                    frequency: 'daily'
+                });
+            } else {
+                response = await intakeAPI.processURL(urlToProcess, campaignSource || 'Website');
+            }
             
-            if (response.success) {
-                toast.success('URL queued for processing!', { id: toastId });
+            if (response.data?.success || response.success) {
+                toast.success(isAutomated ? 'Automated Monitor active! Checking daily.' : 'URL queued for processing!', { id: toastId });
                 setNewSourceContent('');
                 setCampaignName('');
                 setCampaignSource('Website');
+                setIsAutomated(false);
                 setIsAddModalOpen(false);
                 loadIntakeHistory(); // Refresh queue view
             }
@@ -877,6 +940,26 @@ const DealIntakePage = () => {
                             <i className="fas fa-sync-alt" style={{ color: '#64748b' }}></i>
                         </button>
                         <button
+                            onClick={() => {
+                                loadMonitoredSources();
+                                setIsMonitorModalOpen(true);
+                            }}
+                            title="Monitored URLs"
+                            style={{
+                                background: '#f5f3ff',
+                                border: '1px solid #ddd6fe',
+                                borderRadius: '50%',
+                                width: '32px',
+                                height: '32px',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                            }}
+                        >
+                            <i className="fas fa-redo-alt" style={{ color: '#8b5cf6' }}></i>
+                        </button>
+                        <button
                             onClick={() => setIsAddModalOpen(true)}
                             title="Add Intake"
                             style={{
@@ -1030,7 +1113,17 @@ const DealIntakePage = () => {
                                         )}
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                        <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>{new Date(item.receivedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                        <div style={{ textAlign: 'right' }}>
+                                            <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600 }}>
+                                                {new Date(item.receivedAt || item.createdAt).toLocaleDateString([], { day: '2-digit', month: 'short' })}
+                                            </div>
+                                            <div style={{ fontSize: '0.65rem', color: '#cbd5e1' }}>
+                                                {new Date(item.receivedAt || item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            </div>
+                                        </div>
+                                        {item.status === 'Failed' && (
+                                            <span style={{ fontSize: '0.6rem', background: '#fee2e2', color: '#ef4444', padding: '2px 4px', borderRadius: '4px', fontWeight: 900 }}>FAILED</span>
+                                        )}
                                         <button
                                             onClick={async (e) => {
                                                 e.stopPropagation();
@@ -2101,6 +2194,19 @@ const DealIntakePage = () => {
                                         <p style={{ fontSize: '0.75rem', color: '#6d28d9', marginTop: '10px', lineHeight: '1.4' }}>
                                             The system will fetch the HTML, clean it, and run AI extraction to build the intake record automatically.
                                         </p>
+                                        <div style={{ marginTop: '12px', padding: '10px', background: '#fff', borderRadius: '8px', border: '1px solid #ddd6fe', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                            <input 
+                                                type="checkbox" 
+                                                id="autoMonitor" 
+                                                checked={isAutomated} 
+                                                onChange={e => setIsAutomated(e.target.checked)} 
+                                                style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                                            />
+                                            <label htmlFor="autoMonitor" style={{ fontSize: '0.85rem', fontWeight: 700, color: '#4c1d95', cursor: 'pointer' }}>
+                                                <i className="fas fa-redo-alt" style={{ marginRight: '6px' }}></i>
+                                                Auto-Monitor Daily (Daily New Deals)
+                                            </label>
+                                        </div>
                                     </div>
                                 ) : (
                                     <div style={{ padding: '30px', border: '2px dashed #cbd5e1', borderRadius: '12px', textAlign: 'center', background: '#f8fafc' }}>
@@ -2279,6 +2385,72 @@ const DealIntakePage = () => {
                 initialData={prefilledContactData}
                 mode="add"
             />
+
+            {/* Monitored Sources Modal */}
+            {isMonitorModalOpen && (
+                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+                    <div style={{ background: '#fff', width: '600px', borderRadius: '16px', padding: '30px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                            <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: '#1e293b' }}>
+                                <i className="fas fa-redo-alt" style={{ color: '#8b5cf6', marginRight: '10px' }}></i>
+                                Daily Monitored URLs
+                            </h3>
+                            <button onClick={() => setIsMonitorModalOpen(false)} style={{ background: 'none', border: 'none', fontSize: '1.2rem', color: '#64748b', cursor: 'pointer' }}>
+                                <i className="fas fa-times"></i>
+                            </button>
+                        </div>
+
+                        <div style={{ maxHeight: '400px', overflowY: 'auto', marginBottom: '20px' }}>
+                            {monitoredSources.length === 0 ? (
+                                <div style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>
+                                    <i className="fas fa-link" style={{ fontSize: '2rem', opacity: 0.2, marginBottom: '10px' }}></i>
+                                    <p>No URLs are being monitored currently.</p>
+                                    <p style={{ fontSize: '0.8rem' }}>Add a URL and check "Auto-Monitor Daily" to see it here.</p>
+                                </div>
+                            ) : (
+                                monitoredSources.map(source => (
+                                    <div key={source._id} style={{ padding: '15px', border: '1px solid #e2e8f0', borderRadius: '12px', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '15px', background: source.is_active ? '#fff' : '#f8fafc' }}>
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ fontWeight: 700, color: source.is_active ? '#1e293b' : '#94a3b8', fontSize: '0.9rem', marginBottom: '4px' }}>{source.source}</div>
+                                            <div style={{ fontSize: '0.75rem', color: '#64748b', wordBreak: 'break-all' }}>{source.url}</div>
+                                            <div style={{ marginTop: '8px', display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                                <span style={{ fontSize: '0.65rem', padding: '2px 6px', borderRadius: '4px', background: '#f1f5f9', color: '#475569', fontWeight: 700 }}>DAILY</span>
+                                                {source.last_run_at && (
+                                                    <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>Last run: {new Date(source.last_run_at).toLocaleString()}</span>
+                                                )}
+                                                {source.last_run_status === 'failed' && (
+                                                    <span title={source.error_log?.[source.error_log.length - 1]?.message} style={{ fontSize: '0.65rem', color: '#ef4444', fontWeight: 700 }}><i className="fas fa-exclamation-triangle"></i> FAILED</span>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                            <button 
+                                                onClick={() => handleToggleMonitor(source._id)}
+                                                style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', background: source.is_active ? '#dcfce7' : '#fee2e2', color: source.is_active ? '#166534' : '#ef4444', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}
+                                            >
+                                                {source.is_active ? 'ACTIVE' : 'PAUSED'}
+                                            </button>
+                                            <button 
+                                                onClick={() => handleDeleteMonitor(source._id)}
+                                                style={{ width: '30px', height: '30px', borderRadius: '6px', border: '1px solid #fee2e2', background: '#fff', color: '#ef4444', cursor: 'pointer' }}
+                                            >
+                                                <i className="fas fa-trash-alt"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+
+                        <button 
+                            onClick={() => setIsMonitorModalOpen(false)}
+                            style={{ width: '100%', padding: '12px', borderRadius: '8px', border: 'none', background: '#3b82f6', color: '#fff', fontWeight: 700, cursor: 'pointer' }}
+                        >
+                            Done
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* Upload Summary Modal */}
             <UploadSummaryModal

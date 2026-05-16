@@ -14,6 +14,42 @@ const InventoryTable = ({
     getTeamName
 }) => {
     const isAllSelected = inventoryItems.length > 0 && selectedIds.length === inventoryItems.length;
+    
+    const renderContactAddress = (contact) => {
+        if (!contact) return null;
+        // Check personalAddress then correspondenceAddress
+        const addr = contact.personalAddress || contact.correspondenceAddress;
+        if (!addr) return null;
+        
+        const parts = [
+            addr.hNo,
+            addr.street,
+            resolveInventoryLookup(addr.locality, 'Locality') || resolveInventoryLookup(addr.location, 'Location') || renderValue(addr.area),
+            resolveInventoryLookup(addr.tehsil, 'Tehsil'),
+            resolveInventoryLookup(addr.postOffice, 'PostOffice'),
+            resolveInventoryLookup(addr.city, 'City'),
+            resolveInventoryLookup(addr.pincode || addr.pinCode, 'Pincode')
+        ].filter(Boolean);
+        
+        if (parts.length === 0) return null;
+        return (
+            <div style={{ 
+                fontSize: '0.62rem', 
+                color: '#64748b', 
+                marginTop: '1px', 
+                lineHeight: 1.2,
+                fontWeight: 600,
+                fontStyle: 'italic',
+                maxWidth: '220px',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis'
+            }} title={parts.join(', ')}>
+                <i className="fas fa-map-marker-alt" style={{ fontSize: '0.55rem', marginRight: '3px', opacity: 0.7 }}></i>
+                {parts.join(', ')}
+            </div>
+        );
+    };
 
     return (
         <div className="table-wrapper" style={{ height: 'calc(100vh - 250px)', display: 'flex', flexDirection: 'column' }}>
@@ -218,6 +254,7 @@ const InventoryTable = ({
                                     <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#1e293b' }}>
                                         {renderValue(item.owners?.[0]?.phones?.[0]?.number) || renderValue(item.ownerPhone) || ''}
                                     </div>
+                                    {renderContactAddress(item.owners?.[0])}
                                 </div>
 
                                 {/* Col 6: Associate Contact */}
@@ -230,6 +267,7 @@ const InventoryTable = ({
                                             <div style={{ fontSize: '0.7rem', color: '#2563eb', fontWeight: 700 }}>
                                                 {renderValue(item.associates[0]?.contact?.phones?.[0]?.number) || renderValue(item.associates[0]?.mobile) || ''}
                                             </div>
+                                            {renderContactAddress(item.associates[0]?.contact)}
                                         </>
                                     ) : (
                                         <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontStyle: 'italic' }}>--</div>

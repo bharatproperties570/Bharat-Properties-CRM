@@ -25,6 +25,7 @@ export const addToIntakeQueue = async (sourceType, rawData, userId = null) => {
 
     // 1. Create a "Queued" record in MongoDB
     const intakeRecord = new Intake({
+        source: rawData.source || 'Other',
         source_type: sourceType,
         status: 'Queued',
         raw_source_data: rawData,
@@ -54,6 +55,9 @@ const intakeWorker = new Worker('UnifiedIntakeQueue', async job => {
     if (!intake) return;
 
     try {
+        console.log(`[UnifiedIntake] Processing Job ${job.id} | Intake: ${intakeId} | Type: ${sourceType}`);
+        console.log(`[UnifiedIntake] Raw Data:`, JSON.stringify(rawData));
+
         // 1. Update status to Processing
         intake.status = 'Processing';
         intake.processing_attempts += 1;

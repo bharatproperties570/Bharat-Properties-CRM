@@ -20,14 +20,19 @@ class ConnectorRegistry {
 
     register(connectorInstance) {
         if (!connectorInstance.sourceType) {
+            console.error("[ConnectorRegistry] Attempted to register connector without sourceType:", connectorInstance);
             throw new Error("Connector must have a sourceType property");
         }
+        console.log(`[ConnectorRegistry] Registered connector for: ${connectorInstance.sourceType}`);
         this.connectors.set(connectorInstance.sourceType, connectorInstance);
     }
 
     getConnector(sourceType) {
+        console.log(`[ConnectorRegistry] Fetching connector for: ${sourceType}`);
+        console.log(`[ConnectorRegistry] Registered types:`, Array.from(this.connectors.keys()));
         const connector = this.connectors.get(sourceType);
         if (!connector) {
+            console.error(`[ConnectorRegistry] CRITICAL: No connector found for ${sourceType}`);
             throw new Error(`No connector registered for source_type: ${sourceType}`);
         }
         return connector;
