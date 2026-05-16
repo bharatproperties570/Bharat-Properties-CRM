@@ -169,7 +169,11 @@ const InventoryTable = ({
                                         </div>
                                         <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#2563eb', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                             <i className="fas fa-expand-arrows-alt" style={{ fontSize: '0.65rem' }}></i>
-                                            {renderValue(resolveInventoryLookup(item.sizeConfig, 'Size')) || renderValue(item.sizeLabel) || `${renderValue(item.size)} ${renderValue(item.sizeUnit) || (typeof item.size === 'object' ? renderValue(item.size?.unit) : '')}`}
+                                            {renderValue(
+                                                resolveInventoryLookup(item.sizeConfig, 'Size') || 
+                                                item.sizeLabel || 
+                                                (typeof item.size === 'object' ? (item.size?.value ? `${item.size.value} ${item.size.unit || ''}` : null) : item.size)
+                                            )}
                                         </div>
                                     </div>
                                 </div>
