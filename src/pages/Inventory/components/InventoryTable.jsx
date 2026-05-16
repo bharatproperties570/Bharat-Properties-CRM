@@ -171,6 +171,9 @@ const InventoryTable = ({
                                             <i className="fas fa-expand-arrows-alt" style={{ fontSize: '0.65rem' }}></i>
                                             {renderValue(
                                                 resolveInventoryLookup(item.sizeConfig, 'Size') || 
+                                                resolveInventoryLookup(item.sizeType, 'PropertyType') ||
+                                                resolveInventoryLookup(item.sizeLabel, 'Size') ||
+                                                resolveInventoryLookup(item.sizeLabel, 'PropertyType') ||
                                                 item.sizeLabel || 
                                                 (typeof item.size === 'object' ? (item.size?.value ? `${item.size.value} ${item.size.unit || ''}` : null) : item.size)
                                             )}
