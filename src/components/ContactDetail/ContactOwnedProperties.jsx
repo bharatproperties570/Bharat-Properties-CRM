@@ -72,10 +72,13 @@ const ContactOwnedProperties = React.memo(function ContactOwnedProperties({
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' }}>
                                             <div>
                                                 <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a', wordBreak: 'break-word', minWidth: '0' }}>
-                                                    {(renderValue(prop.unitNumber) || renderValue(prop.unitNo)) && `Unit #${renderValue(prop.unitNumber) || renderValue(prop.unitNo)} • `}{renderLookup(prop.projectId) || renderLookup(prop.projectName) || 'Property'} {prop.block && `(Block: ${renderLookup(prop.block)})`}
+                                                    {(renderValue(prop.unitNumber) || renderValue(prop.unitNo)) && `Unit #${renderValue(prop.unitNumber) || renderValue(prop.unitNo)} • `}{renderLookup(prop.projectId) || renderLookup(prop.projectName) || 'Property'}{prop.block && String(prop.block).trim() !== 'null' && String(prop.block).trim() !== 'undefined' && ` (Block: ${renderLookup(prop.block)})`}
                                                 </div>
                                                 <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600, wordBreak: 'break-word', minWidth: '0' }}>
-                                                    {renderLookup(prop.subCategory) || renderLookup(prop.category) || renderLookup(prop.type)} • {renderLookup(prop.location) || renderLookup(prop.area) || renderValue(prop.locArea)}
+                                                    {[
+                                                        renderLookup(prop.subCategory) || renderLookup(prop.category) || renderLookup(prop.type),
+                                                        renderLookup(prop.location) || renderLookup(prop.area) || renderValue(prop.locArea)
+                                                    ].filter(val => val && String(val).trim() !== '-' && String(val).trim() !== 'null' && String(val).trim() !== 'undefined').join(' • ') || 'General Property Details'}
                                                 </div>
                                             </div>
                                             <span style={{

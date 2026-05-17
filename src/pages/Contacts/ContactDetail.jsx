@@ -750,7 +750,7 @@ const ContactDetail = ({ contactId, onBack }) => {
                                 ownedProperties={ownedProperties}
                                 setIsInventoryModalOpen={setIsInventoryModalOpen}
                                 renderValue={renderValue}
-                                renderLookup={getLookupValue}
+                                renderLookup={renderLookup}
                             />
                         ) : isMobile && activeTab === 'deals' ? (
                             <ContactRelatedDeals
@@ -764,7 +764,7 @@ const ContactDetail = ({ contactId, onBack }) => {
                                 showNotification={showNotification}
                                 activeDeals={activeDeals}
                                 setIsAddDealModalOpen={setIsAddDealModalOpen}
-                                renderLookup={getLookupValue}
+                                renderLookup={renderLookup}
                             />
                         ) : (
                             <>
@@ -795,7 +795,7 @@ const ContactDetail = ({ contactId, onBack }) => {
                                         showNotification={showNotification}
                                         activeDeals={activeDeals}
                                         setIsAddDealModalOpen={setIsAddDealModalOpen}
-                                        renderLookup={getLookupValue}
+                                        renderLookup={renderLookup}
                                     />
                                 </div>
 
@@ -806,7 +806,7 @@ const ContactDetail = ({ contactId, onBack }) => {
                                         ownedProperties={ownedProperties}
                                         setIsInventoryModalOpen={setIsInventoryModalOpen}
                                         renderValue={renderValue}
-                                        renderLookup={getLookupValue}
+                                        renderLookup={renderLookup}
                                     />
                                 </div>
                             </>
@@ -832,7 +832,7 @@ const ContactDetail = ({ contactId, onBack }) => {
                             toggleSection={toggleSection}
                             contactDocuments={contactDocuments}
                             setIsDocumentModalOpen={setIsDocumentModalOpen}
-                            renderLookup={getLookupValue}
+                            renderLookup={renderLookup}
                         />
 
 

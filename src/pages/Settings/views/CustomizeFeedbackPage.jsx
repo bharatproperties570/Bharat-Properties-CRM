@@ -238,7 +238,7 @@ const CustomizeFeedbackPage = ({ isEmbedded }) => {
                                         </button>
                                     </div>
 
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
                                         <div>
                                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                                                 <label style={{ ...labelStyle, marginBottom: 0 }}>Smart Message</label>
@@ -280,6 +280,7 @@ const CustomizeFeedbackPage = ({ isEmbedded }) => {
                                                     ].map(ch => (
                                                         <button
                                                             key={ch.id}
+                                                            type="button"
                                                             onClick={() => updateRule(ch.id, !rule[ch.id])}
                                                             style={glowButtonStyle(!!rule[ch.id], ch.color)}
                                                             title={`Default ${ch.title} ON`}
@@ -298,6 +299,44 @@ const CustomizeFeedbackPage = ({ isEmbedded }) => {
                                                 <option value="None">None (End Cycle)</option>
                                                 {(masterFields.followUpActions || []).map(a => <option key={a} value={a}>{a}</option>)}
                                             </select>
+                                        </div>
+                                        <div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                                <label style={{ ...labelStyle, marginBottom: 0 }}>Property Status</label>
+                                                <div style={{ display: 'flex', gap: '6px' }}>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => updateRule('inventoryStatus', rule.inventoryStatus === 'Active' ? undefined : 'Active')}
+                                                        style={glowButtonStyle(rule.inventoryStatus === 'Active', '#10b981')}
+                                                        title="Set Property Status to Active"
+                                                    >
+                                                        <i className="fas fa-check"></i>
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => updateRule('inventoryStatus', rule.inventoryStatus === 'InActive' ? undefined : 'InActive')}
+                                                        style={glowButtonStyle(rule.inventoryStatus === 'InActive', '#ef4444')}
+                                                        title="Set Property Status to Inactive"
+                                                    >
+                                                        <i className="fas fa-ban"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div style={{
+                                                padding: '10px 12px',
+                                                borderRadius: '8px',
+                                                background: rule.inventoryStatus ? (rule.inventoryStatus === 'Active' ? '#ecfdf5' : '#fef2f2') : '#f8fafc',
+                                                border: `1px solid ${rule.inventoryStatus ? (rule.inventoryStatus === 'Active' ? '#d1fae5' : '#fee2e2') : '#e2e8f0'}`,
+                                                color: rule.inventoryStatus ? (rule.inventoryStatus === 'Active' ? '#047857' : '#b91c1c') : '#94a3b8',
+                                                fontSize: '0.8rem',
+                                                fontWeight: 800,
+                                                textAlign: 'center',
+                                                textTransform: 'uppercase',
+                                                letterSpacing: '0.05em',
+                                                transition: 'all 0.3s ease'
+                                            }}>
+                                                {rule.inventoryStatus ? `${rule.inventoryStatus} Outcome` : 'Default Status'}
+                                            </div>
                                         </div>
                                     </div>
 

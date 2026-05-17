@@ -162,11 +162,12 @@ const ContactRelatedDeals = React.memo(function ContactRelatedDeals({
                                         </span>
                                     </div>
                                     <div style={{ fontSize: '0.75rem', color: '#9a3412', fontWeight: 700, marginBottom: '2px' }}>
-                                        {renderLookup(deal.projectId) || renderValue(deal.projectName) || renderLookup(deal.project) || 'General Category'}
-                                        {deal.block && ` (Block: ${renderValue(deal.block)})`}
+                                        {renderLookup(deal.projectId) || renderValue(deal.projectName) || renderLookup(deal.project) || 'General Category'}{deal.block && String(deal.block).trim() !== 'null' && String(deal.block).trim() !== 'undefined' && ` (Block: ${renderValue(deal.block)})`}
                                     </div>
                                     <div style={{ fontSize: '0.65rem', color: '#9a3412', fontWeight: 600, opacity: 0.8 }}>
-                                        at {renderValue(deal.locationDisplay) || renderLookup(deal.location) || deal.locArea || 'TBD Location'}
+                                        at {[
+                                            renderValue(deal.locationDisplay) || renderLookup(deal.location) || deal.locArea
+                                        ].filter(val => val && String(val).trim() !== 'null' && String(val).trim() !== 'undefined').join(', ') || 'TBD Location'}
                                     </div>
                                 </div>
                             ))
