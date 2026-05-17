@@ -10,6 +10,7 @@ const AddressSchema = new mongoose.Schema({
     tehsil: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
     postOffice: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
     pinCode: String,
+    pincode: String,
     area: String,
     location: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
     country: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' }
@@ -84,6 +85,52 @@ const CompanySchema = new mongoose.Schema({
     brokerNotes: String
 }, { timestamps: true });
 
+// Middleware to synchronize pincode and pinCode fields for full compatibility
+const syncPincode = (obj) => {
+    if (!obj || typeof obj !== "object") return;
+
+    // Handle dot-notation paths (e.g. 'addresses.registeredOffice.pincode')
+    for (const key in obj) {
+        if (key.includes('addresses.') && (key.endsWith('.pincode') || key.endsWith('.pinCode'))) {
+            const basePath = key.substring(0, key.lastIndexOf('.'));
+            const pincodeKey = `${basePath}.pincode`;
+            const pinCodeKey = `${basePath}.pinCode`;
+            const val = obj[pincodeKey] || obj[pinCodeKey] || obj[key];
+            if (val) {
+                obj[pincodeKey] = val;
+                obj[pinCodeKey] = val;
+            }
+        }
+    }
+
+    // Handle nested structures
+    if (obj.addresses) {
+        const addressTypes = ['registeredOffice', 'branchOffice', 'corporateOffice', 'headOffice', 'siteOffice'];
+        addressTypes.forEach(type => {
+            const addr = obj.addresses[type];
+            if (addr) {
+                if (Array.isArray(addr)) {
+                    addr.forEach(item => {
+                        if (item) {
+                            const val = item.pincode || item.pinCode;
+                            if (val) {
+                                item.pincode = val;
+                                item.pinCode = val;
+                            }
+                        }
+                    });
+                } else {
+                    const val = addr.pincode || addr.pinCode;
+                    if (val) {
+                        addr.pincode = val;
+                        addr.pinCode = val;
+                    }
+                }
+            }
+        });
+    }
+};
+
 // Middleware to recursively convert empty strings to null
 const sanitizeData = (obj) => {
     if (!obj || typeof obj !== "object") return;
@@ -104,6 +151,7 @@ const sanitizeData = (obj) => {
 };
 
 CompanySchema.pre("save", function (next) {
+    syncPincode(this);
     sanitizeData(this);
     next();
 });
@@ -111,6 +159,7 @@ CompanySchema.pre("save", function (next) {
 CompanySchema.pre("findOneAndUpdate", function (next) {
     const update = this.getUpdate();
     if (update) {
+        syncPincode(update);
         sanitizeData(update);
     }
     next();

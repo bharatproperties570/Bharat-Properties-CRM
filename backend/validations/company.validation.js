@@ -10,6 +10,7 @@ const addressSchema = Joi.object({
     tehsil: Joi.string().hex().length(24).optional().allow(null, ""),
     postOffice: Joi.string().hex().length(24).optional().allow(null, ""),
     pinCode: Joi.string().optional().allow("", null),
+    pincode: Joi.string().optional().allow("", null),
     area: Joi.string().optional().allow("", null),
     location: Joi.string().hex().length(24).optional().allow(null, ""),
     country: Joi.string().hex().length(24).optional().allow(null, "")
