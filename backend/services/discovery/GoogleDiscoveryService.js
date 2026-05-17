@@ -64,11 +64,14 @@ class GoogleDiscoveryService {
             config.last_run_status = 'pending';
             await config.save();
 
-            const apiKey = process.env.GOOGLE_API_KEY;
+            const apiKey = process.env.GOOGLE_API_KEY || process.env.GOOGLE_PLACES_API_KEY;
             const searchEngineId = process.env.GOOGLE_SEARCH_ENGINE_ID;
 
-            if (!apiKey || !searchEngineId) {
-                throw new Error("Missing Google API credentials");
+            if (!apiKey) {
+                throw new Error("Missing Google API Key (GOOGLE_API_KEY or GOOGLE_PLACES_API_KEY in .env)");
+            }
+            if (!searchEngineId) {
+                throw new Error("Missing Google Custom Search Engine ID (GOOGLE_SEARCH_ENGINE_ID in .env)");
             }
 
             const customsearch = google.customsearch('v1');
