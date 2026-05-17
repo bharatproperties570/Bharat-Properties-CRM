@@ -34,15 +34,19 @@ export const addToIntakeQueue = async (sourceType, rawData, userId = null) => {
     await intakeRecord.save();
 
     // 2. Add to BullMQ Queue for background processing
-    await intakeQueue.add('process-intake', {
-        intakeId: intakeRecord._id,
-        sourceType,
-        rawData,
-        userId
-    }, {
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 1000 }
-    });
+    try {
+        await intakeQueue.add('process-intake', {
+            intakeId: intakeRecord._id,
+            sourceType,
+            rawData,
+            userId
+        }, {
+            attempts: 3,
+            backoff: { type: 'exponential', delay: 1000 }
+        });
+    } catch (queueErr) {
+        console.warn(`[IntakeQueue] Warning: Redis connection failed (${queueErr.message}). Intake record successfully created in MongoDB under 'Queued' state.`);
+    }
 
     return { success: true, intakeId: intakeRecord._id };
 };
