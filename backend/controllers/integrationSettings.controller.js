@@ -50,7 +50,7 @@ export const updateSettings = async (req, res) => {
 export const getAvailableAiIntegrations = async (req, res) => {
     try {
         const settings = await SystemSetting.find({
-            key: { $in: ['ai_openai_config', 'ai_anthropic_config', 'ai_gemini_config'] }
+            key: { $in: ['ai_openai_config', 'ai_claude_config', 'ai_gemini_config'] }
         });
 
         const providers = [];
@@ -58,7 +58,7 @@ export const getAvailableAiIntegrations = async (req, res) => {
         settings.forEach(setting => {
             if (setting?.value?.apiKey && setting.value.apiKey.length > 10) {
                 if (setting.key === 'ai_openai_config') providers.push('openai');
-                if (setting.key === 'ai_anthropic_config') providers.push('anthropic');
+                if (setting.key === 'ai_claude_config') providers.push('anthropic');
                 if (setting.key === 'ai_gemini_config') providers.push('gemini');
             }
         });

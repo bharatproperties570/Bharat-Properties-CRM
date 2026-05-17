@@ -49,6 +49,9 @@ class UnifiedAIService {
                         case 'gemini':
                         case 'google':
                             return await geminiService.generateWithSystem(options.systemPrompt, prompt, currentOptions);
+                        case 'anthropic':
+                        case 'claude':
+                            return await claudeService.generateWithSystem(options.systemPrompt, prompt, currentOptions);
                         default:
                             continue;
                     }
@@ -60,6 +63,7 @@ class UnifiedAIService {
                         case 'gemini':
                         case 'google':
                             return await geminiService.generateContent(prompt, currentOptions);
+                        case 'anthropic':
                         case 'claude':
                             return await claudeService.generateContent(prompt, currentOptions);
                         default:
@@ -84,6 +88,7 @@ class UnifiedAIService {
             case 'openai': return await openAIService.testConnection(config);
             case 'gemini':
             case 'google': return await geminiService.testConnection(config);
+            case 'anthropic':
             case 'claude': return await claudeService.testConnection(config);
             default: return { success: false, error: 'Unknown provider' };
         }

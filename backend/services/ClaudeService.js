@@ -86,6 +86,41 @@ class ClaudeService {
             throw err;
         }
     }
+
+    /**
+     * Generate content with a system prompt using Claude
+     * @param {string} systemPrompt
+     * @param {string} prompt
+     * @param {Object} options
+     */
+    async generateWithSystem(systemPrompt, prompt, options = {}) {
+        try {
+            const config = await this._getConfig();
+            const apiKey = config.apiKey;
+            const model = options.model || config.model || 'claude-3-5-sonnet-20240620';
+
+            if (!apiKey) throw new Error('Claude API Key not configured');
+
+            const url = 'https://api.anthropic.com/v1/messages';
+            const response = await axios.post(url, {
+                model: model,
+                max_tokens: options.maxTokens || 1024,
+                system: systemPrompt,
+                messages: [{ role: 'user', content: prompt }]
+            }, {
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'x-api-key': apiKey,
+                    'anthropic-version': '2023-06-01'
+                }
+            });
+
+            return response.data.content[0].text;
+        } catch (err) {
+            console.error('[ClaudeService] generateWithSystem error:', err.response?.data || err.message);
+            throw err;
+        }
+    }
 }
 
 export default new ClaudeService();
