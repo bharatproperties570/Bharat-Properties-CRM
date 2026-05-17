@@ -17,7 +17,7 @@ const router = express.Router();
 
 // ── Config ─────────────────────────────────────────────────────
 const VERIFY_TOKEN    = process.env.FB_WEBHOOK_VERIFY_TOKEN || 'bharat-properties-webhook-2026';
-const APP_SECRET      = process.env.FB_APP_SECRET           || ''; 
+const APP_SECRET      = process.env.FB_APP_SECRET && process.env.FB_APP_SECRET !== 'YOUR_FB_APP_SECRET' ? process.env.FB_APP_SECRET : ''; 
 const MAX_PAYLOAD_KB  = 512;
 
 // ── Structured logger ──────────────────────────────────────────
