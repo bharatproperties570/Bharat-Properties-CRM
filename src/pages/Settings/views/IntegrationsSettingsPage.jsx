@@ -834,7 +834,7 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                                     <select value={config.model || 'claude-3-5-sonnet-20240620'} onChange={e => setConfig({ ...config, model: e.target.value })} style={{ width: '100%', padding: '12px', border: '1px solid #e2e8f0', borderRadius: '10px' }}>
                                         <option value="claude-3-5-sonnet-20240620">Claude 3.5 Sonnet (Intelligent & Fast)</option>
                                         <option value="claude-3-opus-20240229">Claude 3 Opus (Most Powerful)</option>
-                                        <option value="claude-3-haiku-20240307">Claude 3 Haiku (Extremely Fast)</option>
+                                        <option value="claude-haiku-4-5-20251001">Claude 3 Haiku (Extremely Fast)</option>
                                     </select>
                                 </div>
                             </>
