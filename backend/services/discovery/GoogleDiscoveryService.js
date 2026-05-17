@@ -67,15 +67,15 @@ class GoogleDiscoveryService {
             const apiKey = process.env.GOOGLE_API_KEY || process.env.GOOGLE_PLACES_API_KEY;
             const searchEngineId = process.env.GOOGLE_SEARCH_ENGINE_ID;
 
-            if (!apiKey) {
-                throw new Error("Missing Google API Key (GOOGLE_API_KEY or GOOGLE_PLACES_API_KEY in .env)");
-            }
-            if (!searchEngineId) {
-                throw new Error("Missing Google Custom Search Engine ID (GOOGLE_SEARCH_ENGINE_ID in .env)");
+            const useApi = !!(apiKey && searchEngineId);
+            if (!useApi) {
+                console.log("[GoogleDiscovery] Missing Google API key or Search Engine ID in .env. Falling back to organic HTML Scraper mode directly!");
             }
 
             const customsearch = google.customsearch('v1');
             let totalDiscoveredInRun = 0;
+            let organicQueryCount = 0;
+            const maxOrganicQueries = 5;
 
             // Generate search queries
             for (const keyword of config.keywords) {
@@ -87,40 +87,91 @@ class GoogleDiscoveryService {
                         
                         if (!query.trim()) continue;
 
-                        try {
-                            const res = await customsearch.cse.list({
-                                cx: searchEngineId,
-                                q: query,
-                                auth: apiKey,
-                                num: 10 // Max per page
-                            });
-
-                            const items = res.data.items || [];
-                            
-                            // Process URLs
-                            for (const item of items) {
-                                const url = item.link;
-                                
-                                // Deduplication Check
-                                // Have we processed this URL recently?
-                                const existingIntake = await Intake.findOne({ 
-                                    'raw_source_data.url': url,
-                                    source_type: 'public_url' 
+                        if (useApi) {
+                            try {
+                                const res = await customsearch.cse.list({
+                                    cx: searchEngineId,
+                                    q: query,
+                                    auth: apiKey,
+                                    num: 10 // Max per page
                                 });
 
-                                if (!existingIntake) {
-                                    console.log(`[GoogleDiscovery] New URL discovered: ${url}`);
-                                    // Push to intake queue
-                                    await addToIntakeQueue('public_url', { url: url }, null);
-                                    totalDiscoveredInRun++;
+                                const items = res.data.items || [];
+                                
+                                // Process URLs
+                                for (const item of items) {
+                                    const url = item.link;
+                                    
+                                    // Deduplication Check
+                                    const existingIntake = await Intake.findOne({ 
+                                        'raw_source_data.url': url,
+                                        source_type: 'public_url' 
+                                    });
+
+                                    if (!existingIntake) {
+                                        console.log(`[GoogleDiscovery] New URL discovered via API: ${url}`);
+                                        await addToIntakeQueue('public_url', { url: url }, null);
+                                        totalDiscoveredInRun++;
+                                    }
+                                }
+
+                                // Rate limit handling
+                                await new Promise(resolve => setTimeout(resolve, 1000));
+
+                            } catch (apiErr) {
+                                console.warn(`[GoogleDiscovery] Google Custom Search API failed for query '${query}' (${apiErr.message}). Falling back to organic HTML Scraper...`);
+                                
+                                if (organicQueryCount < maxOrganicQueries) {
+                                    organicQueryCount++;
+                                    try {
+                                        const fallbackUrls = await this.scrapeGoogleSearchFallback(query);
+                                        for (const url of fallbackUrls) {
+                                            const existingIntake = await Intake.findOne({ 
+                                                'raw_source_data.url': url,
+                                                source_type: 'public_url' 
+                                            });
+
+                                            if (!existingIntake) {
+                                                console.log(`[GoogleDiscovery] [Fallback] New URL discovered: ${url}`);
+                                                await addToIntakeQueue('public_url', { url: url }, null);
+                                                totalDiscoveredInRun++;
+                                            }
+                                        }
+                                        // Wait 3 seconds between organic queries to protect IP reputation
+                                        await new Promise(resolve => setTimeout(resolve, 3000));
+                                    } catch (fallbackErr) {
+                                        console.error(`[GoogleDiscovery] Fallback search also failed:`, fallbackErr.message);
+                                    }
+                                } else {
+                                    console.log(`[GoogleDiscovery] [Organic Max Limit] Skipping organic scraper fallback for '${query}' to prevent search engine rate-limiting.`);
                                 }
                             }
+                        } else {
+                            // Direct HTML Scraper Mode
+                            if (organicQueryCount < maxOrganicQueries) {
+                                organicQueryCount++;
+                                try {
+                                    const fallbackUrls = await this.scrapeGoogleSearchFallback(query);
+                                    for (const url of fallbackUrls) {
+                                        const existingIntake = await Intake.findOne({ 
+                                            'raw_source_data.url': url,
+                                            source_type: 'public_url' 
+                                        });
 
-                            // Rate limit handling - avoid hitting Google API limits
-                            await new Promise(resolve => setTimeout(resolve, 1000));
-
-                        } catch (apiErr) {
-                            console.error(`[GoogleDiscovery] Google API Error for query '${query}':`, apiErr.message);
+                                        if (!existingIntake) {
+                                            console.log(`[GoogleDiscovery] [Organic] New URL discovered: ${url}`);
+                                            await addToIntakeQueue('public_url', { url: url }, null);
+                                            totalDiscoveredInRun++;
+                                        }
+                                    }
+                                    // Wait 3 seconds between organic queries to protect IP reputation
+                                    await new Promise(resolve => setTimeout(resolve, 3000));
+                                } catch (scrErr) {
+                                    console.error(`[GoogleDiscovery] Organic search failed for query '${query}':`, scrErr.message);
+                                }
+                            } else {
+                                console.log(`[GoogleDiscovery] [Organic Max Limit] Skipping organic search for '${query}' to prevent search engine rate-limiting.`);
+                            }
                         }
                     }
                 }
@@ -141,6 +192,66 @@ class GoogleDiscoveryService {
                 last_run_status: 'failed'
             });
             return { success: false, message: error.message };
+        }
+    }
+
+    /**
+     * Fallback organic search results scraper (No API key or billing required!)
+     * @param {String} query 
+     * @returns {Array} List of URLs
+     */
+    async scrapeGoogleSearchFallback(query) {
+        try {
+            const cheerio = await import('cheerio');
+            const axios = await import('axios');
+            
+            const searchUrl = `https://search.yahoo.com/search?p=${encodeURIComponent(query)}`;
+            const response = await axios.default.get(searchUrl, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.5'
+                },
+                timeout: 10000
+            });
+
+            const $ = cheerio.load(response.data);
+            const urls = [];
+
+            // Universal redirect link resolver for Yahoo search pages
+            $('a').each((index, element) => {
+                let href = $(element).attr('href');
+                if (!href) return;
+
+                if (href.includes('r.search.yahoo.com') && href.includes('/RU=')) {
+                    try {
+                        const rawTarget = href.split('/RU=')[1].split('/')[0];
+                        const decoded = decodeURIComponent(rawTarget);
+                        
+                        if (decoded.startsWith('http') && 
+                            !decoded.includes('yahoo.com') && 
+                            !decoded.includes('yimg.com') && 
+                            !decoded.includes('uservoice.com') && 
+                            !decoded.includes('google.com') && 
+                            !decoded.includes('youtube.com') && 
+                            !decoded.includes('facebook.com') && 
+                            !decoded.includes('instagram.com') &&
+                            !decoded.includes('twitter.com') &&
+                            !decoded.includes('linkedin.com')) {
+                            urls.push(decoded.trim());
+                        }
+                    } catch (err) {
+                        // ignore and proceed
+                    }
+                }
+            });
+
+            const uniqueUrls = [...new Set(urls)].slice(0, 10);
+            console.log(`[GoogleDiscovery] [Resilient Scraper] Found ${uniqueUrls.length} organic links for query: "${query}"`);
+            return uniqueUrls;
+        } catch (err) {
+            console.error(`[GoogleDiscovery] Resilient search scraping error:`, err.message);
+            return [];
         }
     }
 }
