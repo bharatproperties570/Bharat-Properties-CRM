@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { renderValue } from '../../../utils/renderUtils';
+import { renderValue, formatSafeDate, formatSafeDateTime } from '../../../utils/renderUtils';
 import { getInitials } from '../../../utils/helpers';
 
 const InventoryTable = ({
@@ -285,13 +285,23 @@ const InventoryTable = ({
                                 <div className="super-cell">
                                     {(() => {
                                         const history = item.history || [];
-                                        // Find latest feedback interaction
-                                        const latest = history.filter(h => h.type === 'Feedback' || h.details?.responses).sort((a,b) => new Date(b.date) - new Date(a.date))[0];
+                                        // Find latest feedback interaction safely
+                                        const latest = history
+                                            .filter(h => h && (h.type === 'Feedback' || h.details?.responses))
+                                            .sort((a, b) => {
+                                                const dateA = a.date ? new Date(a.date).getTime() : 0;
+                                                const dateB = b.date ? new Date(b.date).getTime() : 0;
+                                                return (isNaN(dateB) ? 0 : dateB) - (isNaN(dateA) ? 0 : dateA);
+                                            })[0];
                                         
                                         const outcome = latest?.details?.result;
                                         const reason = latest?.details?.reason;
-                                        const feedbackDate = latest?.date ? new Date(latest.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : (latest?.performedAt ? new Date(latest.performedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : null);
-                                        const followUp = item.followUpDate ? new Date(item.followUpDate).toLocaleDateString() : null;
+                                        const feedbackDate = latest?.date 
+                                            ? formatSafeDate(latest.date, { day: '2-digit', month: 'short', year: 'numeric' }, null) 
+                                            : (latest?.performedAt 
+                                                ? formatSafeDate(latest.performedAt, { day: '2-digit', month: 'short', year: 'numeric' }, null) 
+                                                : null);
+                                        const followUp = item.followUpDate ? formatSafeDate(item.followUpDate, {}, null) : null;
 
                                         return (
                                             <>
@@ -366,7 +376,7 @@ const InventoryTable = ({
                                     </div>
                                     <div style={{ fontSize: '0.52rem', color: '#94a3b8', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '3px', marginTop: '1px' }}>
                                         <i className="far fa-clock" style={{ fontSize: '0.55rem' }}></i>
-                                        {new Date(item.updatedAt || item.createdAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                                        {formatSafeDateTime(item.updatedAt || item.createdAt, { dateStyle: 'short', timeStyle: 'short' })}
                                     </div>
                                 </div>
                             </div>

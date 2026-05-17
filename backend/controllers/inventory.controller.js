@@ -537,20 +537,26 @@ export const getInventory = async (req, res) => {
         }
 
         const stats = statsAggregation[0] || { active: [], inactive: [] };
-        const activeCount = stats.active[0]?.count || 0;
-        const inactiveCount = stats.inactive[0]?.count || 0;
+        const activeCount = stats.active?.[0]?.count || 0;
+        const inactiveCount = stats.inactive?.[0]?.count || 0;
 
-        // Enrichment: Resolve category names for stats and merge duplicates
-        const categoryResultIds = categoryStatsAggregation.map(c => c._id).filter(id => mongoose.Types.ObjectId.isValid(id));
-        const categoryDocs = await Lookup.find({ _id: { $in: categoryResultIds } }).select('lookup_value').lean();
+        // Enrichment: Resolve category names for stats and merge duplicates safely
+        const categoryResultIds = Array.isArray(categoryStatsAggregation)
+            ? categoryStatsAggregation.map(c => c._id).filter(id => id && mongoose.Types.ObjectId.isValid(id))
+            : [];
+        const categoryDocs = categoryResultIds.length > 0
+            ? await Lookup.find({ _id: { $in: categoryResultIds } }).select('lookup_value').lean()
+            : [];
         const categoryMap = new Map(categoryDocs.map(d => [d._id.toString(), d.lookup_value]));
 
         const categoryStatsMap = new Map();
-        categoryStatsAggregation.forEach(c => {
-            const rawName = categoryMap.get(c._id?.toString()) || String(c._id || 'Unknown');
-            const name = rawName.trim().toUpperCase();
-            categoryStatsMap.set(name, (categoryStatsMap.get(name) || 0) + c.count);
-        });
+        if (Array.isArray(categoryStatsAggregation)) {
+            categoryStatsAggregation.forEach(c => {
+                const rawName = categoryMap.get(c._id?.toString()) || String(c._id || 'Unknown');
+                const name = rawName.trim().toUpperCase();
+                categoryStatsMap.set(name, (categoryStatsMap.get(name) || 0) + c.count);
+            });
+        }
 
         const categoryStats = Array.from(categoryStatsMap.entries()).map(([name, count]) => ({
             name,
@@ -693,9 +699,15 @@ export const getInventory = async (req, res) => {
                             id = v.toString();
                             const resolved = lookupMap.get(id);
                             label = resolved?.lookup_value || id;
-                        } else if (typeof v === 'object' && v.lookup_value) {
-                            id = v._id?.toString();
-                            label = v.lookup_value;
+                        } else if (typeof v === 'object' && v) {
+                            const possibleId = v._id?.toString() || v.id?.toString();
+                            if (possibleId && mongoose.Types.ObjectId.isValid(possibleId)) {
+                                id = possibleId;
+                                const resolved = lookupMap.get(id);
+                                label = v.lookup_value || resolved?.lookup_value || id;
+                            } else if (v.lookup_value) {
+                                label = v.lookup_value;
+                            }
                         } else if (typeof v === 'string') {
                             label = v;
                         }
@@ -714,7 +726,7 @@ export const getInventory = async (req, res) => {
 
             // Hydrate Address
             const hydrateAddr = (addrObj) => {
-                if (!addrObj) return;
+                if (!addrObj || typeof addrObj !== 'object') return;
                 const addrFields = ['city', 'state', 'locality', 'area', 'location', 'pincode', 'tehsil', 'postOffice'];
                 addrFields.forEach(f => {
                     const val = addrObj[f];
@@ -744,7 +756,7 @@ export const getInventory = async (req, res) => {
             if (Array.isArray(itemObj.teams)) itemObj.teams = itemObj.teams.map(t => (t && mongoose.Types.ObjectId.isValid(t)) ? (teamMap.get(t.toString()) || t) : t);
             if (itemObj.projectId && mongoose.Types.ObjectId.isValid(itemObj.projectId)) itemObj.projectId = projectMap.get(itemObj.projectId.toString()) || itemObj.projectId;
 
-            const dealIntents = Array.from(inventoryDealMap.get(itemObj._id.toString()) || []);
+            const dealIntents = Array.from(itemObj._id ? (inventoryDealMap.get(itemObj._id.toString()) || []) : []);
             let primaryDealIntent = null;
             if (dealIntents.length > 0) {
                 if (dealIntents.includes('sell')) primaryDealIntent = 'sell';

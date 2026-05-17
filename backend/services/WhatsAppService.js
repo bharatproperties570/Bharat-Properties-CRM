@@ -337,6 +337,17 @@ class WhatsAppService {
                         { type: 'HEADER', format: 'TEXT', text: 'New Launch in Kurukshetra' },
                         { type: 'BODY', text: 'Hello {{1}}, check out our new project {{2}} starting at {{3}} Lakhs!' }
                     ]
+                },
+                {
+                    name: 'property_match_alert',
+                    status: 'APPROVED',
+                    language: 'en_US',
+                    components: [
+                        { 
+                            type: 'BODY', 
+                            text: 'Hi {{1}}! 🏠\n\nWe found an exclusive property match that aligns perfectly with your requirements:\n\n{{2}}\n\nWould you like to schedule a priority site visit or receive more details?\n\nBest regards,\n{{3}}\nBharat Properties' 
+                        }
+                    ]
                 }
             ];
         }

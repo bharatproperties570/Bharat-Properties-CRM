@@ -805,7 +805,22 @@ export const TriggersProvider = ({ children }) => {
 export const useTriggers = () => {
     const context = useContext(TriggersContext);
     if (!context) {
-        throw new Error('useTriggers must be used within a TriggersProvider');
+        console.warn('⚠️ [TriggersContext] useTriggers was called outside of a TriggersProvider. Using robust safe-fallback to prevent application crash.');
+        return {
+            triggers: [],
+            executionLogs: [],
+            stats: { totalExecuted: 0, activeTriggers: 0 },
+            fireEvent: (event, data, payload) => {
+                console.warn(`⚠️ [TriggersContext Fallback] fireEvent called for event: ${event} but provider is missing.`);
+            },
+            addTrigger: () => {},
+            updateTrigger: () => {},
+            toggleTrigger: () => {},
+            deleteTrigger: () => {},
+            duplicateTrigger: () => {},
+            getTriggerStats: () => ({ totalExecuted: 0, activeTriggers: 0 }),
+            getExecutionLogs: () => []
+        };
     }
     return context;
 };

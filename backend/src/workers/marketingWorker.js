@@ -540,7 +540,7 @@ if (name === 'bna-broadcast') {
         `;
 
         // 🧠 PROFESSIONAL: Fetch registry once
-        let registryMapping = { "1": "customer_name", "2": "property_list_default" };
+        let registryMapping = { "1": "customer_name", "2": "property_list_default", "3": "assignedTo" };
         try {
             const SystemSetting = mongoose.model('SystemSetting');
             const setting = await SystemSetting.findOne({ key: 'messaging_variable_registry' }).lean();

@@ -21,6 +21,16 @@ class BaseConnector {
      * @returns {Object} Cleaned and validated data
      */
     validateAndClean(normalizedData) {
+        let mappedIntent = 'unknown';
+        const rawIntent = (normalizedData.seller_intent || '').toString().toLowerCase();
+        if (rawIntent === 'seller' || rawIntent === 'sell') {
+            mappedIntent = 'sell';
+        } else if (rawIntent === 'landlord' || rawIntent === 'rent' || rawIntent === 'tenant') {
+            mappedIntent = 'rent';
+        } else if (rawIntent === 'lease') {
+            mappedIntent = 'lease';
+        }
+
         return {
             title: normalizedData.title || '',
             description: normalizedData.description || '',
@@ -30,7 +40,7 @@ class BaseConnector {
             size: normalizedData.size || '',
             price: normalizedData.price || '',
             contact_numbers: Array.isArray(normalizedData.contact_numbers) ? normalizedData.contact_numbers : [],
-            seller_intent: normalizedData.seller_intent || 'unknown',
+            seller_intent: mappedIntent,
             extracted_entities: normalizedData.extracted_entities || {},
             verification_status: normalizedData.verification_status || 'unverified',
             source_type: this.sourceType,

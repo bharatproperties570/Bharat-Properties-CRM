@@ -1,5 +1,5 @@
 import React from 'react';
-import { renderValue } from '../../../utils/renderUtils';
+import { renderValue, formatSafeDate } from '../../../utils/renderUtils';
 import { getInitials, fixDriveUrl, getYoutubeId } from '../../../utils/helpers';
 import PropertyOwnerSection from '../../../components/Shared/PropertyOwnerSection';
 import MediaVaultSection from '../../../components/Shared/MediaVaultSection';
@@ -91,7 +91,7 @@ const InventorySidebar = ({
                                                 )}
                                             </div>
                                             <span style={{ fontSize: '0.6rem', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                                                {new Date(item.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })}
+                                                {formatSafeDate(item.date, { day: '2-digit', month: 'short', year: '2-digit' })}
                                             </span>
                                         </div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -126,13 +126,13 @@ const InventorySidebar = ({
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                     <LifecycleMetric 
                         label="Created On" 
-                        value={inventory.createdAt ? new Date(inventory.createdAt).toLocaleDateString('en-GB') : '-'} 
+                        value={formatSafeDate(inventory.createdAt, { day: '2-digit', month: 'short', year: 'numeric' })} 
                         icon="calendar-plus" 
                         color="#10b981" 
                     />
                     <LifecycleMetric 
                         label="Last Updated" 
-                        value={inventory.updatedAt ? new Date(inventory.updatedAt).toLocaleDateString('en-GB') : '-'} 
+                        value={formatSafeDate(inventory.updatedAt, { day: '2-digit', month: 'short', year: 'numeric' })} 
                         icon="edit" 
                         color="#3b82f6" 
                     />
@@ -144,7 +144,13 @@ const InventorySidebar = ({
                     />
                     <LifecycleMetric 
                         label="Days in System" 
-                        value={inventory.createdAt ? `${Math.floor((new Date() - new Date(inventory.createdAt)) / (1000 * 60 * 60 * 24))} Days` : '-'} 
+                        value={(() => {
+                            if (!inventory.createdAt) return '-';
+                            const createdDate = new Date(inventory.createdAt);
+                            if (isNaN(createdDate.getTime())) return '-';
+                            const diffDays = Math.floor((new Date() - createdDate) / (1000 * 60 * 60 * 24));
+                            return `${diffDays >= 0 ? diffDays : 0} Days`;
+                        })()} 
                         icon="clock" 
                         color="#f59e0b" 
                     />

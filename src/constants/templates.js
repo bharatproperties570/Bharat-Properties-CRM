@@ -446,6 +446,22 @@ Bharat Properties
         name: 'Feedback: Wrong Number / Invalid',
         content: "Hi, we tried reaching the registered contact for {unit} but the number seems incorrect. Please help us update the contact details.",
         tags: ['Feedback', 'Inventory']
+    },
+    {
+        id: 11,
+        name: 'property_match_alert',
+        content: `Hi {{1}}! 🏠
+
+We found an exclusive property match that aligns perfectly with your requirements:
+
+{{2}}
+
+Would you like to schedule a priority site visit or receive more details?
+
+Best regards,
+{{3}}
+Bharat Properties`,
+        tags: ['Property', 'Match Alert']
     }
 ];
 

@@ -18,11 +18,14 @@ const connectDB = async (retryCount = 5) => {
         try {
             const conn = await mongoose.connect(config.mongoUri, {
                 autoIndex: false, 
-                connectTimeoutMS: 30000, // Emergency increase for slow DNS/Network
-                socketTimeoutMS: 60000, 
-                serverSelectionTimeoutMS: 30000, // Extra time for Atlas SRV resolution
+                connectTimeoutMS: 15000, // 15s to establish connection
+                socketTimeoutMS: 45000,  // 45s for slow queries/AI verification
+                serverSelectionTimeoutMS: 15000, // 15s to find cluster members
                 family: 4, 
-                maxPoolSize: 10
+                maxPoolSize: 30, // Optimized for MongoDB Atlas M0 (100 connection limit)
+                minPoolSize: 5,  // Keep warm pool of 5 connections
+                maxIdleTimeMS: 30000, // Close idle connections after 30s
+                heartbeatFrequencyMS: 10000 // Regularly check node health
             });
             console.log(`✅ MongoDB Connected: ${conn.connection.host} | Database: ${conn.connection.name}`);
             return; // Success

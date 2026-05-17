@@ -394,6 +394,17 @@ export const receiveWebhook = async (req, res) => {
 
                     console.log(`[SocialController] ✅ Entity Resolved: ${entityType} | ID: ${match._id}`);
 
+                    // --- Enterprise Rule: Auto-Pause Nurture Flow on Inbound WhatsApp Message ---
+                    if (match && entityType === 'Lead' && match.customFields?.nurtureState !== 'HANDOFF') {
+                        await Lead.findByIdAndUpdate(entityId, {
+                            $set: {
+                                'customFields.nurtureState': 'HANDOFF',
+                                'customFields.nurtureLastAdvancedAt': new Date()
+                            }
+                        });
+                        console.log(`[NurtureEngine] ⏸️ Auto-paused automated nurture flow for Lead ${entityId} due to incoming message.`);
+                    }
+
                     // 3. Resolve Participant Info
                     const participantName = match.fullName || match.firstName || `WA: ${rawPhone}`;
                     const entityId = match._id;
@@ -488,7 +499,18 @@ export const receiveWebhook = async (req, res) => {
 
                     // 7. Generate AI Bot Response (Professional Auto-Reply)
                     const chatHistoryContext = conversation.messages.map(m => `${m.role}: ${m.content}`).join('\n');
-                    const aiResult = await generateBotResponse(event.text, chatHistoryContext);
+                    const aiResult = await generateBotResponse(
+                        event.text, 
+                        { 
+                            chatHistory: chatHistoryContext,
+                            lead: match,
+                            entityType: entityType,
+                            conversationId: conversation._id
+                        },
+                        {
+                            useCase: conversation.currentUseCase || 'whatsapp_live'
+                        }
+                    );
 
                     if (aiResult.success && aiResult.reply) {
                         const setting = await SystemSetting.findOne({ key: 'meta_wa_config' }).lean();

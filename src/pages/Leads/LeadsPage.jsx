@@ -250,6 +250,12 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
 
                 const resolveLeadLookup = (val, type) => {
                     if (!val) return null;
+                    if (Array.isArray(val)) {
+                        return val
+                            .map(v => resolveLeadLookup(v, type))
+                            .filter(Boolean)
+                            .join(", ");
+                    }
                     if (typeof val === 'object') {
                         const label = val.lookup_value || val.name || val.label;
                         // If label is present and not an ID, return it
@@ -1409,12 +1415,26 @@ const LeadItem = React.memo(function LeadItem({
     // Logic to split Intent (Buy/Rent) from Property Type (Residential Plot etc)
     const intent = lead.reqDisplay?.intent || 'Any';
     const category = Array.isArray(lead.reqDisplay?.category)
-        ? lead.reqDisplay.category.map(s => typeof s === 'object' ? (s.name || s.lookup_value) : (getLookupValue('Category', s) || s)).filter(Boolean).join(', ')
-        : (typeof lead.reqDisplay?.category === 'object' ? (lead.reqDisplay.category.name || lead.reqDisplay.category.lookup_value) : (renderValue(getLookupValue('Category', lead.reqDisplay?.category), null) || lead.reqDisplay?.category || ''));
+        ? lead.reqDisplay.category.map(s => {
+            if (!s) return '';
+            if (typeof s === 'object') {
+                return s.name || s.lookup_value || renderValue(s, null) || '';
+            }
+            const lookup = getLookupValue('Category', s);
+            return lookup ? (lookup.name || lookup.lookup_value || renderValue(lookup, null) || s) : s;
+        }).filter(Boolean).join(', ')
+        : (typeof lead.reqDisplay?.category === 'object' ? (lead.reqDisplay.category.name || lead.reqDisplay.category.lookup_value || renderValue(lead.reqDisplay.category, null)) : (renderValue(getLookupValue('Category', lead.reqDisplay?.category), null) || lead.reqDisplay?.category || ''));
     
     const subCategory = Array.isArray(lead.reqDisplay?.subCategory)
-        ? lead.reqDisplay.subCategory.map(s => typeof s === 'object' ? (s.name || s.lookup_value) : (getLookupValue('SubCategory', s) || s)).filter(Boolean).join(', ')
-        : (typeof lead.reqDisplay?.subCategory === 'object' ? (lead.reqDisplay.subCategory.name || lead.reqDisplay.subCategory.lookup_value) : (renderValue(getLookupValue('SubCategory', lead.reqDisplay?.subCategory), null) || lead.reqDisplay?.subCategory || ''));
+        ? lead.reqDisplay.subCategory.map(s => {
+            if (!s) return '';
+            if (typeof s === 'object') {
+                return s.name || s.lookup_value || renderValue(s, null) || '';
+            }
+            const lookup = getLookupValue('SubCategory', s);
+            return lookup ? (lookup.name || lookup.lookup_value || renderValue(lookup, null) || s) : s;
+        }).filter(Boolean).join(', ')
+        : (typeof lead.reqDisplay?.subCategory === 'object' ? (lead.reqDisplay.subCategory.name || lead.reqDisplay.subCategory.lookup_value || renderValue(lead.reqDisplay.subCategory, null)) : (renderValue(getLookupValue('SubCategory', lead.reqDisplay?.subCategory), null) || lead.reqDisplay?.subCategory || ''));
 
     const fullPropertyType = [category, subCategory].filter(Boolean).join(" - ");
 
@@ -1901,10 +1921,20 @@ const LeadCard = React.memo(function LeadCard({
                 <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#334155' }}>
                     {(() => {
                         const cat = Array.isArray(lead.reqDisplay?.category)
-                            ? lead.reqDisplay.category.map(s => getLookupValue('Category', s)).filter(Boolean).join(', ')
+                            ? lead.reqDisplay.category.map(s => {
+                                if (!s) return '';
+                                if (typeof s === 'object') return s.name || s.lookup_value || renderValue(s, null) || '';
+                                const lookup = getLookupValue('Category', s);
+                                return lookup ? (lookup.name || lookup.lookup_value || renderValue(lookup, null) || s) : s;
+                            }).filter(Boolean).join(', ')
                             : renderValue(getLookupValue('Category', lead.reqDisplay?.category), null);
                         const sub = Array.isArray(lead.reqDisplay?.subCategory)
-                            ? lead.reqDisplay.subCategory.map(s => getLookupValue('SubCategory', s)).filter(Boolean).join(', ')
+                            ? lead.reqDisplay.subCategory.map(s => {
+                                if (!s) return '';
+                                if (typeof s === 'object') return s.name || s.lookup_value || renderValue(s, null) || '';
+                                const lookup = getLookupValue('SubCategory', s);
+                                return lookup ? (lookup.name || lookup.lookup_value || renderValue(lookup, null) || s) : s;
+                            }).filter(Boolean).join(', ')
                             : renderValue(getLookupValue('SubCategory', lead.reqDisplay?.subCategory), null);
                         return [cat, sub].filter(Boolean).join(" - ") || "Any Property";
                     })()}

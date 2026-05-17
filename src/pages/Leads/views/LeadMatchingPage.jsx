@@ -221,7 +221,8 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             name: lead.name || 'Lead',
             phone: lead.mobile || lead.phone
         }]);
-        setInitialTemplateId('property_presentation_default'); // Or a single item template
+        setSelectedProperties([item]);
+        setInitialTemplateId('property_match_alert');
         setInitialChannel('WHATSAPP');
         setIsMessageOpen(true);
         logActivity('WhatsApp Prepared', item);
@@ -514,7 +515,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             name: lead.name || 'Lead',
             phone: lead.mobile || lead.phone
         }]);
-        setInitialTemplateId('property_match_default');
+        setInitialTemplateId('property_match_alert');
         setInitialChannel('WHATSAPP');
         setSelectedProperties(selectedDeals);
         setIsMessageOpen(true);

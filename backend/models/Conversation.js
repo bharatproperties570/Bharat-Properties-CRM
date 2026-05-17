@@ -52,6 +52,14 @@ const conversationSchema = new mongoose.Schema({
         type: String,
         default: 'whatsapp_live'
     },
+    verificationDealIds: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Deal'
+    }],
+    verificationTriggeredAt: {
+        type: Date,
+        default: null
+    },
     messages: [messageSchema],
     metadata: {
         type: mongoose.Schema.Types.Mixed,

@@ -199,6 +199,10 @@ const SendMessageModal = ({
         const propertyListDefault = properties.map((p, i) => `${i + 1}️⃣ ${p.unitNo || 'Unit'} - ${p.location || p.city || 'Sector'}`).join('\n');
         const propertyListDetailed = properties.map((p, i) => `${i + 1}️⃣ 📍 ${p.location || p.city}\n📏 Size: ${p.size}\n💰 Price: ₹${p.price}`).join('\n');
 
+        const agentName = recipient.assignedTo?.name || recipient.owner || recipient.agentName || 'Our Representative';
+        const agentMobile = recipient.assignment?.assignedTo?.mobile || recipient.assignedTo?.mobile || recipient.ownerMobile || recipient.agentMobile || '';
+        const agentDetails = agentMobile ? `${agentName} (📞 ${agentMobile})` : agentName;
+
         const fieldMap = {
             'name': recipient.name,
             'customer_name': recipient.name,
@@ -207,7 +211,7 @@ const SendMessageModal = ({
             'email': recipient.email,
             'source': recipient.source,
             'status': recipient.status || recipient.stage,
-            'assignedTo': recipient.assignedTo?.name || recipient.owner,
+            'assignedTo': agentDetails,
             'leadId': recipient.id || recipient._id,
             'propertyName': properties.length > 0 ? (properties[0].unitNo || properties[0].projectName) : 'Property',
             'unitNumber': properties.length > 0 ? properties[0].unitNo : '',
@@ -231,8 +235,13 @@ const SendMessageModal = ({
         const resolveVars = (text) => {
             if (!text) return text;
             return text.replace(/{{(\d+)}}/g, (match, vIdx) => {
-                const mappedField = variableRegistry[vIdx] || variableRegistry[String(vIdx)];
-                const val = String(fieldMap[mappedField] || match);
+                const defaultRegistry = {
+                    '1': 'customer_name',
+                    '2': 'property_list_default',
+                    '3': 'assignedTo'
+                };
+                const mappedField = variableRegistry[vIdx] || variableRegistry[String(vIdx)] || defaultRegistry[String(vIdx)];
+                const val = fieldMap[mappedField] !== undefined ? String(fieldMap[mappedField]) : match;
                 components.push({ type: 'text', text: val });
                 return val;
             });
@@ -253,12 +262,14 @@ const SendMessageModal = ({
                 setMessageBody(resolvedBody);
             }
         } else if (channel === 'WHATSAPP') {
-            const template = whatsappTemplates.find(t => t.name === templateId);
+            const template = whatsappTemplates.find(t => t.name === templateId || String(t.id) === String(templateId));
             if (template) {
-                // 1. Process Body
+                // 1. Process Body (Meta components support + robust fallback for local content)
                 const bodyComp = template.components?.find(c => c.type === 'BODY');
                 if (bodyComp) {
                     resolvedBody = resolveVars(bodyComp.text || template.body || '');
+                } else {
+                    resolvedBody = resolveVars(template.body || template.content || template.text || '');
                 }
 
                 // 2. Process Buttons (to capture variables for URLs)

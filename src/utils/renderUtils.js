@@ -73,3 +73,40 @@ export const renderValue = (val, emptyValue = '-', prefix = '') => {
 
     return finalResult;
 };
+
+/**
+ * Safely formats a date, catching any RangeError or parsing exceptions.
+ * @param {any} dateVal - The date value to format
+ * @param {object} options - Format options
+ * @param {string} emptyValue - Fallback value
+ * @returns {string}
+ */
+export const formatSafeDate = (dateVal, options = {}, emptyValue = '-') => {
+    if (dateVal === null || dateVal === undefined || dateVal === '') return emptyValue;
+    try {
+        const d = new Date(dateVal);
+        if (isNaN(d.getTime())) return emptyValue;
+        return d.toLocaleDateString('en-IN', options);
+    } catch (e) {
+        return emptyValue;
+    }
+};
+
+/**
+ * Safely formats a date and time, catching any RangeError or parsing exceptions.
+ * @param {any} dateVal - The date/time value to format
+ * @param {object} options - Format options
+ * @param {string} emptyValue - Fallback value
+ * @returns {string}
+ */
+export const formatSafeDateTime = (dateVal, options = {}, emptyValue = '-') => {
+    if (dateVal === null || dateVal === undefined || dateVal === '') return emptyValue;
+    try {
+        const d = new Date(dateVal);
+        if (isNaN(d.getTime())) return emptyValue;
+        return d.toLocaleString([], options);
+    } catch (e) {
+        return emptyValue;
+    }
+};
+

@@ -356,10 +356,75 @@ export const getDashboardStats = async (req, res) => {
         const conversionRate = totalLeads > 0 ? Math.round((dealsThisMonth / newLeadsThisMonth) * 100) : 0;
         const leadMoMGrowth = calcGrowth(newLeadsThisMonth, lastMonthLeads);
         
-        const [liveTasks, liveSiteVisits] = await Promise.all([
-            Activity.find({ ...baseActQuery, status: 'Pending', type: 'Task', dueDate: { $gte: today } }).limit(5).lean(),
-            Activity.find({ ...baseActQuery, status: 'Pending', type: 'Site Visit', dueDate: { $gte: today } }).limit(5).lean()
+        const [rawTasks, rawSiteVisits] = await Promise.all([
+            Activity.find({ 
+                ...baseActQuery, 
+                status: { $regex: /pending|in progress/i }, 
+                type: { $in: ['Task', 'Call', 'Meeting', 'Call Back', 'Meeting Scheduled'] } 
+            })
+            .sort({ dueDate: 1 })
+            .limit(15)
+            .lean(),
+            Activity.find({ 
+                ...baseActQuery, 
+                status: { $regex: /pending|in progress/i }, 
+                type: 'Site Visit' 
+            })
+            .sort({ dueDate: 1 })
+            .limit(15)
+            .lean()
         ]);
+
+        const formatTimeHelper = (dueDate, dueTime) => {
+            if (!dueDate) return 'Pending';
+            const date = new Date(dueDate);
+            if (isNaN(date.getTime())) return 'Pending';
+            
+            const todayDate = new Date();
+            todayDate.setHours(0,0,0,0);
+            const tomorrowDate = new Date(todayDate);
+            tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+            const yesterdayDate = new Date(todayDate);
+            yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+            
+            const dateZero = new Date(date);
+            dateZero.setHours(0,0,0,0);
+            
+            let dateStr = '';
+            if (dateZero.getTime() === todayDate.getTime()) {
+                dateStr = 'Today';
+            } else if (dateZero.getTime() === tomorrowDate.getTime()) {
+                dateStr = 'Tomorrow';
+            } else if (dateZero.getTime() === yesterdayDate.getTime()) {
+                dateStr = 'Yesterday';
+            } else if (dateZero.getTime() < todayDate.getTime()) {
+                const diffDays = Math.floor((todayDate - dateZero) / 86400000);
+                dateStr = `${diffDays}d Overdue`;
+            } else {
+                dateStr = date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+            }
+            
+            if (dueTime) {
+                return `${dateStr}, ${dueTime}`;
+            }
+            return dateStr;
+        };
+
+        const liveTasks = rawTasks.map(task => ({
+            _id: task._id?.toString(),
+            title: task.subject || 'Follow-up Task',
+            time: formatTimeHelper(task.dueDate, task.dueTime),
+            target: task.participants?.[0]?.name || task.relatedTo?.[0]?.name || 'Valued Client',
+            type: task.type || 'Task'
+        }));
+
+        const liveSiteVisits = rawSiteVisits.map(visit => ({
+            _id: visit._id?.toString(),
+            target: visit.subject || 'Site Visit Details',
+            time: formatTimeHelper(visit.dueDate, visit.dueTime),
+            client: visit.participants?.[0]?.name || visit.relatedTo?.[0]?.name || 'Valued Client'
+        }));
+
 
         const recentActivityFeed = await Activity.find({ ...baseActQuery, type: { $nin: COMMUNICATION_TYPES } }).sort({ createdAt: -1 }).limit(10).lean();
 

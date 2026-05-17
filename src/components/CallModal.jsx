@@ -5,7 +5,14 @@ import { toast } from 'react-hot-toast';
 import { Sparkles, Send, MessageCircle, Mail } from 'lucide-react';
 
 const CallModal = ({ isOpen, onClose, contact, context, onCallEnd }) => {
-    const { fireEvent } = useTriggers();
+    let triggersContext = null;
+    try {
+        triggersContext = useTriggers();
+    } catch (e) {
+        console.warn('⚠️ [CallModal] Failed to get Triggers Context, using defensive fallback.', e);
+    }
+    const fireEvent = triggersContext?.fireEvent || (() => {});
+
     const [step, setStep] = useState('context'); // context, calling, outcome
     const [callType, setCallType] = useState(null); // 'GSM', 'IVR'
     const [callStatus, setCallStatus] = useState('Idle');

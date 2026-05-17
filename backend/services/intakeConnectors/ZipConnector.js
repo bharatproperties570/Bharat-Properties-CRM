@@ -23,6 +23,7 @@ class ZipConnector extends BaseConnector {
         }
         
         const data = fs.readFileSync(filePath);
+        const contents = await JSZip.loadAsync(data);
         
         const extractedTexts = [];
 

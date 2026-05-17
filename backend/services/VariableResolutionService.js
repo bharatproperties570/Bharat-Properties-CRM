@@ -32,6 +32,11 @@ class VariableResolutionService {
             "lead_stage": this.extractValue(lead, 'stage'),
             
             // --- Unit Specifications ---
+            "category": this.extractValue(lead, 'category'),
+            "property_category": this.extractValue(lead, 'category'),
+            "sub_category": this.extractValue(lead, 'subCategory'),
+            "subCategory": this.extractValue(lead, 'subCategory'),
+            "property_sub_category": this.extractValue(lead, 'subCategory'),
             "unit": this.extractValue(lead, 'unitNo'),
             "unit_number": this.extractValue(lead, 'unitNo'),
             "floor_level": this.extractValue(lead, 'floor'),
@@ -188,7 +193,11 @@ class VariableResolutionService {
                 return lead.id || lead._id || '';
             case 'assignedTo':
             case 'owner':
-                return lead.owner || lead.assignment?.assignedTo?.name || lead.agentName || 'Assigned Representative';
+                {
+                    const agentName = lead.owner || lead.assignment?.assignedTo?.name || lead.agentName || 'Our Representative';
+                    const agentMobile = lead.assignment?.assignedTo?.mobile || lead.ownerMobile || lead.agentMobile || '';
+                    return agentMobile ? `${agentName} (📞 ${agentMobile})` : agentName;
+                }
             case 'agentMobile':
             case 'ownerMobile':
                 return lead.assignment?.assignedTo?.mobile || lead.ownerMobile || '';
@@ -208,8 +217,48 @@ class VariableResolutionService {
                 return lead.remark || lead.notes || '';
             case 'budget':
                 return lead.budget || (lead.budgetMin ? `₹${lead.budgetMin}` : '');
+            case 'category':
+            case 'propertyType':
+                {
+                    const rawCat = lead.propertyType || lead.category;
+                    if (!rawCat) return '';
+                    if (Array.isArray(rawCat)) {
+                        return rawCat.map(p => {
+                            if (!p) return '';
+                            if (typeof p === 'object') return p.lookup_value || p.name || p.label || '';
+                            return p;
+                        }).filter(Boolean).join(', ');
+                    }
+                    if (typeof rawCat === 'object') {
+                        return rawCat.lookup_value || rawCat.name || rawCat.label || '';
+                    }
+                    return rawCat;
+                }
             case 'subCategory':
-                return lead.subCategory || '';
+                {
+                    // 1. Try populated subRequirement
+                    if (lead.subRequirement) {
+                        const val = typeof lead.subRequirement === 'object' ? (lead.subRequirement.lookup_value || lead.subRequirement.name) : lead.subRequirement;
+                        if (val) return val;
+                    }
+                    // 2. Try array-based subType (more common)
+                    if (Array.isArray(lead.subType) && lead.subType.length > 0) {
+                        return lead.subType.map(s => {
+                            if (!s) return '';
+                            if (typeof s === 'object') return s.lookup_value || s.name || s.label || '';
+                            return s;
+                        }).filter(Boolean).join(', ');
+                    }
+                    // 3. Try scalar subType
+                    if (lead.subType) {
+                        if (typeof lead.subType === 'object') {
+                            return lead.subType.lookup_value || lead.subType.name || lead.subType.label || '';
+                        }
+                        return lead.subType;
+                    }
+                    // 4. Try legacy subCategory string
+                    return lead.subCategory || '';
+                }
             case 'sizeType':
             case 'areaMetric':
                 return lead.sizeType || lead.areaMetric || '';
@@ -250,8 +299,6 @@ class VariableResolutionService {
                 return lead.unitNo || lead.unitNumber || '';
             case 'sizeType':
                 return lead.sizeType?.lookup_value || lead.areaMetric || lead.sizeType || '';
-            case 'subCategory':
-                return lead.subRequirement?.lookup_value || lead.subCategory || '';
             case 'budget':
             case 'price':
                 return lead.budget?.lookup_value || lead.price || lead.budget || '';
