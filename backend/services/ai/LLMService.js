@@ -6,8 +6,10 @@ import fetch from 'node-fetch'; // Requires node-fetch if Node < 18, but Node 24
 
 class LLMService {
     constructor() {
-        this.apiKey = process.env.OPENAI_API_KEY || process.env.GEMINI_API_KEY;
-        this.provider = process.env.OPENAI_API_KEY ? 'openai' : (process.env.GEMINI_API_KEY ? 'gemini' : null);
+        this.apiKey = process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY || process.env.GEMINI_API_KEY;
+        this.provider = (process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY) ? 'claude' 
+            : (process.env.OPENAI_API_KEY ? 'openai' 
+            : (process.env.GEMINI_API_KEY ? 'gemini' : null));
     }
 
     /**
@@ -31,7 +33,9 @@ class LLMService {
         `;
 
         try {
-            if (this.provider === 'openai') {
+            if (this.provider === 'claude') {
+                return await this._callClaude(prompt);
+            } else if (this.provider === 'openai') {
                 return await this._callOpenAI(prompt);
             } else if (this.provider === 'gemini') {
                 return await this._callGemini(prompt);
@@ -40,6 +44,40 @@ class LLMService {
             console.error('[LLMService] Extraction failed:', error.message);
             return null;
         }
+    }
+
+    async _callClaude(prompt) {
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': this.apiKey,
+                'anthropic-version': '2023-06-01'
+            },
+            body: JSON.stringify({
+                model: 'claude-3-haiku-20240307',
+                max_tokens: 1000,
+                messages: [{ role: 'user', content: prompt }]
+            })
+        });
+
+        if (!response.ok) {
+            const errText = await response.text();
+            throw new Error(`Claude API Error: ${errText}`);
+        }
+
+        const data = await response.json();
+        let content = data.content[0].text.trim();
+
+        // Robust JSON block extractor in case Claude wraps it in markdown backticks
+        if (content.includes('```')) {
+            const match = content.match(/```(?:json)?([\s\S]*?)```/);
+            if (match) {
+                content = match[1].trim();
+            }
+        }
+
+        return JSON.parse(content);
     }
 
     async _callOpenAI(prompt) {
