@@ -46,7 +46,7 @@ export const authorize = (...roles) => {
     return (req, res, next) => {
         // req.user.role is a populated object after auth hydration — extract the name
         const userRoleName = (req.user?.role?.name || '').toLowerCase();
-        const allowedRoles = roles.map(r => r.toLowerCase());
+        const allowedRoles = roles.flat().map(r => r.toLowerCase());
 
         if (!allowedRoles.includes(userRoleName)) {
             console.warn(
@@ -55,7 +55,7 @@ export const authorize = (...roles) => {
             );
             return res.status(403).json({
                 success: false,
-                message: `Access denied. Required role: ${roles.join(' or ')}.`
+                message: `Access denied. Required role: ${roles.flat().join(' or ')}.`
             });
         }
         next();

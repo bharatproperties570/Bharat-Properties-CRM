@@ -43,11 +43,11 @@ export const authorize = (...roles) => {
         }
 
         const userRole = req.user.role?.name || req.user.role;
-        const allowedRoles = roles.map(r => String(r).toLowerCase());
+        const allowedRoles = roles.flat().map(r => String(r).toLowerCase());
         const currentUserRole = String(userRole || '').toLowerCase();
 
         if (!allowedRoles.includes(currentUserRole)) {
-            return next(new AppError(`Access denied. Required: ${roles.join(' or ')}`, 403));
+            return next(new AppError(`Access denied. Required: ${roles.flat().join(' or ')}`, 403));
         }
 
         next();
