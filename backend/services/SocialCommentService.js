@@ -293,7 +293,7 @@ class SocialCommentService {
                                 senderId: msg.from, // Customer's phone number
                                 text:     msg.text?.body || `[Sent ${msg.type || 'media'}]`,
                                 messageId: msg.id,
-                                type:      msg.type, // image, video, document, etc.
+                                messageType: msg.type, // image, video, document, etc.
                                 mediaData: msg[msg.type], // The specific media object from Meta
                                 timestamp: new Date(parseInt(msg.timestamp) * 1000).toISOString(),
                                 raw: msg
