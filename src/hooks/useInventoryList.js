@@ -17,7 +17,7 @@ export const useInventoryList = (initialFilters = {}) => {
     const [refreshTrigger, setRefreshTrigger] = useState(0);
     const [stats, setStats] = useState({ active: 0, inactive: 0, categories: [] });
 
-    const debouncedSearchTerm = useDebounce(searchTerm, 500);
+    const debouncedSearchTerm = useDebounce(searchTerm, 300);
 
     // -- Pagination Reset Logic --
     useEffect(() => {

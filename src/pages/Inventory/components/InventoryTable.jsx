@@ -11,7 +11,8 @@ const InventoryTable = ({
     resolveInventoryLookup,
     onNavigate,
     getUserName,
-    getTeamName
+    getTeamName,
+    loading
 }) => {
     const isAllSelected = inventoryItems.length > 0 && selectedIds.length === inventoryItems.length;
     
@@ -52,7 +53,42 @@ const InventoryTable = ({
     };
 
     return (
-        <div className="table-wrapper" style={{ height: 'calc(100vh - 250px)', display: 'flex', flexDirection: 'column' }}>
+        <div className="table-wrapper" style={{ height: 'calc(100vh - 250px)', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+            <style>{`
+                @keyframes spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
+            `}</style>
+            {loading && (
+                <div style={{
+                    position: 'absolute',
+                    top: '41px',
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(255, 255, 255, 0.75)',
+                    backdropFilter: 'blur(4px)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 20,
+                    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+                }}>
+                    <div className="premium-spinner" style={{
+                        width: '36px',
+                        height: '36px',
+                        border: '3px solid rgba(99, 102, 241, 0.1)',
+                        borderTop: '3px solid #6366f1',
+                        borderRadius: '50%',
+                        animation: 'spin 0.8s linear infinite'
+                    }}></div>
+                    <span style={{ marginTop: '14px', fontSize: '0.68rem', color: '#475569', fontWeight: 800, letterSpacing: '0.1em', fontFamily: "'Inter', sans-serif" }}>
+                        REFRESHING INVENTORY...
+                    </span>
+                </div>
+            )}
             {/* Sticky Header */}
             <div className="list-header inventory-list-grid" style={{ 
                 padding: '12px 1.5rem 12px 0.75rem',

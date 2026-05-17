@@ -302,6 +302,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                 getUserName={getUserName}
                                 getTeamName={getTeamName}
                                 onAction={handleRowAction}
+                                loading={loading}
                             />
                         </>
                     ) : (
