@@ -24,6 +24,7 @@ import Contact from '../models/Contact.js';
 import WhatsAppService from './WhatsAppService.js';
 import { resolveLeadLookup } from '../models/Lead.js';
 import NotificationEngine from './NotificationEngine.js';
+import geminiService from './GeminiService.js';
 
 // ── Structured logger ──────────────────────────────────────────
 const log = {
@@ -299,29 +300,12 @@ class DealVerificationService {
     static async _parseWithAI(userMessage, deals, traceId) {
         const systemPrompt = buildVerificationPrompt(deals);
 
-        // Native fetch available in Node 18+
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
-            method:  'POST',
-            headers: {
-                'Content-Type':      'application/json',
-                'x-api-key':         process.env.ANTHROPIC_API_KEY,
-                'anthropic-version': '2023-06-01',
-            },
-            body: JSON.stringify({
-                model:      'claude-3-haiku-20240307', // Using a valid Claude 3 model name
-                max_tokens: 500,
-                system:     systemPrompt,
-                messages:   [{ role: 'user', content: userMessage }],
-            }),
-        });
-
-        if (!response.ok) {
-            const errText = await response.text();
-            throw new Error(`Anthropic API error ${response.status}: ${errText}`);
-        }
-
-        const data = await response.json();
-        const rawText = data.content?.[0]?.text || '';
+        log.info(traceId, 'Parsing intent using Gemini 1.5 Engine...');
+        const rawText = await geminiService.generateWithSystem(
+            systemPrompt,
+            userMessage,
+            { model: 'gemini-1.5-flash-latest', temperature: 0.1, maxTokens: 500 }
+        );
 
         // Strip any accidental markdown fences
         const clean = rawText.replace(/```json|```/gi, '').trim();
