@@ -239,9 +239,20 @@ app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
         console.error('Failed to log error to file:', fsErr);
     }
 
+    let message = err.message || "Internal Server Error";
+    if (
+        message.includes("timed out") || 
+        message.includes("27017") || 
+        message.includes("MongoNetworkError") || 
+        message.includes("MongooseError") ||
+        message.includes("ECONNREFUSED")
+    ) {
+        message = "Database Connection Timeout: The CRM backend could not connect to your MongoDB Atlas database. This is usually caused by an un-whitelisted dynamic IP address on your local internet connection. To permanently fix this: Log into MongoDB Cloud Console (cloud.mongodb.com) -> Security -> Network Access -> Add '0.0.0.0/0' (Allow Access from Anywhere).";
+    }
+
     res.status(statusCode).json({ 
         success: false, 
-        message: err.message || "Internal Server Error",
+        message: message,
         // Only include error details if not in production or if it's an operational error
         ...(process.env.NODE_ENV !== 'production' && { error: err.message, details: err.errors })
     });

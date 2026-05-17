@@ -26,7 +26,17 @@ export const getIntakes = async (req, res) => {
         res.status(200).json({ success: true, data: intakes });
     } catch (error) {
         console.error("[Intake:Get Error]:", error);
-        res.status(500).json({ success: false, message: error.message });
+        let errMsg = error.message;
+        if (
+            errMsg.includes("timed out") || 
+            errMsg.includes("27017") || 
+            errMsg.includes("MongoNetworkError") || 
+            errMsg.includes("MongooseError") ||
+            errMsg.includes("ECONNREFUSED")
+        ) {
+            errMsg = "Database Connection Timeout: The CRM backend could not connect to your MongoDB Atlas database. This is usually caused by an un-whitelisted dynamic IP address on your local internet connection. To permanently fix this: Log into MongoDB Cloud Console (cloud.mongodb.com) -> Security -> Network Access -> Add '0.0.0.0/0' (Allow Access from Anywhere).";
+        }
+        res.status(500).json({ success: false, message: errMsg });
     }
 };
 
