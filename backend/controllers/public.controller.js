@@ -33,6 +33,25 @@ const resolveLookup = async (type, value) => {
     return lookup._id;
 };
 
+const resolveAbsoluteMediaUrl = (url, req) => {
+    if (!url) return '';
+    
+    // 1. If it's a Google Drive link, convert it to a direct content/view link so it renders inside <img> / <video>
+    const gDriveMatch = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) || url.match(/id=([a-zA-Z0-9_-]+)/);
+    if (gDriveMatch && gDriveMatch[1]) {
+        return `https://drive.google.com/uc?export=view&id=${gDriveMatch[1]}`;
+    }
+    
+    // 2. If it's a relative local upload path, prepend the backend host dynamically
+    if (url.startsWith('/uploads/')) {
+        const protocol = req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
+        const host = req.get('host');
+        return `${protocol}://${host}${url}`;
+    }
+    
+    return url;
+};
+
 /**
  * PUBLIC API CONTROLLER
  * These endpoints are used by the public website.
@@ -306,10 +325,63 @@ export const getListings = async (req, res) => {
             }
         ]);
 
+        const processedListings = listings.map(listing => {
+            const rawImages = listing.images || [];
+            const rawVideos = listing.videos || [];
+            
+            // Map flat string array of resolved URLs
+            const resolvedImages = rawImages.map(img => {
+                const url = typeof img === 'object' ? img.url : img;
+                return resolveAbsoluteMediaUrl(url, req);
+            }).filter(Boolean);
+            
+            const resolvedVideos = rawVideos.map(vid => {
+                const url = typeof vid === 'object' ? vid.url : vid;
+                return resolveAbsoluteMediaUrl(url, req);
+            }).filter(Boolean);
+            
+            // Map detailed array of objects
+            const resolvedImagesDetail = rawImages.map(img => {
+                if (typeof img === 'object') {
+                    return {
+                        ...img,
+                        url: resolveAbsoluteMediaUrl(img.url, req)
+                    };
+                }
+                return {
+                    title: 'Property Image',
+                    url: resolveAbsoluteMediaUrl(img, req)
+                };
+            }).filter(img => img.url);
+
+            const resolvedVideosDetail = rawVideos.map(vid => {
+                if (typeof vid === 'object') {
+                    return {
+                        ...vid,
+                        url: resolveAbsoluteMediaUrl(vid.url, req)
+                    };
+                }
+                return {
+                    title: 'Property Video',
+                    url: resolveAbsoluteMediaUrl(vid, req)
+                };
+            }).filter(vid => vid.url);
+
+            return {
+                ...listing,
+                images: resolvedImages,
+                videos: resolvedVideos,
+                imagesDetail: resolvedImagesDetail,
+                videosDetail: resolvedVideosDetail,
+                inventoryImages: resolvedImagesDetail,
+                inventoryVideos: resolvedVideosDetail
+            };
+        });
+
         res.status(200).json({
             success: true,
-            count: listings.length,
-            data: listings
+            count: processedListings.length,
+            data: processedListings
         });
     } catch (error) {
         console.error('getListings error:', error);
@@ -589,11 +661,57 @@ export const getListingBySlug = async (req, res) => {
             }
         ]);
 
-        if (!listings || listings.length === 0) {
-            return res.status(404).json({ success: false, message: 'Listing not found' });
-        }
+        const listing = listings[0];
+        const rawImages = listing.images || [];
+        const rawVideos = listing.videos || [];
 
-        res.status(200).json({ success: true, data: listings[0] });
+        const resolvedImages = rawImages.map(img => {
+            const url = typeof img === 'object' ? img.url : img;
+            return resolveAbsoluteMediaUrl(url, req);
+        }).filter(Boolean);
+
+        const resolvedVideos = rawVideos.map(vid => {
+            const url = typeof vid === 'object' ? vid.url : vid;
+            return resolveAbsoluteMediaUrl(url, req);
+        }).filter(Boolean);
+
+        const resolvedImagesDetail = rawImages.map(img => {
+            if (typeof img === 'object') {
+                return {
+                    ...img,
+                    url: resolveAbsoluteMediaUrl(img.url, req)
+                };
+            }
+            return {
+                title: 'Property Image',
+                url: resolveAbsoluteMediaUrl(img, req)
+            };
+        }).filter(img => img.url);
+
+        const resolvedVideosDetail = rawVideos.map(vid => {
+            if (typeof vid === 'object') {
+                return {
+                    ...vid,
+                    url: resolveAbsoluteMediaUrl(vid.url, req)
+                };
+            }
+            return {
+                title: 'Property Video',
+                url: resolveAbsoluteMediaUrl(vid, req)
+            };
+        }).filter(vid => vid.url);
+
+        const processedListing = {
+            ...listing,
+            images: resolvedImages,
+            videos: resolvedVideos,
+            imagesDetail: resolvedImagesDetail,
+            videosDetail: resolvedVideosDetail,
+            inventoryImages: resolvedImagesDetail,
+            inventoryVideos: resolvedVideosDetail
+        };
+
+        res.status(200).json({ success: true, data: processedListing });
     } catch (error) {
         console.error('getListingBySlug error:', error);
         res.status(500).json({ success: false, message: error.message });
@@ -660,16 +778,75 @@ export const getProjectBySlug = async (req, res) => {
             populatedProject.status = populatedProject._resolvedStatus;
         }
 
-        // Fetch associated deals
+        // Fetch associated deals and populate their inventory media
         const deals = await Deal.find({ projectId: project._id, isPublished: true })
-            .select('projectName block unitNo unitType propertyType size sizeUnit price quotePrice websiteMetadata location status category subCategory documents publishedAt')
+            .select('projectId inventoryId projectName block unitNo unitType propertyType size sizeUnit price quotePrice websiteMetadata location status category subCategory documents publishedAt')
+            .populate({
+                path: 'inventoryId',
+                select: 'inventoryImages inventoryVideos'
+            })
             .lean();
+
+        const processedDeals = deals.map(deal => {
+            const inv = deal.inventoryId || {};
+            const rawImages = inv.inventoryImages || [];
+            const rawVideos = inv.inventoryVideos || [];
+
+            const resolvedImages = rawImages.map(img => {
+                const url = typeof img === 'object' ? img.url : img;
+                return resolveAbsoluteMediaUrl(url, req);
+            }).filter(Boolean);
+
+            const resolvedVideos = rawVideos.map(vid => {
+                const url = typeof vid === 'object' ? vid.url : vid;
+                return resolveAbsoluteMediaUrl(url, req);
+            }).filter(Boolean);
+
+            const resolvedImagesDetail = rawImages.map(img => {
+                if (typeof img === 'object') {
+                    return {
+                        ...img,
+                        url: resolveAbsoluteMediaUrl(img.url, req)
+                    };
+                }
+                return {
+                    title: 'Property Image',
+                    url: resolveAbsoluteMediaUrl(img, req)
+                };
+            }).filter(img => img.url);
+
+            const resolvedVideosDetail = rawVideos.map(vid => {
+                if (typeof vid === 'object') {
+                    return {
+                        ...vid,
+                        url: resolveAbsoluteMediaUrl(vid.url, req)
+                    };
+                }
+                return {
+                    title: 'Property Video',
+                    url: resolveAbsoluteMediaUrl(vid, req)
+                };
+            }).filter(vid => vid.url);
+
+            // Clean up to avoid leaking internal inventory reference
+            const { inventoryId, ...cleanDeal } = deal;
+
+            return {
+                ...cleanDeal,
+                images: resolvedImages,
+                videos: resolvedVideos,
+                imagesDetail: resolvedImagesDetail,
+                videosDetail: resolvedVideosDetail,
+                inventoryImages: resolvedImagesDetail,
+                inventoryVideos: resolvedVideosDetail
+            };
+        });
 
         res.status(200).json({ 
             success: true, 
             data: {
                 ...project,
-                associatedDeals: deals
+                associatedDeals: processedDeals
             }
         });
     } catch (error) {
