@@ -357,21 +357,22 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
         }
     };
 
-    const fetchMatchingLeads = useCallback(async (inventoryId) => {
+    const fetchMatchingLeads = useCallback(async () => {
+        if (!dealId) return;
         try {
-            const response = await api.get(`inventory/match?inventoryId=${inventoryId}`);
+            const response = await api.get(`leads/match?dealId=${dealId}`);
             if (response.data && response.data.success) {
-                const mapped = (response.data.data || []).map(l => ({
+                const mapped = (response.data.matchingLeads || []).map(l => ({
                     ...l,
-                    name: l.name || (l.contactDetails ? `${l.contactDetails.name || ''} ${l.contactDetails.surname || ''}`.trim() : 'Unknown'),
-                    mobile: l.mobile || l.phone || (l.contactDetails?.phones?.[0]?.number) || ''
+                    name: l.name || `${l.firstName || ''} ${l.lastName || ''}`.trim() || 'Unknown',
+                    mobile: l.mobile || l.phone || ''
                 }));
                 setMatchingLeads(mapped);
             }
         } catch (error) {
             console.error("Error fetching matching leads:", error);
         }
-    }, []);
+    }, [dealId]);
 
     const fetchAllLeads = useCallback(async () => {
         try {
@@ -411,11 +412,8 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     }, [dealId, fetchDealDetails, fetchLiveScore, fetchAllLeads, fetchDealActivities]);
 
     useEffect(() => {
-        const invId = deal?.inventoryId?._id || (typeof deal?.inventoryId === 'string' ? deal.inventoryId : null);
-        if (invId) {
-            fetchMatchingLeads(invId);
-        }
-    }, [deal, fetchMatchingLeads]);
+        fetchMatchingLeads();
+    }, [fetchMatchingLeads]);
 
     const stageStyle = useMemo(() => {
         const stageColors = {
@@ -489,7 +487,7 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                     </div>
 
                     {inventory ? (
-                        <>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', flexShrink: 0 }}>
                             <InventorySpecsPanel 
                                 inventory={inventory} 
                                 getLookupValue={getLookupValue}
@@ -507,9 +505,9 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                                 inventory={inventory} 
                                 getLookupValue={getLookupValue} 
                             />
-                        </>
+                        </div>
                     ) : (
-                        <>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', flexShrink: 0 }}>
                             <DealTechnicalSpecs 
                                 deal={deal} 
                                 inventory={inventory}
@@ -527,8 +525,9 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                                 deal={deal} 
                                 inventory={inventory}
                                 getLookupValue={getLookupValue} 
+                                onRefresh={fetchDealDetails}
                             />
-                        </>
+                        </div>
                     )}
                 </div>
 
@@ -622,97 +621,105 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
 
                 {/* COLUMN 3: RIGHT - PRICING & LOGISTICS */}
                 <div style={{ flex: '0 0 400px', display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto', minHeight: 0, paddingBottom: '20px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexShrink: 0 }}>
                         <i className="fas fa-file-invoice-dollar" style={{ color: '#4f46e5' }}></i>
                         <span style={{ fontSize: '0.7rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Pricing & Logistics</span>
                     </div>
 
-                    <DealAnalysis 
-                        deal={deal} 
-                        isMarkingLost={isMarkingLost} 
-                        handleMarkAsLost={handleMarkAsLost}
-                        setDeal={setDeal}
-                    />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', flexShrink: 0 }}>
+                        <DealAnalysis 
+                            deal={deal} 
+                            isMarkingLost={isMarkingLost} 
+                            handleMarkAsLost={handleMarkAsLost}
+                            setDeal={setDeal}
+                        />
 
-                    <DealFinancialSection 
-                        deal={deal} 
-                        financials={financials} 
-                        setIsOfferModalOpen={setIsOfferModalOpen} 
-                    />
+                        <DealFinancialSection 
+                            deal={deal} 
+                            financials={financials} 
+                            setIsOfferModalOpen={setIsOfferModalOpen} 
+                        />
 
-                    <LandedCostSheet financials={financials} deal={deal} />
+                        <LandedCostSheet financials={financials} deal={deal} />
 
-                    <MatchedLeadsCard 
-                        matchingLeads={matchingLeads} 
-                        onNavigate={onNavigate} 
-                        entityId={dealId}
-                        entityType="deal"
-                    />
+                        <MatchedLeadsCard 
+                            matchingLeads={matchingLeads} 
+                            onNavigate={onNavigate} 
+                            entityId={dealId}
+                            entityType="deal"
+                        />
 
-                    <PropertyOwnerSection 
-                        inventory={inventory || { _id: null, owners: [], associates: [] }} 
-                        onOwnerClick={() => setIsOwnerModalOpen(true)}
-                    />
+                        <PropertyOwnerSection 
+                            inventory={inventory || { 
+                                _id: null, 
+                                owners: deal.owner ? [deal.owner] : [], 
+                                associates: deal.associatedContact ? [{ contact: deal.associatedContact }] : [],
+                                ownerName: deal.ownerName || deal.owner?.name,
+                                ownerPhone: deal.ownerPhone || (deal.owner?.phones?.[0]?.number || deal.owner?.mobile)
+                            }} 
+                            onOwnerClick={() => setIsOwnerModalOpen(true)}
+                        />
 
-                    <MediaVaultSection 
-                        inventory={inventory}
-                        onMediaClick={() => {
-                            if (!inventory?._id) {
-                                toast.error('Please link an inventory to manage media archive.');
-                                return;
-                            }
-                            setIsUploadModalOpen(true);
-                        }}
-                        onMediaView={(m) => setMediaViewer({ isOpen: true, data: m })}
-                        onUploadClick={() => {
-                            if (!inventory?._id) {
-                                toast.error('Please link an inventory to upload media.');
-                                return;
-                            }
-                            setIsUploadModalOpen(true);
-                        }}
-                        onDocumentClick={() => {
-                            if (!inventory?._id) {
-                                toast.error('Please link an inventory to manage documents.');
-                                return;
-                            }
-                            setIsDocumentModalOpen(true);
-                        }}
-                    />
+                        <MediaVaultSection 
+                            inventory={inventory}
+                            onMediaClick={() => {
+                                if (!inventory?._id) {
+                                    toast.error('Please link an inventory to manage media archive.');
+                                    return;
+                                }
+                                setIsUploadModalOpen(true);
+                            }}
+                            onMediaView={(m) => setMediaViewer({ isOpen: true, data: m })}
+                            onUploadClick={() => {
+                                if (!inventory?._id) {
+                                    toast.error('Please link an inventory to upload media.');
+                                    return;
+                                }
+                                setIsUploadModalOpen(true);
+                            }}
+                            onDocumentClick={() => {
+                                if (!inventory?._id) {
+                                    toast.error('Please link an inventory to manage documents.');
+                                    return;
+                                }
+                                setIsDocumentModalOpen(true);
+                            }}
+                        />
 
-                    {/* Property History */}
-                    <div className="glass-card">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-                            <div style={{ width: '32px', height: '32px', background: 'rgba(100, 116, 139, 0.1)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                <i className="fas fa-history" style={{ color: '#64748b', fontSize: '0.8rem' }}></i>
+                        {/* Property History */}
+                        <div className="glass-card">
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+                                <div style={{ width: '32px', height: '32px', background: 'rgba(100, 116, 139, 0.1)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <i className="fas fa-history" style={{ color: '#64748b', fontSize: '0.8rem' }}></i>
+                                </div>
+                                <h3 style={{ margin: 0, fontSize: '0.85rem', fontWeight: 900, color: '#0f172a' }}>Property History</h3>
                             </div>
-                            <h3 style={{ margin: 0, fontSize: '0.85rem', fontWeight: 900, color: '#0f172a' }}>Property History</h3>
-                        </div>
-                        <div style={{ paddingLeft: '14px', borderLeft: '2px solid #f1f5f9', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                            {inventory ? (
-                                (inventory.ownerHistory || []).length > 0 ? (
-                                    (inventory.ownerHistory || []).reverse().slice(0, 5).map((item, idx) => (
-                                        <div key={idx} style={{ position: 'relative' }}>
-                                            <div style={{ position: 'absolute', left: '-20px', top: '4px', width: '8px', height: '8px', background: '#10b981', borderRadius: '50%', border: '2px solid #fff' }}></div>
-                                            <p style={{ margin: 0, fontSize: '0.75rem', fontWeight: 800, color: '#1e293b' }}>{renderValue(item.contactName)}</p>
-                                            <p style={{ margin: 0, fontSize: '0.6rem', color: '#64748b' }}>{new Date(item.date).toLocaleDateString()}</p>
-                                        </div>
-                                    ))
+                            <div style={{ paddingLeft: '14px', borderLeft: '2px solid #f1f5f9', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                {inventory ? (
+                                    (inventory.ownerHistory || []).length > 0 ? (
+                                        (inventory.ownerHistory || []).reverse().slice(0, 5).map((item, idx) => (
+                                            <div key={idx} style={{ position: 'relative' }}>
+                                                <div style={{ position: 'absolute', left: '-20px', top: '4px', width: '8px', height: '8px', background: '#10b981', borderRadius: '50%', border: '2px solid #fff' }}></div>
+                                                <p style={{ margin: 0, fontSize: '0.75rem', fontWeight: 800, color: '#1e293b' }}>{renderValue(item.contactName)}</p>
+                                                <p style={{ margin: 0, fontSize: '0.6rem', color: '#64748b' }}>{new Date(item.date).toLocaleDateString()}</p>
+                                            </div>
+                                        ))
+                                    ) : (
+                                        <p style={{ fontSize: '0.7rem', color: '#64748b', margin: 0 }}>No history recorded.</p>
+                                    )
                                 ) : (
-                                    <p style={{ fontSize: '0.7rem', color: '#64748b', margin: 0 }}>No history recorded.</p>
-                                )
-                            ) : (
-                                <p style={{ fontSize: '0.7rem', color: '#64748b', margin: 0 }}>No inventory linked.</p>
-                            )}
+                                    <p style={{ fontSize: '0.7rem', color: '#64748b', margin: 0 }}>No inventory linked.</p>
+                                )}
+                            </div>
                         </div>
-                    </div>
 
-                    {/* Inventory Lifecycle */}
-                    <div className="glass-card">
-                        <h3 style={{ fontSize: '0.75rem', fontWeight: 900, color: '#0f172a', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.6px' }}>Lifecycle Analytics</h3>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                            <LifecycleMetric label="Acquired" value={inventory?.createdAt ? new Date(inventory.createdAt).toLocaleDateString() : '-'} icon="calendar-plus" color="#10b981" />
-                            <LifecycleMetric label="Modified" value={inventory?.updatedAt ? new Date(inventory.updatedAt).toLocaleDateString() : '-'} icon="edit" color="#3b82f6" />
+                        {/* Inventory Lifecycle */}
+                        <div className="glass-card">
+                            <h3 style={{ fontSize: '0.75rem', fontWeight: 900, color: '#0f172a', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.6px' }}>Lifecycle Analytics</h3>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                                <LifecycleMetric label="Acquired" value={inventory?.createdAt ? new Date(inventory.createdAt).toLocaleDateString() : '-'} icon="calendar-plus" color="#10b981" />
+                                <LifecycleMetric label="Modified" value={inventory?.updatedAt ? new Date(inventory.updatedAt).toLocaleDateString() : '-'} icon="edit" color="#3b82f6" />
+                            </div>
                         </div>
                     </div>
                 </div>

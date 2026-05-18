@@ -1,15 +1,11 @@
-import { Queue, Worker } from 'bullmq';
+import { Queue, Worker } from '../../src/config/redis.js';
+import redisConnection from '../../src/config/redis.js';
 import Intake from '../../models/Intake.js';
 import connectorRegistry from '../intakeConnectors/ConnectorRegistry.js';
 import aiVerificationEngine from '../intakeVerification/AIVerificationEngine.js';
 import intakeAIAssistantEngine from '../intakeVerification/IntakeAIAssistantEngine.js';
 
-const connection = {
-    host: process.env.REDIS_HOST || 'localhost',
-    port: process.env.REDIS_PORT || 6379,
-};
-
-const intakeQueue = new Queue('UnifiedIntakeQueue', { connection });
+const intakeQueue = new Queue('UnifiedIntakeQueue', { connection: redisConnection });
 
 export const addToIntakeQueue = async (sourceType, rawData, userId = null) => {
     // Basic deduplication check using raw text if manual
@@ -104,7 +100,7 @@ const intakeWorker = new Worker('UnifiedIntakeQueue', async job => {
         
         throw error; // Rethrow to trigger BullMQ retry logic
     }
-}, { connection });
+}, { connection: redisConnection });
 
 intakeWorker.on('completed', job => {
     console.log(`Job ${job.id} has completed!`);

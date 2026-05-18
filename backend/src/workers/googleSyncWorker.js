@@ -1,4 +1,4 @@
-import { Worker } from 'bullmq';
+import { Worker } from '../config/redis.js';
 import redisConnection from '../config/redis.js';
 import Contact from '../../models/Contact.js';
 import Activity from '../../models/Activity.js';

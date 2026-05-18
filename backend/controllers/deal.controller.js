@@ -930,9 +930,13 @@ export const getDeals = async (req, res) => {
             });
         }
 
-        // --- OPTIMIZATION 10: Batch Inventory Fetch ---
+        // --- OPTIMIZATION 10: Batch Inventory Fetch & Fallback Unlinked Matching ---
         const inventoryIdsToFetch = [...new Set(results.records.map(d => d.inventoryId?._id || d.inventoryId).filter(Boolean))];
+        const unlinkedDeals = results.records.filter(d => !d.inventoryId && d.projectName && d.unitNo);
+
         const inventoryMap = new Map();
+        const unlinkedInventoryMap = new Map();
+
         if (inventoryIdsToFetch.length > 0) {
             const inventories = await Inventory.find({ _id: { $in: inventoryIdsToFetch } })
                 .populate({ path: 'owners', model: 'Contact' })
@@ -940,6 +944,25 @@ export const getDeals = async (req, res) => {
                 .select('+sizeLabel +sizeConfig') // Ensure these are included if they were excluded by default
                 .lean();
             inventories.forEach(inv => inventoryMap.set(String(inv._id), inv));
+        }
+
+        if (unlinkedDeals.length > 0) {
+            const unlinkedQuery = {
+                $or: unlinkedDeals.map(d => ({
+                    projectName: { $regex: new RegExp(`^${escapeRegExp(d.projectName)}$`, 'i') },
+                    unitNo: { $regex: new RegExp(`^${escapeRegExp(d.unitNo)}$`, 'i') }
+                }))
+            };
+            const unlinkedInventories = await Inventory.find(unlinkedQuery)
+                .populate({ path: 'owners', model: 'Contact' })
+                .populate({ path: 'associates.contact', model: 'Contact' })
+                .select('+sizeLabel +sizeConfig')
+                .lean();
+            
+            unlinkedInventories.forEach(inv => {
+                const key = `${String(inv.projectName).toLowerCase().trim()}_${String(inv.unitNo).toLowerCase().trim()}`;
+                unlinkedInventoryMap.set(key, inv);
+            });
         }
 
         // --- [ENTERPRISE HARDENING]: Live Multi-Source Sync & Manual Lookup Resolution ---
@@ -965,7 +988,12 @@ export const getDeals = async (req, res) => {
             
             // Live enrichment from inventory Map (O(1))
             const invId = dealObj.inventoryId?._id || dealObj.inventoryId;
-            const inventory = inventoryMap.get(String(invId));
+            let inventory = invId ? inventoryMap.get(String(invId)) : null;
+
+            if (!inventory && dealObj.projectName && dealObj.unitNo) {
+                const key = `${String(dealObj.projectName).toLowerCase().trim()}_${String(dealObj.unitNo).toLowerCase().trim()}`;
+                inventory = unlinkedInventoryMap.get(key);
+            }
 
             if (inventory) {
                 if (inventory.owners?.[0]) dealObj.owner = inventory.owners[0];
@@ -1076,12 +1104,23 @@ export const getDealById = async (req, res) => {
         const dealObj = deal.toObject();
 
         // --- [ENTERPRISE HARDENING]: Live Multi-Source Sync (Detail View) ---
+        let inventory = null;
         if (deal.inventoryId) {
             const Inventory = mongoose.model('Inventory');
-            const inventory = await Inventory.findById(deal.inventoryId)
+            inventory = await Inventory.findById(deal.inventoryId)
                 .populate({ path: 'owners', model: 'Contact' })
                 .populate({ path: 'associates.contact', model: 'Contact' })
                 .lean();
+        } else if (deal.projectName && deal.unitNo) {
+            const Inventory = mongoose.model('Inventory');
+            inventory = await Inventory.findOne({
+                projectName: { $regex: new RegExp(`^${escapeRegExp(deal.projectName)}$`, 'i') },
+                unitNo: { $regex: new RegExp(`^${escapeRegExp(deal.unitNo)}$`, 'i') }
+            })
+                .populate({ path: 'owners', model: 'Contact' })
+                .populate({ path: 'associates.contact', model: 'Contact' })
+                .lean();
+        }
             
             if (inventory) {
                 if (inventory.owners?.[0]) dealObj.owner = inventory.owners[0];
@@ -1119,7 +1158,6 @@ export const getDealById = async (req, res) => {
                     inv.unitSpecification = inventory.unitSpecification || inv.unitSpecification;
                 }
             }
-        }
 
         // Manual Enrichment for Mixed fields - MUST BE AFTER INVENTORY MERGE
         const resolveLookupInDoc = async (doc) => {

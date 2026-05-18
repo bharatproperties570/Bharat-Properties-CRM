@@ -10,7 +10,7 @@
  *   'ai-generate' → Background AI content generation (long-running)
  */
 
-import { Queue } from 'bullmq';
+import { Queue } from '../config/redis.js';
 import redisConnection from '../config/redis.js';
 
 const queueOptions = {

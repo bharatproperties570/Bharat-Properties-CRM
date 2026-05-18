@@ -1,4 +1,4 @@
-import { Queue } from 'bullmq';
+import { Queue } from '../config/redis.js';
 import redisConnection from '../config/redis.js';
 
 // Setup queues with standard options

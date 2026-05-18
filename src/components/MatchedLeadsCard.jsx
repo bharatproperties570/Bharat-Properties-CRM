@@ -106,7 +106,7 @@ const MatchedLeadsCard = ({ matchingLeads, onNavigate, entityId, entityType = 'd
                         <p style={{ fontSize: '0.8rem', fontWeight: 700, margin: 0 }}>No Perfect Matches</p>
                         <p style={{ fontSize: '0.7rem', margin: '4px 0 0 0' }}>Try adjusting match criteria in centre</p>
                         <button
-                            onClick={() => onNavigate('inventory-matching', entityId)}
+                            onClick={() => onNavigate(entityType === 'deal' ? 'deal-matching' : 'inventory-matching', entityId)}
                             style={{ marginTop: '12px', fontSize: '0.75rem', fontWeight: 800, color: '#2563eb', background: '#eff6ff', border: 'none', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer' }}
                         >
                             Go to Match Centre

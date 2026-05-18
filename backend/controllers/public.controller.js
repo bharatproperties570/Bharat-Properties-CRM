@@ -5,6 +5,7 @@ import Lead from "../models/Lead.js";
 import Activity from "../models/Activity.js";
 import Lookup from "../models/Lookup.js";
 import Inventory from "../models/Inventory.js";
+import CollectorRate from "../models/CollectorRate.js";
 import SocialReview from '../models/SocialReview.js';
 import SystemSetting from "../src/modules/systemSettings/system.model.js";
 import mongoose from "mongoose";
@@ -239,7 +240,8 @@ export const getListings = async (req, res) => {
                     propertyDetails: { $ifNull: ['$propertyDetails', '$inventoryInfo.propertyDetails'] },
                     unitSpecification: { $ifNull: ['$unitSpecification', '$inventoryInfo.unitSpecification'] },
                     address: { $ifNull: ['$address', '$inventoryInfo.address'] },
-                    sizeLabel: { $ifNull: ['$sizeLabel', '$inventoryInfo.sizeLabel'] },
+                    sizeLabel: { $ifNull: ['$sizeLabel', { $ifNull: ['$unitSpecification.sizeLabel', '$inventoryInfo.sizeLabel'] }] },
+                    subCategory: { $ifNull: ['$subCategory', '$inventoryInfo.subCategory'] },
                     images: { $ifNull: ['$websiteMetadata.images', { $ifNull: ['$inventoryInfo.inventoryImages', []] }] },
                     videos: { $ifNull: ['$websiteMetadata.videos', { $ifNull: ['$inventoryInfo.inventoryVideos', []] }] }
                 }
@@ -270,6 +272,9 @@ export const getListings = async (req, res) => {
                 $lookup: { from: 'lookups', let: { val: '$propertyDetails.roadWidth' }, pipeline: [ { $match: { $expr: { $or: [ { $eq: ['$_id', '$$val'] }, { $eq: ['$_id', { $convert: { input: '$$val', to: 'objectId', onError: null, onNull: null } } ] } ] } } } ], as: 'resolvedRoadWidth' }
             },
             {
+                $lookup: { from: 'lookups', let: { val: '$sizeLabel' }, pipeline: [ { $match: { $expr: { $or: [ { $eq: ['$_id', '$$val'] }, { $eq: ['$_id', { $convert: { input: '$$val', to: 'objectId', onError: null, onNull: null } } ] } ] } } } ], as: 'resolvedSizeLabel' }
+            },
+            {
                 $lookup: {
                     from: 'projects',
                     let: { pId: '$projectId', pName: '$projectName' },
@@ -293,6 +298,9 @@ export const getListings = async (req, res) => {
                     'propertyDetails.facing': { $ifNull: [{ $arrayElemAt: ['$resolvedFacing.lookup_value', 0] }, '$propertyDetails.facing'] },
                     'propertyDetails.direction': { $ifNull: [{ $arrayElemAt: ['$resolvedDirection.lookup_value', 0] }, '$propertyDetails.direction'] },
                     'propertyDetails.roadWidth': { $ifNull: [{ $arrayElemAt: ['$resolvedRoadWidth.lookup_value', 0] }, '$propertyDetails.roadWidth'] },
+                    sizeLabel: { $ifNull: [{ $arrayElemAt: ['$resolvedSizeLabel.lookup_value', 0] }, '$sizeLabel'] },
+                    'unitSpecification.sizeLabel': { $ifNull: [{ $arrayElemAt: ['$resolvedSizeLabel.lookup_value', 0] }, '$unitSpecification.sizeLabel'] },
+                    subCategory: { $ifNull: [{ $arrayElemAt: ['$resolvedSubCategory.lookup_value', 0] }, '$subCategory'] },
                     'address.hNo': { $cond: { if: { $eq: ['$websiteMetadata.shareLocation', false] }, then: 'Confidential', else: '$address.hNo' } },
                     'address.street': { $cond: { if: { $eq: ['$websiteMetadata.shareLocation', false] }, then: 'Confidential', else: '$address.street' } },
                     'address.landmark': { $cond: { if: { $eq: ['$websiteMetadata.shareLocation', false] }, then: 'Confidential', else: '$address.landmark' } },
@@ -312,7 +320,6 @@ export const getListings = async (req, res) => {
                     commission: 0,
                     internalRM: 0,
                     inventoryData: 0,
-                    inventoryInfo: 0,
                     resolvedCategory: 0,
                     resolvedPropertyType: 0,
                     resolvedLocation: 0,
@@ -320,6 +327,7 @@ export const getListings = async (req, res) => {
                     resolvedDirection: 0,
                     resolvedRoadWidth: 0,
                     resolvedProject: 0,
+                    resolvedSizeLabel: 0,
                     resolvedSubCategory: 0
                 }
             }
@@ -587,7 +595,9 @@ export const getListingBySlug = async (req, res) => {
                     unitSpecification: { $ifNull: ['$unitSpecification', '$inventoryInfo.unitSpecification'] },
                     address: { $ifNull: ['$address', '$inventoryInfo.address'] },
                     location: { $ifNull: ['$location', '$inventoryInfo.address.city'] },
-                    sizeLabel: { $ifNull: ['$sizeLabel', '$inventoryInfo.sizeLabel'] },
+                    sizeLabel: { $ifNull: ['$sizeLabel', { $ifNull: ['$unitSpecification.sizeLabel', '$inventoryInfo.sizeLabel'] }] },
+                    category: { $ifNull: ['$category', '$inventoryInfo.category'] },
+                    subCategory: { $ifNull: ['$subCategory', '$inventoryInfo.subCategory'] },
                     images: { $ifNull: ['$websiteMetadata.images', { $ifNull: ['$inventoryInfo.inventoryImages', []] }] },
                     videos: { $ifNull: ['$websiteMetadata.videos', { $ifNull: ['$inventoryInfo.inventoryVideos', []] }] }
                 }
@@ -618,6 +628,9 @@ export const getListingBySlug = async (req, res) => {
                 $lookup: { from: 'lookups', let: { val: '$propertyDetails.roadWidth' }, pipeline: [ { $match: { $expr: { $or: [ { $eq: ['$_id', '$$val'] }, { $eq: ['$_id', { $convert: { input: '$$val', to: 'objectId', onError: null, onNull: null } } ] } ] } } } ], as: 'resolvedRoadWidth' }
             },
             {
+                $lookup: { from: 'lookups', let: { val: '$sizeLabel' }, pipeline: [ { $match: { $expr: { $or: [ { $eq: ['$_id', '$$val'] }, { $eq: ['$_id', { $convert: { input: '$$val', to: 'objectId', onError: null, onNull: null } } ] } ] } } } ], as: 'resolvedSizeLabel' }
+            },
+            {
                 $lookup: {
                     from: 'projects',
                     let: { pId: '$projectId', pName: '$projectName' },
@@ -641,6 +654,9 @@ export const getListingBySlug = async (req, res) => {
                     'propertyDetails.facing': { $ifNull: [{ $arrayElemAt: ['$resolvedFacing.lookup_value', 0] }, '$propertyDetails.facing'] },
                     'propertyDetails.direction': { $ifNull: [{ $arrayElemAt: ['$resolvedDirection.lookup_value', 0] }, '$propertyDetails.direction'] },
                     'propertyDetails.roadWidth': { $ifNull: [{ $arrayElemAt: ['$resolvedRoadWidth.lookup_value', 0] }, '$propertyDetails.roadWidth'] },
+                    sizeLabel: { $ifNull: [{ $arrayElemAt: ['$resolvedSizeLabel.lookup_value', 0] }, '$sizeLabel'] },
+                    'unitSpecification.sizeLabel': { $ifNull: [{ $arrayElemAt: ['$resolvedSizeLabel.lookup_value', 0] }, '$unitSpecification.sizeLabel'] },
+                    subCategory: { $ifNull: [{ $arrayElemAt: ['$resolvedSubCategory.lookup_value', 0] }, '$subCategory'] },
                     'address.hNo': { $cond: { if: { $eq: ['$websiteMetadata.shareLocation', false] }, then: 'Confidential', else: '$address.hNo' } },
                     'address.street': { $cond: { if: { $eq: ['$websiteMetadata.shareLocation', false] }, then: 'Confidential', else: '$address.street' } },
                     'address.landmark': { $cond: { if: { $eq: ['$websiteMetadata.shareLocation', false] }, then: 'Confidential', else: '$address.landmark' } },
@@ -656,7 +672,7 @@ export const getListingBySlug = async (req, res) => {
                     visits: 0, owner: 0, associatedContact: 0, partyStructure: 0, commission: 0, internalRM: 0,
                     inventoryData: 0, inventoryInfo: 0, resolvedSubCategory: 0,
                     resolvedCategory: 0, resolvedPropertyType: 0, resolvedLocation: 0, resolvedFacing: 0,
-                    resolvedDirection: 0, resolvedRoadWidth: 0, resolvedProject: 0
+                    resolvedDirection: 0, resolvedRoadWidth: 0, resolvedProject: 0, resolvedSizeLabel: 0
                 }
             }
         ]);
@@ -701,6 +717,111 @@ export const getListingBySlug = async (req, res) => {
             };
         }).filter(vid => vid.url);
 
+        // Calculate dynamic Collector Rate
+        let collectorRate = 0;
+        let collectorRateUnit = 'Sq Yard';
+        let collectorValue = 0;
+        
+        try {
+            const rawDeal = await Deal.findById(listing._id).lean();
+            if (rawDeal) {
+                let categoryName = listing.category;
+                if (categoryName && mongoose.Types.ObjectId.isValid(categoryName)) {
+                    const lookup = await Lookup.findById(categoryName).lean();
+                    if (lookup) categoryName = lookup.lookup_value;
+                }
+
+                let subCategoryName = listing.subCategory;
+                if (subCategoryName && mongoose.Types.ObjectId.isValid(subCategoryName)) {
+                    const lookup = await Lookup.findById(subCategoryName).lean();
+                    if (lookup) subCategoryName = lookup.lookup_value;
+                }
+                
+                const stateId = rawDeal.locationDetails?.state?._id || rawDeal.locationDetails?.state;
+                const districtId = rawDeal.locationDetails?.city?._id || rawDeal.locationDetails?.city;
+                const tehsilId = rawDeal.locationDetails?.tehsil?._id || rawDeal.locationDetails?.tehsil;
+                const locationId = rawDeal.locationDetails?.location?._id || rawDeal.locationDetails?.location || rawDeal.locationDetails?.locality?._id || rawDeal.locationDetails?.locality;
+
+                const rateQuery = {
+                    state: stateId,
+                    district: districtId,
+                    category: categoryName,
+                    subCategory: subCategoryName
+                };
+                if (tehsilId) rateQuery.tehsil = tehsilId;
+                if (locationId) rateQuery.location = locationId;
+
+                const rate = await CollectorRate.findOne(rateQuery).sort({ effectiveFrom: -1 }).lean();
+                if (rate) {
+                    collectorRate = rate.rate;
+                    collectorRateUnit = rate.rateUnit || 'Sq Yard';
+                    
+                    // Area calculation
+                    let sizeValue = 0;
+                    if (rawDeal.size && typeof rawDeal.size === 'object') {
+                        sizeValue = parseFloat(rawDeal.size.value || 0);
+                    } else if (rawDeal.size) {
+                        sizeValue = parseFloat(rawDeal.size);
+                    }
+                    if (isNaN(sizeValue)) sizeValue = 0;
+
+                    let sizeUnit = 'Sq Ft';
+                    if (rawDeal.size && typeof rawDeal.size === 'object') {
+                        sizeUnit = rawDeal.size.unit || rawDeal.sizeUnit || 'Sq Ft';
+                    } else {
+                        sizeUnit = rawDeal.sizeUnit || 'Sq Ft';
+                    }
+                    
+                    // Fallback to width * length if size is not populated or 0
+                    if (sizeValue <= 0 && rawDeal.unitSpecification?.width && rawDeal.unitSpecification?.length) {
+                        sizeValue = parseFloat(rawDeal.unitSpecification.width) * parseFloat(rawDeal.unitSpecification.length);
+                        // In Haryana/Kurukshetra, plot dimensions front*depth are specified in yards, so unit is Sq Yard
+                        sizeUnit = 'Sq Yard';
+                    }
+                    
+                    // Helper to convert area
+                    const convertArea = (value, fromUnit, toUnit) => {
+                        if (!value || fromUnit === toUnit) return value;
+                        const toSqFt = {
+                            'Sq Ft': 1, 'Sq.Ft.': 1, 'Sq Yard': 9, 'Sq.Yard': 9,
+                            'Sq Meter': 10.7639, 'Acre': 43560, 'Kanal': 5445, 'Marla': 272.25
+                        };
+                        const fromFactor = toSqFt[fromUnit] || 1;
+                        const toFactor = toSqFt[toUnit] || 1;
+                        return (value * fromFactor) / toFactor;
+                    };
+                    
+                    const normalizedArea = convertArea(sizeValue, sizeUnit, rate.rateUnit);
+                    
+                    let multiplierFactor = 1;
+                    if (rawDeal.roadType && rate.roadMultipliers) {
+                        const rm = rate.roadMultipliers.find(m => m.roadType === rawDeal.roadType);
+                        if (rm) multiplierFactor += (rm.multiplier / 100);
+                    }
+                    if (rawDeal.floor && rate.floorMultipliers) {
+                        const fm = rate.floorMultipliers.find(m => m.floorType === rawDeal.floor);
+                        if (fm) multiplierFactor += (fm.multiplier / 100);
+                    }
+                    
+                    if (rate.rateApplyOn === 'Land Area') {
+                        collectorValue = normalizedArea * rate.rate * multiplierFactor;
+                    } else if (rate.rateApplyOn === 'Built-up Area') {
+                        const builtUpValue = rawDeal.unitSpecification?.builtUpArea?.value || 0;
+                        const builtUpUnit = rawDeal.unitSpecification?.builtUpArea?.unit || 'Sq Ft';
+                        const normalizedBuiltUp = convertArea(builtUpValue, builtUpUnit, rate.rateUnit);
+                        collectorValue = normalizedBuiltUp * rate.rate * multiplierFactor;
+                    } else {
+                        collectorValue = normalizedArea * rate.rate * multiplierFactor;
+                        if (rate.constructionRateSqFt && rawDeal.unitSpecification?.builtUpArea?.value) {
+                            collectorValue += (rawDeal.unitSpecification.builtUpArea.value * rate.constructionRateSqFt);
+                        }
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('Error fetching collector rate in public api:', err);
+        }
+
         const processedListing = {
             ...listing,
             images: resolvedImages,
@@ -708,7 +829,10 @@ export const getListingBySlug = async (req, res) => {
             imagesDetail: resolvedImagesDetail,
             videosDetail: resolvedVideosDetail,
             inventoryImages: resolvedImagesDetail,
-            inventoryVideos: resolvedVideosDetail
+            inventoryVideos: resolvedVideosDetail,
+            collectorRate,
+            collectorRateUnit,
+            collectorValue
         };
 
         res.status(200).json({ success: true, data: processedListing });

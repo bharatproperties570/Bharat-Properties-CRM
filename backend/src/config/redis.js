@@ -1,5 +1,6 @@
 import Redis from "ioredis";
 import { EventEmitter } from 'events';
+import { Queue as BullQueue, Worker as BullWorker } from 'bullmq';
 
 // Senior Professional Implementation: MockRedis Fallback
 // This ensures productivity and stability in development environments without a local redis-server.
@@ -141,5 +142,45 @@ export const invalidateDashboardCache = async (userId) => {
     }
 };
 
+// Senior Professional Wrapper: Dynamic Queue and Worker mocking
+export class Queue {
+    constructor(name, opts = {}) {
+        if (internalConnection.isMock) {
+            this.name = name;
+            console.log(`[MockQueue] Registered mock queue: ${name}`);
+            return this;
+        }
+        return new BullQueue(name, opts);
+    }
+    async add(name, data, opts) {
+        return { id: `mock-${Date.now()}` };
+    }
+    on(event, cb) {
+        return this;
+    }
+    async close() {
+        return;
+    }
+}
+
+export class Worker {
+    constructor(name, processor, opts = {}) {
+        if (internalConnection.isMock) {
+            this.name = name;
+            this.processor = processor;
+            console.log(`[MockWorker] Registered mock worker: ${name}`);
+            return this;
+        }
+        return new BullWorker(name, processor, opts);
+    }
+    on(event, cb) {
+        return this;
+    }
+    async close() {
+        return;
+    }
+}
+
 export default redisProxy;
+
 

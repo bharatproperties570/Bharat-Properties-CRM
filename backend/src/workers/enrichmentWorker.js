@@ -1,4 +1,4 @@
-import { Worker } from 'bullmq';
+import { Worker } from '../config/redis.js';
 import redisConnection from '../config/redis.js';
 import { runFullLeadEnrichment } from '../utils/enrichmentEngine.js';
 

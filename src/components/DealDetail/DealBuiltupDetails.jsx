@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { renderValue } from '../../utils/renderUtils';
+import { api } from '../../utils/api';
+import toast from 'react-hot-toast';
 
-const DealBuiltupDetails = ({ deal, getLookupValue }) => {
+const DealBuiltupDetails = ({ deal, getLookupValue, onRefresh }) => {
     const gridStyle = { 
         display: 'grid', 
         gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', 
@@ -9,14 +11,95 @@ const DealBuiltupDetails = ({ deal, getLookupValue }) => {
     };
 
     // Pull data from deal or linked inventoryId
-    const inventory = deal.inventoryId || {};
-    const builtupDetails = deal.builtupDetails || inventory.builtupDetails || [];
-    const builtupType = deal.builtupType || inventory.builtupType;
-    const possessionStatus = deal.possessionStatus || inventory.possessionStatus;
-    const occupationDate = deal.occupationDate || inventory.occupationDate;
-    const ageOfConstruction = deal.ageOfConstruction || inventory.ageOfConstruction;
-    const furnishType = deal.furnishType || inventory.furnishType;
-    const furnishedItems = deal.furnishedItems || inventory.furnishedItems;
+    const inventory = deal?.inventoryId || {};
+    const builtupDetails = deal?.builtupDetails || inventory.builtupDetails || [];
+    const builtupType = deal?.builtupType || inventory.builtupType;
+    const possessionStatus = deal?.possessionStatus || inventory.possessionStatus;
+    const occupationDate = deal?.occupationDate || inventory.occupationDate;
+    const ageOfConstruction = deal?.ageOfConstruction || inventory.ageOfConstruction;
+    const furnishType = deal?.furnishType || inventory.furnishType;
+    const furnishedItems = deal?.furnishedItems || inventory.furnishedItems;
+
+    // Interactive Modal Form States
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [newFloor, setNewFloor] = useState('Ground Floor');
+    const [newCluster, setNewCluster] = useState('');
+    const [newWidth, setNewWidth] = useState('');
+    const [newLength, setNewLength] = useState('');
+    const [newTotalArea, setNewTotalArea] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
+
+    // Auto-calculate Total Area when width or length changes
+    useEffect(() => {
+        const w = parseFloat(newWidth) || 0;
+        const l = parseFloat(newLength) || 0;
+        if (w > 0 && l > 0) {
+            setNewTotalArea(String(w * l));
+        }
+    }, [newWidth, newLength]);
+
+    // Handle Form Submit (API PUT call to update Deal builtupDetails)
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (!deal || !deal._id) return;
+        
+        setIsSaving(true);
+        try {
+            const newRow = {
+                floor: newFloor,
+                cluster: newCluster || 'Standard Layout',
+                width: parseFloat(newWidth) || 0,
+                length: parseFloat(newLength) || 0,
+                totalArea: parseFloat(newTotalArea) || 0
+            };
+
+            const currentBuiltup = deal.builtupDetails || [];
+            const updatedBuiltup = [...currentBuiltup, newRow];
+
+            const res = await api.put(`deals/${deal._id}`, { builtupDetails: updatedBuiltup });
+            if (res.data && (res.data.success || res.data.status === 'success')) {
+                toast.success('Specification added successfully! ✨');
+                setIsModalOpen(false);
+                // Reset form fields
+                setNewFloor('Ground Floor');
+                setNewCluster('');
+                setNewWidth('');
+                setNewLength('');
+                setNewTotalArea('');
+                if (onRefresh) onRefresh();
+            } else {
+                toast.error('Failed to save built-up details.');
+            }
+        } catch (error) {
+            console.error('Error saving built-up detail:', error);
+            toast.error('Server error while saving details.');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    // Handle Row Deletion
+    const handleDeleteRow = async (indexToDelete) => {
+        if (!deal || !deal._id) return;
+        const confirm = window.confirm('Are you sure you want to delete this built-up specification?');
+        if (!confirm) return;
+
+        try {
+            const currentBuiltup = deal.builtupDetails || [];
+            const updatedBuiltup = currentBuiltup.filter((_, idx) => idx !== indexToDelete);
+
+            const res = await api.put(`deals/${deal._id}`, { builtupDetails: updatedBuiltup });
+            if (res.data && (res.data.success || res.data.status === 'success')) {
+                toast.success('Specification removed successfully!');
+                if (onRefresh) onRefresh();
+            } else {
+                toast.error('Failed to remove built-up details.');
+            }
+        } catch (error) {
+            console.error('Error removing built-up detail:', error);
+            toast.error('Server error while removing details.');
+        }
+    };
 
     return (
         <div style={{ 
@@ -28,25 +111,69 @@ const DealBuiltupDetails = ({ deal, getLookupValue }) => {
             overflow: 'hidden',
             padding: '24px'
         }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
-                <div style={{ width: '40px', height: '40px', background: 'rgba(79, 70, 229, 0.1)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <i className="fas fa-building" style={{ color: '#4f46e5' }}></i>
+            {/* Header Layout with Visual SaaS Plus Action Button */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{ width: '40px', height: '40px', background: 'rgba(79, 70, 229, 0.1)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <i className="fas fa-building" style={{ color: '#4f46e5' }}></i>
+                    </div>
+                    <div>
+                        <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, color: '#0f172a', letterSpacing: '-0.3px' }}>Built-up Details</h3>
+                        <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>Structure, floors & furnishing status</p>
+                    </div>
                 </div>
-                <div>
-                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, color: '#0f172a', letterSpacing: '-0.3px' }}>Built-up Details</h3>
-                    <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>Structure, floors & furnishing status</p>
-                </div>
+                <button 
+                    onClick={() => setIsModalOpen(true)}
+                    style={{
+                        width: '32px',
+                        height: '32px',
+                        borderRadius: '8px',
+                        background: '#4f46e5',
+                        color: '#fff',
+                        border: 'none',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        boxShadow: '0 4px 10px rgba(79, 70, 229, 0.2)',
+                        transition: 'all 0.2s'
+                    }}
+                    title="Add Built-up Detail"
+                    onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.08)'}
+                    onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                >
+                    <i className="fas fa-plus"></i>
+                </button>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                {/* Floor Wise Details */}
+                {/* Floor Wise Details Table list */}
                 {builtupDetails.map((floor, fIdx) => (
                     <div key={fIdx} style={{ padding: '20px', background: 'rgba(248, 250, 252, 0.4)', borderRadius: '20px', border: '1px solid #f1f5f9' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px', borderBottom: '1px dashed #e2e8f0', paddingBottom: '10px' }}>
-                            <i className="fas fa-layer-group" style={{ color: '#4f46e5', fontSize: '0.9rem' }}></i>
-                            <span style={{ fontSize: '0.85rem', fontWeight: 900, color: '#0f172a', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                                {floor.floor || `Level ${fIdx + 1}`}
-                            </span>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px dashed #e2e8f0', paddingBottom: '10px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <i className="fas fa-layer-group" style={{ color: '#4f46e5', fontSize: '0.9rem' }}></i>
+                                <span style={{ fontSize: '0.85rem', fontWeight: 900, color: '#0f172a', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                    {floor.floor || `Level ${fIdx + 1}`}
+                                </span>
+                            </div>
+                            <button
+                                onClick={() => handleDeleteRow(fIdx)}
+                                style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    color: '#ef4444',
+                                    cursor: 'pointer',
+                                    fontSize: '0.85rem',
+                                    opacity: 0.6,
+                                    transition: 'opacity 0.2s'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.opacity = 1}
+                                onMouseLeave={(e) => e.currentTarget.style.opacity = 0.6}
+                                title="Delete floor specification"
+                            >
+                                <i className="fas fa-trash-alt"></i>
+                            </button>
                         </div>
                         <div style={gridStyle}>
                             <InfoItem label="Plan/Cluster" value={renderValue(floor.cluster)} icon="project-diagram" />
@@ -86,6 +213,155 @@ const DealBuiltupDetails = ({ deal, getLookupValue }) => {
                     </div>
                 )}
             </div>
+
+            {/* Interactive Add Floor Clusters Specification Modal Form Overlay */}
+            {isModalOpen && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: '100%',
+                    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+                    backdropFilter: 'blur(4px)',
+                    zIndex: 9999,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '20px'
+                }}>
+                    <div style={{
+                        background: '#fff',
+                        borderRadius: '24px',
+                        width: '100%',
+                        maxWidth: '520px',
+                        boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.18)',
+                        border: '1px solid #e2e8f0',
+                        overflow: 'hidden',
+                        animation: 'fadeIn 0.3s ease'
+                    }}>
+                        {/* Modal Header */}
+                        <div style={{ padding: '24px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div>
+                                <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 900, color: '#0f172a' }}>Add Built-up Detail</h3>
+                                <p style={{ margin: '4px 0 0 0', fontSize: '0.75rem', color: '#64748b' }}>Configure structural layer specification</p>
+                            </div>
+                            <button 
+                                onClick={() => setIsModalOpen(false)}
+                                style={{ background: 'none', border: 'none', color: '#cbd5e1', cursor: 'pointer', fontSize: '1.2rem' }}
+                            >
+                                <i className="fas fa-times"></i>
+                            </button>
+                        </div>
+
+                        {/* Modal Body / Form */}
+                        <form onSubmit={handleSubmit} style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                            {/* Floor select */}
+                            <div>
+                                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Floor Level</label>
+                                <select 
+                                    value={newFloor} 
+                                    onChange={(e) => setNewFloor(e.target.value)}
+                                    style={{ width: '100%', height: '42px', padding: '0 12px', border: '1px solid #cbd5e1', borderRadius: '8px', outline: 'none', fontSize: '0.9rem' }}
+                                >
+                                    <option>Ground Floor</option>
+                                    <option>First Floor</option>
+                                    <option>Second Floor</option>
+                                    <option>Third Floor</option>
+                                    <option>Other</option>
+                                </select>
+                            </div>
+
+                            {/* Plan/Cluster selector with list and custom text entry */}
+                            <div>
+                                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Component / Plan</label>
+                                <div style={{ display: 'flex', gap: '12px' }}>
+                                    <select 
+                                        onChange={(e) => {
+                                            if (e.target.value !== 'custom') {
+                                                setNewCluster(e.target.value);
+                                            } else {
+                                                setNewCluster('');
+                                            }
+                                        }}
+                                        style={{ width: '45%', height: '42px', padding: '0 12px', border: '1px solid #cbd5e1', borderRadius: '8px', outline: 'none', fontSize: '0.9rem' }}
+                                    >
+                                        <option value="">Select Plan</option>
+                                        <option>Type A</option>
+                                        <option>Type B</option>
+                                        <option>Type C</option>
+                                        <option value="custom">Custom...</option>
+                                    </select>
+                                    <input 
+                                        type="text"
+                                        placeholder="Or type component name"
+                                        value={newCluster}
+                                        onChange={(e) => setNewCluster(e.target.value)}
+                                        style={{ flex: 1, height: '42px', padding: '0 12px', border: '1px solid #cbd5e1', borderRadius: '8px', outline: 'none', fontSize: '0.9rem' }}
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Width & Length */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                                <div>
+                                    <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Width (ft)</label>
+                                    <input 
+                                        type="number"
+                                        placeholder="e.g. 15"
+                                        value={newWidth}
+                                        onChange={(e) => setNewWidth(e.target.value)}
+                                        style={{ width: '100%', height: '42px', padding: '0 12px', border: '1px solid #cbd5e1', borderRadius: '8px', outline: 'none', fontSize: '0.9rem' }}
+                                        required
+                                    />
+                                </div>
+                                <div>
+                                    <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Length (ft)</label>
+                                    <input 
+                                        type="number"
+                                        placeholder="e.g. 20"
+                                        value={newLength}
+                                        onChange={(e) => setNewLength(e.target.value)}
+                                        style={{ width: '100%', height: '42px', padding: '0 12px', border: '1px solid #cbd5e1', borderRadius: '8px', outline: 'none', fontSize: '0.9rem' }}
+                                        required
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Total Area */}
+                            <div>
+                                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total Area (Sq.Ft.)</label>
+                                <input 
+                                    type="number"
+                                    placeholder="Calculated area"
+                                    value={newTotalArea}
+                                    onChange={(e) => setNewTotalArea(e.target.value)}
+                                    style={{ width: '100%', height: '42px', padding: '0 12px', border: '1px solid #cbd5e1', borderRadius: '8px', outline: 'none', fontSize: '0.9rem', background: '#f8fafc' }}
+                                    required
+                                />
+                            </div>
+
+                            {/* Modal Actions */}
+                            <div style={{ marginTop: '12px', display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                                <button 
+                                    type="button"
+                                    onClick={() => setIsModalOpen(false)}
+                                    style={{ height: '42px', padding: '0 20px', border: '1px solid #cbd5e1', borderRadius: '8px', background: '#fff', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 600 }}
+                                >
+                                    Cancel
+                                </button>
+                                <button 
+                                    type="submit"
+                                    disabled={isSaving}
+                                    style={{ height: '42px', padding: '0 24px', border: 'none', borderRadius: '8px', background: '#4f46e5', color: '#fff', cursor: isSaving ? 'not-allowed' : 'pointer', fontSize: '0.9rem', fontWeight: 700, opacity: isSaving ? 0.7 : 1 }}
+                                >
+                                    {isSaving ? 'Saving...' : 'Add Specification'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

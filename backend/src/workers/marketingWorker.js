@@ -16,7 +16,7 @@
  *   - On failure: BullMQ retries 3× with exponential backoff (5s→25s→125s)
  */
 
-import { Worker } from 'bullmq';
+import { Worker } from '../config/redis.js';
 import mongoose from 'mongoose';
 import redisConnection from '../config/redis.js';
 

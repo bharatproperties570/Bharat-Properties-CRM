@@ -1207,7 +1207,12 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
                     <div
                         onClick={() => onNavigate('deal-detail', deal._id)}
-                        className={`project-thumbnail ${(renderValue(deal.status) || deal.stage) === 'Open' ? 'thumb-active' : 'thumb-inactive'}`}
+                        className={`project-thumbnail ${(
+                            deal.status === 'Open' || 
+                            deal.status === 'published' || 
+                            (deal.status && typeof deal.status === 'object' && (deal.status.lookup_value === 'Open' || deal.status.lookup_value === 'published')) ||
+                            deal.stage === 'Open'
+                        ) ? 'thumb-active' : 'thumb-inactive'}`}
                         style={{
                             width: 'auto',
                             minWidth: '60px',

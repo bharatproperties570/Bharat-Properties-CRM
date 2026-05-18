@@ -47,6 +47,25 @@ export const createPortfolio = async (req, res) => {
     }
 };
 
+const resolveAbsoluteMediaUrl = (url, req) => {
+    if (!url) return '';
+    
+    // 1. If it's a Google Drive link, convert it to a direct content/view link so it renders inside <img> / <video>
+    const gDriveMatch = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) || url.match(/id=([a-zA-Z0-9_-]+)/);
+    if (gDriveMatch && gDriveMatch[1]) {
+        return `https://drive.google.com/uc?export=view&id=${gDriveMatch[1]}`;
+    }
+    
+    // 2. If it's a relative local upload path, prepend the backend host dynamically
+    if (url.startsWith('/uploads/')) {
+        const protocol = req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
+        const host = req.get('host');
+        return `${protocol}://${host}${url}`;
+    }
+    
+    return url;
+};
+
 /**
  * Publicly fetches portfolio details for the viewing page
  * (No authentication required)
@@ -58,7 +77,7 @@ export const getPublicPortfolio = async (req, res) => {
         const portfolio = await Portfolio.findOne({ token, isActive: true })
             .populate({
                 path: 'items.inventoryId',
-                select: 'projectName unitNo size sizeUnit price category address description propertyImages'
+                select: 'projectName unitNo size sizeUnit price category address description inventoryImages inventoryVideos'
             })
             .populate('agentId', 'fullName mobile email profilePicture');
 
@@ -75,11 +94,37 @@ export const getPublicPortfolio = async (req, res) => {
         });
         portfolio.save().catch(e => console.error("[VIEW_TRACK_ERROR]", e));
 
+        const processedItems = portfolio.items.map(item => {
+            const inv = item.inventoryId;
+            if (!inv) return null;
+
+            const rawImages = inv.inventoryImages || [];
+            const rawVideos = inv.inventoryVideos || [];
+
+            const resolvedImages = rawImages.map(img => {
+                const url = typeof img === 'object' ? img.url : img;
+                return resolveAbsoluteMediaUrl(url, req);
+            }).filter(Boolean);
+
+            const resolvedVideos = rawVideos.map(vid => {
+                const url = typeof vid === 'object' ? vid.url : vid;
+                return resolveAbsoluteMediaUrl(url, req);
+            }).filter(Boolean);
+
+            return {
+                ...inv.toObject(),
+                inventoryImages: resolvedImages,
+                inventoryVideos: resolvedVideos,
+                propertyImages: resolvedImages, // For backwards compatibility with PublicPortfolioPage.jsx
+                propertyVideos: resolvedVideos  // For backwards compatibility
+            };
+        }).filter(Boolean);
+
         res.json({
             success: true,
             data: {
                 title: portfolio.title,
-                items: portfolio.items.map(i => i.inventoryId).filter(Boolean),
+                items: processedItems,
                 agent: portfolio.agentId,
                 branding: portfolio.branding,
                 createdAt: portfolio.createdAt
