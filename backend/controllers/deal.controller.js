@@ -1188,12 +1188,16 @@ const sanitizeData = (data) => {
     refFields.forEach(field => {
         if (field.includes('.')) {
             const parts = field.split('.');
-            if (sanitized[parts[0]] && typeof sanitized[parts[0]] === 'object') {
-                sanitized[parts[0]] = { ...sanitized[parts[0]] };
-                sanitized[parts[0]][parts[1]] = sanitizeValue(sanitized[parts[0]][parts[1]]);
+            if (parts[0] in data && data[parts[0]] && typeof data[parts[0]] === 'object') {
+                if (parts[1] in data[parts[0]]) {
+                    sanitized[parts[0]] = { ...sanitized[parts[0]] };
+                    sanitized[parts[0]][parts[1]] = sanitizeValue(data[parts[0]][parts[1]]);
+                }
             }
         } else {
-            sanitized[field] = sanitizeValue(sanitized[field]);
+            if (field in data) {
+                sanitized[field] = sanitizeValue(data[field]);
+            }
         }
     });
     return sanitized;
