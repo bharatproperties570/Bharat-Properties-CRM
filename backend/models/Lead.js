@@ -70,7 +70,8 @@ const LeadSchema = new mongoose.Schema({
         projectName: String,
         block: String,
         unitNumber: String,
-        documentPicture: String
+        documentPicture: String,
+        uploadedAt: String
     }],
 
     notes: { type: String },

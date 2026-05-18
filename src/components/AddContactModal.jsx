@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import toast from "react-hot-toast";
 
 import { api } from "../utils/api";
@@ -276,6 +276,9 @@ const AddContactModal = ({
   } = useContactConfig();
 
   const { users, teams } = useUserContext();
+
+  const prevCategoryRef = useRef(null);
+  const prevSubCategoryRef = useRef(null);
 
   // --- Profile Config Helpers ---
   const getProfileDetails = (section, category) => {
@@ -615,41 +618,66 @@ const AddContactModal = ({
 
   // Reactive Fetching for Professional  // Fetch Sub-Categories when Category changes
   useEffect(() => {
-    const fetchSubCats = async () => {
-      // Robustly extract ID from whatever format the field is in
-      const categoryId = (formData.professionCategory && typeof formData.professionCategory === 'object')
-        ? formData.professionCategory._id
-        : formData.professionCategory;
+    if (!isOpen) {
+      prevCategoryRef.current = null;
+      return;
+    }
 
-      if (!isOpen || !categoryId) {
-        setProfessionSubCategories([]);
-        return;
-      }
-      const data = await fetchLookup("ProfessionalSubCategory", categoryId);
-      setProfessionSubCategories(data || []);
-      // Reset sub-category if current one doesn't belong to new category
-      if (formData.professionSubCategory) {
-        setFormData(prev => ({ ...prev, professionSubCategory: "" }));
-      }
-    };
-    fetchSubCats();
-  }, [formData.professionCategory, isOpen, formData.professionSubCategory]);
+    const categoryId = (formData.professionCategory && typeof formData.professionCategory === 'object')
+      ? formData.professionCategory._id
+      : formData.professionCategory;
+
+    // Only fetch and reset if the category actually changed from previous value
+    if (categoryId !== prevCategoryRef.current) {
+      const fetchSubCats = async () => {
+        if (!categoryId) {
+          setProfessionSubCategories([]);
+          setFormData(prev => ({ ...prev, professionSubCategory: "", designation: "" }));
+          return;
+        }
+        const data = await fetchLookup("ProfessionalSubCategory", categoryId);
+        setProfessionSubCategories(data || []);
+        
+        // Reset sub-category and designation ONLY if it's a real user action (not initial load)
+        if (prevCategoryRef.current !== null) {
+          setFormData(prev => ({ ...prev, professionSubCategory: "", designation: "" }));
+        }
+      };
+      fetchSubCats();
+      prevCategoryRef.current = categoryId;
+    }
+  }, [formData.professionCategory, isOpen]);
 
   // Fetch Designations when Sub-Category changes
   useEffect(() => {
-    const fetchDesigs = async () => {
-      const subCategoryId = (formData.professionSubCategory && typeof formData.professionSubCategory === 'object')
-        ? formData.professionSubCategory._id
-        : formData.professionSubCategory;
+    if (!isOpen) {
+      prevSubCategoryRef.current = null;
+      return;
+    }
 
-      if (!isOpen || !subCategoryId) {
-        setDesignation([]);
-        return;
-      }
-      const data = await fetchLookup("ProfessionalDesignation", subCategoryId);
-      setDesignation(data || []);
-    };
-    fetchDesigs();
+    const subCategoryId = (formData.professionSubCategory && typeof formData.professionSubCategory === 'object')
+      ? formData.professionSubCategory._id
+      : formData.professionSubCategory;
+
+    // Only fetch and reset if the subcategory actually changed from previous value
+    if (subCategoryId !== prevSubCategoryRef.current) {
+      const fetchDesigs = async () => {
+        if (!subCategoryId) {
+          setDesignation([]);
+          setFormData(prev => ({ ...prev, designation: "" }));
+          return;
+        }
+        const data = await fetchLookup("ProfessionalDesignation", subCategoryId);
+        setDesignation(data || []);
+
+        // Reset designation ONLY if it's a real user action (not initial load)
+        if (prevSubCategoryRef.current !== null) {
+          setFormData(prev => ({ ...prev, designation: "" }));
+        }
+      };
+      fetchDesigs();
+      prevSubCategoryRef.current = subCategoryId;
+    }
   }, [formData.professionSubCategory, isOpen]);
 
 

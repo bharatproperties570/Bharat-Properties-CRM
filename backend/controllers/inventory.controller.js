@@ -2510,37 +2510,100 @@ export const getSuggestedOwners = async (req, res) => {
         // 2. [SECURITY] Apply Hardened Visibility Filters
         const visibilityFilter = await getVisibilityFilter(req.user);
 
+        // Helper to resolve Lookup ObjectId vs raw string mismatch (critical for imported data)
+        const resolveQueryValues = async (val, lookupType) => {
+            if (!val) return [];
+            const values = [val];
+            const isObjectId = mongoose.Types.ObjectId.isValid(val);
+            if (isObjectId) {
+                const lookup = await Lookup.findById(val).lean();
+                if (lookup && lookup.lookup_value) {
+                    values.push(lookup.lookup_value);
+                }
+                values.push(val.toString());
+            } else {
+                const lookup = await Lookup.findOne({ 
+                    lookup_type: lookupType, 
+                    lookup_value: { $regex: new RegExp(`^${escapeRegExp(val.toString())}$`, 'i') } 
+                }).lean();
+                if (lookup) {
+                    values.push(lookup._id);
+                    values.push(lookup._id.toString());
+                }
+            }
+            return values;
+        };
+
+        const cityQueryValues = await resolveQueryValues(inventory.address?.city, 'City');
+
+        const fuzzyUnitOrBlankPersonal = [
+            { 'personalAddress.hNo': { $regex: fuzzyUnitPattern } },
+            { 'personalAddress.hNo': { $in: [null, "", undefined] } },
+            { 'personalAddress.hNo': { $exists: false } }
+        ];
+
+        const fuzzyUnitOrBlankCorrespondence = [
+            { 'correspondenceAddress.hNo': { $regex: fuzzyUnitPattern } },
+            { 'correspondenceAddress.hNo': { $in: [null, "", undefined] } },
+            { 'correspondenceAddress.hNo': { $exists: false } }
+        ];
+
         const searchQueries = [];
 
-        // Logic A: Unit + City (High Confidence)
-        if (inventory.address?.city) {
+        // Logic A: Unit/Blank + City (High Confidence)
+        if (cityQueryValues.length > 0) {
             searchQueries.push({
                 $or: [
-                    { 'personalAddress.hNo': { $regex: fuzzyUnitPattern }, 'personalAddress.city': inventory.address.city },
-                    { 'correspondenceAddress.hNo': { $regex: fuzzyUnitPattern }, 'correspondenceAddress.city': inventory.address.city }
+                    { 
+                        $or: fuzzyUnitOrBlankPersonal, 
+                        'personalAddress.city': { $in: cityQueryValues } 
+                    },
+                    { 
+                        $or: fuzzyUnitOrBlankCorrespondence, 
+                        'correspondenceAddress.city': { $in: cityQueryValues } 
+                    }
                 ]
             });
         }
 
-        // Logic B: Unit + Location/Area/Project Context (Intelligence Fallback)
+        // Logic B: Unit/Blank + Location/Area/Project Context (Intelligence Fallback)
         const locationVal = inventory.address?.location || inventory.address?.area || inventory.address?.locality || inventory.projectName;
         if (locationVal) {
+            const locationQueryValues = [];
+            const fieldsToResolve = [
+                { val: inventory.address?.location, type: 'Location' },
+                { val: inventory.address?.area, type: 'Area' },
+                { val: inventory.address?.locality, type: 'Locality' },
+                { val: inventory.projectName, type: 'Project' }
+            ];
+            
+            for (const item of fieldsToResolve) {
+                if (item.val) {
+                    const resolved = await resolveQueryValues(item.val, item.type);
+                    locationQueryValues.push(...resolved);
+                }
+            }
+
+            if (locationQueryValues.length === 0 && locationVal) {
+                locationQueryValues.push(locationVal);
+            }
+
             searchQueries.push({
                 $or: [
                     { 
-                        'personalAddress.hNo': { $regex: fuzzyUnitPattern }, 
+                        $or: fuzzyUnitOrBlankPersonal, 
                         $or: [
-                            { 'personalAddress.location': locationVal },
-                            { 'personalAddress.area': locationVal },
-                            { 'personalAddress.locality': locationVal }
+                            { 'personalAddress.location': { $in: locationQueryValues } },
+                            { 'personalAddress.area': { $in: locationQueryValues } },
+                            { 'personalAddress.locality': { $in: locationQueryValues } }
                         ] 
                     },
                     { 
-                        'correspondenceAddress.hNo': { $regex: fuzzyUnitPattern }, 
+                        $or: fuzzyUnitOrBlankCorrespondence, 
                         $or: [
-                            { 'correspondenceAddress.location': locationVal },
-                            { 'correspondenceAddress.area': locationVal },
-                            { 'correspondenceAddress.locality': locationVal }
+                            { 'correspondenceAddress.location': { $in: locationQueryValues } },
+                            { 'correspondenceAddress.area': { $in: locationQueryValues } },
+                            { 'correspondenceAddress.locality': { $in: locationQueryValues } }
                         ] 
                     }
                 ]
@@ -2596,11 +2659,32 @@ export const getSuggestedOwners = async (req, res) => {
             hydrate(cObj.correspondenceAddress);
             if (cObj.title && mongoose.Types.ObjectId.isValid(cObj.title)) cObj.title = lookupMap.get(cObj.title.toString()) || cObj.title;
             
-            // Intelligence Scoring (Internal UI hint)
+            // Intelligence Scoring with Prioritization Rules
             let score = 0;
-            const hNo = (cObj.personalAddress?.hNo || cObj.correspondenceAddress?.hNo || "").toString();
-            if (hNo === unitRaw) score += 50; // Exact H.No Match
-            else if (hNo.includes(unitRaw)) score += 30; // Partial Match
+            const personalHNo = (cObj.personalAddress?.hNo || "").toString().trim();
+            const corresHNo = (cObj.correspondenceAddress?.hNo || "").toString().trim();
+            
+            const matchHNo = (hNo) => {
+                if (!hNo) return 0; // Blank/empty
+                const val = hNo.toLowerCase();
+                const unit = unitRaw.toLowerCase();
+                if (val === unit) return 100; // Exact H.No Match (Highest Priority)
+                if (val.includes(unit)) return 80; // Partial Match (Second Priority)
+                return -1; // Mismatch
+            };
+
+            const personalScore = matchHNo(personalHNo);
+            const corresScore = matchHNo(corresHNo);
+            
+            // Determine maximum score. If both are blank, it remains a suggested option at low priority.
+            const maxScore = Math.max(personalScore, corresScore);
+            if (maxScore > 0) {
+                score = maxScore;
+            } else if (personalScore === 0 && corresScore === 0) {
+                score = 20; // Blank House Number Option (Match option kept)
+            } else {
+                score = 0; // Fallback Mismatch
+            }
             
             cObj.matchConfidence = score;
             return cObj;

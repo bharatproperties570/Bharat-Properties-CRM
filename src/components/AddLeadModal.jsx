@@ -716,7 +716,6 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                 funding: '',
                 timeline: '',
                 furnishing: '',
-                unitType: [],
                 transactionType: '',
                 transactionFlexiblePercent: 50,
                 sendMatchedDeal: [],

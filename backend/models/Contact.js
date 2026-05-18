@@ -119,7 +119,8 @@ const ContactSchema = new mongoose.Schema({
         block: String,
         unitNumber: String,
         documentPicture: String,
-        url: String
+        url: String,
+        uploadedAt: String
     }],
 
     // Legacy/Additional fields

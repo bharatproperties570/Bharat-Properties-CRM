@@ -1336,7 +1336,8 @@ export const PropertyConfigProvider = ({ children }) => {
                 'Direction', 'Relation', 'CompanyType', 'Industry', 'Size',
                 'Status', 'State', 'City', 'Location', 'Area', 'Pincode', 'Tehsil', 'PostOffice', 'Country',
                 'Source', 'Stage', 'Title', 'Requirement', 'SubRequirement', 'Budget', 'Campaign', 'SubSource',
-                'TransactionType', 'FundingType', 'FurnishingStatus', 'Timeline'
+                'TransactionType', 'FundingType', 'FurnishingStatus', 'Timeline',
+                'DocumentCategory', 'Document-Category', 'DocumentType', 'Document-Type'
             ];
             const response = await api.get(`/lookups?lookup_type=${requiredTypes.join(',')}`);
             const resBody = response.data;

@@ -140,10 +140,27 @@ const OwnerSuggestionSection = ({ inventory, onRefresh }) => {
                                     <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 850, color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                         {contact.name}
                                     </p>
-                                    <p style={{ margin: 0, fontSize: '0.62rem', color: '#94a3b8', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    <p style={{ margin: 0, fontSize: '0.62rem', color: '#94a3b8', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                         <i className="fas fa-map-marker-alt" style={{ fontSize: '0.55rem' }}></i>
-                                        <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{addrStr}</span>
+                                        <span>{addrStr}</span>
                                     </p>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
+                                        <span style={{ 
+                                            fontSize: '0.55rem', 
+                                            fontWeight: 800, 
+                                            padding: '2px 6px', 
+                                            borderRadius: '12px',
+                                            background: contact.matchConfidence === 100 ? 'rgba(34, 197, 94, 0.1)' : 
+                                                        contact.matchConfidence === 80 ? 'rgba(59, 130, 246, 0.1)' : 'rgba(100, 116, 139, 0.1)',
+                                            color: contact.matchConfidence === 100 ? '#22c55e' : 
+                                                   contact.matchConfidence === 80 ? '#3b82f6' : '#64748b',
+                                            border: contact.matchConfidence === 100 ? '1px solid rgba(34, 197, 94, 0.2)' : 
+                                                    contact.matchConfidence === 80 ? '1px solid rgba(59, 130, 246, 0.2)' : '1px solid rgba(100, 116, 139, 0.2)'
+                                        }}>
+                                            {contact.matchConfidence === 100 ? 'Direct H.No Match' : 
+                                             contact.matchConfidence === 80 ? 'Fuzzy Match' : 'Location Option (Blank H.No)'}
+                                        </span>
+                                    </div>
                                 </div>
 
                                 <button 

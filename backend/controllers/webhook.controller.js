@@ -214,6 +214,18 @@ export const whatsAppLiveBotWebhook = async (req, res) => {
             // ── HANDLE INCOMING MESSAGES ──
             if (entryValue.messages && entryValue.messages[0]) {
                 const messageObj = entryValue.messages[0];
+
+                // 🧠 IDEMPOTENCY / DEDUPLICATION GUARD
+                if (messageObj.id) {
+                    const alreadyProcessed = await Conversation.findOne({
+                        "messages.waId": messageObj.id
+                    }).lean();
+                    if (alreadyProcessed) {
+                        console.log(`[WhatsApp Webhook] Message ID ${messageObj.id} already processed. Skipping to avoid duplicate triggers.`);
+                        return res.sendStatus(200);
+                    }
+                }
+
                 const fromNumber = messageObj.from;
                 const msgType = messageObj.type;
                 

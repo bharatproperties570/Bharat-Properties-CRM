@@ -1,29 +1,19 @@
+import mongoose from "mongoose";
+import dotenv from "dotenv";
 
-import mongoose from 'mongoose';
+dotenv.config();
 
-const mongoUri = 'mongodb+srv://bharatproperties:Bharat%40570@cluster0.7dehanz.mongodb.net/bharatproperties1';
+const mongoUri = process.env.MONGODB_URI || "mongodb://localhost:27017/crm";
 
-async function listCollections() {
-    try {
-        await mongoose.connect(mongoUri);
-        console.log("✅ Connected to MongoDB");
+async function run() {
+    await mongoose.connect(mongoUri);
+    console.log("Connected to DB!");
 
-        const db = mongoose.connection.db;
-        const collections = await db.listCollections().toArray();
-        console.log("Collections in bharatproperties1:");
-        collections.forEach(c => console.log(`- ${c.name}`));
+    const collections = await mongoose.connection.db.listCollections().toArray();
+    console.log("Collections:");
+    console.log(collections.map(c => c.name));
 
-        // Also check document counts for likely candidates
-        for (const coll of collections) {
-            const count = await db.collection(coll.name).countDocuments();
-            console.log(`  Count for ${coll.name}: ${count}`);
-        }
-
-    } catch (err) {
-        console.error("❌ Error:", err.message);
-    } finally {
-        await mongoose.disconnect();
-    }
+    await mongoose.disconnect();
 }
 
-listCollections();
+run().catch(console.error);

@@ -38,7 +38,7 @@ import ContactDocuments from '../../components/ContactDetail/ContactDocuments';
 import ContactAutomation from '../../components/ContactDetail/ContactAutomation';
 import ContactHistory from '../../components/ContactDetail/ContactHistory';
 
-const ContactDetail = ({ contactId, onBack }) => {
+const ContactDetail = ({ contactId, onBack, onNavigate }) => {
     const { scoringAttributes, activityMasterFields, scoreBands, getLookupValue } = usePropertyConfig(); // Inject Context
     const { sequences, enrollments, updateEnrollmentStatus } = useSequences();
     const [contact, setContact] = useState(null);
@@ -751,6 +751,7 @@ const ContactDetail = ({ contactId, onBack }) => {
                                 setIsInventoryModalOpen={setIsInventoryModalOpen}
                                 renderValue={renderValue}
                                 renderLookup={renderLookup}
+                                onNavigate={onNavigate}
                             />
                         ) : isMobile && activeTab === 'deals' ? (
                             <ContactRelatedDeals
@@ -765,6 +766,7 @@ const ContactDetail = ({ contactId, onBack }) => {
                                 activeDeals={activeDeals}
                                 setIsAddDealModalOpen={setIsAddDealModalOpen}
                                 renderLookup={renderLookup}
+                                onNavigate={onNavigate}
                             />
                         ) : (
                             <>
@@ -796,6 +798,7 @@ const ContactDetail = ({ contactId, onBack }) => {
                                         activeDeals={activeDeals}
                                         setIsAddDealModalOpen={setIsAddDealModalOpen}
                                         renderLookup={renderLookup}
+                                        onNavigate={onNavigate}
                                     />
                                 </div>
 
@@ -807,6 +810,7 @@ const ContactDetail = ({ contactId, onBack }) => {
                                         setIsInventoryModalOpen={setIsInventoryModalOpen}
                                         renderValue={renderValue}
                                         renderLookup={renderLookup}
+                                        onNavigate={onNavigate}
                                     />
                                 </div>
                             </>

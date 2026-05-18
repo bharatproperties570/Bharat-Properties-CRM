@@ -1,47 +1,27 @@
+import mongoose from "mongoose";
+import dotenv from "dotenv";
 
-import { Queue } from 'bullmq';
-import IORedis from 'ioredis';
+dotenv.config();
 
-const connection = new IORedis({ 
-    host: '127.0.0.1', 
-    port: 6379,
-    maxRetriesPerRequest: null 
-});
+const mongoUri = process.env.MONGODB_URI || "mongodb://localhost:27017/crm";
 
-async function checkQueue() {
-    console.log('--- CHECKING MARKETING QUEUE ---');
-    const queue = new Queue('marketingQueue', { connection });
-    
-    // Check job counts
-    const counts = await queue.getJobCounts();
-    console.log('Current Counts:', counts);
+async function run() {
+    await mongoose.connect(mongoUri);
+    console.log("Connected to DB!");
 
-    const jobs = await queue.getJobs(['completed', 'failed', 'active', 'waiting', 'delayed']);
-    console.log(`Total jobs fetched: ${jobs.length}`);
-    
-    // Sort by timestamp descending
-    const sortedJobs = jobs.sort((a, b) => b.timestamp - a.timestamp).slice(0, 5);
-    
-    for (const job of sortedJobs) {
-        console.log(`\nJob ID: ${job.id}`);
-        console.log(`Name: ${job.name}`);
-        console.log(`Status: ${await job.getState()}`);
-        console.log(`Timestamp: ${new Date(job.timestamp).toLocaleString()}`);
-        console.log(`Data Leads Count: ${job.data?.leads?.length || 0}`);
-        console.log(`Result: ${JSON.stringify(job.returnvalue)}`);
-        
-        if (job.stacktrace && job.stacktrace.length > 0) {
-            console.log(`Error: ${job.stacktrace[0]}`);
-        }
-        
-        const logs = await queue.getJobLogs(job.id);
-        console.log(`Logs: ${logs.logs.slice(-5).join(' | ')}`);
+    const jobs = await mongoose.connection.db.collection("marketingjobs").find({}).toArray();
+    console.log(`Found ${jobs.length} marketing jobs:`);
+    for (const job of jobs) {
+        console.log(JSON.stringify(job, null, 2));
     }
-    
-    await connection.quit();
+
+    const contents = await mongoose.connection.db.collection("marketingcontents").find({}).toArray();
+    console.log(`\nFound ${contents.length} marketing contents:`);
+    for (const content of contents) {
+        console.log(JSON.stringify(content, null, 2));
+    }
+
+    await mongoose.disconnect();
 }
 
-checkQueue().catch(err => {
-    console.error(err);
-    process.exit(1);
-});
+run().catch(console.error);

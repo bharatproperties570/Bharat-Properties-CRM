@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '../utils/api';
 import toast from 'react-hot-toast';
 import { fetchLookup } from '../utils/fetchLookup'; // Ensure this utility exists or use api directly
+import { usePropertyConfig } from '../context/PropertyConfigContext';
 
 const DocumentUploadModal = ({ isOpen, onClose, entityId, entityType, ownerId, ownerType, ownerName, onUpdate }) => {
 
@@ -15,6 +16,26 @@ const DocumentUploadModal = ({ isOpen, onClose, entityId, entityType, ownerId, o
 
     const activeEntityId = entityId || ownerId;
     const activeEntityType = entityType || ownerType || 'Contact';
+
+    const formatUploadDateTime = (dateVal) => {
+        if (!dateVal) return '';
+        try {
+            const d = new Date(dateVal);
+            if (isNaN(d.getTime())) return '';
+            return new Intl.DateTimeFormat('en-IN', {
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: true
+            }).format(d);
+        } catch (e) {
+            return '';
+        }
+    };
+
+    const { getLookupValue } = usePropertyConfig();
     const [documents, setDocuments] = useState([]);
     const [loading, setLoading] = useState(false);
     const [uploading, setUploading] = useState(false);
@@ -114,36 +135,33 @@ const DocumentUploadModal = ({ isOpen, onClose, entityId, entityType, ownerId, o
         }
     }, [selectedProject, projects]);
 
-    // Fetch Units (Inventory) when Block changes
+    // Fetch Units (Inventory) when Project or Block changes
     useEffect(() => {
         if (selectedProject) {
             const fetchInventory = async () => {
                 try {
                     const params = {
                         project: selectedProject,
-                        status: 'Available'
+                        status: 'Available',
+                        limit: 1000
                     };
                     if (selectedBlock) {
                         params.block = selectedBlock.name || selectedBlock;
                     }
                     const res = await api.get('/inventory', { params });
                     if (res.data.success) {
-                        setUnits(res.data.data || []);
+                        setUnits(res.data.records || res.data.data || []);
                     }
                 } catch (error) {
                     console.error("Error fetching inventory units:", error);
                 }
             };
 
-            if (selectedBlock || (blocks.length === 0 && selectedProject)) {
-                fetchInventory();
-            } else {
-                setUnits([]);
-            }
+            fetchInventory();
         } else {
             setUnits([]);
         }
-    }, [selectedProject, selectedBlock, blocks]);
+    }, [selectedProject, selectedBlock]);
 
     // Check for duplication
     useEffect(() => {
@@ -223,7 +241,11 @@ const DocumentUploadModal = ({ isOpen, onClose, entityId, entityType, ownerId, o
                 uploadFormData.append('docCategory', categoryObj?.name || 'General');
                 uploadFormData.append('docType', typeObj?.name || 'Document');
                 
-                const uploadRes = await api.post('/upload', uploadFormData);
+                const uploadRes = await api.post('/upload', uploadFormData, {
+                    headers: {
+                        'Content-Type': 'multipart/form-data'
+                    }
+                });
                 if (uploadRes.data.success) {
                     fileUrl = uploadRes.data.url;
                 }
@@ -240,6 +262,7 @@ const DocumentUploadModal = ({ isOpen, onClose, entityId, entityType, ownerId, o
 
                 documentNo: docNumber,
                 documentPicture: fileUrl,
+                uploadedAt: new Date().toISOString(),
 
                 // Inventory Links
                 projectName: linkToInventory ? (projectObj?.name || '') : '',
@@ -249,7 +272,7 @@ const DocumentUploadModal = ({ isOpen, onClose, entityId, entityType, ownerId, o
 
             const updatedDocuments = [...documents, newDocument];
 
-            const response = await api.patch(`${getEndpoint()}/${activeEntityId}`, {
+            const response = await api.put(`${getEndpoint()}/${activeEntityId}`, {
                 documents: updatedDocuments
             });
 
@@ -281,7 +304,7 @@ const DocumentUploadModal = ({ isOpen, onClose, entityId, entityType, ownerId, o
 
         try {
             const updatedDocuments = documents.filter((_, i) => i !== index);
-            const response = await api.patch(`${getEndpoint()}/${activeEntityId}`, {
+            const response = await api.put(`${getEndpoint()}/${activeEntityId}`, {
                 documents: updatedDocuments
             });
 
@@ -459,12 +482,17 @@ const DocumentUploadModal = ({ isOpen, onClose, entityId, entityType, ownerId, o
                 ) : documents.length > 0 ? (
                     <ul style={{ listStyle: 'none', padding: 0, margin: 0, maxHeight: '300px', overflowY: 'auto' }}>
                         {documents.map((doc, index) => {
-                            // Helper to display lookup values if they are populated objects
-                            const categoryName = typeof doc.documentCategory === 'object' ? doc.documentCategory?.lookup_value : 'Unknown Category';
-                            // Fallback for Category if it wasn't saved in older records (maybe infer from type?)
-
-                            const typeName = typeof doc.documentType === 'object' ? doc.documentType?.lookup_value :
-                                (typeof doc.documentName === 'object' ? doc.documentName?.lookup_value : doc.documentType || 'Unknown Type');
+                            // Resolve lookup values professionally via getLookupValue
+                            const categoryName = getLookupValue('DocumentCategory', doc.documentCategory) || 
+                                                 (typeof doc.documentCategory === 'object' ? doc.documentCategory?.lookup_value : null) || 
+                                                 'Document';
+                            
+                            const typeName = getLookupValue('DocumentType', doc.documentType) || 
+                                             getLookupValue('DocumentName', doc.documentName) || 
+                                             (typeof doc.documentType === 'object' ? doc.documentType?.lookup_value : null) || 
+                                             (typeof doc.documentName === 'object' ? doc.documentName?.lookup_value : null) || 
+                                             doc.documentType || 
+                                             'File';
 
                             return (
                                 <li key={index} style={{
@@ -485,6 +513,12 @@ const DocumentUploadModal = ({ isOpen, onClose, entityId, entityType, ownerId, o
                                             <div style={{ fontSize: '0.8rem', color: '#059669', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                 <i className="fas fa-building"></i>
                                                 {doc.projectName} {doc.block ? `- ${doc.block}` : ''} {doc.unitNumber ? `- ${doc.unitNumber}` : ''}
+                                            </div>
+                                        )}
+                                        {(doc.uploadedAt || doc.createdAt || doc.date) && (
+                                            <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                <i className="far fa-clock" style={{ color: '#94a3b8' }}></i>
+                                                <span>Uploaded: {formatUploadDateTime(doc.uploadedAt || doc.createdAt || doc.date)}</span>
                                             </div>
                                         )}
                                     </div>
