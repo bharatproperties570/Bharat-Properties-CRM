@@ -220,7 +220,9 @@ export const getListings = async (req, res) => {
                     propertyDetails: { $ifNull: ['$propertyDetails', '$inventoryInfo.propertyDetails'] },
                     unitSpecification: { $ifNull: ['$unitSpecification', '$inventoryInfo.unitSpecification'] },
                     address: { $ifNull: ['$address', '$inventoryInfo.address'] },
-                    sizeLabel: { $ifNull: ['$sizeLabel', '$inventoryInfo.sizeLabel'] }
+                    sizeLabel: { $ifNull: ['$sizeLabel', '$inventoryInfo.sizeLabel'] },
+                    images: { $ifNull: ['$websiteMetadata.images', { $ifNull: ['$inventoryInfo.inventoryImages', []] }] },
+                    videos: { $ifNull: ['$websiteMetadata.videos', { $ifNull: ['$inventoryInfo.inventoryVideos', []] }] }
                 }
             },
             {
@@ -277,7 +279,9 @@ export const getListings = async (req, res) => {
                     'address.landmark': { $cond: { if: { $eq: ['$websiteMetadata.shareLocation', false] }, then: 'Confidential', else: '$address.landmark' } },
                     'address.area': { $cond: { if: { $eq: ['$websiteMetadata.shareLocation', false] }, then: 'Confidential', else: '$address.area' } },
                     unitNo: { $cond: { if: { $eq: ['$websiteMetadata.shareUnitNumber', false] }, then: 'Confidential', else: '$unitNo' } },
-                    unitNumber: { $cond: { if: { $eq: ['$websiteMetadata.shareUnitNumber', false] }, then: 'Confidential', else: '$unitNumber' } }
+                    unitNumber: { $cond: { if: { $eq: ['$websiteMetadata.shareUnitNumber', false] }, then: 'Confidential', else: '$unitNumber' } },
+                    latitude: { $cond: { if: { $eq: ['$websiteMetadata.shareLocation', false] }, then: null, else: '$latitude' } },
+                    longitude: { $cond: { if: { $eq: ['$websiteMetadata.shareLocation', false] }, then: null, else: '$longitude' } }
                 }
             },
             {
@@ -511,7 +515,9 @@ export const getListingBySlug = async (req, res) => {
                     unitSpecification: { $ifNull: ['$unitSpecification', '$inventoryInfo.unitSpecification'] },
                     address: { $ifNull: ['$address', '$inventoryInfo.address'] },
                     location: { $ifNull: ['$location', '$inventoryInfo.address.city'] },
-                    sizeLabel: { $ifNull: ['$sizeLabel', '$inventoryInfo.sizeLabel'] }
+                    sizeLabel: { $ifNull: ['$sizeLabel', '$inventoryInfo.sizeLabel'] },
+                    images: { $ifNull: ['$websiteMetadata.images', { $ifNull: ['$inventoryInfo.inventoryImages', []] }] },
+                    videos: { $ifNull: ['$websiteMetadata.videos', { $ifNull: ['$inventoryInfo.inventoryVideos', []] }] }
                 }
             },
             {
@@ -568,7 +574,9 @@ export const getListingBySlug = async (req, res) => {
                     'address.landmark': { $cond: { if: { $eq: ['$websiteMetadata.shareLocation', false] }, then: 'Confidential', else: '$address.landmark' } },
                     'address.area': { $cond: { if: { $eq: ['$websiteMetadata.shareLocation', false] }, then: 'Confidential', else: '$address.area' } },
                     unitNo: { $cond: { if: { $eq: ['$websiteMetadata.shareUnitNumber', false] }, then: 'Confidential', else: '$unitNo' } },
-                    unitNumber: { $cond: { if: { $eq: ['$websiteMetadata.shareUnitNumber', false] }, then: 'Confidential', else: '$unitNumber' } }
+                    unitNumber: { $cond: { if: { $eq: ['$websiteMetadata.shareUnitNumber', false] }, then: 'Confidential', else: '$unitNumber' } },
+                    latitude: { $cond: { if: { $eq: ['$websiteMetadata.shareLocation', false] }, then: null, else: '$latitude' } },
+                    longitude: { $cond: { if: { $eq: ['$websiteMetadata.shareLocation', false] }, then: null, else: '$longitude' } }
                 }
             },
             {

@@ -562,7 +562,7 @@ const AddContactModal = ({
         return mappedData;
       });
     }
-  }, [initialData, isOpen]);
+  }, [isOpen, initialData?._id]);
 
   // Fetch Default Country Code
   const handleInputChange = useCallback((field, value) => {
@@ -614,7 +614,7 @@ const AddContactModal = ({
     };
 
     fetchAllLookups();
-  }, [isOpen, initialData?._id, initialData?.professionCategory, initialData?.professionSubCategory, initialData]);
+  }, [isOpen, initialData?._id]);
 
   // Reactive Fetching for Professional  // Fetch Sub-Categories when Category changes
   useEffect(() => {
@@ -629,6 +629,7 @@ const AddContactModal = ({
 
     // Only fetch and reset if the category actually changed from previous value
     if (categoryId !== prevCategoryRef.current) {
+      const isInitialLoad = prevCategoryRef.current === null;
       const fetchSubCats = async () => {
         if (!categoryId) {
           setProfessionSubCategories([]);
@@ -639,7 +640,7 @@ const AddContactModal = ({
         setProfessionSubCategories(data || []);
         
         // Reset sub-category and designation ONLY if it's a real user action (not initial load)
-        if (prevCategoryRef.current !== null) {
+        if (!isInitialLoad) {
           setFormData(prev => ({ ...prev, professionSubCategory: "", designation: "" }));
         }
       };
@@ -661,6 +662,7 @@ const AddContactModal = ({
 
     // Only fetch and reset if the subcategory actually changed from previous value
     if (subCategoryId !== prevSubCategoryRef.current) {
+      const isInitialLoad = prevSubCategoryRef.current === null;
       const fetchDesigs = async () => {
         if (!subCategoryId) {
           setDesignation([]);
@@ -671,7 +673,7 @@ const AddContactModal = ({
         setDesignation(data || []);
 
         // Reset designation ONLY if it's a real user action (not initial load)
-        if (prevSubCategoryRef.current !== null) {
+        if (!isInitialLoad) {
           setFormData(prev => ({ ...prev, designation: "" }));
         }
       };

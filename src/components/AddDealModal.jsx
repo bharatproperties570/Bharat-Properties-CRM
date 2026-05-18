@@ -87,6 +87,12 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
             x: false
         },
 
+        // Website Integration Settings
+        websiteMetadata: {
+            shareUnitNumber: true,
+            shareLocation: true
+        },
+
         // Send Matched Deal
         sendMatchedDeal: {
             sms: false,
@@ -220,7 +226,11 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                     propertyType: getLookupValue('PropertyType', deal.propertyType) || deal.propertyType,
                     status: deal.status || 'Open',
                     isOwnerSelected: !!newOwner._id || !!newOwner.name,
-                    isAssociateSelected: !!newAssociate._id || !!newAssociate.name
+                    isAssociateSelected: !!newAssociate._id || !!newAssociate.name,
+                    websiteMetadata: {
+                        shareUnitNumber: deal.websiteMetadata?.shareUnitNumber !== false,
+                        shareLocation: deal.websiteMetadata?.shareLocation !== false
+                    }
                 };
 
                 return updated;
@@ -584,6 +594,7 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                 furnishing: formData.furnishing,
                 documents: formData.documents,
                 publishOn: formData.publishOn,
+                websiteMetadata: formData.websiteMetadata,
                 sendMatchedDeal: formData.sendMatchedDeal,
                 financialDetails: {
                     securityDeposit: formData.securityDeposit,
@@ -1198,6 +1209,72 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                                         </button>
                                     ))}
                                 </div>
+
+                                {formData.publishOn.website && (
+                                    <div style={{
+                                        marginTop: '15px',
+                                        padding: '12px 16px',
+                                        borderRadius: '10px',
+                                        background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
+                                        border: '1px solid #e2e8f0',
+                                        boxShadow: '0 2px 4px rgba(0,0,0,0.02)',
+                                        animation: 'fadeIn 0.3s ease-in-out'
+                                    }}>
+                                        <h5 style={{ margin: '0 0 10px 0', fontSize: '0.85rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <i className="fas fa-shield-alt" style={{ color: '#2563eb' }}></i> Website Privacy & Display Settings
+                                        </h5>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                                <div>
+                                                    <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#334155', display: 'block' }}>Display Unit Number</span>
+                                                    <span style={{ fontSize: '0.7rem', color: '#64748b' }}>Show the exact unit number on the public website.</span>
+                                                </div>
+                                                <label className="switch" style={{ position: 'relative', display: 'inline-block', width: '40px', height: '20px' }}>
+                                                    <input 
+                                                        type="checkbox" 
+                                                        checked={formData.websiteMetadata?.shareUnitNumber !== false}
+                                                        onChange={(e) => handleNestedInputChange('websiteMetadata', 'shareUnitNumber', e.target.checked)}
+                                                        style={{ opacity: 0, width: 0, height: 0 }}
+                                                    />
+                                                    <span className="slider round" style={{
+                                                        position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0,
+                                                        backgroundColor: (formData.websiteMetadata?.shareUnitNumber !== false) ? '#2563eb' : '#cbd5e1',
+                                                        transition: '.4s', borderRadius: '20px'
+                                                    }}>
+                                                        <span style={{
+                                                            position: 'absolute', content: '""', height: '14px', width: '14px', left: (formData.websiteMetadata?.shareUnitNumber !== false) ? '22px' : '3px', bottom: '3px',
+                                                            backgroundColor: 'white', transition: '.4s', borderRadius: '50%'
+                                                        }} />
+                                                    </span>
+                                                </label>
+                                            </div>
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px dashed #e2e8f0', paddingTop: '10px' }}>
+                                                <div>
+                                                    <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#334155', display: 'block' }}>Display Map Location</span>
+                                                    <span style={{ fontSize: '0.7rem', color: '#64748b' }}>Share precise geographical latitude/longitude on website maps.</span>
+                                                </div>
+                                                <label className="switch" style={{ position: 'relative', display: 'inline-block', width: '40px', height: '20px' }}>
+                                                    <input 
+                                                        type="checkbox" 
+                                                        checked={formData.websiteMetadata?.shareLocation !== false}
+                                                        onChange={(e) => handleNestedInputChange('websiteMetadata', 'shareLocation', e.target.checked)}
+                                                        style={{ opacity: 0, width: 0, height: 0 }}
+                                                    />
+                                                    <span className="slider round" style={{
+                                                        position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0,
+                                                        backgroundColor: (formData.websiteMetadata?.shareLocation !== false) ? '#2563eb' : '#cbd5e1',
+                                                        transition: '.4s', borderRadius: '20px'
+                                                    }}>
+                                                        <span style={{
+                                                            position: 'absolute', content: '""', height: '14px', width: '14px', left: (formData.websiteMetadata?.shareLocation !== false) ? '22px' : '3px', bottom: '3px',
+                                                            backgroundColor: 'white', transition: '.4s', borderRadius: '50%'
+                                                        }} />
+                                                    </span>
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
 
                             <div style={sectionStyle}>
