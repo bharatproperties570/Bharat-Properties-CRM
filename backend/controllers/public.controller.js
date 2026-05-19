@@ -61,6 +61,7 @@ const resolveAbsoluteMediaUrl = (url, req) => {
 
 // 1. Fetch all published listings (Deals) with optional filtering/sorting
 export const getListings = async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     try {
         const { type, limit = 10, city: cityName } = req.query;
         let query = { isPublished: true };
@@ -399,6 +400,7 @@ export const getListings = async (req, res) => {
 
 // 2. Fetch all published projects
 export const getProjects = async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     try {
         const { status, city: cityName } = req.query;
         let query = { isPublished: true };
@@ -488,6 +490,7 @@ export const getProjects = async (req, res) => {
 
 // 3. Fetch listing by slug
 export const getListingBySlug = async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     try {
         const { slug } = req.params;
         
@@ -844,6 +847,7 @@ export const getListingBySlug = async (req, res) => {
 
 // 4. Fetch project by slug
 export const getProjectBySlug = async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     try {
         const { slug } = req.params;
         
@@ -1228,6 +1232,7 @@ export const submitLeadForm = async (req, res) => {
 
 // 6. Fetch Public Settings (Relations, Activity Lookups etc.)
 export const getPublicSettings = async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     try {
         const masterFields = await SystemSetting.findOne({ key: 'masterFields' }).lean();
         const activityFields = await SystemSetting.findOne({ key: 'activityMasterFields' }).lean();
@@ -1270,6 +1275,7 @@ export const getPublicSettings = async (req, res) => {
 
 // 7. Fetch Available Units for Project/Block
 export const getAvailableUnits = async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     try {
         const { project, block } = req.query;
         if (!project) {
@@ -1314,6 +1320,7 @@ export const getAvailableUnits = async (req, res) => {
 
 // 8. Get Social Reviews (Google + Others)
 export const getGoogleReviews = async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     const CACHE_FILE = path.join(__dirname, '../cache/social-reviews.json');
     const CACHE_TTL = 24 * 60 * 60 * 1000;
     const PLACE_ID = 'ChIJKzFpydBGDjkRbTCco1_G2I4';
