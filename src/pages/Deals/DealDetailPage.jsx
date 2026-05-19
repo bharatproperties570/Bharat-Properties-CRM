@@ -104,7 +104,10 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                 date: newOffer.date,
                 offerBy: newOffer.leadName,
                 amount: newOffer.amount,
-                note: newOffer.note
+                counterAmount: newOffer.counterAmount,
+                conditions: newOffer.conditions,
+                note: newOffer.conditions || newOffer.note,
+                status: newOffer.status || 'Active'
             };
             const response = await api.post(`deals/${dealId}/offers`, offerData);
             if (response.data && response.data.success) {

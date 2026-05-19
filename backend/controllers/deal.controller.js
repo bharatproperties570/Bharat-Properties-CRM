@@ -1865,7 +1865,25 @@ export const addOffer = async (req, res) => {
         if (!deal) return res.status(404).json({ success: false, error: "Deal not found" });
 
         deal.offerHistory = deal.offerHistory || [];
-        deal.offerHistory.push(offerData);
+        deal.offerHistory.push({
+            date: offerData.date || new Date(),
+            offerBy: offerData.offerBy,
+            amount: offerData.amount,
+            counterAmount: offerData.counterAmount,
+            status: offerData.status || 'Active',
+            remarks: offerData.conditions || offerData.note
+        });
+
+        deal.negotiationRounds = deal.negotiationRounds || [];
+        deal.negotiationRounds.push({
+            round: offerData.round || (deal.negotiationRounds.length + 1),
+            date: offerData.date || new Date(),
+            offerBy: offerData.offerBy,
+            buyerOffer: offerData.amount,
+            ownerCounter: offerData.counterAmount || 0,
+            status: offerData.status || 'Active',
+            notes: offerData.conditions || offerData.note
+        });
 
         await deal.save();
         res.json({ success: true, message: "Offer added successfully", data: deal });
