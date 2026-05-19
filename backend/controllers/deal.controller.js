@@ -1541,10 +1541,16 @@ export const updateDeal = async (req, res) => {
             if (requiresHistoryUpdate) {
                 const atomicUpdate = { ...historyUpdate };
                 delete atomicUpdate.$push;
-                await Deal.findByIdAndUpdate(req.params.id, { 
-                    $set: atomicUpdate, 
-                    $push: historyUpdate.$push 
-                });
+                
+                // 1. Update exiting stage details ($set) to avoid path collision
+                if (Object.keys(atomicUpdate).length > 0) {
+                    await Deal.findByIdAndUpdate(req.params.id, { $set: atomicUpdate });
+                }
+                
+                // 2. Push new stage history record ($push)
+                if (historyUpdate.$push) {
+                    await Deal.findByIdAndUpdate(req.params.id, { $push: historyUpdate.$push });
+                }
             }
         }
 
