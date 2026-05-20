@@ -1222,7 +1222,7 @@ const PropertySettingsPage = () => {
                                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '12px' }}>
                                             {propertyConfig[configCategory].subCategories.find(s => s.name === configSubCategory).types.find(t => t.name === configType).builtupTypes.map(bType => {
                                                 const bName = typeof bType === 'object' ? bType.name : bType;
-                                                const bId = typeof bType === 'object' ? bType.id : bType;
+                                                const bId = typeof bType === 'object' ? (bType.id || bType._id || bName) : bType;
                                                 return (
                                                 <div key={bId} style={{ padding: '12px', border: '1px solid #e2e8f0', borderRadius: '8px', display: 'flex', justifyContent: 'space-between' }} className="group">
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981' }}></div>{bName}</div>

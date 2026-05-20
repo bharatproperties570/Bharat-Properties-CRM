@@ -9,6 +9,7 @@ import marketingService from '../services/MarketingService.js';
 import marketingPublishingService from '../services/MarketingPublishingService.js';
 import geminiService    from '../services/GeminiService.js';
 import openAIService    from '../services/OpenAIService.js';
+import unifiedAIService from '../services/UnifiedAIService.js';
 import publishService from '../services/PublishService.js';
 import Deal from '../models/Deal.js';
 import Project from '../models/Project.js';
@@ -350,17 +351,16 @@ export const generateWithModel = async (req, res) => {
             ? `${prompt}\n\nContext Data:\n${JSON.stringify(context, null, 2)}`
             : prompt;
 
-        let result;
-        const normalizedProvider = (provider || 'google').toLowerCase();
-
-        if (normalizedProvider === 'openai') {
-            result = await openAIService.generateWithSystem(systemPrompt || '', userPrompt, { model: model || 'gpt-4o' });
-        } else {
-            result = await geminiService.generateWithSystem(systemPrompt || '', userPrompt, { model: model || 'gemini-1.5-pro' });
-        }
+        // Use UnifiedAIService to support automatic provider fallback (failover)
+        const result = await unifiedAIService.generate(userPrompt, {
+            provider: provider || 'google',
+            model: model,
+            systemPrompt: systemPrompt
+        });
 
         res.json({ success: true, content: result });
     } catch (error) {
+        console.error('[MarketingController] generateWithModel Error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 };

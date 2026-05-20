@@ -182,16 +182,16 @@ class FacebookService {
         console.error(`[FacebookService] ${platform} error:`, apiError);
 
         if (apiError.includes('publish_actions')) {
-            throw new Error(`[CRITICAL: Meta Permission Fix] Your App is requesting deprecated "publish_actions". 
-            Meta has replaced this with "pages_manage_posts". 
+            throw new Error(`[Meta Permission Configuration Error] The Meta API returned a permission warning. Meta has deprecated the legacy "publish_actions" scope in favor of "pages_manage_posts". 
+            Your generated Page Access Token does not have "pages_manage_posts" permission, or your Meta App is not authorized with this permission.
             ACTION REQUIRED: 
-            1. Go to your Meta Developer App > App Review > Permissions and Features.
-            2. Request "pages_manage_posts" instead.
-            3. Regenerate your Page Access Token in Settings > Integrations.`);
+            1. Go to your Meta Developer Console > App Review > Permissions and Features.
+            2. Verify that "pages_manage_posts" (for Facebook Pages) and "instagram_content_publish" (for Instagram Business) are requested and approved.
+            3. Regenerate your Long-lived Page Access Token with these correct permissions under Settings > Integrations.`);
         }
         if (apiError.includes('permission') || apiError.includes('access')) {
-            throw new Error(`[Permission Required] The provided token does not have permission to publish. 
-            Ensure you have scoped "pages_manage_posts" (for FB Pages) and "instagram_content_publish" (for Instagram).`);
+            throw new Error(`[Permission Required] The provided Page Access Token does not have permission to publish content to this platform. 
+            Ensure you have scoped "pages_manage_posts" (for FB Pages) and "instagram_content_publish" (for Instagram) when generating the token.`);
         }
         
         throw new Error(apiError);

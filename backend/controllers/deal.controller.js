@@ -22,9 +22,22 @@ const escapeRegExp = (string) => {
     return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 };
 
+// Robust ObjectId validator to prevent CastErrors for numeric or non-hex string values
+const isValidObjectId = (val) => {
+    if (!val) return false;
+    if (val instanceof mongoose.Types.ObjectId) return true;
+    if (typeof val === 'string') {
+        return /^[0-9a-fA-F]{24}$/.test(val);
+    }
+    if (typeof val === 'object' && val.toString) {
+        return /^[0-9a-fA-F]{24}$/.test(val.toString());
+    }
+    return false;
+};
+
 const resolveFilter = async (type, value) => {
     if (!value) return null;
-    if (mongoose.Types.ObjectId.isValid(value)) return new mongoose.Types.ObjectId(value.toString());
+    if (isValidObjectId(value)) return new mongoose.Types.ObjectId(value.toString());
 
     const cacheKey = `${type}:${value}`;
     if (_lookupResolveCache.has(cacheKey)) return _lookupResolveCache.get(cacheKey);
@@ -41,7 +54,7 @@ const resolveFilter = async (type, value) => {
 
 const resolveLookup = async (type, value, createIfMissing = true) => {
     if (!value) return null;
-    if (mongoose.Types.ObjectId.isValid(value)) return new mongoose.Types.ObjectId(value.toString());
+    if (isValidObjectId(value)) return new mongoose.Types.ObjectId(value.toString());
 
     const cacheKey = `${type}:${String(value).toLowerCase()}`;
     if (_lookupResolveCache.has(cacheKey)) return _lookupResolveCache.get(cacheKey);
@@ -509,7 +522,7 @@ export const sanitizeDeal = async (req, res) => {
         const enrichField = async (field, type) => {
             const val = deal[field];
             if (!val) return;
-            if (mongoose.Types.ObjectId.isValid(val)) {
+            if (isValidObjectId(val)) {
                 const lookup = await Lookup.findById(val).select('lookup_value').lean();
                 if (lookup) deal[field] = lookup;
             } else if (typeof val === 'string') {
@@ -549,7 +562,7 @@ export const sanitizeDeal = async (req, res) => {
                 if (val.fullName) return val.fullName;
                 return null;
             }
-            if (mongoose.Types.ObjectId.isValid(val)) {
+            if (isValidObjectId(val)) {
                 const lookup = await Lookup.findById(val).select('lookup_value').lean();
                 return lookup?.lookup_value || null;
             }
@@ -783,7 +796,7 @@ export const getDeals = async (req, res) => {
         }
 
         if (req.query.contactId) {
-            const contactIds = req.query.contactId.split(',').filter(id => id && mongoose.Types.ObjectId.isValid(id));
+            const contactIds = req.query.contactId.split(',').filter(id => id && isValidObjectId(id));
             
             if (contactIds.length > 0) {
                 query.$or = query.$or || [];
@@ -976,7 +989,7 @@ export const getDeals = async (req, res) => {
         const enrichWithLookup = (item, field) => {
             const val = item[field];
             if (!val) return;
-            if (mongoose.Types.ObjectId.isValid(val)) {
+            if (isValidObjectId(val)) {
                 item[field] = lookupMap.get(String(val)) || val;
             } else if (typeof val === 'string') {
                 item[field] = lookupValueMap.get(val.toLowerCase()) || { lookup_value: val };
@@ -1166,7 +1179,7 @@ export const getDealById = async (req, res) => {
                 const val = doc[field];
                 if (!val) continue;
 
-                if (typeof val === 'string' && !mongoose.Types.ObjectId.isValid(val)) {
+                if (typeof val === 'string' && !isValidObjectId(val)) {
                     // It's a raw string, find or create the lookup
                     const lookupTypeMap = {
                         category: 'Category', subCategory: 'SubCategory', intent: 'Intent', 
@@ -1176,7 +1189,7 @@ export const getDealById = async (req, res) => {
                     const lookupId = await resolveLookup(lookupType, val);
                     const lookup = await Lookup.findById(lookupId).lean();
                     doc[field] = lookup || { _id: lookupId, lookup_value: val };
-                } else if (mongoose.Types.ObjectId.isValid(val) || (typeof val === 'object' && val._id)) {
+                } else if (isValidObjectId(val) || (typeof val === 'object' && val._id)) {
                     // It's an ID or already an object, attempt to populate if not already
                     const targetId = val._id || val;
                     if (!val.lookup_value) {
@@ -1357,7 +1370,7 @@ export const addDeal = async (req, res) => {
                 publishedAt: new Date(),
                 'websiteMetadata.slug': slugBase,
                 'websiteMetadata.title': deal.projectName || 'New Listing',
-                'websiteMetadata.description': deal.remarks || 'Check out this new property listing at Bharat Properties.'
+                'websiteMetadata.description': deal.description || deal.remarks || 'Check out this new property listing at Bharat Properties.'
             });
         }
 
@@ -1423,7 +1436,7 @@ export const addDeal = async (req, res) => {
 export const updateDeal = async (req, res) => {
     console.log(`[DealController] updateDeal for ID: ${req.params.id}`, { body: req.body });
     try {
-        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+        if (!isValidObjectId(req.params.id)) {
             return res.status(400).json({ success: false, error: "Invalid Deal ID format" });
         }
         const sanitizedData = sanitizeData(req.body);
@@ -1629,7 +1642,7 @@ export const updateDeal = async (req, res) => {
                 publishedAt: new Date(),
                 'websiteMetadata.slug': slugBase,
                 'websiteMetadata.title': deal.projectName || 'Updated Listing',
-                'websiteMetadata.description': deal.remarks || 'Check out this updated property listing at Bharat Properties.'
+                'websiteMetadata.description': deal.description || deal.remarks || 'Check out this updated property listing at Bharat Properties.'
             });
         } else if (sanitizedData.publishOn && sanitizedData.publishOn.website === false && deal.isPublished) {
             await Deal.findByIdAndUpdate(deal._id, { isPublished: false });

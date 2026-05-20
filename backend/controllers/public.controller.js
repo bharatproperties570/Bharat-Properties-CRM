@@ -244,7 +244,8 @@ export const getListings = async (req, res) => {
                     sizeLabel: { $ifNull: ['$sizeLabel', { $ifNull: ['$unitSpecification.sizeLabel', '$inventoryInfo.sizeLabel'] }] },
                     subCategory: { $ifNull: ['$subCategory', '$inventoryInfo.subCategory'] },
                     images: { $ifNull: ['$websiteMetadata.images', { $ifNull: ['$inventoryInfo.inventoryImages', []] }] },
-                    videos: { $ifNull: ['$websiteMetadata.videos', { $ifNull: ['$inventoryInfo.inventoryVideos', []] }] }
+                    videos: { $ifNull: ['$websiteMetadata.videos', { $ifNull: ['$inventoryInfo.inventoryVideos', []] }] },
+                    builtupDetails: { $ifNull: ['$builtupDetails', { $ifNull: ['$inventoryInfo.builtupDetails', []] }] }
                 }
             },
             {
@@ -276,6 +277,15 @@ export const getListings = async (req, res) => {
                 $lookup: { from: 'lookups', let: { val: '$sizeLabel' }, pipeline: [ { $match: { $expr: { $or: [ { $eq: ['$_id', '$$val'] }, { $eq: ['$_id', { $convert: { input: '$$val', to: 'objectId', onError: null, onNull: null } } ] } ] } } } ], as: 'resolvedSizeLabel' }
             },
             {
+                $lookup: { from: 'lookups', let: { val: '$intent' }, pipeline: [ { $match: { $expr: { $or: [ { $eq: ['$_id', '$$val'] }, { $eq: ['$_id', { $convert: { input: '$$val', to: 'objectId', onError: null, onNull: null } } ] } ] } } } ], as: 'resolvedIntent' }
+            },
+            {
+                $lookup: { from: 'lookups', let: { val: '$builtupType' }, pipeline: [ { $match: { $expr: { $or: [ { $eq: ['$_id', '$$val'] }, { $eq: ['$_id', { $convert: { input: '$$val', to: 'objectId', onError: null, onNull: null } } ] } ] } } } ], as: 'resolvedBuiltupType' }
+            },
+            {
+                $lookup: { from: 'lookups', let: { val: '$inventoryInfo.builtupType' }, pipeline: [ { $match: { $expr: { $or: [ { $eq: ['$_id', '$$val'] }, { $eq: ['$_id', { $convert: { input: '$$val', to: 'objectId', onError: null, onNull: null } } ] } ] } } } ], as: 'resolvedInventoryBuiltupType' }
+            },
+            {
                 $lookup: {
                     from: 'projects',
                     let: { pId: '$projectId', pName: '$projectName' },
@@ -296,12 +306,22 @@ export const getListings = async (req, res) => {
                     category: { $ifNull: [{ $arrayElemAt: ['$resolvedCategory.lookup_value', 0] }, '$category'] },
                     propertyType: { $ifNull: [{ $arrayElemAt: ['$resolvedPropertyType.lookup_value', 0] }, '$propertyType'] },
                     location: { $ifNull: [{ $arrayElemAt: ['$resolvedLocation.lookup_value', 0] }, '$location'] },
+                    intent: { $ifNull: [{ $arrayElemAt: ['$resolvedIntent.lookup_value', 0] }, '$intent'] },
                     'propertyDetails.facing': { $ifNull: [{ $arrayElemAt: ['$resolvedFacing.lookup_value', 0] }, '$propertyDetails.facing'] },
                     'propertyDetails.direction': { $ifNull: [{ $arrayElemAt: ['$resolvedDirection.lookup_value', 0] }, '$propertyDetails.direction'] },
                     'propertyDetails.roadWidth': { $ifNull: [{ $arrayElemAt: ['$resolvedRoadWidth.lookup_value', 0] }, '$propertyDetails.roadWidth'] },
                     sizeLabel: { $ifNull: [{ $arrayElemAt: ['$resolvedSizeLabel.lookup_value', 0] }, '$sizeLabel'] },
                     'unitSpecification.sizeLabel': { $ifNull: [{ $arrayElemAt: ['$resolvedSizeLabel.lookup_value', 0] }, '$unitSpecification.sizeLabel'] },
                     subCategory: { $ifNull: [{ $arrayElemAt: ['$resolvedSubCategory.lookup_value', 0] }, '$subCategory'] },
+                    builtupType: { 
+                        $ifNull: [
+                            { $arrayElemAt: ['$resolvedBuiltupType.lookup_value', 0] }, 
+                            { $ifNull: [
+                                { $arrayElemAt: ['$resolvedInventoryBuiltupType.lookup_value', 0] }, 
+                                { $ifNull: ['$builtupType', '$inventoryInfo.builtupType'] }
+                            ]}
+                        ] 
+                    },
                     'address.hNo': { $cond: { if: { $eq: ['$websiteMetadata.shareLocation', false] }, then: 'Confidential', else: '$address.hNo' } },
                     'address.street': { $cond: { if: { $eq: ['$websiteMetadata.shareLocation', false] }, then: 'Confidential', else: '$address.street' } },
                     'address.landmark': { $cond: { if: { $eq: ['$websiteMetadata.shareLocation', false] }, then: 'Confidential', else: '$address.landmark' } },
@@ -329,7 +349,10 @@ export const getListings = async (req, res) => {
                     resolvedRoadWidth: 0,
                     resolvedProject: 0,
                     resolvedSizeLabel: 0,
-                    resolvedSubCategory: 0
+                    resolvedSubCategory: 0,
+                    resolvedIntent: 0,
+                    resolvedBuiltupType: 0,
+                    resolvedInventoryBuiltupType: 0
                 }
             }
         ]);
@@ -602,7 +625,8 @@ export const getListingBySlug = async (req, res) => {
                     category: { $ifNull: ['$category', '$inventoryInfo.category'] },
                     subCategory: { $ifNull: ['$subCategory', '$inventoryInfo.subCategory'] },
                     images: { $ifNull: ['$websiteMetadata.images', { $ifNull: ['$inventoryInfo.inventoryImages', []] }] },
-                    videos: { $ifNull: ['$websiteMetadata.videos', { $ifNull: ['$inventoryInfo.inventoryVideos', []] }] }
+                    videos: { $ifNull: ['$websiteMetadata.videos', { $ifNull: ['$inventoryInfo.inventoryVideos', []] }] },
+                    builtupDetails: { $ifNull: ['$builtupDetails', { $ifNull: ['$inventoryInfo.builtupDetails', []] }] }
                 }
             },
             {
@@ -634,6 +658,15 @@ export const getListingBySlug = async (req, res) => {
                 $lookup: { from: 'lookups', let: { val: '$sizeLabel' }, pipeline: [ { $match: { $expr: { $or: [ { $eq: ['$_id', '$$val'] }, { $eq: ['$_id', { $convert: { input: '$$val', to: 'objectId', onError: null, onNull: null } } ] } ] } } } ], as: 'resolvedSizeLabel' }
             },
             {
+                $lookup: { from: 'lookups', let: { val: '$intent' }, pipeline: [ { $match: { $expr: { $or: [ { $eq: ['$_id', '$$val'] }, { $eq: ['$_id', { $convert: { input: '$$val', to: 'objectId', onError: null, onNull: null } } ] } ] } } } ], as: 'resolvedIntent' }
+            },
+            {
+                $lookup: { from: 'lookups', let: { val: '$builtupType' }, pipeline: [ { $match: { $expr: { $or: [ { $eq: ['$_id', '$$val'] }, { $eq: ['$_id', { $convert: { input: '$$val', to: 'objectId', onError: null, onNull: null } } ] } ] } } } ], as: 'resolvedBuiltupType' }
+            },
+            {
+                $lookup: { from: 'lookups', let: { val: '$inventoryInfo.builtupType' }, pipeline: [ { $match: { $expr: { $or: [ { $eq: ['$_id', '$$val'] }, { $eq: ['$_id', { $convert: { input: '$$val', to: 'objectId', onError: null, onNull: null } } ] } ] } } } ], as: 'resolvedInventoryBuiltupType' }
+            },
+            {
                 $lookup: {
                     from: 'projects',
                     let: { pId: '$projectId', pName: '$projectName' },
@@ -654,12 +687,22 @@ export const getListingBySlug = async (req, res) => {
                     category: { $ifNull: [{ $arrayElemAt: ['$resolvedCategory.lookup_value', 0] }, '$category'] },
                     propertyType: { $ifNull: [{ $arrayElemAt: ['$resolvedPropertyType.lookup_value', 0] }, '$propertyType'] },
                     location: { $ifNull: [{ $arrayElemAt: ['$resolvedLocation.lookup_value', 0] }, '$location'] },
+                    intent: { $ifNull: [{ $arrayElemAt: ['$resolvedIntent.lookup_value', 0] }, '$intent'] },
                     'propertyDetails.facing': { $ifNull: [{ $arrayElemAt: ['$resolvedFacing.lookup_value', 0] }, '$propertyDetails.facing'] },
                     'propertyDetails.direction': { $ifNull: [{ $arrayElemAt: ['$resolvedDirection.lookup_value', 0] }, '$propertyDetails.direction'] },
                     'propertyDetails.roadWidth': { $ifNull: [{ $arrayElemAt: ['$resolvedRoadWidth.lookup_value', 0] }, '$propertyDetails.roadWidth'] },
                     sizeLabel: { $ifNull: [{ $arrayElemAt: ['$resolvedSizeLabel.lookup_value', 0] }, '$sizeLabel'] },
                     'unitSpecification.sizeLabel': { $ifNull: [{ $arrayElemAt: ['$resolvedSizeLabel.lookup_value', 0] }, '$unitSpecification.sizeLabel'] },
                     subCategory: { $ifNull: [{ $arrayElemAt: ['$resolvedSubCategory.lookup_value', 0] }, '$subCategory'] },
+                    builtupType: { 
+                        $ifNull: [
+                            { $arrayElemAt: ['$resolvedBuiltupType.lookup_value', 0] }, 
+                            { $ifNull: [
+                                { $arrayElemAt: ['$resolvedInventoryBuiltupType.lookup_value', 0] }, 
+                                { $ifNull: ['$builtupType', '$inventoryInfo.builtupType'] }
+                            ]}
+                        ] 
+                    },
                     'address.hNo': { $cond: { if: { $eq: ['$websiteMetadata.shareLocation', false] }, then: 'Confidential', else: '$address.hNo' } },
                     'address.street': { $cond: { if: { $eq: ['$websiteMetadata.shareLocation', false] }, then: 'Confidential', else: '$address.street' } },
                     'address.landmark': { $cond: { if: { $eq: ['$websiteMetadata.shareLocation', false] }, then: 'Confidential', else: '$address.landmark' } },
@@ -675,7 +718,8 @@ export const getListingBySlug = async (req, res) => {
                     visits: 0, owner: 0, associatedContact: 0, partyStructure: 0, commission: 0, internalRM: 0,
                     inventoryData: 0, inventoryInfo: 0, resolvedSubCategory: 0,
                     resolvedCategory: 0, resolvedPropertyType: 0, resolvedLocation: 0, resolvedFacing: 0,
-                    resolvedDirection: 0, resolvedRoadWidth: 0, resolvedProject: 0, resolvedSizeLabel: 0
+                    resolvedDirection: 0, resolvedRoadWidth: 0, resolvedProject: 0, resolvedSizeLabel: 0,
+                    resolvedIntent: 0, resolvedBuiltupType: 0, resolvedInventoryBuiltupType: 0
                 }
             }
         ]);

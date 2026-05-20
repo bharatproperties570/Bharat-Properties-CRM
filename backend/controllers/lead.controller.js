@@ -1514,11 +1514,23 @@ export const matchLeads = async (req, res) => {
             return acc;
         }, {});
 
+        const lookupLabelMap = allLookups.reduce((acc, l) => {
+            acc[l._id.toString()] = l.lookup_value;
+            return acc;
+        }, {});
+
         const getLookupValLocal = (val) => {
             if (!val) return "";
             if (val.lookup_value) return String(val.lookup_value).toLowerCase();
             const idStr = (val._id || val).toString();
             return lookupMap[idStr] || (/^[0-9a-fA-F]{24}$/.test(idStr) ? "" : idStr.toLowerCase());
+        };
+
+        const getLookupLabelLocal = (val) => {
+            if (!val) return "";
+            if (val.lookup_value) return val.lookup_value;
+            const idStr = (val._id || val).toString();
+            return lookupLabelMap[idStr] || (/^[0-9a-fA-F]{24}$/.test(idStr) ? "" : idStr);
         };
 
         const dealIntent   = getLookupValLocal(deal.intent);
@@ -1630,11 +1642,30 @@ export const matchLeads = async (req, res) => {
 
             if (score < 30) return null;
 
+            const leadReqLabel = getLookupLabelLocal(lead.requirement) || "Buy";
+            const leadBudgetLabel = getLookupLabelLocal(lead.budget) || "";
+            const leadLocLabel = getLookupLabelLocal(lead.location) || "";
+            const leadCatsLabels = (Array.isArray(lead.propertyType) ? lead.propertyType : [])
+                .map(c => getLookupLabelLocal(c))
+                .filter(Boolean);
+
             return {
                 ...lead,
                 score: Math.round(score),
                 matchPercentage: Math.round(score),
-                matchReasons: reasons
+                matchReasons: reasons,
+                
+                // Hydrated/resolved fields for UI consistency
+                requirement: { lookup_value: leadReqLabel },
+                budget: { lookup_value: leadBudgetLabel },
+                location: { lookup_value: leadLocLabel || lead.locArea || lead.locCity || "Not Set" },
+                propertyType: leadCatsLabels.map(label => ({ lookup_value: label })),
+                
+                // Budget Aliasing for Frontend Compatibility
+                minBudget: lead.budgetMin,
+                maxBudget: lead.budgetMax,
+                budgetMin: lead.budgetMin,
+                budgetMax: lead.budgetMax
             };
         });
 

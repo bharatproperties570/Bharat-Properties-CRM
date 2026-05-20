@@ -22,6 +22,7 @@ const DealDetailHeader = ({
     setIsDocumentModalOpen,
     setIsNoteModalOpen,
     setIsQuoteModalOpen,
+    setIsBuiltupModalOpen,
     handleSocialClick,
     enrichDealIntelligence
 }) => {
@@ -282,6 +283,13 @@ const DealDetailHeader = ({
                                 className="hover:bg-slate-50"
                             >
                                 <i className="fas fa-file-alt" style={{ color: '#64748b', width: '16px' }}></i> Document
+                            </button>
+                            <button
+                                onClick={() => { setIsBuiltupModalOpen(true); setShowMoreMenu(false); }}
+                                style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
+                                className="hover:bg-slate-50"
+                            >
+                                <i className="fas fa-layer-group" style={{ color: '#2563eb', width: '16px' }}></i> Add Builtup Details
                             </button>
                             <div style={{ height: '1px', background: '#e2e8f0', margin: '4px 0' }}></div>
                             <button

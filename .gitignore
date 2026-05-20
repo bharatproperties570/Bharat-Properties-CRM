@@ -167,3 +167,6 @@ dump.rdb
 .expo/
 *.pem
 backend_log.txt
+
+# Uploads
+backend/uploads/

@@ -89,7 +89,7 @@ app.use(cors({
         }
     },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-API-KEY', 'X-Requested-With', 'bypass-tunnel-reminder', 'Origin'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-API-KEY', 'X-Requested-With', 'bypass-tunnel-reminder', 'Origin', 'Cache-Control', 'Pragma', 'Expires'],
     credentials: true,
     preflightContinue: false,
     optionsSuccessStatus: 204

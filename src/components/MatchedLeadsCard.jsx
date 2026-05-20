@@ -1,5 +1,5 @@
 import React from 'react';
-import { formatIndianCurrency } from '../utils/numberToWords';
+import { formatIndianCurrency, formatLeadBudget } from '../utils/numberToWords';
 
 const MatchedLeadsCard = ({ matchingLeads, onNavigate, entityId, entityType = 'deal' }) => {
     const cardStyle = {
@@ -39,7 +39,7 @@ const MatchedLeadsCard = ({ matchingLeads, onNavigate, entityId, entityType = 'd
                     <div style={{ width: '32px', height: '32px', background: '#ffffff', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '8px', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
                         <i className="fas fa-bullseye text-emerald-600" style={{ fontSize: '0.9rem' }}></i>
                     </div>
-                    <span style={{ color: '#166534' }}>Top Matched Leads</span>
+                    <span style={{ color: '#166534' }}>Matched Lead</span>
                 </h3>
                 <button
                     onClick={() => onNavigate(entityType === 'deal' ? 'deal-matching' : 'inventory-matching', entityId)}
@@ -88,7 +88,7 @@ const MatchedLeadsCard = ({ matchingLeads, onNavigate, entityId, entityType = 'd
                                     <i className="far fa-calendar-alt"></i> {Math.floor((new Date() - new Date(lead.createdAt || Date.now())) / (1000 * 60 * 60 * 24))}d old
                                 </span>
                                 <span style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600 }}>
-                                    Budget: {formatIndianCurrency(lead.budget || lead.maxBudget || lead.minBudget || 0)}
+                                    Budget: {formatLeadBudget(lead)}
                                 </span>
                             </div>
                             <div style={{

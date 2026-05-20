@@ -30,6 +30,7 @@ import ComposeEmailModal from '../Communication/components/ComposeEmailModal';
 import SendMessageModal from '../../components/SendMessageModal';
 import InventoryFeedbackModal from '../../components/InventoryFeedbackModal';
 import ManageTagsModal from '../../components/ManageTagsModal';
+import AddBuiltupDetailsModal from '../../components/modals/AddBuiltupDetailsModal';
 
 export default function InventoryDetailPage({ inventoryId, onBack, onAddActivity, onAddDeal, onNavigate }) {
     useUserContext();
@@ -68,6 +69,7 @@ export default function InventoryDetailPage({ inventoryId, onBack, onAddActivity
     const [isMessageModalOpen, setIsMessageModalOpen] = useState(false);
     const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
     const [isTagsModalOpen, setIsTagsModalOpen] = useState(false);
+    const [isBuiltupModalOpen, setIsBuiltupModalOpen] = useState(false);
     const [modalData, setModalData] = useState(null);
     const [modalTab, setModalTab] = useState('Unit');
 
@@ -191,6 +193,7 @@ export default function InventoryDetailPage({ inventoryId, onBack, onAddActivity
                 handleUploadClick={() => setIsUploadModalOpen(true)}
                 handleFeedbackClick={() => setIsFeedbackModalOpen(true)}
                 handleTagsClick={() => setIsTagsModalOpen(true)}
+                handleBuiltupClick={() => { setIsBuiltupModalOpen(true); setShowMoreMenu(false); }}
                 handleWhatsAppShare={handleWhatsAppShare}
                 handleCopyDetails={handleCopyDetails}
                 isCopying={isCopying}
@@ -478,6 +481,17 @@ export default function InventoryDetailPage({ inventoryId, onBack, onAddActivity
                     }
                 }}
             />
+
+            {isBuiltupModalOpen && (
+                <AddBuiltupDetailsModal
+                    isOpen={isBuiltupModalOpen}
+                    onClose={() => setIsBuiltupModalOpen(false)}
+                    entityType="Inventory"
+                    entityId={inventoryId}
+                    entityData={inventory}
+                    onSave={refresh}
+                />
+            )}
 
             {mediaViewer.isOpen && (
                 <MediaViewerModal 

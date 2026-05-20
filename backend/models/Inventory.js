@@ -64,12 +64,15 @@ const InventorySchema = new mongoose.Schema({
     furnishedItems: String,
     constructionAge: String,
     ageOfConstruction: String,
+    builtupVideoUrl: String,
     builtupDetails: [{
         floor: String,
         cluster: String,
         length: Number,
         width: Number,
-        totalArea: Number
+        totalArea: Number,
+        imageUrl: String,
+        videoUrl: String
     }],
 
 

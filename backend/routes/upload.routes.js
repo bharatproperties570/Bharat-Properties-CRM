@@ -1,4 +1,5 @@
 import express from 'express';
+import fs from 'fs';
 import { uploadGeneric } from '../src/middlewares/upload.middleware.js';
 import { uploadFileToDrive } from '../services/drive.service.js';
 import { authenticate } from "../src/middlewares/auth.middleware.js";
@@ -58,6 +59,14 @@ router.post('/', uploadGeneric.single('file'), async (req, res) => {
         }
     } catch (error) {
         console.error('Upload Route Error:', error.message);
+        // Clean up the uploaded file if we failed completely (e.g. invalid request parameters)
+        if (req.file && req.file.path && fs.existsSync(req.file.path)) {
+            try {
+                fs.unlinkSync(req.file.path);
+            } catch (unlinkErr) {
+                console.error('Failed to delete temp file on route error:', unlinkErr.message);
+            }
+        }
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -97,6 +106,16 @@ router.post('/multiple', uploadGeneric.array('files', 10), async (req, res) => {
         });
     } catch (error) {
         console.error('Multiple Upload Route Error:', error.message);
+        // Clean up all local files from the failed batch
+        if (req.files && req.files.length > 0) {
+            req.files.forEach(file => {
+                if (file.path && fs.existsSync(file.path)) {
+                    try {
+                        fs.unlinkSync(file.path);
+                    } catch (unlinkErr) {}
+                }
+            });
+        }
         res.status(500).json({ success: false, error: error.message });
     }
 });

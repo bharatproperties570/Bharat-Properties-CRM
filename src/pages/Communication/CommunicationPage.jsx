@@ -9,6 +9,7 @@ import ViewEmailModal from './components/ViewEmailModal';
 import CommunicationFilterPanel from './components/CommunicationFilterPanel';
 import { applyCommunicationFilters } from '../../utils/communicationFilterLogic';
 import { toast } from 'react-hot-toast';
+import { formatLeadBudget } from '../../utils/numberToWords';
 
 /* ── Theme tokens ─────────────────────────────────────────────────────────── */
 const DARK = {
@@ -1527,7 +1528,7 @@ function AIBotView({ T, isDark, convos, selected, onSelect, onTakeover, onRefres
                                     <div style={{flex:1}}>
                                         <div style={{fontSize:'0.58rem',color:T.text3,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:'3px'}}>CRM Context</div>
                                         <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
-                                            {selected.lead.budget && <span style={{fontSize:'0.65rem',color:T.text2,fontWeight:600}}>💰 {selected.lead.budget}</span>}
+                                            {formatLeadBudget(selected.lead) !== 'TBA' && <span style={{fontSize:'0.65rem',color:T.text2,fontWeight:600}}>💰 {formatLeadBudget(selected.lead)}</span>}
                                             {selected.lead.location && <span style={{fontSize:'0.65rem',color:T.text2,fontWeight:600}}>📍 {typeof selected.lead.location === 'object' ? (selected.lead.location.lookup_value || selected.lead.location.name) : selected.lead.location}</span>}
                                             {selected.lead.requirementType && <span style={{fontSize:'0.65rem',color:T.text2,fontWeight:600}}>🏠 {selected.lead.requirementType}</span>}
                                             {selected.lead.campaign && <span style={{fontSize:'0.65rem',color:T.text2,fontWeight:600}}>📢 {selected.lead.campaign}</span>}

@@ -2,12 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { renderValue } from '../../utils/renderUtils';
 import { api } from '../../utils/api';
 import toast from 'react-hot-toast';
+import { fixDriveUrl } from '../../utils/helpers';
 
 const DealBuiltupDetails = ({ deal, getLookupValue, onRefresh }) => {
+    const [selectedImageUrl, setSelectedImageUrl] = useState(null);
+
     const gridStyle = { 
         display: 'grid', 
-        gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', 
-        gap: '12px' 
+        gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', 
+        gap: '12px',
+        flex: 1
     };
 
     // Pull data from deal or linked inventoryId
@@ -19,6 +23,7 @@ const DealBuiltupDetails = ({ deal, getLookupValue, onRefresh }) => {
     const ageOfConstruction = deal?.ageOfConstruction || inventory.ageOfConstruction;
     const furnishType = deal?.furnishType || inventory.furnishType;
     const furnishedItems = deal?.furnishedItems || inventory.furnishedItems;
+    const builtupVideoUrl = deal?.builtupVideoUrl || inventory.builtupVideoUrl;
 
     // Interactive Modal Form States
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -27,6 +32,10 @@ const DealBuiltupDetails = ({ deal, getLookupValue, onRefresh }) => {
     const [newWidth, setNewWidth] = useState('');
     const [newLength, setNewLength] = useState('');
     const [newTotalArea, setNewTotalArea] = useState('');
+    const [newImageUrl, setNewImageUrl] = useState('');
+    const [newVideoUrl, setNewVideoUrl] = useState('');
+    const [imageUploading, setImageUploading] = useState(false);
+    const [videoUploading, setVideoUploading] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
 
     // Auto-calculate Total Area when width or length changes
@@ -37,6 +46,52 @@ const DealBuiltupDetails = ({ deal, getLookupValue, onRefresh }) => {
             setNewTotalArea(String(w * l));
         }
     }, [newWidth, newLength]);
+
+    const handleImageUpload = async (file) => {
+        if (!file) return;
+        setImageUploading(true);
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            const res = await api.post('/upload', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+            if (res.data && res.data.success) {
+                setNewImageUrl(res.data.url);
+                toast.success('Layout Plan uploaded successfully!');
+            } else {
+                throw new Error('Upload failed');
+            }
+        } catch (error) {
+            console.error('[DealBuiltupDetails] Image upload error:', error);
+            toast.error('Failed to upload layout image.');
+        } finally {
+            setImageUploading(false);
+        }
+    };
+
+    const handleVideoUpload = async (file) => {
+        if (!file) return;
+        setVideoUploading(true);
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            const res = await api.post('/upload', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+            if (res.data && res.data.success) {
+                setNewVideoUrl(res.data.url);
+                toast.success('Video walkthrough uploaded successfully!');
+            } else {
+                throw new Error('Upload failed');
+            }
+        } catch (error) {
+            console.error('[DealBuiltupDetails] Video upload error:', error);
+            toast.error('Failed to upload video walkthrough.');
+        } finally {
+            setVideoUploading(false);
+        }
+    };
 
     // Handle Form Submit (API PUT call to update Deal builtupDetails)
     const handleSubmit = async (e) => {
@@ -50,7 +105,9 @@ const DealBuiltupDetails = ({ deal, getLookupValue, onRefresh }) => {
                 cluster: newCluster || 'Standard Layout',
                 width: parseFloat(newWidth) || 0,
                 length: parseFloat(newLength) || 0,
-                totalArea: parseFloat(newTotalArea) || 0
+                totalArea: parseFloat(newTotalArea) || 0,
+                imageUrl: newImageUrl || '',
+                videoUrl: newVideoUrl || ''
             };
 
             const currentBuiltup = deal.builtupDetails || [];
@@ -66,6 +123,8 @@ const DealBuiltupDetails = ({ deal, getLookupValue, onRefresh }) => {
                 setNewWidth('');
                 setNewLength('');
                 setNewTotalArea('');
+                setNewImageUrl('');
+                setNewVideoUrl('');
                 if (onRefresh) onRefresh();
             } else {
                 toast.error('Failed to save built-up details.');
@@ -112,7 +171,7 @@ const DealBuiltupDetails = ({ deal, getLookupValue, onRefresh }) => {
             padding: '24px'
         }}>
             {/* Header Layout with Visual SaaS Plus Action Button */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <div style={{ width: '40px', height: '40px', background: 'rgba(79, 70, 229, 0.1)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         <i className="fas fa-building" style={{ color: '#4f46e5' }}></i>
@@ -122,28 +181,61 @@ const DealBuiltupDetails = ({ deal, getLookupValue, onRefresh }) => {
                         <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>Structure, floors & furnishing status</p>
                     </div>
                 </div>
-                <button 
-                    onClick={() => setIsModalOpen(true)}
-                    style={{
-                        width: '32px',
-                        height: '32px',
-                        borderRadius: '8px',
-                        background: '#4f46e5',
-                        color: '#fff',
-                        border: 'none',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        cursor: 'pointer',
-                        boxShadow: '0 4px 10px rgba(79, 70, 229, 0.2)',
-                        transition: 'all 0.2s'
-                    }}
-                    title="Add Built-up Detail"
-                    onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.08)'}
-                    onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
-                >
-                    <i className="fas fa-plus"></i>
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    {builtupVideoUrl && (
+                        <a 
+                            href={fixDriveUrl(builtupVideoUrl)} 
+                            target="_blank" 
+                            rel="noreferrer" 
+                            style={{ 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: '8px', 
+                                padding: '8px 16px', 
+                                background: 'linear-gradient(135deg, #10b981, #059669)', 
+                                color: '#fff', 
+                                borderRadius: '20px', 
+                                fontSize: '0.8rem', 
+                                fontWeight: 700, 
+                                textDecoration: 'none',
+                                boxShadow: '0 4px 6px -1px rgba(16, 185, 129, 0.2)',
+                                transition: 'transform 0.2s, box-shadow 0.2s'
+                            }}
+                            onMouseEnter={e => {
+                                e.currentTarget.style.transform = 'translateY(-2px)';
+                                e.currentTarget.style.boxShadow = '0 6px 12px -1px rgba(16, 185, 129, 0.3)';
+                            }}
+                            onMouseLeave={e => {
+                                e.currentTarget.style.transform = 'none';
+                                e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(16, 185, 129, 0.2)';
+                            }}
+                        >
+                            <i className="fas fa-play-circle" style={{ fontSize: '1.1rem' }}></i> Walkthrough Video
+                        </a>
+                    )}
+                    <button 
+                        onClick={() => setIsModalOpen(true)}
+                        style={{
+                            width: '32px',
+                            height: '32px',
+                            borderRadius: '8px',
+                            background: '#4f46e5',
+                            color: '#fff',
+                            border: 'none',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            boxShadow: '0 4px 10px rgba(79, 70, 229, 0.2)',
+                            transition: 'all 0.2s'
+                        }}
+                        title="Add Built-up Detail"
+                        onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.08)'}
+                        onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                    >
+                        <i className="fas fa-plus"></i>
+                    </button>
+                </div>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -175,11 +267,85 @@ const DealBuiltupDetails = ({ deal, getLookupValue, onRefresh }) => {
                                 <i className="fas fa-trash-alt"></i>
                             </button>
                         </div>
-                        <div style={gridStyle}>
-                            <InfoItem label="Plan/Cluster" value={renderValue(floor.cluster)} icon="project-diagram" />
-                            <InfoItem label="Width" value={floor.width ? `${floor.width} ft.` : '-'} icon="arrows-alt-h" />
-                            <InfoItem label="Length" value={floor.length ? `${floor.length} ft.` : '-'} icon="arrows-alt-v" />
-                            <InfoItem label="Total Area" value={floor.totalArea ? `${floor.totalArea} Sq.Ft.` : '-'} icon="chart-area" />
+                        <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
+                            <div style={gridStyle}>
+                                <InfoItem label="Plan/Cluster" value={renderValue(floor.cluster)} icon="project-diagram" />
+                                <InfoItem label="Width" value={floor.width ? `${floor.width} ft.` : '-'} icon="arrows-alt-h" />
+                                <InfoItem label="Length" value={floor.length ? `${floor.length} ft.` : '-'} icon="arrows-alt-v" />
+                                <InfoItem label="Total Area" value={floor.totalArea ? `${floor.totalArea} Sq.Ft.` : '-'} icon="chart-area" />
+                            </div>
+                            {/* Actions Column */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flexShrink: 0 }}>
+                                {floor.imageUrl && (
+                                    <div 
+                                        style={{ 
+                                            position: 'relative', 
+                                            width: '100px', 
+                                            height: '65px', 
+                                            borderRadius: '12px', 
+                                            overflow: 'hidden', 
+                                            border: '1px solid #e2e8f0', 
+                                            cursor: 'pointer',
+                                            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)'
+                                        }}
+                                        onClick={() => setSelectedImageUrl(floor.imageUrl)}
+                                        title="Click to zoom layout plan"
+                                    >
+                                        <img 
+                                            src={fixDriveUrl(floor.imageUrl)} 
+                                            alt="Layout Plan" 
+                                            style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                                        />
+                                        <div 
+                                            style={{ 
+                                                position: 'absolute', 
+                                                inset: 0, 
+                                                backgroundColor: 'rgba(15, 23, 42, 0.4)', 
+                                                display: 'flex', 
+                                                alignItems: 'center', 
+                                                justifyContent: 'center', 
+                                                opacity: 0, 
+                                                transition: 'opacity 0.2s' 
+                                            }}
+                                            className="hover-overlay"
+                                            onMouseEnter={(e) => e.currentTarget.style.opacity = 1}
+                                            onMouseLeave={(e) => e.currentTarget.style.opacity = 0}
+                                        >
+                                            <i className="fas fa-search-plus" style={{ color: '#fff', fontSize: '1rem' }}></i>
+                                        </div>
+                                    </div>
+                                )}
+                                
+                                {floor.videoUrl && (
+                                    <a 
+                                        href={fixDriveUrl(floor.videoUrl)} 
+                                        target="_blank" 
+                                        rel="noreferrer" 
+                                        style={{ 
+                                            display: 'flex', 
+                                            alignItems: 'center', 
+                                            justifyContent: 'center',
+                                            gap: '6px', 
+                                            width: '100px', 
+                                            padding: '8px 0', 
+                                            background: '#f0fdf4', 
+                                            border: '1px solid #bbf7d0', 
+                                            borderRadius: '10px', 
+                                            color: '#16a34a', 
+                                            fontSize: '0.75rem', 
+                                            fontWeight: 700, 
+                                            textDecoration: 'none',
+                                            boxShadow: '0 2px 4px rgba(22, 163, 74, 0.05)',
+                                            transition: 'background-color 0.2s'
+                                        }}
+                                        onMouseEnter={e => e.currentTarget.style.background = '#dcfce7'}
+                                        onMouseLeave={e => e.currentTarget.style.background = '#f0fdf4'}
+                                        title="Watch Floor Video"
+                                    >
+                                        <i className="fas fa-video"></i> Walkthrough
+                                    </a>
+                                )}
+                            </div>
                         </div>
                     </div>
                 ))}
@@ -341,6 +507,68 @@ const DealBuiltupDetails = ({ deal, getLookupValue, onRefresh }) => {
                                 />
                             </div>
 
+                            {/* Layout Plan Image & Walkthrough Video */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                                <div>
+                                    <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Layout Plan Image</label>
+                                    {newImageUrl ? (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '6px 10px', background: '#f8fafc', height: '42px', boxSizing: 'border-box' }}>
+                                            <img src={fixDriveUrl(newImageUrl)} alt="Preview" style={{ width: '28px', height: '28px', borderRadius: '4px', objectFit: 'cover' }} />
+                                            <span style={{ fontSize: '0.75rem', color: '#64748b', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', flex: 1 }}>Uploaded</span>
+                                            <button type="button" onClick={() => setNewImageUrl('')} style={{ border: 'none', background: 'none', color: '#ef4444', cursor: 'pointer' }}>
+                                                <i className="fas fa-trash-alt"></i>
+                                            </button>
+                                        </div>
+                                    ) : imageUploading ? (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: '#4f46e5', height: '42px' }}>
+                                            <i className="fas fa-spinner fa-spin"></i> Uploading...
+                                        </div>
+                                    ) : (
+                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                            <label htmlFor="modal-image-upload" style={{ flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px', height: '42px', border: '1px dashed #cbd5e1', borderRadius: '8px', background: '#fff', fontSize: '0.75rem', fontWeight: 600, color: '#64748b', cursor: 'pointer', boxSizing: 'border-box' }}>
+                                                <i className="fas fa-cloud-upload-alt"></i> Upload
+                                            </label>
+                                            <input id="modal-image-upload" type="file" accept="image/*" onChange={e => handleImageUpload(e.target.files[0])} style={{ display: 'none' }} />
+                                            <button type="button" onClick={() => {
+                                                const url = window.prompt("Enter Layout Plan Image URL:");
+                                                if (url !== null) setNewImageUrl(url.trim());
+                                            }} style={{ padding: '0 12px', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '8px', color: '#64748b', cursor: 'pointer' }} title="Add Link">
+                                                <i className="fas fa-link"></i>
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                                <div>
+                                    <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Walkthrough Video</label>
+                                    {newVideoUrl ? (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '6px 10px', background: '#f8fafc', height: '42px', boxSizing: 'border-box' }}>
+                                            <i className="fas fa-video" style={{ color: '#16a34a' }}></i>
+                                            <span style={{ fontSize: '0.75rem', color: '#64748b', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', flex: 1 }}>Uploaded</span>
+                                            <button type="button" onClick={() => setNewVideoUrl('')} style={{ border: 'none', background: 'none', color: '#ef4444', cursor: 'pointer' }}>
+                                                <i className="fas fa-trash-alt"></i>
+                                            </button>
+                                        </div>
+                                    ) : videoUploading ? (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: '#4f46e5', height: '42px' }}>
+                                            <i className="fas fa-spinner fa-spin"></i> Uploading...
+                                        </div>
+                                    ) : (
+                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                            <label htmlFor="modal-video-upload" style={{ flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px', height: '42px', border: '1px dashed #cbd5e1', borderRadius: '8px', background: '#fff', fontSize: '0.75rem', fontWeight: 600, color: '#64748b', cursor: 'pointer', boxSizing: 'border-box' }}>
+                                                <i className="fas fa-cloud-upload-alt"></i> Upload
+                                            </label>
+                                            <input id="modal-video-upload" type="file" accept="video/*" onChange={e => handleVideoUpload(e.target.files[0])} style={{ display: 'none' }} />
+                                            <button type="button" onClick={() => {
+                                                const url = window.prompt("Enter Walkthrough Video URL:");
+                                                if (url !== null) setNewVideoUrl(url.trim());
+                                            }} style={{ padding: '0 12px', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '8px', color: '#64748b', cursor: 'pointer' }} title="Add Link">
+                                                <i className="fas fa-link"></i>
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
                             {/* Modal Actions */}
                             <div style={{ marginTop: '12px', display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
                                 <button 
@@ -359,6 +587,61 @@ const DealBuiltupDetails = ({ deal, getLookupValue, onRefresh }) => {
                                 </button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Premium Lightbox Modal for Layout Plan Preview */}
+            {selectedImageUrl && (
+                <div 
+                    style={{ 
+                        position: 'fixed', 
+                        inset: 0, 
+                        zIndex: 10000, 
+                        background: 'rgba(15, 23, 42, 0.9)', 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'center', 
+                        backdropFilter: 'blur(12px)',
+                        padding: '20px'
+                    }}
+                    onClick={() => setSelectedImageUrl(null)}
+                >
+                    <button 
+                        onClick={() => setSelectedImageUrl(null)} 
+                        style={{ 
+                            position: 'absolute', 
+                            top: '20px', 
+                            right: '20px', 
+                            background: 'rgba(255, 255, 255, 0.1)', 
+                            border: 'none', 
+                            color: '#fff', 
+                            width: '40px', 
+                            height: '40px', 
+                            borderRadius: '50%', 
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            transition: 'background 0.2s'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)'}
+                        onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'}
+                    >
+                        <i className="fas fa-times" style={{ fontSize: '1.2rem' }}></i>
+                    </button>
+                    <div style={{ maxWidth: '90%', maxHeight: '80%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                        <img 
+                            src={fixDriveUrl(selectedImageUrl)} 
+                            alt="Layout Plan Zoom" 
+                            style={{ 
+                                maxWidth: '100%', 
+                                maxHeight: '75vh', 
+                                objectFit: 'contain',
+                                borderRadius: '16px',
+                                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)'
+                            }} 
+                        />
                     </div>
                 </div>
             )}

@@ -70,10 +70,40 @@ export const formatFullIndianAmount = (num) => {
         let otherNumbers = x.substring(0, x.length - 3);
         if (otherNumbers !== '') lastThree = ',' + lastThree;
         let res = otherNumbers.replace(/\B(?=(\d{2})+(?!\d))/g, ",") + lastThree;
-
         const sign = Number(num) < 0 ? '-' : '';
         return `${sign}₹ ${res}/-`;
     } catch (e) {
         return `₹ ${num}/-`;
     }
 };
+
+export const formatLeadBudget = (lead) => {
+    if (!lead) return 'TBA';
+    if (lead.budgetMin || lead.budgetMax) {
+        const minStr = lead.budgetMin ? formatIndianCurrency(lead.budgetMin) : '0';
+        const maxStr = lead.budgetMax ? formatIndianCurrency(lead.budgetMax) : '∞';
+        return `${minStr} - ${maxStr}`;
+    }
+    if (lead.budget) {
+        if (typeof lead.budget === 'object') {
+            if (lead.budget.lookup_value) return lead.budget.lookup_value;
+            if (lead.budget.min || lead.budget.max) {
+                const minStr = lead.budget.min ? formatIndianCurrency(lead.budget.min) : '0';
+                const maxStr = lead.budget.max ? formatIndianCurrency(lead.budget.max) : '∞';
+                return `${minStr} - ${maxStr}`;
+            }
+        } else if (typeof lead.budget === 'string' && lead.budget.trim()) {
+            if (/^[0-9a-fA-F]{24}$/.test(lead.budget)) {
+                return 'TBA';
+            }
+            return lead.budget;
+        }
+    }
+    if (lead.maxBudget || lead.minBudget) {
+        const minStr = lead.minBudget ? formatIndianCurrency(lead.minBudget) : '0';
+        const maxStr = lead.maxBudget ? formatIndianCurrency(lead.maxBudget) : '∞';
+        return `${minStr} - ${maxStr}`;
+    }
+    return 'TBA';
+};
+

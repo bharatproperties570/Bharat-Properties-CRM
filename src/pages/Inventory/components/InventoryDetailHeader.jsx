@@ -16,6 +16,7 @@ const InventoryDetailHeader = ({
     handleTagsClick,
     handleWhatsAppShare,
     handleCopyDetails,
+    handleBuiltupClick,
     isCopying,
     startCall,
     getTargetContacts
@@ -152,6 +153,7 @@ const InventoryDetailHeader = ({
                                 <button onClick={handleTagsClick} style={menuItemStyle}><i className="fas fa-tags" style={{ color: '#8b5cf6', width: '16px' }}></i> Manage Tags</button>
                                 <button onClick={handleDocumentClick} style={menuItemStyle}><i className="fas fa-file-alt" style={{ color: '#64748b', width: '16px' }}></i> Document</button>
                                 <button onClick={handleUploadClick} style={menuItemStyle}><i className="fas fa-cloud-upload-alt" style={{ color: '#4f46e5', width: '16px' }}></i> Upload Media</button>
+                                <button onClick={handleBuiltupClick} style={menuItemStyle}><i className="fas fa-layer-group" style={{ color: '#2563eb', width: '16px' }}></i> Add Builtup Details</button>
                                 <div style={{ height: '1px', background: '#f1f5f9', margin: '4px 0' }}></div>
                                 <button onClick={handleWhatsAppShare} style={menuItemStyle}><i className="fab fa-whatsapp" style={{ color: '#25D366', width: '16px' }}></i> WhatsApp Share</button>
                                 <button onClick={handleCopyDetails} style={menuItemStyle}>

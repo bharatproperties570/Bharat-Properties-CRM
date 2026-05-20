@@ -1,4 +1,4 @@
-import { formatIndianCurrency } from '../../utils/numberToWords';
+import { formatIndianCurrency, formatLeadBudget } from '../../utils/numberToWords';
 
 const DealMatchedLeads = ({ matchingLeads, onNavigate, deal }) => {
     const cardStyle = {
@@ -87,7 +87,7 @@ const DealMatchedLeads = ({ matchingLeads, onNavigate, deal }) => {
                                     <i className="far fa-calendar-alt"></i> {Math.floor((new Date() - new Date(lead.createdAt || Date.now())) / (1000 * 60 * 60 * 24))}d old
                                 </span>
                                 <span style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600 }}>
-                                    Budget: {formatIndianCurrency(lead.budget || lead.maxBudget || lead.minBudget || 0)}
+                                    Budget: {formatLeadBudget(lead)}
                                 </span>
                             </div>
                             <div style={{

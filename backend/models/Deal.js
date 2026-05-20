@@ -209,6 +209,7 @@ const DealSchema = new mongoose.Schema({
     },
 
     remarks: String,
+    description: String,
     date: { type: Date, default: Date.now },
     isVisible: { type: Boolean, default: true },
     closingDetails: {
@@ -242,7 +243,7 @@ const DealSchema = new mongoose.Schema({
         daysInStage: { type: Number, default: 0 },
         triggeredBy: {
             type: String,
-            enum: ['activity', 'manual_override', 'bulk_recalc', 'system', 'import'],
+            enum: ['activity', 'manual_override', 'bulk_recalc', 'system', 'import', 'manual_pipeline_override'],
             default: 'system'
         },
         activityId: { type: mongoose.Schema.Types.ObjectId, ref: 'Activity' },

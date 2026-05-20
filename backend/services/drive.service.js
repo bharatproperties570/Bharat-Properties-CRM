@@ -154,14 +154,8 @@ export const uploadFileToDrive = async (file, options = {}) => {
         };
     } catch (error) {
         console.error('Error uploading to Google Drive:', error.response?.data || error.message);
-        // Ensure local file is cleaned up even on error
-        if (file.path && fs.existsSync(file.path)) {
-            try {
-                fs.unlinkSync(file.path);
-            } catch (err) {
-                // Ignore error as file might already be removed
-            }
-        }
+        // Note: We do NOT delete the local file here. The route handler/caller is responsible 
+        // for deleting the local file or retaining it for fallback local storage.
         throw error;
     }
 };

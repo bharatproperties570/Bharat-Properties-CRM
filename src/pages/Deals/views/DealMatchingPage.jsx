@@ -6,7 +6,7 @@ import toast from 'react-hot-toast';
 import { api } from '../../../utils/api';
 import { useActivities } from '../../../context/ActivityContext';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
-import { formatIndianCurrency } from '../../../utils/numberToWords';
+import { formatIndianCurrency, formatLeadBudget } from '../../../utils/numberToWords';
 
 const DealMatchingPage = ({ onNavigate, dealId }) => {
     const { addActivity } = useActivities();
@@ -312,7 +312,7 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                                             {lead.mobile && <><span style={{ color: '#e2e8f0' }}>·</span><span>{lead.mobile}</span></>}
                                         </div>
                                         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '6px' }}>
-                                            {lead.budgetMin > 0 && <span style={{ fontSize: '0.72rem', color: '#059669', fontWeight: 700, background: '#f0fdf4', padding: '2px 8px', borderRadius: '6px', border: '1px solid #bbf7d0' }}>₹{formatIndianCurrency(lead.budgetMin)} – ₹{formatIndianCurrency(lead.budgetMax)}</span>}
+                                            {formatLeadBudget(lead) !== 'TBA' && <span style={{ fontSize: '0.72rem', color: '#059669', fontWeight: 700, background: '#f0fdf4', padding: '2px 8px', borderRadius: '6px', border: '1px solid #bbf7d0' }}>{formatLeadBudget(lead)}</span>}
                                             {lead.areaMin > 0 && <span style={{ fontSize: '0.72rem', color: '#7c3aed', fontWeight: 700, background: '#faf5ff', padding: '2px 8px', borderRadius: '6px', border: '1px solid #e9d5ff' }}>{lead.areaMin}–{lead.areaMax} {lead.areaMetric || 'Sq.Yd.'}</span>}
                                         </div>
                                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>

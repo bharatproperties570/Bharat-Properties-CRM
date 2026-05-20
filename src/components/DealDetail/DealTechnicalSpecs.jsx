@@ -86,7 +86,11 @@ const DealTechnicalSpecs = ({ deal, getLookupValue, getStrictLookupValue }) => {
                             <i className="fas fa-expand-arrows-alt" style={{ marginRight: '8px' }}></i> Size Label (Primary)
                         </p>
                         <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 900, color: '#0f172a', letterSpacing: '-0.5px' }}>
-                            {renderValue(getLookupValue('Size', data.sizeConfig)) || renderValue(data.sizeLabel) || formatSizeLabel(deal)}
+                            {[
+                                getLookupValue('UnitType', data.unitType),
+                                getLookupValue('SubCategory', data.subCategory),
+                                getLookupValue('Size', data.sizeConfig) || data.sizeLabel || formatSizeLabel(deal)
+                            ].filter(Boolean).map(val => renderValue(val)).join(' • ')}
                         </h2>
                     </div>
                     <div style={{ width: '1px', height: '40px', background: 'rgba(59, 130, 246, 0.2)' }}></div>

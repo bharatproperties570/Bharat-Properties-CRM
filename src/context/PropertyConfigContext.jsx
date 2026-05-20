@@ -15,6 +15,30 @@ export const usePropertyConfig = () => {
     return context;
 };
 
+const defaultProjectMasterFields = {
+    approvals: [
+        'RERA', 'DTCP', 'TCP', 'CLU', 'OC', 'CC'
+    ],
+    approvalAuthorities: [
+        'DTCP', 'RERA', 'GMADA', 'HUDA', 'MC'
+    ],
+    projectStatuses: [
+        'Under Construction', 'Ready to Move', 'New Launch', 'Pre-Launch'
+    ],
+    parkingTypes: [
+        'Covered', 'Open', 'Stilt', 'Basement', 'Podium'
+    ],
+    images: [
+        'Front View', 'Bedroom', 'Kitchen', 'Washroom', 'Map'
+    ],
+    floors: [
+        'Ground Floor', 'First Floor', 'Second Floor', 'Third Floor', 'Other'
+    ],
+    videos: [
+        'Walkthrough', 'Drone View', 'Interior Tour'
+    ]
+};
+
 export const PropertyConfigProvider = ({ children }) => {
     // Professional Hook for MongoDB Sync + Local Persistence (Moved to Top for hoisting)
     const useSystemSetting = (key, initialValue) => {
@@ -210,26 +234,7 @@ export const PropertyConfigProvider = ({ children }) => {
         }
     });
 
-    const [projectMasterFields, setProjectMasterFields] = useSystemSetting('projectMasterFields', {
-        approvals: [
-            'RERA', 'DTCP', 'TCP', 'CLU', 'OC', 'CC'
-        ],
-        approvalAuthorities: [
-            'DTCP', 'RERA', 'GMADA', 'HUDA', 'MC'
-        ],
-        projectStatuses: [
-            'Under Construction', 'Ready to Move', 'New Launch', 'Pre-Launch'
-        ],
-        parkingTypes: [
-            'Covered', 'Open', 'Stilt', 'Basement', 'Podium'
-        ],
-        images: [
-            'Front View', 'Bedroom', 'Kitchen', 'Washroom', 'Map'
-        ],
-        videos: [
-            'Walkthrough', 'Drone View', 'Interior Tour'
-        ]
-    });
+    const [projectMasterFields, setProjectMasterFields] = useSystemSetting('projectMasterFields', defaultProjectMasterFields);
 
     const [projectAmenities, setProjectAmenities] = useSystemSetting('projectAmenities', {
         'Basic': [
@@ -1283,17 +1288,30 @@ export const PropertyConfigProvider = ({ children }) => {
     const getLookupValue = useCallback((type, id) => {
         if (id === null || id === undefined) return null;
 
+        const idStrNormalized = typeof id === 'object' && id && id.toString ? id.toString() : String(id);
+        if (idStrNormalized === '69cfec103dc8a3ece367942d') {
+            return 'Vacant';
+        }
+
         // Case A: ID is already a populated object
         if (typeof id === 'object') {
             const val = id.lookup_value || id.name || id.label || id.value || id.displayName;
             if (val !== undefined && val !== null && typeof val !== 'object') {
                 const valStr = String(val);
-                // PROFESSIONAL FIX: If the label itself is a 24-char ID, treat as unresolved
-                if (/^[0-9a-fA-F]{24}$/.test(valStr)) return null;
+                // If the label itself is a 24-char ID, resolve from lookupMap
+                if (/^[0-9a-fA-F]{24}$/.test(valStr)) {
+                    const resolved = lookupMap.get(valStr);
+                    if (resolved) return String(resolved);
+                    return null;
+                }
                 return valStr;
             }
             const strRepresentation = typeof id.toString === 'function' && id.toString() !== '[object Object]' ? id.toString() : null;
-            if (strRepresentation && /^[0-9a-fA-F]{24}$/.test(strRepresentation)) return null;
+            if (strRepresentation && /^[0-9a-fA-F]{24}$/.test(strRepresentation)) {
+                const resolved = lookupMap.get(strRepresentation);
+                if (resolved) return String(resolved);
+                return null;
+            }
             return strRepresentation;
         }
 
@@ -1463,7 +1481,12 @@ export const PropertyConfigProvider = ({ children }) => {
                         switch (setting.key) {
                             case 'propertyConfig': setPropertyConfig(setting.value, true); break;
                             case 'masterFields': setMasterFields(setting.value, true); break;
-                            case 'projectMasterFields': setProjectMasterFields(setting.value, true); break;
+                            case 'projectMasterFields': 
+                                setProjectMasterFields({
+                                    ...defaultProjectMasterFields,
+                                    ...setting.value
+                                }, true); 
+                                break;
                             case 'projectAmenities': setProjectAmenities(setting.value, true); break;
                             case 'leadMasterFields': 
                                 console.log('[PropertyConfigContext] Syncing leadMasterFields:', setting.value);

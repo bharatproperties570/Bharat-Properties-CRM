@@ -3,8 +3,8 @@ import Lookup from "../models/Lookup.js";
 
 
 export const getLookups = async (req, res) => {
+    const { lookup_type, parent_lookup_id } = req.query;
     try {
-        const { lookup_type, parent_lookup_id } = req.query;
         
         // 🚀 SENIOR OPTIMIZATION: Prevent "Massive Dump" (1900+ records) if type is missing or malformed
         if (!lookup_type || lookup_type === 'undefined' || lookup_type === 'null') {

@@ -1,30 +1,22 @@
-import mongoose from 'mongoose';
-import Project from './models/Project.js';
-import dotenv from 'dotenv';
-import path from 'path';
+import connectDB from "./src/config/db.js";
+import mongoose from "mongoose";
 
-dotenv.config({ path: path.join(process.cwd(), 'backend', '.env') });
+async function inspect() {
+    await connectDB();
+    const db = mongoose.connection.db;
 
-const mongoUri = process.env.MONGODB_URI;
-
-async function inspectProject() {
-    try {
-        await mongoose.connect(mongoUri);
-        console.log('Connected to MongoDB');
-
-        const project = await Project.findOne({ name: /Sector 82 \(IT City\) Mohali/i }).lean();
-
-        if (project) {
-            console.log(JSON.stringify(project, null, 2));
-        } else {
-            console.log('Project not found');
-        }
-
-        process.exit(0);
-    } catch (error) {
-        console.error('Error:', error);
-        process.exit(1);
+    const projects = await db.collection('projects').find({ name: /Sector 7/i }).toArray();
+    console.log("PROJECTS IN 'projects':");
+    for (const p of projects) {
+        console.log(`ID: ${p._id}, name: "${p.name}", images:`, p.projectImages, `meta:`, p.websiteMetadata);
     }
-}
 
-inspectProject();
+    const addProjects = await db.collection('add_projects').find({ name: /Sector 7/i }).toArray();
+    console.log("PROJECTS IN 'add_projects':");
+    for (const p of addProjects) {
+        console.log(`ID: ${p._id}, name: "${p.name}", images:`, p.projectImages, `meta:`, p.websiteMetadata);
+    }
+
+    process.exit(0);
+}
+inspect();

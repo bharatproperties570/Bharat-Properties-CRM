@@ -13,6 +13,7 @@ import UploadModal from '../../components/UploadModal';
 import AddQuoteModal from '../../components/AddQuoteModal';
 import AddBookingModal from '../../components/AddBookingModal';
 import AddInventoryDocumentModal from '../../components/AddInventoryDocumentModal';
+import AddBuiltupDetailsModal from '../../components/modals/AddBuiltupDetailsModal';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import { renderValue } from '../../utils/renderUtils';
 import { formatIndianCurrency } from '../../utils/numberToWords';
@@ -67,11 +68,18 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
     const [isQuoteModalOpen, setIsQuoteModalOpen] = useState(false);
     const [isDocumentModalOpen, setIsDocumentModalOpen] = useState(false);
+    const [isBuiltupModalOpen, setIsBuiltupModalOpen] = useState(false);
     const [isActivityOpen, setIsActivityOpen] = useState(false);
     const [isOwnerModalOpen, setIsOwnerModalOpen] = useState(false);
     const [isMarkingLost, setIsMarkingLost] = useState(false);
     const [isSocialModalOpen, setIsSocialModalOpen] = useState(false);
     const [activeCenterTab, setActiveCenterTab] = useState('activities'); // 'activities' or 'marketing'
+    const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
+    const [isGeneratingAi, setIsGeneratingAi] = useState(false);
+    const [publishFormDescription, setPublishFormDescription] = useState('');
+    const [publishFormShareUnitNumber, setPublishFormShareUnitNumber] = useState(true);
+    const [publishFormShareLocation, setPublishFormShareLocation] = useState(true);
+    const [savingPublishSettings, setSavingPublishSettings] = useState(false);
 
     const [activityInitialData, setActivityInitialData] = useState(null);
     const [selectedContactsForMail, setSelectedContactsForMail] = useState([]);
@@ -193,68 +201,177 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
         }
     }, [dealId]);
 
-    const handleTogglePublish = async () => {
-        const newStatus = !deal.isPublished;
-        let shareUnitNumber = deal.websiteMetadata?.shareUnitNumber || false;
-        let shareLocation = deal.websiteMetadata?.shareLocation || false;
+    const openPublishModal = () => {
+        setPublishFormDescription(deal?.description || deal?.websiteMetadata?.description || '');
+        setPublishFormShareUnitNumber(deal?.websiteMetadata?.shareUnitNumber !== false);
+        setPublishFormShareLocation(deal?.websiteMetadata?.shareLocation !== false);
+        setIsPublishModalOpen(true);
+    };
 
-        if (newStatus) {
-            const unitResult = await Swal.fire({
-                title: 'Unit Number Privacy',
-                text: "Do you want to share the Unit Number publicly on the website?",
-                icon: 'question',
-                showCancelButton: true,
-                showDenyButton: true,
-                confirmButtonColor: '#3b82f6',
-                denyButtonColor: '#64748b',
-                confirmButtonText: 'Yes, Share Unit No',
-                denyButtonText: 'No, Keep Confidential',
-                cancelButtonText: 'Cancel Toggle'
-            });
+    const handleTogglePublish = () => {
+        openPublishModal();
+    };
 
-            if (unitResult.isDismissed && !unitResult.isDenied) return;
-            shareUnitNumber = unitResult.isConfirmed;
-
-            const locationResult = await Swal.fire({
-                title: 'Location Privacy',
-                text: "Do you want to share the exact House/Plot Number and Street publicly?",
-                icon: 'question',
-                showCancelButton: true,
-                showDenyButton: true,
-                confirmButtonColor: '#3b82f6',
-                denyButtonColor: '#64748b',
-                confirmButtonText: 'Yes, Share Location',
-                denyButtonText: 'No, Keep Confidential',
-                cancelButtonText: 'Cancel Toggle'
-            });
-
-            if (locationResult.isDismissed && !locationResult.isDenied) return;
-            shareLocation = locationResult.isConfirmed;
-        }
-
+    const handleSavePublishSettings = async (shouldPublish) => {
+        setSavingPublishSettings(true);
+        const toastId = toast.loading(shouldPublish ? 'Publishing listing...' : 'Saving settings...');
+        
         try {
             const payload = {
-                isPublished: newStatus,
-                publishedAt: newStatus ? new Date() : null,
+                isPublished: shouldPublish,
+                publishedAt: shouldPublish ? new Date() : (deal.publishedAt || new Date()),
                 websiteMetadata: {
                     ...deal.websiteMetadata,
-                    shareUnitNumber: shareUnitNumber,
-                    shareLocation: shareLocation
-                }
+                    shareUnitNumber: publishFormShareUnitNumber,
+                    shareLocation: publishFormShareLocation,
+                    description: publishFormDescription
+                },
+                description: publishFormDescription // Sync with deal description
             };
 
             const res = await api.put(`deals/${dealId}`, payload);
             if (res.data && (res.data.success || res.data.status === 'success')) {
                 setDeal(prev => ({ 
                     ...prev, 
-                    isPublished: newStatus,
+                    isPublished: shouldPublish,
+                    description: publishFormDescription,
                     websiteMetadata: payload.websiteMetadata
                 }));
-                toast.success(newStatus ? 'Listing published to Website!' : 'Listing removed from Website');
+                toast.success(shouldPublish ? 'Listing published to Website!' : 'Settings updated successfully!', { id: toastId });
+                setIsPublishModalOpen(false);
             }
         } catch (error) {
-            console.error("Error toggling publication:", error);
-            toast.error('Error updating publication status');
+            console.error("Error saving publication settings:", error);
+            toast.error('Failed to update publication status', { id: toastId });
+        } finally {
+            setSavingPublishSettings(false);
+        }
+    };
+
+    const handleUnpublishListing = async () => {
+        setSavingPublishSettings(true);
+        const toastId = toast.loading('Unpublishing listing...');
+        
+        try {
+            const payload = {
+                isPublished: false,
+                publishedAt: null
+            };
+
+            const res = await api.put(`deals/${dealId}`, payload);
+            if (res.data && (res.data.success || res.data.status === 'success')) {
+                setDeal(prev => ({ 
+                    ...prev, 
+                    isPublished: false
+                }));
+                toast.success('Listing removed from Website', { id: toastId });
+                setIsPublishModalOpen(false);
+            }
+        } catch (error) {
+            console.error("Error unpublishing listing:", error);
+            toast.error('Failed to unpublish listing', { id: toastId });
+        } finally {
+            setSavingPublishSettings(false);
+        }
+    };
+
+    const handleGenerateAiDescription = async () => {
+        setIsGeneratingAi(true);
+        const toastId = toast.loading('AI is drafting a premium property description...');
+
+        try {
+            const unitDetailStr = `Project: ${deal.projectName || ''}${deal.block ? `, Block: ${deal.block}` : ''}${deal.unitNo ? `, Unit No: ${deal.unitNo}` : ''} (${deal.propertyType || 'Residential'})`;
+            const locationStr = `${deal.locationDetails?.locality || deal.location || ''} ${deal.locationDetails?.city || 'Kurukshetra'}`.trim();
+            
+            // Builtup Area
+            const carpet = deal.unitSpecification?.carpetArea;
+            const builtup = deal.unitSpecification?.builtUpArea;
+            const saleable = deal.unitSpecification?.totalSaleableArea;
+            const builtupStr = `Size: ${deal.size || ''} ${deal.sizeUnit || ''}${builtup ? `, Built-up Area: ${builtup} Sq.Ft.` : ''}${carpet ? `, Carpet Area: ${carpet} Sq.Ft.` : ''}${saleable ? `, Saleable Area: ${saleable} Sq.Ft.` : ''}`;
+            
+            // Expected Price
+            const priceVal = deal.price || deal.quotePrice;
+            const expectedPriceStr = priceVal ? `₹${new Intl.NumberFormat('en-IN').format(priceVal)} ${deal.pricingMode === 'Rate' ? `per ${deal.priceUnit || 'Sq.Ft.'}` : '(Total Expected Price)'}` : 'Price on Request';
+            
+            // Deal Details
+            const dealDetailsStr = `Deal Status: ${deal.stage || deal.status || ''}, Deal Type: ${deal.dealType || ''}, Transaction Type: ${deal.transactionType || ''}, Lead/Deal Source: ${deal.source || ''}`;
+
+            // Furnishing details
+            const furnishType = deal.furnishing?.furnishType || '';
+            const possessionStatus = deal.furnishing?.possessionStatus || '';
+            const constructionAge = deal.furnishing?.constructionAge || '';
+            const furnishedItems = Array.isArray(deal.furnishing?.furnishedItems) ? deal.furnishing.furnishedItems.filter(Boolean).join(', ') : '';
+            const furnishingStr = [
+                furnishType ? `Furnishing Status: ${furnishType}` : '',
+                possessionStatus ? `Possession: ${possessionStatus}` : '',
+                constructionAge ? `Age of Construction: ${constructionAge} years` : '',
+                furnishedItems ? `Amenities/Furnished Items: ${furnishedItems}` : ''
+            ].filter(Boolean).join(', ');
+
+            // Specification details
+            const facing = deal.unitSpecification?.facing || '';
+            const orientation = deal.unitSpecification?.orientation || '';
+            const roadWidth = deal.unitSpecification?.roadWidth || '';
+            const ownership = deal.unitSpecification?.ownership || '';
+            const specsStr = [
+                facing ? `Facing: ${facing}` : '',
+                orientation ? `Orientation: ${orientation}` : '',
+                roadWidth ? `Road Width: ${roadWidth}` : '',
+                ownership ? `Ownership: ${ownership}` : ''
+            ].filter(Boolean).join(', ');
+
+            // Category and Intent
+            const intent = deal.intent || '';
+            const category = deal.category || '';
+            const subCategory = deal.subCategory || '';
+            const categoryStr = [
+                intent ? `Transaction Intent: For ${intent}` : '',
+                category ? `Category: ${category}` : '',
+                subCategory ? `Sub-category: ${subCategory}` : ''
+            ].filter(Boolean).join(', ');
+
+            const systemPrompt = `You are a world-class luxury real estate copywriter and SEO expert. Write a highly engaging, sophisticated, and professional description for a property listing that ranks high on Google Search.
+
+CRITICAL FORMATTING & WRITING RULES:
+1. PARAGRAPH LENGTH: Write ONLY short, concise paragraphs (maximum 2-3 sentences per paragraph). Use 3-4 short paragraphs in total.
+2. SEO OPTIMIZATION: Seamlessly integrate relevant keywords like project name, locality, city, property type, and key features so the listing ranks high on Google Search.
+3. TONE & STYLE: Premium, high-converting, and elegant (SaaS Real Estate standard). Emphasize key selling points, prime location attributes, built-up configuration, pricing value, furnishing, and transaction clarity. Do not use generic placeholders or templates.
+4. CALL TO ACTION: Include a brief, compelling, professional call to action at the end to get in touch.
+
+Return ONLY the final description. Do not include any intro, metadata, or titles.`;
+
+            const userPrompt = `Draft a premium, SEO-friendly, high-converting real estate description based on these property specifications:
+- **Unit Details**: ${unitDetailStr}
+- **Location**: ${locationStr}${deal.locationDetails?.landmark ? ` (Landmark: ${deal.locationDetails.landmark})` : ''}
+- **Built-up Details**: ${builtupStr}
+- **Expected Price**: ${expectedPriceStr}
+- **Transaction Details**: ${categoryStr}
+- **Furnishing & Possession**: ${furnishingStr || 'Not Specified'}
+- **Property Specifications**: ${specsStr || 'Not Specified'}
+- **Deal Details (Status, Type, Transaction, Source)**: ${dealDetailsStr}
+- **Additional Context / Remarks**: ${deal.remarks || 'Prime property with excellent connectivity.'}
+
+Write a highly engaging, SEO-optimized description with short, readable paragraphs (maximum 2-3 sentences each) suitable for publication on our public website directory.`;
+
+            const response = await api.post('/marketing/generate-with-model', {
+                provider: 'claude',
+                model: 'claude-3-haiku-20240307',
+                prompt: userPrompt,
+                systemPrompt: systemPrompt
+            });
+
+            if (response.data && response.data.success && response.data.content) {
+                const generatedText = response.data.content;
+                setPublishFormDescription(generatedText);
+                toast.success('Description successfully generated!', { id: toastId });
+            } else {
+                throw new Error("Could not extract generated content");
+            }
+        } catch (error) {
+            console.error("AI Generation Error:", error);
+            toast.error("Failed to generate description with AI. Please try again.", { id: toastId });
+        } finally {
+            setIsGeneratingAi(false);
         }
     };
 
@@ -463,6 +580,7 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                 setIsDocumentModalOpen={setIsDocumentModalOpen}
                 setIsNoteModalOpen={setIsNoteModalOpen}
                 setIsQuoteModalOpen={setIsQuoteModalOpen}
+                setIsBuiltupModalOpen={setIsBuiltupModalOpen}
                 handleSocialClick={handleSocialClick}
                 enrichDealIntelligence={enrichDealIntelligence}
                 fetchDealDetails={fetchDealDetails}
@@ -643,8 +761,6 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                             setIsOfferModalOpen={setIsOfferModalOpen} 
                         />
 
-                        <LandedCostSheet financials={financials} deal={deal} />
-
                         <MatchedLeadsCard 
                             matchingLeads={matchingLeads} 
                             onNavigate={onNavigate} 
@@ -688,6 +804,8 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                                 setIsDocumentModalOpen(true);
                             }}
                         />
+
+                        <LandedCostSheet financials={financials} deal={deal} />
 
                         {/* Property History */}
                         <div className="glass-card">
@@ -769,6 +887,17 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                     entityId={dealId}
                     initialTags={deal.tags}
                     onSaved={fetchDealDetails}
+                />
+            )}
+
+            {isBuiltupModalOpen && (
+                <AddBuiltupDetailsModal
+                    isOpen={isBuiltupModalOpen}
+                    onClose={() => setIsBuiltupModalOpen(false)}
+                    entityType="Deal"
+                    entityId={dealId}
+                    entityData={deal}
+                    onSave={fetchDealDetails}
                 />
             )}
 
@@ -911,6 +1040,185 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
                     imageUrl: deal.primaryImage || (inventory?.media?.[0]?.url) || (inventory?.images?.[0]) || deal.projectId?.primaryImage
                 } : null}
             />
+
+            {isPublishModalOpen && (
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.6)', zIndex: 1000, display: 'flex', justifyContent: 'center', alignItems: 'center', backdropFilter: 'blur(4px)' }}>
+                    <div style={{ background: '#fff', width: '95%', maxWidth: '600px', borderRadius: '16px', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)' }}>
+                        
+                        {/* Header */}
+                        <div style={{ padding: '20px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <div style={{ width: '38px', height: '38px', background: '#eff6ff', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <i className="fas fa-globe" style={{ color: '#2563eb', fontSize: '1.1rem' }}></i>
+                                </div>
+                                <div>
+                                    <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>Website Publishing Settings</h3>
+                                    <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>Configure privacy and listing description</p>
+                                </div>
+                            </div>
+                            <button 
+                                onClick={() => setIsPublishModalOpen(false)} 
+                                style={{ border: 'none', background: 'transparent', fontSize: '1.2rem', color: '#94a3b8', cursor: 'pointer' }}
+                            >
+                                <i className="fas fa-times"></i>
+                            </button>
+                        </div>
+
+                        {/* Body */}
+                        <div style={{ padding: '24px', overflowY: 'auto', maxHeight: '70vh', background: '#f8fafc', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                            
+                            {/* Privacy Settings Card */}
+                            <div style={{ background: '#fff', padding: '16px 20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                                <h5 style={{ margin: '0 0 14px 0', fontSize: '0.85rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <i className="fas fa-shield-alt" style={{ color: '#2563eb' }}></i> Privacy & Display Settings
+                                </h5>
+                                
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                        <div>
+                                            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#334155', display: 'block' }}>Display Unit Number</span>
+                                            <span style={{ fontSize: '0.7rem', color: '#64748b' }}>Show the exact unit number on the public website.</span>
+                                        </div>
+                                        <label className="switch" style={{ position: 'relative', display: 'inline-block', width: '40px', height: '20px' }}>
+                                            <input 
+                                                type="checkbox" 
+                                                checked={publishFormShareUnitNumber}
+                                                onChange={(e) => setPublishFormShareUnitNumber(e.target.checked)}
+                                                style={{ opacity: 0, width: 0, height: 0 }}
+                                            />
+                                            <span className="slider round" style={{
+                                                position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0,
+                                                backgroundColor: publishFormShareUnitNumber ? '#2563eb' : '#cbd5e1',
+                                                transition: '.4s', borderRadius: '20px'
+                                            }}>
+                                                <span style={{
+                                                    position: 'absolute', content: '""', height: '14px', width: '14px', left: publishFormShareUnitNumber ? '22px' : '3px', bottom: '3px',
+                                                    backgroundColor: 'white', transition: '.4s', borderRadius: '50%'
+                                                }} />
+                                            </span>
+                                        </label>
+                                    </div>
+                                    
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px dashed #e2e8f0', paddingTop: '12px' }}>
+                                        <div>
+                                            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#334155', display: 'block' }}>Display Map Location</span>
+                                            <span style={{ fontSize: '0.7rem', color: '#64748b' }}>Share precise geographical details on website maps.</span>
+                                        </div>
+                                        <label className="switch" style={{ position: 'relative', display: 'inline-block', width: '40px', height: '20px' }}>
+                                            <input 
+                                                type="checkbox" 
+                                                checked={publishFormShareLocation}
+                                                onChange={(e) => setPublishFormShareLocation(e.target.checked)}
+                                                style={{ opacity: 0, width: 0, height: 0 }}
+                                            />
+                                            <span className="slider round" style={{
+                                                position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0,
+                                                backgroundColor: publishFormShareLocation ? '#2563eb' : '#cbd5e1',
+                                                transition: '.4s', borderRadius: '20px'
+                                            }}>
+                                                <span style={{
+                                                    position: 'absolute', content: '""', height: '14px', width: '14px', left: publishFormShareLocation ? '22px' : '3px', bottom: '3px',
+                                                    backgroundColor: 'white', transition: '.4s', borderRadius: '50%'
+                                                }} />
+                                            </span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* AI Listing Description Card */}
+                            <div style={{ background: '#fff', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', position: 'relative', overflow: 'hidden' }}>
+                                <div style={{ position: 'absolute', top: '-50px', right: '-50px', width: '120px', height: '120px', background: 'radial-gradient(circle, rgba(99, 102, 241, 0.1) 0%, rgba(255,255,255,0) 70%)', pointerEvents: 'none' }}></div>
+                                
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                    <label style={{ fontSize: '0.85rem', color: '#1e293b', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <i className="fas fa-globe text-blue-600"></i> Public Website Listing Description
+                                    </label>
+                                    <button
+                                        type="button"
+                                        onClick={handleGenerateAiDescription}
+                                        disabled={isGeneratingAi}
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px',
+                                            padding: '6px 12px',
+                                            borderRadius: '8px',
+                                            border: '1px solid #c7d2fe',
+                                            background: 'linear-gradient(135deg, #e0e7ff 0%, #eef2ff 100%)',
+                                            color: '#4f46e5',
+                                            fontSize: '0.72rem',
+                                            fontWeight: 800,
+                                            cursor: 'pointer',
+                                            boxShadow: '0 2px 4px rgba(79, 70, 229, 0.1)',
+                                            transition: 'all 0.2s',
+                                            opacity: isGeneratingAi ? 0.7 : 1
+                                        }}
+                                    >
+                                        <i className={isGeneratingAi ? "fas fa-spinner fa-spin" : "fas fa-magic"}></i>
+                                        {isGeneratingAi ? "Generating listing..." : "Generate with AI"}
+                                    </button>
+                                </div>
+                                
+                                <textarea
+                                    style={{ 
+                                        width: '100%', 
+                                        padding: '10px 12px', 
+                                        borderRadius: '8px', 
+                                        border: '1px solid #cbd5e1', 
+                                        fontSize: '0.85rem', 
+                                        outline: 'none', 
+                                        minHeight: '160px', 
+                                        resize: 'vertical', 
+                                        background: '#fff', 
+                                        lineHeight: '1.5' 
+                                    }}
+                                    value={publishFormDescription}
+                                    onChange={e => setPublishFormDescription(e.target.value)}
+                                    placeholder="Write a premium description for the public website. (Tip: Use the AI Generator above to draft an engaging, high-converting listing automatically using your selected property details!)"
+                                />
+                                
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px', fontSize: '0.72rem', color: '#64748b', fontWeight: 600 }}>
+                                    <i className="fas fa-info-circle text-blue-500"></i>
+                                    <span>This description will be published to the public portal for prospective buyers.</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Footer */}
+                        <div style={{ padding: '16px 24px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: '12px', background: '#fff' }}>
+                            <button 
+                                onClick={() => setIsPublishModalOpen(false)} 
+                                style={{ padding: '8px 16px', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#fff', color: '#475569', fontWeight: 600, cursor: 'pointer', fontSize: '0.85rem' }}
+                            >
+                                Cancel
+                            </button>
+                            {deal.isPublished && (
+                                <button
+                                    onClick={handleUnpublishListing}
+                                    disabled={savingPublishSettings}
+                                    style={{
+                                        padding: '8px 16px', borderRadius: '8px', border: '1px solid #fca5a5', background: '#fef2f2', color: '#ef4444', fontWeight: 600, cursor: 'pointer', fontSize: '0.85rem',
+                                        opacity: savingPublishSettings ? 0.7 : 1
+                                    }}
+                                >
+                                    {savingPublishSettings ? 'Updating...' : 'Unpublish Listing'}
+                                </button>
+                            )}
+                            <button
+                                onClick={() => handleSavePublishSettings(true)}
+                                disabled={savingPublishSettings}
+                                style={{
+                                    padding: '8px 20px', borderRadius: '8px', border: 'none', background: '#2563eb', color: '#fff', fontWeight: 600, cursor: 'pointer', fontSize: '0.85rem',
+                                    opacity: savingPublishSettings ? 0.7 : 1
+                                }}
+                            >
+                                {savingPublishSettings ? 'Saving...' : (deal.isPublished ? 'Save Settings' : 'Publish Listing')}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

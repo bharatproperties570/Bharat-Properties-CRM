@@ -7,7 +7,7 @@ import { api } from '../../../utils/api';
 import { useActivities } from '../../../context/ActivityContext';
 import { fixDriveUrl } from '../../../utils/helpers';
 import { renderValue } from '../../../utils/renderUtils';
-import { formatIndianCurrency } from '../../../utils/numberToWords';
+import { formatIndianCurrency, formatLeadBudget } from '../../../utils/numberToWords';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 
 const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
@@ -488,7 +488,7 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
                                         <i className={`fas fa-${lead.matchDetails.type === 'match' ? 'check-circle' : 'circle'}`}></i> TYPE
                                     </div>
                                     <div
-                                        title={`Property: ${formatIndianCurrency(inventory.price || inventory.demand)} | Lead: ${formatIndianCurrency(lead.budget)}`}
+                                        title={`Property: ${formatIndianCurrency(inventory.price || inventory.demand)} | Lead: ${formatLeadBudget(lead)}`}
                                         style={{ fontSize: '0.65rem', fontWeight: 700, padding: '4px 8px', borderRadius: '6px', border: `1px solid ${getStatusColor(lead.matchDetails.budget)}`, color: getStatusColor(lead.matchDetails.budget), display: 'flex', alignItems: 'center', gap: '4px', cursor: 'help' }}
                                     >
                                         <i className={`fas fa-${lead.matchDetails.budget === 'match' ? 'check-circle' : 'circle'}`}></i> BUDGET

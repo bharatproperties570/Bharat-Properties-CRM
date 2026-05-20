@@ -42,7 +42,7 @@ const DealFinancialSection = ({ deal, setIsOfferModalOpen }) => {
                     <div style={{ width: '36px', height: '36px', background: 'rgba(255,255,255,0.1)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '4px' }}>
                         <i className="fas fa-vault text-amber-400" style={{ fontSize: '1rem' }}></i>
                     </div>
-                    Pricing & Negotiation Strategy
+                    Financial Strategy
                 </h3>
                 <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                     <span style={{ fontSize: '0.7rem', fontWeight: 900, color: '#fff', background: 'rgba(255,255,255,0.1)', padding: '6px 14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)' }}>

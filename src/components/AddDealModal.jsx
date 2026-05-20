@@ -19,6 +19,7 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
 
 
     const [isSaving, setIsSaving] = useState(false);
+    const [isGeneratingAi, setIsGeneratingAi] = useState(false);
     const [currentTime, setCurrentTime] = useState(new Date());
     const [projects, setProjects] = useState([]);
     const [units, setUnits] = useState([]);
@@ -111,6 +112,7 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
         visibleTo: 'Public',
 
         remarks: '',
+        description: '',
         date: new Date().toISOString().split('T')[0]
     });
 
@@ -225,11 +227,13 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                     subCategory: getLookupValue('SubCategory', deal.subCategory) || deal.subCategory,
                     propertyType: getLookupValue('PropertyType', deal.propertyType) || deal.propertyType,
                     status: deal.status || 'Open',
+                    description: deal.description || deal.websiteMetadata?.description || prev.description || '',
                     isOwnerSelected: !!newOwner._id || !!newOwner.name,
                     isAssociateSelected: !!newAssociate._id || !!newAssociate.name,
                     websiteMetadata: {
                         shareUnitNumber: deal.websiteMetadata?.shareUnitNumber !== false,
-                        shareLocation: deal.websiteMetadata?.shareLocation !== false
+                        shareLocation: deal.websiteMetadata?.shareLocation !== false,
+                        description: deal.description || deal.websiteMetadata?.description || ''
                     }
                 };
 
@@ -594,7 +598,11 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                 furnishing: formData.furnishing,
                 documents: formData.documents,
                 publishOn: formData.publishOn,
-                websiteMetadata: formData.websiteMetadata,
+                description: formData.description,
+                websiteMetadata: {
+                    ...formData.websiteMetadata,
+                    description: formData.description
+                },
                 sendMatchedDeal: formData.sendMatchedDeal,
                 financialDetails: {
                     securityDeposit: formData.securityDeposit,
@@ -656,6 +664,111 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
             toast.error(errorMessage, { id: toastId, duration: 5000 });
         } finally {
             setIsSaving(false);
+        }
+    };
+
+    const handleGenerateAiDescription = async () => {
+        if (!formData.projectName) {
+            toast.error("Please select a Project Name first to generate description.");
+            return;
+        }
+        
+        setIsGeneratingAi(true);
+        const toastId = toast.loading('AI is drafting a premium property description...');
+
+        try {
+            const unitDetailStr = `Project: ${formData.projectName}${formData.block ? `, Block: ${formData.block}` : ''}${formData.unitNo ? `, Unit No: ${formData.unitNo}` : ''} (${formData.propertyType || 'Residential'})`;
+            const locationStr = `${formData.locationDetails?.locality || formData.location || ''} ${formData.locationDetails?.city || 'Kurukshetra'}`.trim();
+            
+            // Builtup Area
+            const carpet = formData.unitSpecification?.carpetArea;
+            const builtup = formData.unitSpecification?.builtUpArea;
+            const saleable = formData.unitSpecification?.totalSaleableArea;
+            const builtupStr = `Size: ${formData.size} ${formData.sizeUnit}${builtup ? `, Built-up Area: ${builtup} Sq.Ft.` : ''}${carpet ? `, Carpet Area: ${carpet} Sq.Ft.` : ''}${saleable ? `, Saleable Area: ${saleable} Sq.Ft.` : ''}`;
+            
+            // Expected Price
+            const priceVal = formData.price || formData.quotePrice;
+            const expectedPriceStr = priceVal ? `₹${new Intl.NumberFormat('en-IN').format(priceVal)} ${formData.pricingMode === 'Rate' ? `per ${formData.priceUnit || 'Sq.Ft.'}` : '(Total Expected Price)'}` : 'Price on Request';
+            
+            // 4 Deal Details Fields
+            const dealDetailsStr = `Deal Status: ${formData.status}, Deal Type: ${formData.dealType}, Transaction Type: ${formData.transactionType}, Lead/Deal Source: ${formData.source}`;
+
+            // Furnishing details
+            const furnishType = formData.furnishing?.furnishType || '';
+            const possessionStatus = formData.furnishing?.possessionStatus || '';
+            const constructionAge = formData.furnishing?.constructionAge || '';
+            const furnishedItems = Array.isArray(formData.furnishing?.furnishedItems) ? formData.furnishing.furnishedItems.filter(Boolean).join(', ') : '';
+            const furnishingStr = [
+                furnishType ? `Furnishing Status: ${furnishType}` : '',
+                possessionStatus ? `Possession: ${possessionStatus}` : '',
+                constructionAge ? `Age of Construction: ${constructionAge} years` : '',
+                furnishedItems ? `Amenities/Furnished Items: ${furnishedItems}` : ''
+            ].filter(Boolean).join(', ');
+
+            // Specification details
+            const facing = formData.unitSpecification?.facing || '';
+            const orientation = formData.unitSpecification?.orientation || '';
+            const roadWidth = formData.unitSpecification?.roadWidth || '';
+            const ownership = formData.unitSpecification?.ownership || '';
+            const specsStr = [
+                facing ? `Facing: ${facing}` : '',
+                orientation ? `Orientation: ${orientation}` : '',
+                roadWidth ? `Road Width: ${roadWidth}` : '',
+                ownership ? `Ownership: ${ownership}` : ''
+            ].filter(Boolean).join(', ');
+
+            // Category and Intent
+            const intent = formData.intent || '';
+            const category = formData.category || '';
+            const subCategory = formData.subCategory || '';
+            const categoryStr = [
+                intent ? `Transaction Intent: For ${intent}` : '',
+                category ? `Category: ${category}` : '',
+                subCategory ? `Sub-category: ${subCategory}` : ''
+            ].filter(Boolean).join(', ');
+
+            const systemPrompt = `You are a world-class luxury real estate copywriter and SEO expert. Write a highly engaging, sophisticated, and professional description for a property listing that ranks high on Google Search.
+
+CRITICAL FORMATTING & WRITING RULES:
+1. PARAGRAPH LENGTH: Write ONLY short, concise paragraphs (maximum 2-3 sentences per paragraph). Use 3-4 short paragraphs in total.
+2. SEO OPTIMIZATION: Seamlessly integrate relevant keywords like project name, locality, city, property type, and key features so the listing ranks high on Google Search.
+3. TONE & STYLE: Premium, high-converting, and elegant (SaaS Real Estate standard). Emphasize key selling points, prime location attributes, built-up configuration, pricing value, furnishing, and transaction clarity. Do not use generic placeholders or templates.
+4. CALL TO ACTION: Include a brief, compelling, professional call to action at the end to get in touch.
+
+Return ONLY the final description. Do not include any intro, metadata, or titles.`;
+
+            const userPrompt = `Draft a premium, SEO-friendly, high-converting real estate description based on these property specifications:
+- **Unit Details**: ${unitDetailStr}
+- **Location**: ${locationStr}${formData.locationDetails?.landmark ? ` (Landmark: ${formData.locationDetails.landmark})` : ''}
+- **Built-up Details**: ${builtupStr}
+- **Expected Price**: ${expectedPriceStr}
+- **Transaction Details**: ${categoryStr}
+- **Furnishing & Possession**: ${furnishingStr || 'Not Specified'}
+- **Property Specifications**: ${specsStr || 'Not Specified'}
+- **Deal Details (Status, Type, Transaction, Source)**: ${dealDetailsStr}
+- **Additional Context / Remarks**: ${formData.remarks || 'Prime property with excellent connectivity.'}
+
+Write a highly engaging, SEO-optimized description with short, readable paragraphs (maximum 2-3 sentences each) suitable for publication on our public website directory.`;
+
+            const response = await api.post('/marketing/generate-with-model', {
+                provider: 'claude',
+                model: 'claude-3-haiku-20240307',
+                prompt: userPrompt,
+                systemPrompt: systemPrompt
+            });
+
+            if (response.data && response.data.success && response.data.content) {
+                const generatedText = response.data.content;
+                setFormData(prev => ({ ...prev, description: generatedText }));
+                toast.success('Description successfully generated!', { id: toastId });
+            } else {
+                throw new Error("Could not extract generated content");
+            }
+        } catch (error) {
+            console.error("AI Generation Error:", error);
+            toast.error("Failed to generate description with AI. Please try again.", { id: toastId });
+        } finally {
+            setIsGeneratingAi(false);
         }
     };
 
@@ -1368,6 +1481,53 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                                 onChange={e => handleInputChange('remarks', e.target.value)}
                                 placeholder="Any additional information..."
                             />
+                        </div>
+
+                        {/* Premium AI-Assisted Website Listing Description Box */}
+                        <div style={{ ...sectionStyle, border: '1px solid #cbd5e1', background: '#f8fafc', position: 'relative', overflow: 'hidden' }}>
+                            <div style={{ position: 'absolute', top: '-50px', right: '-50px', width: '150px', height: '150px', background: 'radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, rgba(255,255,255,0) 70%)', pointerEvents: 'none' }}></div>
+                            
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                <label style={{ ...labelStyle, marginBottom: 0, display: 'flex', alignItems: 'center', gap: '8px', color: '#1e293b', fontWeight: 700 }}>
+                                    <i className="fas fa-globe text-blue-600" style={{ fontSize: '1rem' }}></i> Public Website Listing Description
+                                </label>
+                                <button
+                                    type="button"
+                                    onClick={handleGenerateAiDescription}
+                                    disabled={isGeneratingAi}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px',
+                                        padding: '6px 12px',
+                                        borderRadius: '8px',
+                                        border: '1px solid #c7d2fe',
+                                        background: 'linear-gradient(135deg, #e0e7ff 0%, #eef2ff 100%)',
+                                        color: '#4f46e5',
+                                        fontSize: '0.75rem',
+                                        fontWeight: 800,
+                                        cursor: 'pointer',
+                                        boxShadow: '0 2px 4px rgba(79, 70, 229, 0.1)',
+                                        transition: 'all 0.2s',
+                                        opacity: isGeneratingAi ? 0.7 : 1
+                                    }}
+                                >
+                                    <i className={isGeneratingAi ? "fas fa-spinner fa-spin" : "fas fa-magic"}></i>
+                                    {isGeneratingAi ? "Generating listing..." : "Generate with AI"}
+                                </button>
+                            </div>
+                            
+                            <textarea
+                                style={{ ...inputStyle, minHeight: '180px', resize: 'vertical', background: '#fff', border: '1px solid #cbd5e1', lineHeight: '1.5' }}
+                                value={formData.description}
+                                onChange={e => handleInputChange('description', e.target.value)}
+                                placeholder="Write a premium description for the public website. (Tip: Use the AI Generator above to draft an engaging, high-converting listing automatically using your selected property details!)"
+                            />
+                            
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px', fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>
+                                <i className="fas fa-info-circle text-blue-500"></i>
+                                <span>This description will be published to the public portal for prospective buyers.</span>
+                            </div>
                         </div>
                     </div>
                 </div>

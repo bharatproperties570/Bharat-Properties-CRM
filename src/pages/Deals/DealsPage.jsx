@@ -1174,6 +1174,35 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
     
     const isNonActionable = isBooked || isClosed;
 
+    const getThumbnailClass = () => {
+        const stage = String(deal.stage || 'Open').toLowerCase();
+        switch (stage) {
+            case 'open':
+            case 'new':
+                return 'thumb-active'; // Green gradient
+            case 'quote':
+            case 'opportunity':
+                return 'thumb-purple'; // Purple gradient
+            case 'negotiation':
+                return 'thumb-orange'; // Orange gradient
+            case 'booked':
+                return 'thumb-blue'; // Blue gradient
+            case 'closed':
+            case 'closed won':
+                return 'thumb-green'; // Premium Teal-Green gradient
+            case 'closed lost':
+            case 'stalled':
+            case 'dormant':
+                return 'thumb-inactive'; // Grey gradient
+            default:
+                const statusVal = String(deal.status?.lookup_value || deal.status || 'open').toLowerCase();
+                if (statusVal === 'open' || statusVal === 'published') {
+                    return 'thumb-active';
+                }
+                return 'thumb-inactive';
+        }
+    };
+
     return (
         <div className={`list-item deals-list-grid ${isNonActionable ? 'non-actionable-row' : ''}`} style={{ ...style, padding: '18px 1.5rem', borderBottom: '1px solid #e2e8f0', transition: 'background 0.2s ease', background: rowBackground, opacity: isNonActionable ? 0.8 : 1, pointerEvents: isNonActionable ? 'none' : 'auto', display: 'grid', alignItems: 'center' }}>
             <div>
@@ -1207,12 +1236,7 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
                     <div
                         onClick={() => onNavigate('deal-detail', deal._id)}
-                        className={`project-thumbnail ${(
-                            deal.status === 'Open' || 
-                            deal.status === 'published' || 
-                            (deal.status && typeof deal.status === 'object' && (deal.status.lookup_value === 'Open' || deal.status.lookup_value === 'published')) ||
-                            deal.stage === 'Open'
-                        ) ? 'thumb-active' : 'thumb-inactive'}`}
+                        className={`project-thumbnail ${getThumbnailClass()}`}
                         style={{
                             width: 'auto',
                             minWidth: '60px',
