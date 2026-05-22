@@ -25,7 +25,8 @@ export function fixDriveUrl(url) {
     if (url.includes('drive.google.com')) {
         const fileIdMatch = url.match(/\/file\/d\/([^/]+)/) || url.match(/[?&]id=([^&]+)/);
         if (fileIdMatch && fileIdMatch[1]) {
-            return `https://drive.google.com/uc?export=view&id=${fileIdMatch[1]}`;
+            // Use Google's internal content server (lh3) which allows cross-origin embedding without CORP issues
+            return `https://lh3.googleusercontent.com/d/${fileIdMatch[1]}`;
         }
     }
     return url;
