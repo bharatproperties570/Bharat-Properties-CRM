@@ -8,35 +8,48 @@ if (dns.setDefaultResultOrder) {
 }
 
 const connectDB = async (retryCount = 5) => {
-    if (config.mockMode) {
-        console.log("🛠️  Mock Mode Enabled: Skipping MongoDB connection.");
+    // 🛡️ Enterprise Guard: MOCK_MODE is ONLY allowed in automated test environments.
+    // In development or production, it is ALWAYS ignored to prevent accidental data outages.
+    const isMockAllowed = process.env.NODE_ENV === 'test';
+    if (isMockAllowed && config.mockMode) {
+        console.log("🛠️  Mock Mode Enabled (test env only): Skipping MongoDB connection.");
         mongoose.set('bufferCommands', false);
+        return;
+    }
+
+    if (config.mockMode && !isMockAllowed) {
+        console.warn("⚠️  MOCK_MODE=true detected but NODE_ENV is not 'test'. IGNORING mock mode — connecting to real MongoDB.");
+    }
+
+    if (!config.mongoUri) {
+        console.error("❌ CRITICAL: MONGODB_URI is not set in environment. Cannot connect to database.");
         return;
     }
 
     for (let i = 0; i < retryCount; i++) {
         try {
             const conn = await mongoose.connect(config.mongoUri, {
-                autoIndex: false, 
-                connectTimeoutMS: 15000, // 15s to establish connection
-                socketTimeoutMS: 45000,  // 45s for slow queries/AI verification
+                autoIndex: false,
+                connectTimeoutMS: 15000,        // 15s to establish connection
+                socketTimeoutMS: 45000,          // 45s for slow queries
                 serverSelectionTimeoutMS: 15000, // 15s to find cluster members
-                family: 4, 
-                maxPoolSize: 30, // Optimized for MongoDB Atlas M0 (100 connection limit)
-                minPoolSize: 5,  // Keep warm pool of 5 connections
-                maxIdleTimeMS: 30000, // Close idle connections after 30s
-                heartbeatFrequencyMS: 10000 // Regularly check node health
+                family: 4,                       // Force IPv4
+                maxPoolSize: 30,                 // Optimized for MongoDB Atlas M0 (100 conn limit)
+                minPoolSize: 5,                  // Keep warm pool
+                maxIdleTimeMS: 30000,            // Close idle connections after 30s
+                heartbeatFrequencyMS: 10000      // Regularly check node health
             });
             console.log(`✅ MongoDB Connected: ${conn.connection.host} | Database: ${conn.connection.name}`);
             return; // Success
         } catch (error) {
-            console.error(`❌ MongoDB Connection Attempt ${i + 1} Failed: ${error.message}`);
+            console.error(`❌ MongoDB Connection Attempt ${i + 1}/${retryCount} Failed: ${error.message}`);
             if (i === retryCount - 1) {
-                console.error("❌ All MongoDB connection attempts failed. Server will remain alive but functionality is restricted.");
-                // We don't exit here. We let the server stay alive so it can return 500s correctly.
+                console.error("❌ All MongoDB connection attempts failed. Server alive but all data APIs will return errors.");
+                console.error("💡 FIX: Check MONGODB_URI in backend/.env and ensure your IP is whitelisted in MongoDB Atlas → Network Access.");
             } else {
-                // Wait for 2 seconds before retrying
-                await new Promise(resolve => setTimeout(resolve, 2000));
+                const delay = Math.min(2000 * (i + 1), 10000); // Exponential backoff, max 10s
+                console.log(`⏳ Retrying in ${delay / 1000}s...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
             }
         }
     }
