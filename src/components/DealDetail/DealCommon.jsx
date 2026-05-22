@@ -1,4 +1,4 @@
-
+import { fixDriveUrl, getYoutubeId } from '../../utils/helpers';
 export const PriceCard = ({ label, value, subValue, theme = 'indigo', isDiff = false, isStatus = false }) => {
     const colors = {
         indigo: { bg: '#eef2ff', text: '#4338ca', border: '#e0e7ff', icon: 'fa-tag' },
@@ -83,17 +83,17 @@ export const MediaViewerModal = ({ isOpen, onClose, data }) => {
             <div style={{ maxWidth: '90%', maxHeight: '80%', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 {data.type === 'image' ? (
                     <img
-                        src={data.url || data.previewUrl || data.path}
+                        src={fixDriveUrl(data.url || data.previewUrl || data.path)}
                         alt={data.title}
                         style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: '12px', boxShadow: '0 20px 40px rgba(0,0,0,0.5)' }}
                     />
                 ) : (
                     <div style={{ width: '100%', aspectRatio: '16/9', maxWidth: '1000px', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 20px 40px rgba(0,0,0,0.5)' }}>
-                        {data.ytId ? (
+                        {(data.ytId || getYoutubeId(data.url)) ? (
                             <iframe
                                 width="100%"
                                 height="100%"
-                                src={`https://www.youtube.com/embed/${data.ytId}?autoplay=1`}
+                                src={`https://www.youtube.com/embed/${data.ytId || getYoutubeId(data.url)}?autoplay=1`}
                                 title={data.title}
                                 frameBorder="0"
                                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
@@ -101,7 +101,7 @@ export const MediaViewerModal = ({ isOpen, onClose, data }) => {
                             ></iframe>
                         ) : (
                             <video
-                                src={data.url}
+                                src={fixDriveUrl(data.url)}
                                 controls
                                 autoPlay
                                 style={{ width: '100%', height: '100%' }}
