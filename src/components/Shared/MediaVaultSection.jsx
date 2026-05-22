@@ -54,6 +54,7 @@ const getFileIconConfig = (fileName = '') => {
 
 const MediaVaultSection = ({
     inventory,
+    deal,
     onMediaClick,
     onMediaView,
     onUploadClick,
@@ -149,9 +150,33 @@ const MediaVaultSection = ({
                     {(() => {
                         const images = Array.isArray(inventory?.inventoryImages) ? inventory.inventoryImages : [];
                         const videos = Array.isArray(inventory?.inventoryVideos) ? inventory.inventoryVideos : [];
+                        
+                        // Extract builtupDetails media
+                        const builtupImages = [];
+                        const builtupVideos = [];
+                        
+                        const allBuiltups = [
+                            ...(Array.isArray(inventory?.builtupDetails) ? inventory.builtupDetails : []),
+                            ...(Array.isArray(deal?.builtupDetails) ? deal.builtupDetails : [])
+                        ];
+                        
+                        allBuiltups.forEach((b, i) => {
+                            if (b.imageUrl) builtupImages.push({ url: b.imageUrl, title: b.floor || `Builtup Floor ${i+1}`, category: 'Builtup Image' });
+                            if (b.videoUrl) builtupVideos.push({ url: b.videoUrl, title: b.floor || `Builtup Floor ${i+1}`, category: 'Builtup Video' });
+                        });
+                        
+                        if (inventory?.builtupVideoUrl) {
+                            builtupVideos.push({ url: inventory.builtupVideoUrl, title: 'Overall Walkthrough', category: 'Property Video' });
+                        }
+                        if (deal?.builtupVideoUrl) {
+                            builtupVideos.push({ url: deal.builtupVideoUrl, title: 'Overall Walkthrough', category: 'Property Video' });
+                        }
+
                         const allMedia = [
                             ...images.map(img => ({ ...img, type: 'image' })),
-                            ...videos.map(vid => ({ ...vid, type: 'video' }))
+                            ...builtupImages.map(img => ({ ...img, type: 'image' })),
+                            ...videos.map(vid => ({ ...vid, type: 'video' })),
+                            ...builtupVideos.map(vid => ({ ...vid, type: 'video' }))
                         ];
 
                         if (allMedia.length > 0) {

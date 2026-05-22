@@ -20,7 +20,8 @@ import { useUserContext } from "../../context/UserContext";
 import DocumentUploadModal from "../../components/DocumentUploadModal";
 import { usePropertyConfig } from "../../context/PropertyConfigContext";
 import { renderValue } from "../../utils/renderUtils";
-import usePermissions, { PermissionGate } from '../../hooks/usePermissions';
+import { PermissionGate } from '../../hooks/usePermissions';
+import ContactDependencyModal from '../../components/modals/ContactDependencyModal';
 
 // ─── DEBOUNCE UTILITY ──────────────────────────────────────────────────────────
 const useDebounce = (value, delay) => {
@@ -49,18 +50,10 @@ const ContactRow = memo(function ContactRow({
 }) {
   return (
     <div
-      className="list-item contact-list-grid"
+      className={`list-item contact-list-grid ${isSelected ? 'selected' : ''}`}
       style={{
         padding: "15px 2rem",
-        background: isSelected ? "#f0f9ff" : "#fff",
         transition: "all 0.2s",
-      }}
-      onMouseOver={(e) => {
-        if (!isSelected) e.currentTarget.style.background = "#fafbfc";
-      }}
-      onMouseOut={(e) => {
-        if (!isSelected) e.currentTarget.style.background = "#fff";
-        else e.currentTarget.style.background = "#f0f9ff";
       }}
     >
       <input
@@ -83,7 +76,7 @@ const ContactRow = memo(function ContactRow({
           </div>
           <div>
             <div
-              style={{ fontWeight: 800, color: "var(--primary-color)", fontSize: "0.95rem", cursor: "pointer" }}
+              style={{ fontWeight: 800, color: "var(--contact-name-color)", fontSize: "0.95rem", cursor: "pointer" }}
               onClick={() => onNavigate("contact-detail", item._id)}
             >
               {renderValue(getLookupValue("Title", item.title), null) || ""} {
@@ -92,7 +85,7 @@ const ContactRow = memo(function ContactRow({
                     (item.name || item.firstName || "Unknown Name")
               }
             </div>
-            <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "#475569", marginTop: "3px" }}>
+            <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text-muted)", marginTop: "3px" }}>
               {item?.phones?.[0]?.number || item?.mobile || "No Mobile"}
             </div>
             {item?.emails?.[0]?.address && (
@@ -108,11 +101,11 @@ const ContactRow = memo(function ContactRow({
       <div className="col-address">
         <div style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
           <i className="fas fa-map-marker-alt" style={{ color: "#ef4444", fontSize: "0.75rem", marginTop: "4px" }}></i>
-          <div className="address-clamp" style={{ fontSize: "0.8rem", color: "#475569", fontWeight: 500, lineHeight: 1.4 }}>
+          <div className="address-clamp" style={{ fontSize: "0.8rem", color: "var(--text-muted)", fontWeight: 500, lineHeight: 1.4 }}>
             {item?.personalAddress ? (
               <div style={{ display: 'flex', flexDirection: 'column' }}>
                 <div>{`${item.personalAddress?.hNo || ""}, ${item.personalAddress?.street || ""}, ${renderValue(getLookupValue("Location", item.personalAddress?.location), item.personalAddress?.location?.lookup_value || (typeof item.personalAddress?.location === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.personalAddress.location) ? item.personalAddress.location : ""))}`.replace(/^, |, $/g, "").replace(/, , /g, ", ")}</div>
-                <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
                   {`${item.personalAddress?.area || ""}, ${renderValue(getLookupValue("City", item.personalAddress?.city), item.personalAddress?.city?.lookup_value || (typeof item.personalAddress?.city === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.personalAddress.city) ? item.personalAddress.city : ""))}, ${renderValue(getLookupValue("State", item.personalAddress?.state), item.personalAddress?.state?.lookup_value || (typeof item.personalAddress?.state === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.personalAddress.state) ? item.personalAddress.state : ""))}${item.personalAddress?.pinCode ? " " + item.personalAddress.pinCode : ""}`.replace(/^, |, $/g, "").replace(/, , /g, ", ")}
                 </div>
               </div>
@@ -130,10 +123,10 @@ const ContactRow = memo(function ContactRow({
               "N/A"
             ).toUpperCase()}
           </span>
-          <div style={{ fontSize: "0.8rem", color: "#0f172a", fontWeight: 700 }}>
+          <div style={{ fontSize: "0.8rem", color: "var(--text-main)", fontWeight: 700 }}>
             {renderValue(getLookupValue("ProfessionalDesignation", item.designation), item.designation?.lookup_value || (typeof item.designation === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.designation) ? item.designation : "-"))}
           </div>
-          <div style={{ fontSize: "0.7rem", color: "#64748b", fontWeight: 600 }}>
+          <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", fontWeight: 600 }}>
             <i className="fas fa-building" style={{ marginRight: "4px", fontSize: "0.65rem" }}></i>
             {item?.company || "-"}
           </div>
@@ -142,12 +135,12 @@ const ContactRow = memo(function ContactRow({
 
       <div className="col-source-tags">
         <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-          <span className="source-badge" style={{ fontSize: "0.65rem", padding: "3px 8px", fontWeight: 700, borderRadius: "4px", background: "#ede9fe", color: "#6b21a8", display: "inline-block", width: "fit-content" }}>
+          <span className="source-badge" style={{ fontSize: "0.65rem", padding: "3px 8px", fontWeight: 700, borderRadius: "4px", background: "var(--source-badge-bg)", color: "var(--source-badge-color)", display: "inline-block", width: "fit-content" }}>
             <i className="fas fa-tag" style={{ marginRight: "3px", fontSize: "0.6rem" }}></i>
             {renderValue(getLookupValue("Campaign", item.campaign), null) || (typeof item?.campaign === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.campaign) ? item.campaign : "") ? `${renderValue(getLookupValue("Campaign", item.campaign), null) || (typeof item?.campaign === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.campaign) ? item.campaign : "")} • ` : ""}{renderValue(getLookupValue("Source", item.source), null) || (typeof item?.source === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.source) ? item.source : "N/A")}
           </span>
           {item?.tags && item?.tags?.length > 0 && (
-            <div style={{ fontSize: "0.7rem", color: "#64748b", fontWeight: 600 }}>
+            <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", fontWeight: 600 }}>
               {Array.isArray(item.tags)
                 ? item.tags.map(t => renderValue(getLookupValue("Tag", t), (typeof t === 'string' && !/^[0-9a-fA-F]{24}$/.test(t) ? t : ""))).filter(v => v).join(", ")
                 : renderValue(getLookupValue("Tag", item.tags), (typeof item.tags === 'string' && !/^[0-9a-fA-F]{24}$/.test(item.tags) ? item.tags : ""))}
@@ -160,13 +153,13 @@ const ContactRow = memo(function ContactRow({
         {item?.crmLinks && Object.keys(item.crmLinks).length > 0 ? (
           <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
             {item?.crmLinks?.leads && (
-              <span style={{ fontSize: "0.65rem", padding: "2px 6px", background: "#dbeafe", color: "#1e40af", borderRadius: "4px", fontWeight: 700 }}>
+              <span style={{ fontSize: "0.65rem", padding: "2px 6px", background: "var(--stat-agent-bg)", color: "var(--stat-agent-color)", borderRadius: "4px", fontWeight: 700 }}>
                 <i className="fas fa-user-plus" style={{ marginRight: "2px", fontSize: "0.6rem" }}></i>
                 Leads ({item.crmLinks.leads})
               </span>
             )}
             {item?.crmLinks?.deals && (
-              <span style={{ fontSize: "0.65rem", padding: "2px 6px", background: "#dcfce7", color: "#166534", borderRadius: "4px", fontWeight: 700 }}>
+              <span style={{ fontSize: "0.65rem", padding: "2px 6px", background: "var(--stat-property-bg)", color: "var(--stat-property-color)", borderRadius: "4px", fontWeight: 700 }}>
                 <i className="fas fa-handshake" style={{ marginRight: "2px", fontSize: "0.6rem" }}></i>
                 Deals ({item.crmLinks.deals})
               </span>
@@ -202,18 +195,18 @@ const ContactRow = memo(function ContactRow({
       </div>
       <div className="col-assignment" style={{ textAlign: "right", paddingRight: "10px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "10px", justifyContent: "flex-end" }}>
-          <div className="avatar-circle" style={{ width: "26px", height: "26px", fontSize: "0.65rem", background: "#f1f5f9", color: "#64748b", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, border: "1px solid #e2e8f0" }}>
+          <div className="avatar-circle" style={{ width: "26px", height: "26px", fontSize: "0.65rem", background: "var(--badge-prof-bg)", color: "var(--badge-prof-color)", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, border: "1px solid var(--border-color)" }}>
             {getInitials(getUserName(item?.assignment?.assignedTo || item?.owner || item?.ownership))}
           </div>
           <div style={{ textAlign: "right", lineHeight: 1.2 }}>
-            <div style={{ fontSize: "0.75rem", fontWeight: 900, color: "#0f172a" }}>
+            <div style={{ fontSize: "0.75rem", fontWeight: 900, color: "var(--text-main)" }}>
               {getUserName(item?.assignment?.assignedTo || item?.owner || item?.ownership)}
             </div>
-            <div style={{ fontSize: "0.6rem", color: "#64748b", fontWeight: 700 }}>
+            <div style={{ fontSize: "0.6rem", color: "var(--text-muted)", fontWeight: 700 }}>
               {getTeamName(item?.assignment?.team || item?.team)}
             </div>
             { (item?.assignment?.assignedAt || item?.updatedAt) && (
-              <div style={{ fontSize: "0.6rem", color: "#94a3b8", fontWeight: 600, marginTop: "2px" }}>
+              <div style={{ fontSize: "0.6rem", color: "var(--text-muted)", fontWeight: 600, marginTop: "2px" }}>
                 {new Date(item?.assignment?.assignedAt || item?.updatedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })} {new Date(item?.assignment?.assignedAt || item?.updatedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}
               </div>
             )}
@@ -237,38 +230,19 @@ const ContactCard = memo(function ContactCard({
 }) {
   return (
     <div
-      style={{
-        background: isSelected ? "#f0f9ff" : "#fff",
-        border: `2px solid ${isSelected ? "#3b82f6" : "#e5e7eb"}`,
-        borderRadius: "10px",
-        overflow: "hidden",
-        transition: "all 0.2s",
-        boxShadow: isSelected ? "0 4px 12px rgba(59, 130, 246, 0.15)" : "0 1px 3px rgba(0,0,0,0.1)",
-      }}
-      onMouseEnter={(e) => {
-        if (!isSelected) {
-          e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.15)";
-          e.currentTarget.style.transform = "translateY(-2px)";
-        }
-      }}
-      onMouseLeave={(e) => {
-        if (!isSelected) {
-          e.currentTarget.style.boxShadow = "0 1px 3px rgba(0,0,0,0.1)";
-          e.currentTarget.style.transform = "translateY(0)";
-        }
-      }}
+      className={`contact-card ${isSelected ? 'selected' : ''}`}
     >
-      <div style={{ padding: "12px", background: isSelected ? "#dbeafe" : "#f9fafb", borderBottom: "1px solid #e5e7eb", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <div style={{ padding: "12px", background: isSelected ? "var(--contact-row-selected)" : "var(--contact-card-header)", borderBottom: "1px solid var(--contact-card-border)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "10px", flex: 1, minWidth: 0 }}>
           <div className={`avatar-circle avatar-${(item._id.charCodeAt(0) % 5) + 1}`} style={{ width: "40px", height: "40px", fontSize: "0.9rem", flexShrink: 0 }}>
             {getInitials(item?.name || "Unknown")}
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 800, color: "var(--primary-color)", fontSize: "0.9rem", marginBottom: "2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }}
+            <div style={{ fontWeight: 800, color: "var(--contact-name-color)", fontSize: "0.9rem", marginBottom: "2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }}
               onClick={() => onNavigate("contact-detail", item._id)}>
               {item?.name || "Unknown Name"}
             </div>
-            <div style={{ fontSize: "0.7rem", color: "#6b7280", fontWeight: 600 }}>
+            <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", fontWeight: 600 }}>
               <i className="fas fa-phone-alt" style={{ marginRight: "4px", fontSize: "0.65rem" }}></i>
               {item?.phones?.[0]?.number || item?.mobile || "No Mobile"}
             </div>
@@ -279,14 +253,14 @@ const ContactCard = memo(function ContactCard({
 
       <div style={{ padding: "12px" }}>
         {item?.emails?.[0]?.address && (
-          <div style={{ marginBottom: "10px", paddingBottom: "10px", borderBottom: "1px solid #f3f4f6", display: "flex", alignItems: "center", gap: "6px" }}>
+          <div style={{ marginBottom: "10px", paddingBottom: "10px", borderBottom: "1px solid var(--contact-card-divider)", display: "flex", alignItems: "center", gap: "6px" }}>
             <i className="fas fa-envelope" style={{ color: "#8b5cf6", fontSize: "0.75rem", width: "14px", flexShrink: 0 }}></i>
-            <span style={{ fontSize: "0.7rem", color: "#6b7280", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.emails[0].address}</span>
+            <span style={{ fontSize: "0.7rem", color: "var(--text-muted)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.emails[0].address}</span>
           </div>
         )}
 
-        <div style={{ marginBottom: "10px", paddingBottom: "10px", borderBottom: "1px solid #f3f4f6" }}>
-          <div style={{ fontSize: "0.65rem", fontWeight: 800, color: "#9ca3af", marginBottom: "4px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Professional</div>
+        <div style={{ marginBottom: "10px", paddingBottom: "10px", borderBottom: "1px solid var(--contact-card-divider)" }}>
+          <div style={{ fontSize: "0.65rem", fontWeight: 800, color: "var(--text-muted)", marginBottom: "4px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Professional</div>
           <span className="prof-badge" style={{ fontSize: "0.6rem", padding: "2px 6px", fontWeight: 800, marginBottom: "4px", display: "inline-block" }}>
             {(
               renderValue(getLookupValue("ProfessionalCategory", item.professionCategory), item.professionCategory?.lookup_value || (typeof item.professionCategory === 'string' ? item.professionCategory : "")) ||
@@ -294,20 +268,20 @@ const ContactCard = memo(function ContactCard({
               "N/A"
             ).toUpperCase()}
           </span>
-          <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "#111827", marginBottom: "3px" }}>
+          <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text-main)", marginBottom: "3px" }}>
             {renderValue(getLookupValue("ProfessionalDesignation", item.designation), item.designation?.lookup_value || (typeof item.designation === 'string' ? item.designation : "-"))}
           </div>
-          <div style={{ fontSize: "0.7rem", color: "#6b7280", fontWeight: 600, display: "flex", alignItems: "center", gap: "4px" }}>
+          <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", fontWeight: 600, display: "flex", alignItems: "center", gap: "4px" }}>
             <i className="fas fa-building" style={{ fontSize: "0.65rem" }}></i>
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item?.company || "-"}</span>
           </div>
         </div>
 
-        <div style={{ marginBottom: "10px", paddingBottom: "10px", borderBottom: "1px solid #f3f4f6" }}>
-          <div style={{ fontSize: "0.65rem", fontWeight: 800, color: "#9ca3af", marginBottom: "4px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Address</div>
+        <div style={{ marginBottom: "10px", paddingBottom: "10px", borderBottom: "1px solid var(--contact-card-divider)" }}>
+          <div style={{ fontSize: "0.65rem", fontWeight: 800, color: "var(--text-muted)", marginBottom: "4px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Address</div>
           <div style={{ display: "flex", alignItems: "start", gap: "6px" }}>
             <i className="fas fa-map-marker-alt" style={{ color: "#ef4444", fontSize: "0.75rem", marginTop: "2px" }}></i>
-            <div style={{ fontSize: "0.7rem", color: "#6b7280", fontWeight: 600, lineHeight: 1.3, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+            <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", fontWeight: 600, lineHeight: 1.3, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
               {item?.personalAddress?.city
                 ? `${renderValue(getLookupValue("City", item.personalAddress?.city), item.personalAddress?.city?.lookup_value || (typeof item.personalAddress?.city === 'string' ? item.personalAddress.city : ''))}, ${renderValue(getLookupValue("State", item.personalAddress?.state), item.personalAddress?.state?.lookup_value || (typeof item.personalAddress?.state === 'string' ? item.personalAddress.state : ''))}`
                 : item?.address || "Address not listed"}
@@ -316,21 +290,21 @@ const ContactCard = memo(function ContactCard({
         </div>
 
         <div>
-          <div style={{ fontSize: "0.65rem", fontWeight: 800, color: "#9ca3af", marginBottom: "4px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Assigned To & Actions</div>
+          <div style={{ fontSize: "0.65rem", fontWeight: 800, color: "var(--text-muted)", marginBottom: "4px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Assigned To & Actions</div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-              <div style={{ width: "24px", height: "24px", borderRadius: "50%", background: "#f3f4f6", color: "#6b7280", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.65rem", fontWeight: 700, flexShrink: 0 }}>
+              <div style={{ width: "24px", height: "24px", borderRadius: "50%", background: "var(--badge-prof-bg)", color: "var(--badge-prof-color)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.65rem", fontWeight: 700, flexShrink: 0 }}>
                 {getInitials(getUserName(item?.assignment?.assignedTo || item?.owner || item?.ownership))}
               </div>
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: "0.7rem", fontWeight: 800, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                <div style={{ fontSize: "0.7rem", fontWeight: 800, color: "var(--text-main)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {getUserName(item?.assignment?.assignedTo || item?.owner || item?.ownership)}
                 </div>
-                <div style={{ fontSize: '0.6rem', color: '#64748b', fontWeight: 600 }}>
+                <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', fontWeight: 600 }}>
                   {getTeamName(item?.assignment?.team || item?.team)}
                 </div>
                 { (item?.assignment?.assignedAt || item?.updatedAt) && (
-                  <div style={{ fontSize: "0.6rem", color: "#94a3b8", fontWeight: 700, marginTop: "2px" }}>
+                  <div style={{ fontSize: "0.6rem", color: "var(--text-muted)", fontWeight: 700, marginTop: "2px" }}>
                     {new Date(item?.assignment?.assignedAt || item?.updatedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
                   </div>
                 )}
@@ -369,6 +343,8 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
   const [currentPage, setCurrentPage] = useState(1);
   const [recordsPerPage, setRecordsPerPage] = useState(25);
   const [viewMode, setViewMode] = useState("list");
+  const [depModalOpen, setDepModalOpen] = useState(false);
+  const [depContactId, setDepContactId] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isSendMailOpen, setIsSendMailOpen] = useState(false);
   const [isAddLeadModalOpen, setIsAddLeadModalOpen] = useState(false);
@@ -461,8 +437,29 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
   }, [users]);
 
   // Bulk Actions
+  const handleConfirmedDelete = async (id) => {
+    try {
+      setLoading(true);
+      await api.delete(`contacts/${id}`);
+      toast.success('Contact deleted successfully');
+      setSelectedIds(prev => prev.filter(pid => pid !== id));
+      fetchContacts();
+    } catch (error) {
+      toast.error('Failed to delete contact');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const delete_contact = async () => {
     if (!selectedIds?.length) return;
+    if (selectedIds.length === 1) {
+      // Open dependency modal for single contact
+      setDepContactId(selectedIds[0]);
+      setDepModalOpen(true);
+      return;
+    }
+    // Existing bulk delete flow
     const result = await Swal.fire({
       title: 'Bulk Delete Confirmation',
       text: `Are you sure you want to delete ${selectedIds.length} contact(s)?`,
@@ -610,7 +607,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
 
         <div className="content-body" style={{ overflowY: "visible", paddingTop: 0, position: "relative" }}>
           {/* Toolbar */}
-          <div className="toolbar-container" style={{ position: "sticky", top: 0, zIndex: 101, padding: "15px var(--row-padding)", borderBottom: "1px solid #eef2f5", minHeight: "65px", display: "flex", alignItems: "center", background: "#fff" }}>
+          <div className="toolbar-container" style={{ position: "sticky", top: 0, zIndex: 101, padding: "15px var(--row-padding)", borderBottom: "1px solid var(--toolbar-border)", minHeight: "65px", display: "flex", alignItems: "center", background: "var(--toolbar-bg)" }}>
             {selectedIds.length > 0 ? (
               <div className="action-panel" style={{ display: "flex", gap: "8px", alignItems: "center", width: "100%", overflowX: "auto" }}>
                 <input type="checkbox" checked={isAllSelected} ref={(input) => { if (input) input.indeterminate = isIndeterminate; }} onChange={toggleSelectAll} style={{ cursor: "pointer" }} />
@@ -667,6 +664,13 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                   <PermissionGate module="contacts" action="delete">
                     <button className="action-btn danger" onClick={delete_contact}><i className="fas fa-trash-alt"></i></button>
                   </PermissionGate>
+                  {/* Dependency Modal */}
+                  <ContactDependencyModal
+                    isOpen={depModalOpen}
+                    onClose={() => setDepModalOpen(false)}
+                    contactId={depContactId}
+                    onDeleteConfirmed={handleConfirmedDelete}
+                  />
                 </div>
               </div>
             ) : (
@@ -680,17 +684,17 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                 </div>
 
                 <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
-                  <div style={{ fontSize: "0.8rem", color: "#64748b" }}>Showing: <strong>{filteredContacts.length}</strong> / <strong>{totalRecords}</strong></div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.8rem", color: "#64748b" }}>
+                  <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Showing: <strong>{filteredContacts.length}</strong> / <strong>{totalRecords}</strong></div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.8rem", color: "var(--text-muted)" }}>
                     <span>Show:</span>
-                    <select value={recordsPerPage} onChange={handleRecordsPerPageChange} style={{ padding: "4px 8px", border: "1px solid #e2e8f0", borderRadius: "6px", fontSize: "0.8rem", fontWeight: 600, color: "#0f172a", outline: "none", cursor: "pointer" }}>
+                    <select value={recordsPerPage} onChange={handleRecordsPerPageChange} style={{ padding: "4px 8px", border: "1px solid var(--input-border)", borderRadius: "6px", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-main)", background: "var(--input-bg)", outline: "none", cursor: "pointer" }}>
                       {[10, 25, 50, 100, 300, 500, 750, 1000].map(v => <option key={v} value={v}>{v}</option>)}
                     </select>
                   </div>
                   {/* Pagination Controls */}
                   <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                     <button onClick={goToPreviousPage} disabled={currentPage === 1 || loading} className="btn-pagination"><i className="fas fa-chevron-left"></i> Prev</button>
-                    <span style={{ fontSize: "0.8rem", fontWeight: 600, color: "#0f172a", minWidth: "80px", textAlign: "center" }}>{currentPage} / {totalPages || 1}</span>
+                    <span style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--text-main)", minWidth: "80px", textAlign: "center" }}>{currentPage} / {totalPages || 1}</span>
                     <button onClick={goToNextPage} disabled={currentPage >= totalPages || loading} className="btn-pagination" style={{ marginRight: '10px' }}>Next <i className="fas fa-chevron-right"></i></button>
 
                     {/* Professional Sort Icon (Shifted to end of pagination) */}
@@ -700,9 +704,9 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                         style={{ 
                           display: 'flex', alignItems: 'center', justifyContent: 'center', 
                           width: '32px', height: '32px', borderRadius: '8px',
-                          border: '1px solid #e2e8f0',
-                          background: isSortOpen ? 'var(--primary-color)' : '#fff',
-                          color: isSortOpen ? '#fff' : '#64748b',
+                          border: '1px solid var(--border-color)',
+                          background: isSortOpen ? 'var(--primary-color)' : 'var(--input-bg)',
+                          color: isSortOpen ? '#fff' : 'var(--text-muted)',
                           cursor: 'pointer', transition: 'all 0.2s'
                         }}
                         onClick={() => setIsSortOpen(!isSortOpen)}
@@ -718,11 +722,11 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                           />
                           <ul className="shadow-lg border-0" style={{ 
                             position: 'absolute', top: '100%', right: 0, zIndex: 999,
-                            backgroundColor: '#fff', borderRadius: '16px', padding: '10px', 
+                            backgroundColor: 'var(--contact-card-bg)', borderRadius: '16px', padding: '10px', 
                             minWidth: '220px', marginTop: '8px', listStyle: 'none',
-                            border: '1px solid #eef2f5'
+                            border: '1px solid var(--border-color)'
                           }}>
-                            <li><h6 style={{ fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', color: '#94a3b8', padding: '10px 15px', margin: 0 }}>Advanced Sort</h6></li>
+                            <li><h6 style={{ fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-muted)', padding: '10px 15px', margin: 0 }}>Advanced Sort</h6></li>
                             {[
                               { label: 'Recently Created', by: 'createdAt', order: -1, icon: 'fa-calendar-plus' },
                               { label: 'Recently Updated', by: 'updatedAt', order: -1, icon: 'fa-bolt' },
@@ -738,7 +742,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                                     padding: '10px 15px', 
                                     fontSize: '0.85rem',
                                     fontWeight: sortConfig.label === opt.label ? 700 : 500,
-                                    color: sortConfig.label === opt.label ? '#fff' : '#1e293b',
+                                    color: sortConfig.label === opt.label ? '#fff' : 'var(--text-main)',
                                     background: sortConfig.label === opt.label ? 'var(--primary-color)' : 'transparent',
                                     cursor: 'pointer',
                                     marginBottom: '2px',
@@ -770,9 +774,9 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
           <ActiveFiltersChips filters={filters} onRemoveFilter={(k) => { const n = { ...filters }; delete n[k]; setFilters(n); }} onClearAll={() => setFilters({})} />
 
           {loading && (
-            <div style={{ position: "absolute", top: "65px", left: 0, right: 0, bottom: 0, background: "rgba(255,255,255,0.7)", zIndex: 200, display: "flex", justifyContent: "center", alignItems: "center", flexDirection: "column", gap: "10px" }}>
+            <div style={{ position: "absolute", top: "65px", left: 0, right: 0, bottom: 0, background: "var(--header-bg-translucent)", backdropFilter: "var(--header-blur)", zIndex: 200, display: "flex", justifyContent: "center", alignItems: "center", flexDirection: "column", gap: "10px" }}>
               <div className="spinner" style={{ width: "30px", height: "30px", border: "3px solid #f3f3f3", borderTop: "3px solid #3b82f6", borderRadius: "50%", animation: "spin 1s linear infinite" }}></div>
-              <span style={{ color: "#64748b", fontWeight: 600 }}>Loading contacts...</span>
+              <span style={{ color: "var(--text-muted)", fontWeight: 600 }}>Loading contacts...</span>
             </div>
           )}
 
@@ -840,12 +844,12 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
         <div className="summary-label" style={{ background: "#334155", color: "#fff", padding: "4px 12px", borderRadius: "6px", fontSize: "0.7rem", fontWeight: 700 }}>SUMMARY</div>
         <div style={{ display: "flex", gap: "15px", flexWrap: "wrap", alignItems: "center" }}>
           <div className="stat-pill">TOTAL <strong>{stats.total || totalRecords}</strong></div>
-          <div className="stat-pill" style={{ background: "#f0fdf4", color: "#166534" }}>PROPERTY OWNERS <strong>{stats.propertyOwners || 0}</strong></div>
-          <div className="stat-pill" style={{ background: "#fef2f2", color: "#991b1b" }}>INVESTORS <strong>{stats.investors || 0}</strong></div>
-          <div className="stat-pill" style={{ background: "#eff6ff", color: "#1e40af" }}>AGENTS <strong>{stats.realEstateAgents || 0}</strong></div>
-          <div className="stat-pill" style={{ background: "#fdf4ff", color: "#86198f" }}>SALES <strong>{stats.salesPersons || 0}</strong></div>
+          <div className="stat-pill" style={{ background: "var(--stat-property-bg)", color: "var(--stat-property-color)" }}>PROPERTY OWNERS <strong>{stats.propertyOwners || 0}</strong></div>
+          <div className="stat-pill" style={{ background: "var(--stat-investor-bg)", color: "var(--stat-investor-color)" }}>INVESTORS <strong>{stats.investors || 0}</strong></div>
+          <div className="stat-pill" style={{ background: "var(--stat-agent-bg)", color: "var(--stat-agent-color)" }}>AGENTS <strong>{stats.realEstateAgents || 0}</strong></div>
+          <div className="stat-pill" style={{ background: "var(--stat-sales-bg)", color: "var(--stat-sales-color)" }}>SALES <strong>{stats.salesPersons || 0}</strong></div>
           
-          <div style={{ width: "1px", height: "20px", background: "#e2e8f0", margin: "0 5px" }}></div>
+          <div style={{ width: "1px", height: "20px", background: "var(--border-color)", margin: "0 5px" }}></div>
           
           <div className="stat-pill" style={{ opacity: 0.8 }}>PROSPECTS <strong>{stats.prospects || 0}</strong></div>
           <div className="stat-pill" style={{ opacity: 0.8 }}>CUSTOMERS <strong>{stats.customers || 0}</strong></div>
@@ -878,7 +882,31 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
       <EnrollSequenceModal isOpen={isEnrollModalOpen} onClose={() => setIsEnrollModalOpen(false)} entityId={selectedContactForSequence?.id} entityName={selectedContactForSequence?.name} />
       <ContactFilterPanel isOpen={isFilterPanelOpen} onClose={() => setIsFilterPanelOpen(false)} filters={filters} onFilterChange={setFilters} />
       {isDocumentModalOpen && <DocumentUploadModal isOpen={isDocumentModalOpen} onClose={() => setIsDocumentModalOpen(false)} ownerId={documentModalData?.ownerId} ownerType='Contact' ownerName={documentModalData?.ownerName} onUpdate={() => fetchContacts()} />}
-      <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } } .btn-pagination { padding: 6px 12px; border: 1px solid #e2e8f0; border-radius: 6px; background: #fff; cursor: pointer; font-size: 0.75rem; font-weight: 600; } .btn-pagination:disabled { background: #f8fafc; color: #cbd5e1; cursor: not-allowed; }`}</style>
+      <style>{`
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .btn-pagination {
+          padding: 6px 12px;
+          border: 1px solid var(--input-border);
+          border-radius: 6px;
+          background: var(--input-bg);
+          color: var(--text-main);
+          cursor: pointer;
+          font-size: 0.75rem;
+          font-weight: 600;
+          transition: all 0.2s ease;
+        }
+        .btn-pagination:hover:not(:disabled) {
+          border-color: var(--primary-color);
+          color: var(--primary-color);
+          background: var(--contact-row-hover);
+        }
+        .btn-pagination:disabled {
+          background: var(--bg-gray);
+          color: var(--text-muted);
+          border-color: var(--border-color);
+          cursor: not-allowed;
+        }
+      `}</style>
     </section>
   );
 }

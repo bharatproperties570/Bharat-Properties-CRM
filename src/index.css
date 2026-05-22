@@ -1,4 +1,5 @@
 :root {
+    /* Light theme defaults */
     --primary-color: #0066ff;
     /* More vibrant blue */
     --primary-hover: #0052cc;
@@ -12,6 +13,7 @@
     --sidebar-bg: #0f172a;
     /* Matches deep navy */
     --sidebar-text: #94a3b8;
+    /* Dark theme will override below */
     --sidebar-active-bg: #1e293b;
     --danger-color: #ef4444;
     --danger-bg: #fef2f2;
@@ -25,7 +27,94 @@
     --row-padding: 2rem;
     --header-blur: blur(12px);
     --header-bg-translucent: rgba(255, 255, 255, 0.7);
+
+    /* Contacts Page Theme Variables */
+    --bg-card: var(--contact-card-bg);
+    --bg-dark: #1e293b; /* dark background for cards */
+    --text-inverse: #ffffff; /* pure white text for dark mode */
+    --contact-row-bg: #ffffff;
+    --contact-row-hover: #fafbfc;
+    --contact-row-selected: #f0f9ff;
+    --contact-card-bg: #ffffff;
+    --contact-card-border: #e5e7eb;
+    --contact-card-header: #f9fafb;
+    --contact-card-divider: #f3f4f6;
+    --contact-name-color: var(--primary-color);
+
+    --toolbar-bg: #ffffff;
+    --toolbar-border: #eef2f5;
+    --input-bg: #ffffff;
+    --input-border: #cbd5e1;
+    --input-text: #1e293b;
+
+    --badge-prof-bg: #f1f5f9;
+    --badge-prof-color: #475569;
+
+    --stat-property-bg: #f0fdf4;
+    --stat-property-color: #166534;
+    --stat-investor-bg: #fef2f2;
+    --stat-investor-color: #991b1b;
+    --stat-agent-bg: #eff6ff;
+    --stat-agent-color: #1e40af;
+    --stat-sales-bg: #fdf4ff;
+    --stat-sales-color: #86198f;
+
+    --stat-pill-bg: #ffffff;
+    --stat-pill-border: #e3e6e8;
+    --source-badge-bg: #ede9fe;
+    --source-badge-color: #6b21a8;
 }
+
+/* Global Dark Mode Variable Overrides */
+html.dark-mode,
+.dark-mode {
+    --bg-light: #0f172a; /* Slate 900 */
+    --bg-gray: #1e293b;  /* Slate 800 */
+    --border-color: #334155; /* Slate 700 */
+    --text-main: #f8fafc; /* Slate 50 */
+    --text-muted: #94a3b8; /* Slate 400 */
+    --sidebar-bg: #0f172a;
+    --sidebar-text: #94a3b8;
+    --sidebar-active-bg: #1e293b;
+    --header-bg-translucent: rgba(15, 23, 42, 0.7);
+    --header-blur: blur(16px);
+
+    /* Contacts Page Theme Overrides */
+    --contact-row-bg: #1e293b;
+    --contact-row-hover: #334155;
+    --contact-row-selected: rgba(59, 130, 246, 0.15);
+    --contact-card-bg: #1e293b;
+    --contact-card-border: #334155;
+    --contact-card-header: #0f172a;
+    --contact-card-divider: #334155;
+    --contact-name-color: #fff;
+
+    --toolbar-bg: #0f172a;
+    --toolbar-border: #1e293b;
+    --input-bg: #1e293b;
+    --input-border: #334155;
+    --input-text: #f8fafc;
+
+    --badge-prof-bg: #334155;
+    --badge-prof-color: #94a3b8;
+
+    --stat-property-bg: rgba(16, 185, 129, 0.15);
+    --stat-property-color: #34d399;
+    --stat-investor-bg: rgba(239, 68, 68, 0.15);
+    --stat-investor-color: #f87171;
+    --stat-agent-bg: rgba(59, 130, 246, 0.15);
+    --stat-agent-color: #60a5fa;
+    --stat-sales-bg: rgba(192, 132, 252, 0.15);
+    --stat-sales-color: #c084fc;
+
+    --stat-pill-bg: #1e293b;
+    --stat-pill-border: #334155;
+    --source-badge-bg: rgba(139, 92, 246, 0.15);
+    --source-badge-color: #c084fc;
+    --danger-color: #f87171;
+    --danger-bg: rgba(239, 68, 68, 0.15);
+}
+
 
 * {
     margin: 0;
@@ -180,7 +269,7 @@ body {
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    background: white;
+    background: var(--bg-light);
 }
 
 /* Header */
@@ -192,7 +281,7 @@ body {
     justify-content: space-between;
     padding: 0 1.5rem;
     border-bottom: 1px solid var(--border-color);
-    background: white;
+    background: var(--bg-light);
     position: relative;
     z-index: 9999;
 }
@@ -207,9 +296,9 @@ body {
 }
 
 .add-btn {
-    background: transparent;
-    color: var(--text-muted);
-    border: none;
+    background: var(--bg-card);
+    color: var(--text-main);
+    border: 1px solid var(--border-color);
     padding: 4px 8px;
     font-size: 0.9rem;
     cursor: pointer;
@@ -217,6 +306,7 @@ body {
     align-items: center;
     gap: 4px;
 }
+
 
 .add-btn:hover {
     color: var(--text-main);
@@ -561,9 +651,9 @@ body {
 }
 
 .action-btn {
-    border: 1px solid #e2e8f0;
-    background: white;
-    color: #475569;
+    border: 1px solid var(--border-color);
+    background: var(--input-bg);
+    color: var(--text-muted);
     padding: 6px 14px;
     border-radius: 8px;
     /* Softer rounded corners */
@@ -584,10 +674,10 @@ body {
 
 .action-btn:hover {
     transform: translateY(-2px);
-    background: linear-gradient(to bottom, #ffffff, #f8fafc);
+    background: var(--contact-row-hover);
     box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-    border-color: #94a3b8;
-    color: #0f172a;
+    border-color: var(--text-muted);
+    color: var(--text-main);
 }
 
 .action-btn:active {
@@ -696,14 +786,14 @@ body {
 }
 
 .action-btn.danger {
-    color: #ef4444;
-    border-color: #fee2e2;
-    background: #fef2f2;
+    color: var(--danger-color);
+    border-color: var(--danger-bg);
+    background: var(--danger-bg);
 }
 
 .action-btn.danger:hover {
-    background: #fee2e2;
-    border-color: #ef4444;
+    background: var(--danger-bg);
+    border-color: var(--danger-color);
 }
 
 /* List Styles */
@@ -717,7 +807,7 @@ body {
 }
 
 .list-group {
-    background: white;
+    background: var(--contact-row-bg);
     margin-bottom: 1.5rem;
 }
 
@@ -748,9 +838,9 @@ body {
 
 .list-item {
     padding: 12px 1.5rem 12px 0.75rem;
-    border-bottom: 1px solid #f0f2f5;
+    border-bottom: 1px solid var(--border-color);
     transition: all 0.2s;
-    background: #fff;
+    background: var(--contact-row-bg);
 }
 
 .list-header {
@@ -765,10 +855,42 @@ body {
     z-index: 5;
 }
 
-.list-item:hover {
-    background: #fff;
+.list-item.selected {
+    background: var(--contact-row-selected) !important;
+}
+
+.list-item:not(.selected):hover {
+    background: var(--contact-row-hover) !important;
     box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08);
     z-index: 10;
+    transform: translateY(-2px);
+}
+
+.contact-detail-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    box-shadow: var(--soft-shadow);
+    transition: all 0.3s ease;
+}
+
+.contact-card {
+    background: var(--contact-card-bg);
+    border: 2px solid var(--contact-card-border);
+    border-radius: 10px;
+    overflow: hidden;
+    transition: all 0.2s;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.contact-card.selected {
+    background: var(--contact-row-selected);
+    border-color: var(--primary-color);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+}
+
+.contact-card:not(.selected):hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
     transform: translateY(-2px);
 }
 
@@ -1053,12 +1175,12 @@ body {
 .prof-badge {
     display: inline-flex;
     padding: 4px 12px;
-    background: #f0f4f8;
-    color: #2c3e50;
+    background: var(--badge-prof-bg);
+    color: var(--badge-prof-color);
     border-radius: 20px;
     font-size: 0.75rem;
     font-weight: 600;
-    border: 1px solid rgba(0, 0, 0, 0.05);
+    border: 1px solid var(--border-color);
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
 }
 
@@ -1101,7 +1223,7 @@ body {
 /* Summary Footer */
 .summary-footer {
     padding: 12px 1.5rem;
-    background: white;
+    background: var(--bg-light);
     border-top: 1px solid var(--border-color);
     display: flex;
     align-items: center;
@@ -1130,7 +1252,7 @@ body {
     top: calc(100% + 5px);
     right: 0;
     left: auto;
-    background: white;
+    background: var(--bg-light);
     border: 1px solid var(--border-color);
     border-radius: 12px;
     width: 260px;
@@ -1163,7 +1285,7 @@ body {
 }
 
 .dropdown-item:hover {
-    background: var(--bg-gray);
+    background: var(--contact-row-hover);
 }
 
 /* Dropdown show class */
@@ -1268,7 +1390,7 @@ body {
 
 .search-input-premium {
     width: 100%;
-    padding: 10px 12px 10px 40px;
+    padding: 10px 45px 10px 40px; /* right padding for clear button and spinner */
     border: 1px solid #e2e8f0;
     border-radius: 8px;
     font-size: 0.9rem;
@@ -1284,6 +1406,42 @@ body {
     width: 420px;
     /* Slight expansion on focus for responsiveness */
 }
+
+/* Clear button within search input */
+.search-clear-btn {
+    position: absolute;
+    right: 36px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: #64748b;
+    font-size: 0.9rem;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Loading spinner */
+.search-spinner {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 14px;
+    height: 14px;
+    border: 2px solid #e2e8f0;
+    border-top: 2px solid var(--primary-color);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+    from { transform: translateY(-50%) rotate(0deg); }
+    to { transform: translateY(-50%) rotate(360deg); }
+}
+
 
 .search-icon-premium {
     position: absolute;
@@ -1415,8 +1573,8 @@ body {
 }
 
 .list-item {
-    border-bottom: 1px solid #f1f5f9;
-    background: #fff;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--contact-row-bg);
     cursor: default;
 }
 
@@ -1427,7 +1585,7 @@ body {
     gap: 15px;
     align-items: center;
     padding: 12px 1.5rem 12px 0.75rem;
-    border-bottom: 1px solid #f1f5f9;
+    border-bottom: 1px solid var(--border-color);
     width: 100%;
 }
 /* Center checkbox in its column */
@@ -1439,7 +1597,7 @@ body {
     /* duplicate .lead-list-grid block removed */
 
 .lead-list-grid:hover {
-    background-color: #f8fafc;
+    background-color: var(--contact-row-hover);
 }
 
 .list-header.contact-list-grid {
@@ -1451,7 +1609,7 @@ body {
     letter-spacing: 0.5px;
     background: var(--header-bg-translucent) !important;
     backdrop-filter: var(--header-blur);
-    border-bottom: 2px solid #e2e8f0;
+    border-bottom: 2px solid var(--border-color);
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
     /* Added elevation for depth */
 }
@@ -1968,7 +2126,76 @@ body {
     width: 320px;
 }
 
-/* Profile */
+
+/* ✅ System dark mode — only applies when user hasn't explicitly chosen light */
+/* html[data-theme="light"] is excluded so manual light mode always wins */
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme="light"]) :root,
+  html:not([data-theme="light"]):root {
+    --bg-light: #111827;
+    --bg-gray: #1f2937;
+    --text-main: #f9fafb;
+    --text-muted: #9ca3af;
+    --border-color: #374151;
+    --sidebar-bg: #1f2937;
+    --sidebar-text: #d1d5db;
+    --sidebar-active-bg: #374151;
+    --header-bg-translucent: rgba(17, 24, 39, 0.7);
+  }
+
+  html:not([data-theme="light"]) .search-min {
+    background: var(--bg-gray);
+    border-color: var(--border-color);
+  }
+
+  html:not([data-theme="light"]) .search-input-premium {
+    background: var(--bg-gray);
+    border-color: var(--border-color);
+    color: var(--text-main);
+  }
+
+  html:not([data-theme="light"]) .search-input-premium::placeholder {
+    color: var(--text-muted);
+  }
+
+  html:not([data-theme="light"]) .search-min input {
+    color: var(--text-main);
+  }
+
+  html:not([data-theme="light"]) .search-clear-btn {
+    color: var(--text-muted);
+  }
+
+  html:not([data-theme="light"]) .search-spinner {
+    border-top-color: var(--text-muted);
+  }
+}
+
+/* ✅ Force light mode variables when explicitly selected — overrides everything */
+html[data-theme="light"] {
+  --bg-light: #ffffff !important;
+  --bg-gray: #f8fafc !important;
+  --border-color: #e2e8f0 !important;
+  --text-main: #0f172a !important;
+  --text-muted: #64748b !important;
+  --sidebar-bg: #0f172a !important;
+  --sidebar-text: #94a3b8 !important;
+  --sidebar-active-bg: #1e293b !important;
+  --header-bg-translucent: rgba(255, 255, 255, 0.7) !important;
+  --contact-row-bg: #ffffff !important;
+  --contact-row-hover: #fafbfc !important;
+  --contact-card-bg: #ffffff !important;
+  --contact-card-border: #e5e7eb !important;
+  --contact-card-header: #f9fafb !important;
+  --toolbar-bg: #ffffff !important;
+  --input-bg: #ffffff !important;
+  --input-border: #cbd5e1 !important;
+  --input-text: #1e293b !important;
+  --badge-prof-bg: #f1f5f9 !important;
+  --badge-prof-color: #475569 !important;
+}
+
+
 .modern-table th:nth-child(3) {
     width: 220px;
 }
@@ -2777,8 +3004,9 @@ body {
     align-items: center;
     gap: 8px;
     transition: all 0.2s;
-    background: white;
-    border: 1px solid #e3e6e8;
+    background: var(--stat-pill-bg);
+    border: 1px solid var(--stat-pill-border);
+    color: var(--text-main);
 }
 
 .stat-pill:hover {
@@ -2814,7 +3042,7 @@ body {
     position: sticky;
     top: 0;
     z-index: 101;
-    background: white;
+    background: var(--toolbar-bg);
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
     min-height: 65px;
     /* Boutique Standard */
@@ -2828,9 +3056,9 @@ body {
     top: 45px;
     /* Ultra-flush: compacted to 45px */
     z-index: 99;
-    background: #f8fafc !important;
+    background: var(--bg-gray) !important;
     /* Ensure opacity */
-    border-bottom: 2px solid #e2e8f0;
+    border-bottom: 2px solid var(--border-color);
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
     /* Stronger shadow for depth */
     padding: 15px 12px;
@@ -2855,7 +3083,7 @@ body {
     position: sticky;
     top: 55px;
     z-index: 99;
-    background: #f8fafc;
+    background: var(--bg-gray);
 }
 
 /* Premium Lift & Shadow Hover Animation */
@@ -2866,7 +3094,7 @@ body {
 
 .list-item:hover,
 .campaign-table tbody tr:hover {
-    background: #fff;
+    background: var(--contact-row-hover);
     box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08);
     z-index: 10;
     transform: translateY(-2px);
@@ -3064,7 +3292,7 @@ body {
     position: absolute;
     top: 100%;
     left: 0;
-    background: white;
+    background: var(--bg-card);
     border: 1px solid var(--border-color);
     border-radius: 8px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);

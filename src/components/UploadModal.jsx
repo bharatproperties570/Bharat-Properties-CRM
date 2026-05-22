@@ -170,7 +170,7 @@ const UploadModal = ({ isOpen, onClose, onSave, project = null, type = 'project'
                     uploadData.append('docType', 'Images');
                     
                     try {
-                        const res = await api.post('/upload', uploadData, { headers: { 'Content-Type': 'multipart/form-data' } });
+                        const res = await api.post('/upload', uploadData);
                         if (res.data && res.data.success) {
                             setUploadProgress(prev => ({ ...prev, [`img-${index}`]: 'success' }));
                             return { title: img.title || 'Untitled', category: img.category || 'Main', url: res.data.url };
@@ -196,7 +196,7 @@ const UploadModal = ({ isOpen, onClose, onSave, project = null, type = 'project'
                     uploadData.append('docType', 'Videos');
                     
                     try {
-                        const res = await api.post('/upload', uploadData, { headers: { 'Content-Type': 'multipart/form-data' } });
+                        const res = await api.post('/upload', uploadData);
                         if (res.data && res.data.success) {
                             setUploadProgress(prev => ({ ...prev, [`vid-${index}`]: 'success' }));
                             return { title: vid.title || 'Untitled', type: 'Upload', url: res.data.url };

@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api, enrichmentAPI } from '../../utils/api';
 import { renderValue } from '../../utils/renderUtils';
-const inventoryData = [];
 import { getInitials } from '../../utils/helpers';
 import LeadConversionService from '../../services/LeadConversionService';
 // import { calculateLeadScore, getLeadTemperature } from '../../utils/leadScoring';
@@ -20,7 +19,7 @@ import AddLeadModal from '../../components/AddLeadModal';
 import AddDealModal from '../../components/AddDealModal';
 import SendMessageModal from '../../components/SendMessageModal';
 import CreateActivityModal from '../../components/CreateActivityModal';
-import { parseBudget, parseSizeSqYard, calculateMatch } from '../../utils/matchingLogic';
+
 
 
 
@@ -80,7 +79,8 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
     const [contactDocuments, setContactDocuments] = useState([]);
     const [matchedDeals, setMatchedDeals] = useState([]);
     const [loadingMatches, setLoadingMatches] = useState(false);
-    const [liveScoreData, setLiveScoreData] = useState({ score: 0, label: 'Cold', color: '#94a3b8', tempClass: 'cold' });
+    // Live score state with sensible defaults; will be populated for lead records via live API
+    const [liveScoreData, setLiveScoreData] = useState({ score: 0, label: 'Cold', color: 'var(--text-muted)', tempClass: 'cold' });
 
     const showNotification = (message) => {
         setToast(message);
@@ -180,27 +180,61 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                 const contactEmail = recordData?.email || recordData?.emails?.[0]?.address;
 
                 setActiveDeals(deals.filter(d => {
-                    // Filter out closed/cancelled deals for the "Active" section
+                    // ── Rule: Show deals where contact/lead is the OWNER or ASSOCIATE.
+                    // Sending a quotation to a lead does NOT qualify — buyers/quotation recipients excluded.
+
+                    // 1. Filter out closed/cancelled deals
                     const closedStages = ['lost', 'won', 'Cancelled', 'Closed Won', 'Closed Lost'];
                     if (closedStages.some(s => d.stage?.toLowerCase()?.includes(s.toLowerCase()))) return false;
 
-                    // Formal ID matches
-                    const isOwnerFormal = (d.owner && (d.owner._id === id || d.owner === id)) ||
-                        (d.partyStructure?.owner && (d.partyStructure.owner._id === id || d.partyStructure.owner === id));
-                    const isAssociateFormal = d.associatedContact && (d.associatedContact._id === id || d.associatedContact === id);
-                    const isBuyerFormal = d.partyStructure?.buyer && (d.partyStructure.buyer._id === id || d.partyStructure.buyer === id);
-                    
-                    if (isOwnerFormal || isAssociateFormal || isBuyerFormal) return true;
+                    const matchIdentity = (entity) => {
+                        if (!entity) return false;
+                        const entityId = entity._id || entity;
+                        if (entityId === id) return true;
 
-                    // Heuristic fallback for legacy/unlinked data
-                    const dOwnerPhone = normalize(d.owner?.phone || d.owner);
-                    const dBuyerPhone = normalize(d.partyStructure?.buyer?.phone || d.partyStructure?.buyer);
-                    const dOwnerEmail = d.owner?.email || (typeof d.owner === 'string' && d.owner.includes('@') ? d.owner : null);
-                    const dBuyerEmail = d.partyStructure?.buyer?.email || (typeof d.partyStructure?.buyer === 'string' && d.partyStructure.buyer.includes('@') ? d.partyStructure.buyer : null);
+                        // Smart match by phone/email for lead <-> contact cross linking
+                        if (typeof entity === 'object') {
+                            const phonesMatch = Array.isArray(entity.phones) && entity.phones.some(p => normalize(p.number) === contactPhone);
+                            const emailsMatch = Array.isArray(entity.emails) && entity.emails.some(e => e.address === contactEmail);
+                            return !!((contactPhone && phonesMatch) || (contactEmail && emailsMatch));
+                        }
 
-                    const phoneMatch = contactPhone && (dOwnerPhone === contactPhone || dBuyerPhone === contactPhone);
-                    const emailMatch = contactEmail && (dOwnerEmail === contactEmail || dBuyerEmail === contactEmail);
-                    
+                        // If it's a legacy string (phone or email)
+                        const strVal = String(entity);
+                        return !!((contactPhone && normalize(strVal) === contactPhone) || (contactEmail && strVal === contactEmail));
+                    };
+
+                    // 2a. Formal OWNER match (d.owner or partyStructure.owner)
+                    const isOwnerFormal = matchIdentity(d.owner) || matchIdentity(d.partyStructure?.owner);
+
+                    // 2b. Formal ASSOCIATE match — only d.associates[] which is set via "Add Owner" form.
+                    //     d.associatedContact is auto-set when a quotation is sent — do NOT use it here.
+                    const isAssociateFormal =
+                        Array.isArray(d.associates) && d.associates.some(a => matchIdentity(a.contact || a));
+
+                    if (isOwnerFormal || isAssociateFormal) return true;
+
+                    // 3. Heuristic fallback for legacy/unlinked data — match owner phone/email only (NOT buyer)
+                    let dOwnerPhone = null;
+                    let dOwnerEmail = null;
+                    if (d.owner && typeof d.owner === 'object') {
+                        if (Array.isArray(d.owner.phones) && d.owner.phones.length > 0) {
+                            dOwnerPhone = normalize(d.owner.phones[0]?.number);
+                        }
+                        if (Array.isArray(d.owner.emails) && d.owner.emails.length > 0) {
+                            dOwnerEmail = d.owner.emails[0]?.address;
+                        }
+                    } else if (typeof d.owner === 'string') {
+                        if (d.owner.includes('@')) {
+                            dOwnerEmail = d.owner;
+                        } else {
+                            dOwnerPhone = normalize(d.owner);
+                        }
+                    }
+
+                    const phoneMatch = contactPhone && dOwnerPhone === contactPhone;
+                    const emailMatch = contactEmail && dOwnerEmail === contactEmail;
+
                     return phoneMatch || emailMatch;
                 }));
             }
@@ -224,18 +258,32 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                         history.push(item);
                     }
 
+                    const matchIdentity = (entity) => {
+                        if (!entity) return false;
+                        const entityId = entity._id || entity;
+                        if (entityId === id) return true;
+
+                        // Smart match by phone/email for lead <-> contact cross linking
+                        if (typeof entity === 'object') {
+                            const phonesMatch = Array.isArray(entity.phones) && entity.phones.some(p => normalize(p.number) === contactPhone);
+                            const emailsMatch = Array.isArray(entity.emails) && entity.emails.some(e => e.address === contactEmail);
+                            return !!((contactPhone && phonesMatch) || (contactEmail && emailsMatch));
+                        }
+
+                        // If it's a legacy string (phone or email)
+                        const strVal = String(entity);
+                        return !!((contactPhone && normalize(strVal) === contactPhone) || (contactEmail && strVal === contactEmail));
+                    };
+
                     // Check formal owner link
-                    const isFormalOwner = item.owners?.some(o => (o._id === id || o === id));
+                    const isFormalOwner = item.owners?.some(o => matchIdentity(o));
                     if (isFormalOwner) {
                         owned.push({ ...item, matchRole: 'OWNER' });
                         return;
                     }
 
                     // Check formal associate link
-                    const associateMatch = item.associates?.find(a => {
-                        const aContact = a.contact || a;
-                        return (aContact._id === id || aContact === id);
-                    });
+                    const associateMatch = item.associates?.find(a => matchIdentity(a.contact || a));
                     if (associateMatch) {
                         owned.push({ 
                             ...item, 
@@ -264,46 +312,82 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
             if (type === 'lead') {
                 setLoadingMatches(true);
                 try {
-                    const inventoryRes = await api.get('inventory', { params: { limit: 100 } });
-                    if (inventoryRes.data && inventoryRes.data.success) {
-                        const inventoryItems = inventoryRes.data.records || [];
-                        const requirementVal = renderLookup(recordData.requirement, "");
-                        const locationVal = renderLookup(recordData.searchLocation || recordData.location, "");
-                        const budgetVal = (recordData.budgetMin || recordData.budgetMax)
-                            ? `₹${recordData.budgetMin} - ₹${recordData.budgetMax}`
-                            : renderLookup(recordData.budget, "");
-                        
-                        // Robust Area/Size extraction
-                        let sizeVal = "";
-                        if (recordData.areaMin || recordData.areaMax) {
-                            sizeVal = `${recordData.areaMin || ""}-${recordData.areaMax || ""} ${renderLookup(recordData.areaMetric, "")}`.trim();
-                        } else {
-                            sizeVal = renderLookup(recordData.size || recordData.area, "");
+                    let budgetFlexibility = 10;
+                    let sizeFlexibility = 10;
+                    let weights = { location: 30, type: 20, budget: 25, size: 25 };
+                    
+                    const savedWeights = localStorage.getItem(`match_weights_${id}`);
+                    const savedFlex = localStorage.getItem(`match_flex_${id}`);
+                    if (savedWeights) {
+                        try {
+                            weights = JSON.parse(savedWeights);
+                        } catch (e) {
+                            console.warn("Failed to parse weights settings:", e);
                         }
+                    }
+                    if (savedFlex) {
+                        try { 
+                            const { budget, size } = JSON.parse(savedFlex);
+                            budgetFlexibility = budget;
+                            sizeFlexibility = size;
+                        } catch (e) {
+                            console.warn("Failed to parse flexibility settings:", e);
+                        }
+                    }
 
-                        const baseBudget = parseBudget(budgetVal);
-                        const leadSize = parseSizeSqYard(sizeVal);
-                        
-                        // Normalized lead type and location for matching engine
-                        const leadTypeNormalize = (requirementVal || "").toLowerCase();
-                        const leadLocNormalize = (locationVal || "").toLowerCase();
+                    const matchRes = await api.get('deals/match', { 
+                        params: { 
+                            leadId: id, 
+                            budgetFlexibility, 
+                            sizeFlexibility, 
+                            weights: JSON.stringify(weights),
+                            showOtherCities: false
+                        } 
+                    });
 
-                        const leadContext = {
-                            baseBudget,
-                            leadSize,
-                            leadType: leadTypeNormalize,
-                            leadLocation: leadLocNormalize,
-                            leadLocationSectors: leadLocNormalize.split(',').map(s => s.trim()).filter(Boolean)
-                        };
+                    if (matchRes.data && matchRes.data.success) {
+                        const rawMatches = matchRes.data.data || [];
+                        const mappedMatches = rawMatches.map(item => {
+                            const subCatVal = renderLookup(item.subCategory, null) || renderLookup(item.inventoryId?.subCategory, null) || renderLookup(item.category, null) || renderLookup(item.inventoryId?.category, null) || 'Unit';
+                            const locationVal = renderLookup(item.location, null) || renderLookup(item.inventoryId?.address?.locality, null) || '';
+                            
+                            // Format Size safely including lookup resolution
+                            let sizeVal = '';
+                            const sizeConfigVal = renderLookup(item.sizeConfig, null) || renderLookup(item.inventoryId?.sizeConfig, null);
+                            if (sizeConfigVal && sizeConfigVal !== '-') {
+                                sizeVal = sizeConfigVal;
+                            } else {
+                                const sz = item.size || item.inventoryId?.size;
+                                if (sz) {
+                                    if (typeof sz === 'object') {
+                                        if (sz.value) {
+                                            sizeVal = `${sz.value} ${sz.unit || 'Sq.Yd.'}`;
+                                        } else if (sz.lookup_value) {
+                                            sizeVal = sz.lookup_value;
+                                        } else {
+                                            sizeVal = JSON.stringify(sz);
+                                        }
+                                    } else {
+                                        sizeVal = String(sz);
+                                    }
+                                } else {
+                                    sizeVal = 'Size N/A';
+                                }
+                            }
 
-                        console.log(`[Matching] Context:`, leadContext);
-
-                        const weights = { location: 40, type: 20, budget: 20, size: 20 };
-                        const options = { budgetFlexibility: 30, sizeFlexibility: 30, includeNearby: true, minMatchScore: 20 };
-                        const matches = calculateMatch(recordData, leadContext, weights, options, inventoryItems);
-                        
-                        console.log(`[Matching] Found ${matches.length} matches for lead ${id}`);
-                        setMatchedDeals(matches.slice(0, 5));
+                            return {
+                                ...item,
+                                matchPercentage: item.score || 0,
+                                subCategory: subCatVal,
+                                location: locationVal,
+                                imageUrl: item.imageUrl || item.inventoryId?.imageUrl || item.inventoryId?.propertyImages?.[0] || item.inventoryId?.images?.[0] || '',
+                                size: sizeVal,
+                                price: item.price || item.quotePrice || 0,
+                                projectName: item.projectName || item.inventoryId?.projectName || 'Unnamed Project'
+                            };
+                        });
+                        console.log(`[Matching] Found ${mappedMatches.length} matching deals for lead ${id}`);
+                        setMatchedDeals(mappedMatches.slice(0, 5));
                     }
                 } catch (matchErr) {
                     console.error("Error matching deals:", matchErr);
@@ -320,7 +404,6 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
         try {
             const res = await api.get(`stage-engine/leads/scores?leadId=${id}`);
             if (res.data && res.data.success) {
-                // More robust lookup: find any key that matches or just take the first entry if filtering by leadId
                 const scores = res.data.scores || {};
                 const live = scores[id] || Object.values(scores)[0];
 
@@ -328,15 +411,23 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                     setLiveScoreData({
                         score: Math.round(live.score || 0),
                         label: live.label || 'Unknown',
-                        color: live.color || '#94a3b8',
+                        color: live.color || 'var(--text-muted)',
                         tempClass: live.tempClass || 'cold'
                     });
                 }
             }
         } catch (err) {
             console.error("Error fetching live score:", err);
+            // Fallback placeholder data for live score when API fails
+            setLiveScoreData({
+                score: 0,
+                label: 'N/A',
+                color: 'var(--text-muted)',
+                tempClass: 'cold'
+            });
         }
     }, []);
+
     const fetchData = React.useCallback(async () => {
         if (!contactId) return;
 
@@ -384,7 +475,10 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                     setRecordType('lead');
                     fetchUnifiedTimeline(contactId, 'lead');
                     fetchRelatedData(contactId, 'lead', leadData);
+                    // Ensure live score is fetched for fallback lead records
+                    fetchLiveScore(contactId);
                 } else {
+                    // No data found, keep contact null for graceful UI handling
                     setContact(null);
                 }
             } catch (e) {
@@ -400,7 +494,7 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
         // ── LIVE REFRESH LISTENER ───────────────────────────────────────────
         // Triggered by various modals after data changes
         const handleRefresh = (e) => {
-            const { entityId, type } = e.detail || {};
+            const { entityId } = e.detail || {};
             
             // If it's a specific entity update, check if it matches current page
             if (entityId && entityId !== contactId) return;
@@ -443,183 +537,9 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
     }
 
     return (
-        <div className="contact-detail-page" style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#f8fafc', overflow: 'hidden' }}>
-            <style>
-                {`
-                :root {
-                    --premium-blue: #4f46e5;
-                    --premium-blue-glow: rgba(79, 70, 229, 0.15);
-                    --glass-bg: rgba(255, 255, 255, 0.7);
-                    --glass-border: rgba(255, 255, 255, 0.3);
-                    --soft-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
-                }
-                .glass-card {
-                    background: var(--glass-bg);
-                    backdrop-filter: blur(12px);
-                    -webkit-backdrop-filter: blur(12px);
-                    border: 1px solid var(--glass-border);
-                    box-shadow: var(--soft-shadow);
-                    transition: all 0.3s ease;
-                }
-                .glass-card:hover {
-                    box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.12);
-                    transform: translateY(-2px);
-                }
-                .editable-field {
-                    transition: all 0.2s ease;
-                    border-bottom: 2px solid transparent;
-                }
-                .editable-field:focus {
-                    background: #f8fafc;
-                    outline: none;
-                    border-bottom: 2px solid var(--premium-blue);
-                }
-                .pulse-dot {
-                    width: 8px;
-                    height: 8px;
-                    background: #16a34a;
-                    border-radius: 50%;
-                    box-shadow: 0 0 0 rgba(22, 163, 74, 0.4);
-                    animation: pulse 2s infinite;
-                }
-                @keyframes pulse {
-                    0% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.4); }
-                    70% { box-shadow: 0 0 0 10px rgba(22, 163, 74, 0); }
-                    100% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0); }
-                }
-                /* Hide scrollbar utility */
-                .no-scrollbar::-webkit-scrollbar {
-                    display: none;
-                }
-                .no-scrollbar {
-                    -ms-overflow-style: none;
-                    scrollbar-width: none;
-                }
-                
-                /* Property Deal Journey Pipeline Styles */
-                .pipeline-container {
-                    display: flex;
-                    width: 100%;
-                    gap: 4px;
-                    padding: 8px 0;
-                    overflow-x: auto;
-                    margin-bottom: 8px;
-                }
-                .pipeline-step {
-                    flex: 1;
-                    min-width: 100px;
-                    height: 40px;
-                    position: relative;
-                    display: flex;
-                    alignItems: center;
-                    justifyContent: center;
-                    font-size: 0.65rem;
-                    font-weight: 800;
-                    text-transform: uppercase;
-                    color: #fff;
-                    cursor: pointer;
-                    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-                    clip-path: polygon(calc(100% - 10px) 0%, 100% 50%, calc(100% - 10px) 100%, 0% 100%, 10px 50%, 0% 0%);
-                }
-                .pipeline-step:first-child {
-                    clip-path: polygon(calc(100% - 10px) 0%, 100% 50%, calc(100% - 10px) 100%, 0% 100%, 0% 0%);
-                    border-top-left-radius: 8px;
-                    border-bottom-left-radius: 8px;
-                }
-                .pipeline-step:last-child {
-                    clip-path: polygon(100% 0%, 100% 100%, 0% 100%, 10px 50%, 0% 0%);
-                    border-top-right-radius: 8px;
-                    border-bottom-right-radius: 8px;
-                }
-                .pipeline-step.active {
-                    animation: glow 1.5s infinite ease-in-out;
-                    z-index: 2;
-                    transform: scale(1.02);
-                }
-                .pipeline-step.completed {
-                    opacity: 0.85;
-                }
-                .pipeline-step.future {
-                    background: #f1f5f9 !important;
-                    color: #94a3b8 !important;
-                }
-                @keyframes glow {
-                    0% { filter: drop-shadow(0 0 2px var(--glow-color)); }
-                    50% { filter: drop-shadow(0 0 8px var(--glow-color)); }
-                    100% { filter: drop-shadow(0 0 2px var(--glow-color)); }
-                }
-                .pipeline-step:hover {
-                    filter: brightness(1.1);
-                    transform: translateY(-2px);
-                }
-                #pipeline-wrapper {
-                    position: sticky;
-                    top: 0;
-                    z-index: 50;
-                    background: rgba(255, 255, 255, 0.9);
-                    backdrop-filter: blur(8px);
-                    padding: 12px 0;
-                    margin: -1.5rem -2rem 1.5rem -2rem;
-                    padding-left: 2rem;
-                    padding-right: 2rem;
-                    border-bottom: 1px solid #e2e8f0;
-                }
-                
-                /* Mobile Optimized Layout */
-                @media (max-width: 768px) {
-                    .contact-detail-page {
-                        overflow-y: auto !important;
-                    }
-                    .desktop-grid {
-                        flex-direction: column !important;
-                        height: auto !important;
-                        padding: 12px 10px !important;
-                        gap: 12px !important;
-                        overflow-y: visible !important;
-                    }
-                    .mobile-col {
-                        flex: 1 1 100% !important;
-                        width: 100% !important;
-                        max-width: 100% !important;
-                        min-width: 0 !important;
-                        padding-bottom: 80px !important;
-                    }
-                    .hide-mobile {
-                        display: none !important;
-                    }
-                    .mobile-tab-nav {
-                        display: flex !important;
-                        background: #fff;
-                        border-bottom: 1px solid #e2e8f0;
-                        padding: 0 10px;
-                        position: sticky;
-                        top: 0;
-                        z-index: 90;
-                    }
-                    .mobile-tab-btn {
-                        flex: 1;
-                        padding: 12px 5px;
-                        font-size: 0.7rem;
-                        font-weight: 800;
-                        color: #64748b;
-                        border-bottom: 2px solid transparent;
-                        text-align: center;
-                        text-transform: uppercase;
-                        letter-spacing: 0.5px;
-                    }
-                    .mobile-tab-btn.active {
-                        color: #4f46e5;
-                        border-bottom-color: #4f46e5;
-                    }
-                    .mobile-bottom-bar {
-                        display: flex !important;
-                    }
-                    .detail-header-actions {
-                        display: none !important;
-                    }
-                }
-                `}
-            </style>
+        <div className="contact-detail-page" style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--bg-light)', overflow: 'hidden' }}>
+
+
             <ContactDetailHeader 
                 contact={contact}
                 recordType={recordType}
@@ -652,16 +572,16 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                     <div className="no-scrollbar" style={{
                         width: '100%',
                         padding: '1.5rem 2rem 0.5rem 2rem',
-                        borderBottom: '1px solid #e2e8f0',
-                        background: '#fff',
+                        borderBottom: '1px solid var(--border-color)',
+                        background: 'var(--contact-card-bg)',
                         position: 'relative'
                     }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                            <span style={{ fontSize: '0.8rem', fontWeight: 900, color: '#0f172a', textTransform: 'uppercase', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <i className="fas fa-chart-line" style={{ color: '#4f46e5' }}></i> Enterprise Lead Pipeline
+                            <span style={{ fontSize: '0.8rem', fontWeight: 900, color: 'var(--text-main)', textTransform: 'uppercase', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <i className="fas fa-chart-line" style={{ color: 'var(--premium-blue)' }}></i> Enterprise Lead Pipeline
                             </span>
-                            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b' }}>
-                                TECHNICAL STATUS: <span style={{ color: '#4f46e5', fontWeight: 900 }}>{String(renderLookup(contact.stage) || 'New').toUpperCase()}</span>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>
+                                TECHNICAL STATUS: <span style={{ color: 'var(--premium-blue)', fontWeight: 900 }}>{String(renderLookup(contact.stage) || 'New').toUpperCase()}</span>
                             </span>
                         </div>
                         <EnterprisePipeline
@@ -682,13 +602,13 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                 )}
 
                 {/* THREE COLUMN GRID - PROFESSIONAL DASHBOARD */}
-                <div className="no-scrollbar desktop-grid" style={{ flex: 1, display: 'flex', gap: '16px', padding: '12px 24px', height: 'calc(100vh - 250px)', overflow: 'hidden', background: '#f8fafc' }}>
+                <div className="no-scrollbar desktop-grid" style={{ flex: 1, display: 'flex', gap: '16px', padding: '12px 24px', height: 'calc(100vh - 250px)', overflow: 'hidden', background: 'var(--bg-light)' }}>
                     
                     {/* COLUMN 1: LEFT - Profile & Preferences */}
                     <div className={`mobile-col ${isMobile && activeTab !== 'overview' ? 'hide-mobile' : ''}`} style={{ flex: '0 0 400px', display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto', minHeight: 0, paddingBottom: '20px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                            <i className="fas fa-id-card" style={{ color: '#4f46e5' }}></i>
-                            <span style={{ fontSize: '0.7rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Contact Intelligence</span>
+                            <i className="fas fa-id-card" style={{ color: 'var(--premium-blue)' }}></i>
+                            <span style={{ fontSize: '0.7rem', fontWeight: 900, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Contact Intelligence</span>
                         </div>
                         
                         <ContactCoreInfo 
@@ -713,18 +633,18 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
 
                     {/* COLUMN 2: CENTER - Interaction Intelligence */}
                     <div className={`mobile-col ${isMobile && activeTab !== 'activities' ? 'hide-mobile' : ''}`} style={{ flex: '1', display: 'flex', flexDirection: 'column', minWidth: '0', minHeight: 0, position: 'relative', overflowY: 'auto', paddingBottom: '20px' }}>
-                        <div className="glass-card activity-timeline-container" style={{ 
-                            background: '#fff',
+                        <div className="/* Inline styles moved to index.css */ activity-timeline-container" style={{ 
+                            background: 'var(--contact-card-bg)',
                             borderRadius: '16px',
-                            border: '1px solid #e2e8f0',
+                            border: '1px solid var(--border-color)',
                             boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)',
                             display: 'flex',
                             flexDirection: 'column',
                             minHeight: '100%'
                         }}>
-                            <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', background: '#fff', display: 'flex', alignItems: 'center', gap: '8px', borderTopLeftRadius: '16px', borderTopRightRadius: '16px' }}>
-                                <i className="fas fa-bolt" style={{ color: '#4f46e5' }}></i>
-                                <span style={{ fontSize: '0.75rem', fontWeight: 900, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Interaction Intelligence</span>
+                            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-color)', background: 'var(--contact-card-bg)', display: 'flex', alignItems: 'center', gap: '8px', borderTopLeftRadius: '16px', borderTopRightRadius: '16px' }}>
+                                <i className="fas fa-bolt" style={{ color: 'var(--premium-blue)' }}></i>
+                                <span style={{ fontSize: '0.75rem', fontWeight: 900, color: 'var(--text-main)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Interaction Intelligence</span>
                             </div>
                             <div style={{ padding: '20px', flex: 1, overflow: 'visible' }}>
                                 <UnifiedActivitySection 
@@ -771,8 +691,8 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                         ) : (
                             <>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                                    <i className="fas fa-chart-line" style={{ color: '#4f46e5' }}></i>
-                                    <span style={{ fontSize: '0.7rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Strategic Monitoring</span>
+                                    <i className="fas fa-chart-line" style={{ color: 'var(--premium-blue)' }}></i>
+                                    <span style={{ fontSize: '0.7rem', fontWeight: 900, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Strategic Monitoring</span>
                                 </div>
                                 {recordType === 'lead' && (
                                     <ContactPropertyRequirement
@@ -866,8 +786,7 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                     contactId={contactId}
                     sequences={sequences}
                     enrollments={enrollments}
-                    onEnroll={(seqId) => {
-                        // handleEnroll(seqId);
+                    onEnroll={() => {
                         setIsEnrollModalOpen(false);
                     }}
                 />
@@ -878,7 +797,7 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                     position: 'fixed',
                     bottom: 0,
                     width: '100%',
-                    background: 'rgba(255, 255, 255, 0.9)',
+                    background: 'var(--glass-bg)',
                     backdropFilter: 'blur(20px)',
                     WebkitBackdropFilter: 'blur(20px)',
                     borderTop: '1px solid rgba(226, 232, 240, 0.8)',
@@ -888,13 +807,13 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                     boxShadow: '0 -10px 25px rgba(0,0,0,0.08)'
                 }}>
                     <button 
-                        onClick={() => setIsCallModalOpen(true)}
+                        onClick={() => startCall(contact, { entityId: contactId, entityType: recordType.charAt(0).toUpperCase() + recordType.slice(1) }, handleCallComplete)}
                         style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', background: 'transparent', border: 'none', gap: '4px', cursor: 'pointer' }}
                     >
-                        <div style={{ width: '42px', height: '42px', background: '#ecfdf5', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '2px', border: '1px solid #d1fae5' }}>
-                            <i className="fas fa-phone-alt" style={{ color: '#059669', fontSize: '1.1rem' }}></i>
+                        <div style={{ width: '42px', height: '42px', background: 'var(--stat-property-bg)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '2px', border: '1px solid var(--border-color)' }}>
+                            <i className="fas fa-phone-alt" style={{ color: 'var(--success-color)', fontSize: '1.1rem' }}></i>
                         </div>
-                        <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#065f46' }}>Call</span>
+                        <span style={{ fontSize: '0.65rem', fontWeight: 800, color: 'var(--success-color)' }}>Call</span>
                     </button>
                     <button 
                         onClick={() => {
@@ -903,19 +822,19 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                         }}
                         style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', background: 'transparent', border: 'none', gap: '4px', cursor: 'pointer' }}
                     >
-                        <div style={{ width: '42px', height: '42px', background: '#f0fdf4', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '2px', border: '1px solid #dcfce7' }}>
-                            <i className="fab fa-whatsapp" style={{ color: '#22c55e', fontSize: '1.2rem' }}></i>
+                        <div style={{ width: '42px', height: '42px', background: 'var(--stat-property-bg)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '2px', border: '1px solid var(--stat-property-bg)' }}>
+                            <i className="fab fa-whatsapp" style={{ color: 'var(--success-color)', fontSize: '1.2rem' }}></i>
                         </div>
-                        <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#166534' }}>WA</span>
+                        <span style={{ fontSize: '0.65rem', fontWeight: 800, color: 'var(--success-color)' }}>WA</span>
                     </button>
                     <button 
                         onClick={() => setIsEmailModalOpen(true)}
                         style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', background: 'transparent', border: 'none', gap: '4px', cursor: 'pointer' }}
                     >
-                        <div style={{ width: '42px', height: '42px', background: '#f5f3ff', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '2px', border: '1px solid #ddd6fe' }}>
-                            <i className="fas fa-envelope" style={{ color: '#7c3aed', fontSize: '1.1rem' }}></i>
+                        <div style={{ width: '42px', height: '42px', background: 'var(--stat-sales-bg)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '2px', border: '1px solid var(--stat-sales-bg)' }}>
+                            <i className="fas fa-envelope" style={{ color: 'var(--stat-sales-color)', fontSize: '1.1rem' }}></i>
                         </div>
-                        <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#5b21b6' }}>Email</span>
+                        <span style={{ fontSize: '0.65rem', fontWeight: 800, color: 'var(--stat-sales-color)' }}>Email</span>
                     </button>
                     <div style={{ padding: '0 12px', display: 'flex', gap: '8px', alignItems: 'center' }}>
                         <button
@@ -929,7 +848,7 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                             }}
                             style={{
                                 background: 'var(--premium-blue)',
-                                color: '#fff',
+                                color: 'var(--text-inverse)',
                                 padding: '12px 18px',
                                 borderRadius: '14px',
                                 fontSize: '0.75rem',
@@ -946,8 +865,10 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                 {/* TOAST NOTIFICATION */}
                 {
                     toast && (
-                        <div style={{ position: 'fixed', bottom: '80px', left: '50%', transform: 'translateX(-50%)', background: '#1e293b', color: '#fff', padding: '10px 20px', borderRadius: '8px', zIndex: 2000, display: 'flex', alignItems: 'center', gap: '10px', boxShadow: '0 4px 12px rgba(0,0,0,0.2)', fontSize: '0.85rem', fontWeight: 600 }}>
-                            <i className="fas fa-check-circle" style={{ color: '#10b981' }}></i>
+                        <div style={{ position: 'fixed', bottom: '80px', left: '50%', transform: 'translateX(-50%)', background: 'var(--premium-blue)',
+color: 'var(--text-inverse)',
+padding: '12px 18px', borderRadius: '8px', zIndex: 2000, display: 'flex', alignItems: 'center', gap: '10px', boxShadow: '0 4px 12px rgba(0,0,0,0.2)', fontSize: '0.85rem', fontWeight: 600 }}>
+                            <i className="fas fa-check-circle" style={{ color: 'var(--success-color)' }}></i>
                             {toast}
                         </div>
                     )

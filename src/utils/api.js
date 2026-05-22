@@ -41,14 +41,43 @@ export const safeStorage = {
     }
 };
 
-const isProd = getEnvVar('PROD') === 'true' || getEnvVar('PROD') === true;
-const STABLE_TUNNEL_URL = 'https://api.bharatproperties.co/api';
-const rawViteApiUrl = getEnvVar('VITE_API_URL');
-const VITE_API_URL = typeof rawViteApiUrl === 'string' ? rawViteApiUrl : '';
+const isProd = (typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'production') || getEnvVar('PROD') === 'true' || getEnvVar('PROD') === true;
 
-const tempApiUrl = VITE_API_URL || STABLE_TUNNEL_URL;
+// ✅ STABLE: Direct backend URL — no Vercel proxy hop
+const STABLE_TUNNEL_URL = 'https://api.bharatproperties.co/api';
+
+const rawViteApiUrl = getEnvVar('VITE_API_URL');
+const rawProdApiUrl = getEnvVar('VITE_API_URL_PROD');
+const VITE_API_URL = typeof rawViteApiUrl === 'string' ? rawViteApiUrl : '';
+const VITE_API_URL_PROD = typeof rawProdApiUrl === 'string' ? rawProdApiUrl : '';
+
+// Detect if running on production host
+let hostProdOverride = false;
+if (typeof window !== 'undefined' && window.location && window.location.hostname) {
+  hostProdOverride = window.location.hostname.includes('bharatproperties.co') ||
+                     window.location.hostname.includes('vercel.app');
+}
+const finalProd = isProd || hostProdOverride;
+
+// URL Resolution Priority:
+// 1. Local dev: VITE_API_URL (localhost:4000)
+// 2. Production: STABLE_TUNNEL_URL directly (skip Vercel proxy — saves 1 hop)
+const tempApiUrl = finalProd
+    ? STABLE_TUNNEL_URL           // Always direct to backend in production
+    : (VITE_API_URL || STABLE_TUNNEL_URL);
+
 export const API_BASE_URL = typeof tempApiUrl === 'string' ? tempApiUrl : String(tempApiUrl || '');
 export const BASE_BACKEND_URL = API_BASE_URL.replace(/\/api$/, '');
+
+export const fixMediaUrl = (url) => {
+    if (!url) return url;
+    if (typeof url !== 'string') return url;
+    if (url.startsWith('/uploads/') || url.startsWith('uploads/')) {
+        const normalized = url.startsWith('/') ? url : `/${url}`;
+        return `${BASE_BACKEND_URL}${normalized}`;
+    }
+    return url;
+};
 
 // 🚀 Senior Professional: Smart Fallback Logic
 // If localhost fails, some components might choose to use STABLE_TUNNEL_URL
@@ -136,6 +165,12 @@ api.interceptors.request.use((config) => {
         if (token) {
             config.headers.Authorization = `Bearer ${token}`;
         }
+        
+        // Let Axios handle boundary for FormData automatically
+        if (config.data instanceof FormData) {
+            delete config.headers['Content-Type'];
+        }
+
         // Also normalize the URL here for safety if called directly
         if (config.url && config.url.startsWith('/')) {
             config.url = config.url.substring(1);

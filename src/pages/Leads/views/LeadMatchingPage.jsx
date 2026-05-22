@@ -1040,14 +1040,13 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                 </div>
 
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '6px', alignItems: 'center' }}>
-                                    <div style={{ background: '#f1f5f9', padding: '4px 10px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, color: '#475569', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                        <i className="fas fa-building" style={{ color: '#94a3b8', fontSize: '0.7rem' }}></i>
-                                        Type: <span style={{ color: '#2563eb' }}>{renderValue(resolveLookup(item.propertyType, 'Category') || item.type || 'N/A')}</span>
+                                    <div style={{ background: '#eff6ff', padding: '4px 10px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, color: '#1e40af', display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid #dbeafe' }}>
+                                        <i className="fas fa-tag" style={{ color: '#3b82f6', fontSize: '0.7rem' }}></i>
+                                        Sub-Category: <span style={{ color: '#2563eb', fontWeight: 800 }}>{renderValue(resolveLookup(item.subCategory, 'SubCategory') || resolveLookup(item.inventoryId?.subCategory, 'SubCategory') || resolveLookup(item.propertyType, 'Category') || resolveLookup(item.category, 'Category') || item.type || 'N/A')}</span>
                                     </div>
-                                    <span style={{ width: '1px', height: '14px', background: '#e2e8f0', margin: '0 4px' }}></span>
-                                    <div style={{ background: '#f8fafc', padding: '4px 10px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, color: '#64748b', display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid #e2e8f0' }}>
-                                        <i className="fas fa-ruler-combined" style={{ color: '#94a3b8', fontSize: '0.7rem' }}></i>
-                                        Size: <span style={{ color: '#0f172a' }}>{renderValue(resolveLookup(item.sizeConfig, 'Size') || item.size)}</span>
+                                    <div style={{ background: '#fff7ed', padding: '4px 10px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, color: '#c2410c', display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid #ffedd5' }}>
+                                        <i className="fas fa-ruler-combined" style={{ color: '#f97316', fontSize: '0.7rem' }}></i>
+                                        Size: <span style={{ color: '#ea580c', fontWeight: 800 }}>{renderValue(resolveLookup(item.sizeConfig, 'Size') || resolveLookup(item.inventoryId?.sizeConfig, 'Size') || (item.size?.value ? `${item.size.value} ${item.size.unit || 'Sq.Yd.'}` : (typeof item.size === 'string' ? item.size : 'Size N/A')))}</span>
                                     </div>
                                 </div>
 

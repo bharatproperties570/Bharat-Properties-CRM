@@ -4,14 +4,14 @@ import mongoose from "mongoose";
 import fs from 'fs';
 import path from 'path';
 
-// Enable Mongoose debug mode to see queries in the log
-mongoose.set('debug', (collectionName, method, query, doc) => {
-    const msg = `[Mongoose-Debug] ${collectionName}.${method}(${JSON.stringify(query)})`;
-    console.log(msg);
-    try {
-        fs.appendFileSync(path.join(process.cwd(), 'mongoose.log'), `[${new Date().toISOString()}] ${msg}\n`);
-    } catch (e) {}
-});
+// Enable Mongoose debug ONLY in development (not production — huge overhead)
+if (process.env.NODE_ENV !== 'production') {
+    mongoose.set('debug', (collectionName, method, query, doc) => {
+        const msg = `[Mongoose-Debug] ${collectionName}.${method}(${JSON.stringify(query)})`;
+        console.log(msg);
+    });
+}
+
 
 // Initialize BullMQ Queues and Workers
 import { cronQueue, googleSyncQueue, marketingQueue } from "./queues/queueManager.js";

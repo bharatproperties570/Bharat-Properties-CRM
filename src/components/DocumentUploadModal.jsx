@@ -243,7 +243,7 @@ const DocumentUploadModal = ({ isOpen, onClose, entityId, entityType, ownerId, o
                 
                 const uploadRes = await api.post('/upload', uploadFormData, {
                     headers: {
-                        'Content-Type': 'multipart/form-data'
+                        'Content-Type': undefined
                     }
                 });
                 if (uploadRes.data.success) {

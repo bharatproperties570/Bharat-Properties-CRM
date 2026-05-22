@@ -2,6 +2,9 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../utils/api';
 import { useUserContext } from '../context/UserContext';
 import SearchDropdown from './SearchDropdown';
+import { useTheme } from '../context/ThemeContext';
+import ThemeToggle from './ThemeToggle';
+
 
 // Modular Components
 import NotificationDropdown from './Header/NotificationDropdown';
@@ -13,6 +16,8 @@ import { useNotifications } from '../hooks/useNotifications';
 
 function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompany, onAddProject, onAddInventory, onAddDeal }) {
     const { currentUser, logout } = useUserContext();
+    const { isDark } = useTheme();
+
     const { 
         showNotifications, 
         setShowNotifications, 
@@ -82,8 +87,8 @@ function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompa
             <div className="header-right">
                 <div className="search-min" style={{ position: 'relative' }}>
                     {isSearching
-                        ? <i className="fas fa-spinner fa-spin" style={{ fontSize: '0.9rem', color: '#3b82f6', marginRight: '8px' }}></i>
-                        : <i className="fas fa-search" style={{ fontSize: '0.9rem', color: '#68737d', marginRight: '8px' }}></i>
+                        ? <i className="fas fa-spinner fa-spin" style={{ fontSize: '0.9rem', color: 'var(--primary-color)', marginRight: '8px' }}></i>
+                        : <i className="fas fa-search" style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginRight: '8px' }}></i>
                     }
                     <input
                         type="text"
@@ -106,6 +111,8 @@ function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompa
                     />
                 </div>
 
+                <ThemeToggle />
+
                 <i
                     className="fas fa-phone-alt header-icon"
                     style={{
@@ -119,14 +126,14 @@ function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompa
                         className="fas fa-bell header-icon"
                         style={{
                             fontSize: '1.4rem',
-                            color: unreadCount > 0 ? '#ef4444' : '#68737d',
+                            color: unreadCount > 0 ? 'var(--danger-color)' : 'var(--text-muted)',
                             animation: unreadCount > 0 ? 'bellRing 2s ease-in-out infinite' : 'none'
                         }}
                         onClick={() => setShowNotifications(!showNotifications)}
                     ></i>
                     {unreadCount > 0 && (
                         <span style={{
-                            position: 'absolute', top: '2px', right: '2px', background: '#ef4444',
+                            position: 'absolute', top: '2px', right: '2px', background: 'var(--danger-color)',
                             color: '#fff', borderRadius: '50%', width: '10px', height: '10px',
                             border: '2px solid #fff', animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
                         }}></span>

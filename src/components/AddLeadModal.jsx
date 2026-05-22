@@ -1102,8 +1102,24 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                     setTimeout(() => toastEl.remove(), 4500);
                 }
 
+                // Final UI updates
+                // Show success toast for user feedback
+                const successToast = document.createElement('div');
+                successToast.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#22c55e;color:#fff;padding:12px 24px;border-radius:10px;font-size:0.85rem;font-weight:500;z-index:99999;box-shadow:0 4px 20px rgba(0,0,0,0.35);border:1px solid #166534;animation:fadeIn .3s ease;';
+                successToast.textContent = mode === 'edit' ? 'Lead updated successfully' : 'Lead added successfully';
+                document.body.appendChild(successToast);
+                setTimeout(() => successToast.remove(), 3500);
+
                 setIsSaving(false);
-                if (typeof onClose === 'function') onClose();
+                // Ensure modal closes and parent state resets regardless of prop presence
+                if (typeof onClose === 'function') {
+                    onClose();
+                } else {
+                    // Fallback: manually reset visibility if parent didn't provide onClose
+                    if (typeof setIsAddLeadModalOpen === 'function') setIsAddLeadModalOpen(false);
+                    if (typeof setEditingLead === 'function') setEditingLead(null);
+                    if (typeof setInitialTab === 'function') setInitialTab(null);
+                }
 
         } catch (error) {
             console.error("General error in handleSave:", error);

@@ -16,7 +16,7 @@ import ProfessionalMap from '../../components/ProfessionalMap';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import { renderValue } from '../../utils/renderUtils';
 import usePermissions, { PermissionGate } from '../../hooks/usePermissions';
-
+import PremiumSearchBar from '../../components/PremiumSearchBar';
 import { useProjectList } from '../../hooks/useProjectList';
 
 function ProjectsPage({ onNavigate }) {
@@ -145,8 +145,10 @@ function ProjectsPage({ onNavigate }) {
         setIsPriceModalOpen(false);
     };
 
+    const [isSaving, setIsSaving] = useState(false);
+
     const handleSaveProject = async (projectData) => {
-        setLoading(true);
+        setIsSaving(true);
         try {
             if (projectData._id) {
                 const response = await api.put(`projects/${projectData._id}`, projectData);
@@ -161,11 +163,12 @@ function ProjectsPage({ onNavigate }) {
             }
             setIsAddModalOpen(false);
             setEditProjectData(null);
+            toast.success(projectData._id ? "Project updated successfully" : "Project created successfully");
         } catch (error) {
             console.error("Error saving project:", error);
-            alert("Failed to save project. Please check backend.");
+            toast.error("Failed to save project. Please check backend.");
         } finally {
-            setLoading(false);
+            setIsSaving(false);
             // Re-fetch to be safe and update counts
             fetchProjects();
         }
@@ -396,14 +399,13 @@ function ProjectsPage({ onNavigate }) {
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                                         {/* Premium Search Input */}
                                         <div style={{ position: 'relative', width: '350px' }}>
-                                            <input
-                                                type="text"
-                                                className="search-input-premium"
-                                                placeholder="Search name, rera, locality..."
-                                                value={searchTerm}
-                                                onChange={(e) => setSearchTerm(e.target.value)}
-                                            />
-                                            <i className={`fas fa-search search-icon-premium ${searchTerm ? 'active' : ''}`}></i>
+                                            <PremiumSearchBar
+    value={searchTerm}
+    onChange={(e) => setSearchTerm(e.target.value)}
+    placeholder="Search name, rera, locality..."
+    loading={loading}
+    className=""
+/>
                                         </div>
                                     </div>
 

@@ -478,7 +478,7 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
                         try {
                             const uploadData = new FormData();
                             uploadData.append('file', item.file);
-                            const res = await api.post('/upload', uploadData, { headers: { 'Content-Type': 'multipart/form-data' } });
+                            const res = await api.post('/upload', uploadData);
                             if (res.data && res.data.success) {
                                 return { ...item, url: res.data.url, file: null };
                             }

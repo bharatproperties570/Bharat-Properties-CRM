@@ -30,7 +30,7 @@ function AddDocumentModal({ isOpen, onClose, onSave, project }) {
                     const uploadData = new FormData();
                     uploadData.append('file', doc.file);
                     const response = await api.post('/upload', uploadData, {
-                        headers: { 'Content-Type': 'multipart/form-data' }
+                        headers: { 'Content-Type': undefined }
                     });
                     if (response.data && response.data.success) {
                         return { ...doc, url: response.data.url, file: null };

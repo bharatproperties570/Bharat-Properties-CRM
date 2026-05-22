@@ -1,12 +1,17 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { googleSettingsAPI } from '../../utils/api';
 import { toast } from 'react-hot-toast';
 
 const GoogleCallback = ({ onNavigate }) => {
     const [status, setStatus] = useState('Processing...');
 
+    const hasProcessed = useRef(false);
+
     useEffect(() => {
         const handleCallback = async () => {
+            if (hasProcessed.current) return;
+            hasProcessed.current = true;
+
             const params = new URLSearchParams(window.location.search);
             const success = params.get('success');
             const code = params.get('code');
@@ -37,6 +42,8 @@ const GoogleCallback = ({ onNavigate }) => {
                 console.error('Error message:', error.message);
                 toast.error('An error occurred during connection');
             } finally {
+                // Clear the code from URL so it doesn't get processed again if component remounts
+                window.history.replaceState({}, document.title, window.location.pathname);
                 // Return to settings
                 onNavigate('settings');
             }

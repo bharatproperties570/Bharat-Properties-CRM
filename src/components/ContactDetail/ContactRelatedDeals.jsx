@@ -1,5 +1,4 @@
 import React from 'react';
-
 // Indian Numbering System price formatter for enterprise-grade real estate CRM
 const formatPrice = (price) => {
     if (price === null || price === undefined || price === '') return 'Price TBA';
@@ -36,19 +35,19 @@ const formatDateTime = (dateVal) => {
 const getStageBadgeStyle = (stage) => {
     const s = String(stage || 'Open').toLowerCase();
     if (s.includes('won') || s.includes('booked') || s === 'closed') {
-        return { background: '#dcfce7', color: '#15803d', border: '1px solid #bbf7d0' };
+        return { background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.25)' };
     }
     if (s.includes('negotiation') || s.includes('quote')) {
-        return { background: '#dbeafe', color: '#1d4ed8', border: '1px solid #bfdbfe' };
+        return { background: 'rgba(59, 130, 246, 0.15)', color: '#3b82f6', border: '1px solid rgba(59, 130, 246, 0.25)' };
     }
     if (s.includes('lost') || s.includes('cancel') || s === 'cancelled') {
-        return { background: '#fee2e2', color: '#b91c1c', border: '1px solid #fecaca' };
+        return { background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.25)' };
     }
     if (s.includes('stalled') || s.includes('hold')) {
-        return { background: '#fef3c7', color: '#b45309', border: '1px solid #fde68a' };
+        return { background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b', border: '1px solid rgba(245, 158, 11, 0.25)' };
     }
     // Default open/active
-    return { background: '#f0fdfa', color: '#0f766e', border: '1px solid #ccfbf1' };
+    return { background: 'rgba(13, 148, 136, 0.15)', color: '#0d9488', border: '1px solid rgba(13, 148, 136, 0.25)' };
 };
 
 // Left border indicator bar color based on deal stage
@@ -80,11 +79,11 @@ const ContactRelatedDeals = React.memo(function ContactRelatedDeals({
             <style>
                 {`
                 .enterprise-deal-card {
-                    background: #ffffff;
-                    border: 1px solid #e2e8f0;
+                    background: var(--contact-card-bg);
+                    border: 1px solid var(--border-color);
                     border-radius: 12px;
                     padding: 14px 16px;
-                    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.02);
+                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
                     transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
                     position: relative;
                     overflow: hidden;
@@ -95,8 +94,8 @@ const ContactRelatedDeals = React.memo(function ContactRelatedDeals({
                 }
                 .enterprise-deal-card:hover {
                     transform: translateY(-2px);
-                    box-shadow: 0 12px 24px rgba(15, 23, 42, 0.06);
-                    border-color: #cbd5e1;
+                    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.15);
+                    border-color: var(--primary-color);
                 }
                 .enterprise-deal-card:active {
                     transform: translateY(0);
@@ -108,7 +107,7 @@ const ContactRelatedDeals = React.memo(function ContactRelatedDeals({
             {(recordType === 'lead' || contact?.requirement || contact?.searchLocation) && (
                 <div className="glass-card" style={{
                     borderRadius: '16px',
-                    border: '2px solid #10b981',
+                    border: '2px solid var(--success-color)',
                     boxShadow: '0 12px 40px rgba(16, 185, 129, 0.15)',
                     overflow: 'hidden',
                     minHeight: '120px'
@@ -116,7 +115,7 @@ const ContactRelatedDeals = React.memo(function ContactRelatedDeals({
                     <div onClick={() => toggleSection('matching')} style={{
                         padding: '14px 20px',
                         background: 'rgba(16, 185, 129, 0.05)',
-                        borderBottom: '1px solid rgba(16, 185, 129, 0.1)',
+                        borderBottom: '1px solid var(--border-color)',
                         display: 'flex',
                         justifyContent: 'space-between',
                         alignItems: 'center',
@@ -137,52 +136,119 @@ const ContactRelatedDeals = React.memo(function ContactRelatedDeals({
                     {expandedSections.includes('matching') && (
                         <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                             {loadingMatches ? (
-                                <div style={{ textAlign: 'center', padding: '20px', color: '#64748b', fontSize: '0.8rem' }}>
+                                <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
                                     <i className="fas fa-spinner fa-spin"></i> Calculating matches...
                                 </div>
                             ) : matchedDeals.length > 0 ? (
                                 <>
-                                    {matchedDeals.map((deal, idx) => (
-                                        <div key={idx} style={{
-                                            background: '#f8fafc',
-                                            borderRadius: '12px',
-                                            padding: '12px',
-                                            border: '1px solid #e2e8f0',
-                                            display: 'flex',
-                                            justifyContent: 'space-between',
-                                            alignItems: 'center',
-                                            transition: 'all 0.2s'
-                                        }}>
-                                            <div style={{ flex: 1 }}>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                                                    <div style={{ fontSize: '0.85rem', fontWeight: 900, color: '#0f172a', wordBreak: 'break-word' }}>{deal.unitNo || 'Unit'}</div>
-                                                    <span style={{ fontSize: '0.65rem', background: '#ecfdf5', color: '#059669', padding: '1px 6px', borderRadius: '4px', fontWeight: 800 }}>
-                                                        {deal.matchPercentage}% MATCH
+                                    {matchedDeals.map((deal, idx) => {
+                                        const matchColor = deal.matchPercentage >= 80 ? '#10b981' : deal.matchPercentage >= 50 ? '#f59e0b' : 'var(--text-muted)';
+                                        const matchBg = deal.matchPercentage >= 80 ? 'rgba(16, 185, 129, 0.15)' : deal.matchPercentage >= 50 ? 'rgba(245, 158, 11, 0.15)' : 'var(--contact-row-hover)';
+                                        const matchBorder = deal.matchPercentage >= 80 ? 'rgba(16, 185, 129, 0.25)' : deal.matchPercentage >= 50 ? 'rgba(245, 158, 11, 0.25)' : 'var(--border-color)';
+
+                                        // Subcategory resolved from mapping or fallback
+                                        const subCategoryText = deal.subCategory || 'Unit';
+                                        // Size label formatted properly
+                                        const sizeText = typeof deal.size === 'string' ? deal.size : (deal.size?.value ? `${deal.size.value} ${deal.size.unit || 'Sq.Yd.'}` : 'Size N/A');
+                                        return (
+                                            <div 
+                                                key={idx} 
+                                                className="enterprise-deal-card"
+                                                style={{ 
+                                                    borderLeft: `4px solid ${matchColor}`,
+                                                    background: 'var(--contact-card-bg)',
+                                                    padding: '12px 16px',
+                                                    gap: '6px'
+                                                }}
+                                                onClick={() => onNavigate && onNavigate('lead-matching', contact?._id)}
+                                            >
+                                                {/* Row 1: Unit + Match Badge + Price */}
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                        <span style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text-main)' }}>
+                                                            {deal.unitNo || 'Unit'}
+                                                        </span>
+                                                        <span style={{ 
+                                                            fontSize: '0.62rem', 
+                                                            background: matchBg, 
+                                                            color: matchColor, 
+                                                            padding: '2px 8px', 
+                                                            borderRadius: '6px', 
+                                                            fontWeight: 800,
+                                                            border: `1px solid ${matchBorder}`,
+                                                            textTransform: 'uppercase',
+                                                            letterSpacing: '0.5px'
+                                                        }}>
+                                                            {deal.matchPercentage}% Match
+                                                        </span>
+                                                    </div>
+                                                    <span style={{ fontSize: '0.85rem', fontWeight: 950, color: '#10b981' }}>
+                                                        {formatPrice(deal.price) || 'Price TBA'}
                                                     </span>
                                                 </div>
-                                                <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap', wordBreak: 'break-word' }}>
-                                                    <i className="fas fa-building" style={{ fontSize: '0.6rem' }}></i> {deal.projectName || 'Project'}
-                                                    <span style={{ color: '#cbd5e1' }}>|</span>
-                                                    <i className="fas fa-layer-group" style={{ fontSize: '0.6rem' }}></i> {deal.location || 'Block'}
+ 
+                                                {/* Row 2: Project + Location */}
+                                                <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 650 }}>
+                                                    <i className="fas fa-building" style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}></i>
+                                                    <span style={{ color: 'var(--text-main)', fontWeight: 700 }}>
+                                                        {deal.projectName || 'Premium Listing'}
+                                                    </span>
+                                                    <span style={{ color: 'var(--border-color)' }}>|</span>
+                                                    <i className="fas fa-map-marker-alt" style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}></i>
+                                                    <span style={{ color: 'var(--text-muted)' }}>
+                                                        {renderLookup(deal.location, 'Block') || (typeof deal.location === 'object' ? (deal.location.lookup_value || deal.location.name) : deal.location) || 'Block'}
+                                                    </span>
+                                                </div>
+ 
+                                                {/* Row 3: Subcategory Badge & Size Badge */}
+                                                <div style={{ display: 'flex', gap: '8px', marginTop: '2px' }}>
+                                                    <span style={{ 
+                                                        fontSize: '0.65rem', 
+                                                        background: 'rgba(59, 130, 246, 0.15)', 
+                                                        color: '#3b82f6', 
+                                                        padding: '2px 8px', 
+                                                        borderRadius: '6px', 
+                                                        fontWeight: 750,
+                                                        border: '1px solid rgba(59, 130, 246, 0.25)',
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        gap: '4px'
+                                                    }}>
+                                                        <i className="fas fa-tag" style={{ fontSize: '0.55rem' }}></i> {subCategoryText}
+                                                    </span>
+                                                    <span style={{ 
+                                                        fontSize: '0.65rem', 
+                                                        background: 'rgba(245, 158, 11, 0.15)', 
+                                                        color: '#f59e0b', 
+                                                        padding: '2px 8px', 
+                                                        borderRadius: '6px', 
+                                                        fontWeight: 750,
+                                                        border: '1px solid rgba(245, 158, 11, 0.25)',
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        gap: '4px'
+                                                    }}>
+                                                        <i className="fas fa-ruler-combined" style={{ fontSize: '0.55rem' }}></i> {sizeText}
+                                                    </span>
                                                 </div>
                                             </div>
-                                            <div style={{ textAlign: 'right' }}>
-                                                <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#10b981' }}>{renderValue(deal.price, 'Price TBA', '₹')}</div>
-                                                <div style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 700 }}>
-                                                    {deal.size?.value ? `${deal.size.value} ${deal.size.unit || ''}` : (typeof deal.size === 'string' ? deal.size : 'Size N/A')}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                     <button
-                                        onClick={() => showNotification('Redirecting to Match Center...')}
+                                        onClick={() => {
+                                            if (onNavigate) {
+                                                onNavigate('lead-matching', contact?._id);
+                                            } else {
+                                                showNotification('Redirecting to Match Center...');
+                                            }
+                                        }}
                                         style={{
                                             width: '100%',
                                             padding: '10px',
                                             borderRadius: '10px',
-                                            border: '1px solid #d1fae5',
-                                            background: '#ecfdf5',
-                                            color: '#059669',
+                                            border: '1px solid rgba(16, 185, 129, 0.3)',
+                                            background: 'rgba(16, 185, 129, 0.1)',
+                                            color: '#10b981',
                                             fontSize: '0.75rem',
                                             fontWeight: 800,
                                             cursor: 'pointer',
@@ -196,7 +262,7 @@ const ContactRelatedDeals = React.memo(function ContactRelatedDeals({
                                     </button>
                                 </>
                             ) : (
-                                <div style={{ textAlign: 'center', padding: '20px', color: '#94a3b8', fontSize: '0.8rem' }}>
+                                <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
                                     No matches found for this lead.
                                 </div>
                             )}
@@ -206,14 +272,14 @@ const ContactRelatedDeals = React.memo(function ContactRelatedDeals({
             )}
 
             {/* Active Deals Section */}
-            <div className="glass-card" style={{ borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 10px 30px rgba(15, 23, 42, 0.04)', overflow: 'hidden' }}>
-                <div onClick={() => toggleSection('deals')} style={{ padding: '14px 20px', background: 'linear-gradient(to right, #f8fafc, #ffffff)', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
-                    <span style={{ fontSize: '0.75rem', fontWeight: 900, color: '#4f46e5', textTransform: 'uppercase', letterSpacing: '1.2px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <i className="fas fa-handshake" style={{ color: '#4f46e5' }}></i> Active Pipeline Deals
+            <div className="glass-card" style={{ borderRadius: '16px', border: '1px solid var(--border-color)', boxShadow: '0 10px 30px rgba(0, 0, 0, 0.08)', overflow: 'hidden' }}>
+                <div onClick={() => toggleSection('deals')} style={{ padding: '14px 20px', background: 'var(--contact-card-header)', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 900, color: 'var(--primary-color)', textTransform: 'uppercase', letterSpacing: '1.2px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <i className="fas fa-handshake" style={{ color: 'var(--primary-color)' }}></i> Active Pipeline Deals
                     </span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                         {activeDeals.length > 0 && (
-                            <span style={{ background: '#e0e7ff', color: '#4f46e5', fontSize: '0.65rem', padding: '2px 8px', borderRadius: '10px', fontWeight: 800 }}>
+                            <span style={{ background: 'var(--stat-agent-bg)', color: 'var(--stat-agent-color)', fontSize: '0.65rem', padding: '2px 8px', borderRadius: '10px', fontWeight: 800 }}>
                                 {activeDeals.length} ACTIVE
                             </span>
                         )}
@@ -223,7 +289,7 @@ const ContactRelatedDeals = React.memo(function ContactRelatedDeals({
                                 setIsAddDealModalOpen(true);
                             }}
                             style={{
-                                background: '#4f46e5',
+                                background: 'var(--primary-color)',
                                 color: '#fff',
                                 border: 'none',
                                 borderRadius: '8px',
@@ -233,13 +299,13 @@ const ContactRelatedDeals = React.memo(function ContactRelatedDeals({
                                 alignItems: 'center',
                                 justifyContent: 'center',
                                 cursor: 'pointer',
-                                boxShadow: '0 4px 10px rgba(79, 70, 229, 0.25)',
+                                boxShadow: '0 4px 10px rgba(0, 102, 255, 0.2)',
                                 transition: 'all 0.2s'
                             }}
                         >
                             <i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i>
                         </button>
-                        <i className={`fas fa-chevron-${expandedSections.includes('deals') ? 'up' : 'down'}`} style={{ fontSize: '0.8rem', color: '#64748b' }}></i>
+                        <i className={`fas fa-chevron-${expandedSections.includes('deals') ? 'up' : 'down'}`} style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}></i>
                     </div>
                 </div>
                 {expandedSections.includes('deals') && (
@@ -261,7 +327,7 @@ const ContactRelatedDeals = React.memo(function ContactRelatedDeals({
                                         {/* Row 1: SubCategory + Unit Number & Stage Badge */}
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0f172a' }}>
+                                                <span style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text-main)' }}>
                                                     {subCategoryText} {deal.unitNo || ''}
                                                 </span>
                                             </div>
@@ -277,40 +343,40 @@ const ContactRelatedDeals = React.memo(function ContactRelatedDeals({
                                                 {(renderLookup(deal.stage, '') || 'Open').toUpperCase()}
                                             </span>
                                         </div>
-
+ 
                                         {/* Row 2: Project Name + Block Name (in small text) */}
-                                        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px', fontSize: '0.75rem', color: '#475569', fontWeight: 650 }}>
-                                            <i className="fas fa-building" style={{ fontSize: '0.65rem', color: '#64748b' }}></i>
-                                            <span style={{ color: '#1e293b', fontWeight: 700 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 650 }}>
+                                            <i className="fas fa-building" style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}></i>
+                                            <span style={{ color: 'var(--text-main)', fontWeight: 700 }}>
                                                 {renderValue(deal.projectName) || renderLookup(deal.projectId, '') || renderLookup(deal.project, '') || 'General Project'}
                                             </span>
                                             {deal.block && String(deal.block).trim() !== 'null' && String(deal.block).trim() !== 'undefined' && (
-                                                <span style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 500, background: '#f1f5f9', padding: '1px 6px', borderRadius: '4px', marginLeft: '2px' }}>
+                                                <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 500, background: 'var(--bg-gray)', padding: '1px 6px', borderRadius: '4px', marginLeft: '2px' }}>
                                                     Block {renderValue(deal.block)}
                                                 </span>
                                             )}
                                         </div>
-
+ 
                                         {/* Row 3: Size Details */}
                                         {(renderLookup(deal.sizeLabel, '') || renderLookup(deal.sizeConfig, '') || renderLookup(deal.size, '') || (deal.size?.value ? `${deal.size.value} ${deal.size.unit || ''}` : '')) && (
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>
-                                                <i className="fas fa-ruler-combined" style={{ fontSize: '0.65rem', color: '#94a3b8' }}></i>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                                                <i className="fas fa-ruler-combined" style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}></i>
                                                 <span>
                                                     {renderLookup(deal.sizeLabel, '') || renderLookup(deal.sizeConfig, '') || renderLookup(deal.size, '') || `${deal.size.value} ${deal.size.unit || ''}`}
                                                 </span>
                                             </div>
                                         )}
-
+ 
                                         {/* Row 4: Deal Value / Price and Deal ID Reference */}
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px', paddingTop: '8px', borderTop: '1px solid #f1f5f9' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px', paddingTop: '8px', borderTop: '1px solid var(--border-color)' }}>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                <span style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Price:</span>
+                                                <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Price:</span>
                                                 <span style={{ fontSize: '0.85rem', fontWeight: 900, color: '#10b981' }}>
                                                     {formatPrice(deal.price) || formatPrice(deal.budgetMin) || 'Price TBA'}
                                                 </span>
                                             </div>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>
-                                                <i className="far fa-clock" style={{ fontSize: '0.65rem', color: '#94a3b8' }}></i>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                                                <i className="far fa-clock" style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}></i>
                                                 <span>
                                                     {formatDateTime(deal.createdAt || deal.date) || 'Date TBA'}
                                                 </span>
@@ -320,11 +386,11 @@ const ContactRelatedDeals = React.memo(function ContactRelatedDeals({
                                 );
                             })
                         ) : (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #cbd5e1' }}>
-                                <div style={{ width: '32px', height: '32px', background: '#f1f5f9', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                    <i className="fas fa-handshake-slash" style={{ color: '#94a3b8', fontSize: '0.9rem' }}></i>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px', background: 'var(--bg-gray)', borderRadius: '12px', border: '1px dashed var(--border-color)' }}>
+                                <div style={{ width: '32px', height: '32px', background: 'var(--contact-row-hover)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <i className="fas fa-handshake-slash" style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}></i>
                                 </div>
-                                <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>No Active Deals for this Contact</span>
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>No Active Deals for this Contact</span>
                             </div>
                         )}
                     </div>

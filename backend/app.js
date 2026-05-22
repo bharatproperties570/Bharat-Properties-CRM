@@ -1,4 +1,4 @@
-// CRM Backend - Restart Triggered (v2)
+// CRM Backend - Enterprise Performance Edition
 import express from "express";
 import cors from "cors";
 import compression from "compression";
@@ -6,6 +6,7 @@ import cookieParser from "cookie-parser";
 import mongoSanitize from "express-mongo-sanitize";
 import rateLimit from "express-rate-limit";
 import { AppError } from "./src/middlewares/error.middleware.js";
+import { cacheMiddleware, invalidateCache } from "./src/middleware/apiCache.js";
 
 // Route Imports
 import authRoutes from "./routes/auth.routes.js";
@@ -104,7 +105,15 @@ app.use((req, res, next) => {
     next();
 });
 
-app.use(compression());
+// Compression: skip small responses, compress everything >= 1KB
+app.use(compression({
+    level: 6,
+    threshold: 1024,
+    filter: (req, res) => {
+        if (req.headers['x-no-compression']) return false;
+        return compression.filter(req, res);
+    }
+}));
 app.use(express.json({ limit: "10mb" }));
 app.use(cookieParser());
 app.use(mongoSanitize({
@@ -145,9 +154,26 @@ app.use((req, res, next) => {
     next();
 });
 
+// ─────────────────────────────────────────────────────────────
+// ENTERPRISE CACHE LAYER — Applied before route handlers
+// Read routes: serve from cache. Write routes: invalidate cache.
+// ─────────────────────────────────────────────────────────────
+app.use("/api/lookups",  cacheMiddleware(5 * 60 * 1000));   // 5 min
+app.use("/api/lookup",   cacheMiddleware(5 * 60 * 1000));   // 5 min
+app.use("/api/users",    cacheMiddleware(2 * 60 * 1000));   // 2 min
+app.use("/api/teams",    cacheMiddleware(2 * 60 * 1000));   // 2 min
+app.use("/api/roles",    cacheMiddleware(5 * 60 * 1000));   // 5 min
+app.use("/api/projects", cacheMiddleware(2 * 60 * 1000));   // 2 min
+
+// Invalidate cache on writes
+app.use("/api/lookups",  invalidateCache);
+app.use("/api/users",    invalidateCache);
+app.use("/api/teams",    invalidateCache);
+app.use("/api/projects", invalidateCache);
+
 // Route Definitions
 app.use("/api/auth", authRoutes);
-app.use("/api/marketing", marketingRoutes); // Move up for priority
+app.use("/api/marketing", marketingRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/teams", teamRoutes);
 app.use("/api/roles", roleRoutes);

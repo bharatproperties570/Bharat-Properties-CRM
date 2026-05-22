@@ -122,7 +122,7 @@ const AddInventoryDocumentModal = ({ isOpen, onClose, onSave, project = null }) 
                     uploadData.append('docType', typeObj?.name || 'Document');
 
                     const response = await api.post('/upload', uploadData, {
-                        headers: { 'Content-Type': 'multipart/form-data' }
+                        headers: { 'Content-Type': undefined }
                     });
 
                     if (response.data && response.data.success) {

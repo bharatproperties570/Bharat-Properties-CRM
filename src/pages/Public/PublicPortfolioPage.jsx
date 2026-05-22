@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { api } from '../../utils/api';
+import { fixDriveUrl } from '../../utils/helpers';
 import toast from 'react-hot-toast';
 
 const PublicPortfolioPage = () => {
@@ -67,7 +68,7 @@ const PublicPortfolioPage = () => {
                         <div key={idx} style={{ background: '#fff', borderRadius: '24px', overflow: 'hidden', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)', border: '1px solid #e2e8f0', transition: 'transform 0.3s' }}>
                             <div style={{ height: '220px', overflow: 'hidden', position: 'relative' }}>
                                 <img 
-                                    src={item.propertyImages?.[0] || `https://picsum.photos/seed/${item._id}/600/400`} 
+                                    src={fixDriveUrl(item.propertyImages?.[0]) || `https://picsum.photos/seed/${item._id}/600/400`} 
                                     alt={item.projectName} 
                                     style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                                 />

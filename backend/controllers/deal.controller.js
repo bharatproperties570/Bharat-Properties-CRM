@@ -801,58 +801,83 @@ export const getDeals = async (req, res) => {
             if (contactIds.length > 0) {
                 query.$or = query.$or || [];
                 
-                // 1. Exact ID Matching
+                // Smart Identity Matching (Phone/Email) to resolve linked/cross-entities (Lead <-> Contact)
+                const identities = await Promise.all(contactIds.map(async (id) => {
+                    const [c, l] = await Promise.all([
+                        Contact.findById(id).lean(),
+                        Lead.findById(id).lean()
+                    ]);
+                    
+                    const profile = { phones: [], emails: [] };
+                    if (c) {
+                        if (c.phones) profile.phones.push(...c.phones.map(p => p.number));
+                        if (c.emails) profile.emails.push(...c.emails.map(e => e.address));
+                    }
+                    if (l) {
+                        if (l.mobile) profile.phones.push(l.mobile);
+                        if (l.email) profile.emails.push(l.email);
+                    }
+                    return profile;
+                }));
+
+                const phones = [...new Set(identities.filter(Boolean).flatMap(i => i.phones).filter(Boolean))];
+                const emails = [...new Set(identities.filter(Boolean).flatMap(i => i.emails).filter(Boolean))];
+
+                const allIds = [...contactIds];
+                if (phones.length > 0 || emails.length > 0) {
+                    const linkedEntities = await Promise.all([
+                        Contact.find({
+                            $or: [
+                                { 'phones.number': { $in: phones } },
+                                { 'emails.address': { $in: emails } }
+                            ]
+                        }).select('_id').lean(),
+                        Lead.find({
+                            $or: [
+                                { mobile: { $in: phones } },
+                                { email: { $in: emails } }
+                            ]
+                        }).select('_id').lean()
+                    ]);
+
+                    linkedEntities.flat().forEach(e => {
+                        if (e && e._id) allIds.push(e._id.toString());
+                    });
+                }
+
+                const uniqueIds = [...new Set(allIds)];
+
+                // 1. Exact & Resolved ID Matching
                 query.$or.push(
-                    { owner: { $in: contactIds } },
-                    { "partyStructure.owner": { $in: contactIds } },
-                    { associatedContact: { $in: contactIds } },
-                    { "partyStructure.buyer": { $in: contactIds } }
+                    { owner: { $in: uniqueIds } },
+                    { "partyStructure.owner": { $in: uniqueIds } },
+                    { associatedContact: { $in: uniqueIds } },
+                    { "partyStructure.buyer": { $in: uniqueIds } }
                 );
     
-                // 2. Smart Identity Matching (Phone/Email) for Legacy data or Cross-Entity links
-                const identities = await Promise.all(contactIds.map(async (id) => {
-                const [c, l] = await Promise.all([
-                    Contact.findById(id).lean(),
-                    Lead.findById(id).lean()
-                ]);
-                
-                const profile = { phones: [], emails: [] };
-                if (c) {
-                    if (c.phones) profile.phones.push(...c.phones.map(p => p.number));
-                    if (c.emails) profile.emails.push(...c.emails.map(e => e.address));
+                // 2. Legacy fallback for phone/email string representations in DB fields
+                if (phones.length > 0 || emails.length > 0) {
+                    const identityMatches = [];
+                    phones.forEach(phone => {
+                        identityMatches.push(
+                            { owner: phone },
+                            { "partyStructure.owner": phone },
+                            { associatedContact: phone },
+                            { "partyStructure.buyer": phone }
+                        );
+                    });
+                    emails.forEach(email => {
+                        identityMatches.push(
+                            { owner: email },
+                            { "partyStructure.owner": email },
+                            { associatedContact: email },
+                            { "partyStructure.buyer": email }
+                        );
+                    });
+                    query.$or.push(...identityMatches);
                 }
-                if (l) {
-                    if (l.mobile) profile.phones.push(l.mobile);
-                    if (l.email) profile.emails.push(l.email);
-                }
-                return profile;
-            }));
-
-            const phones = [...new Set(identities.filter(Boolean).flatMap(i => i.phones).filter(Boolean))];
-            const emails = [...new Set(identities.filter(Boolean).flatMap(i => i.emails).filter(Boolean))];
-
-            if (phones.length > 0 || emails.length > 0) {
-                const identityMatches = [];
-                phones.forEach(phone => {
-                    identityMatches.push(
-                        { owner: phone },
-                        { "partyStructure.owner": phone },
-                        { associatedContact: phone },
-                        { "partyStructure.buyer": phone }
-                    );
-                });
-                emails.forEach(email => {
-                    identityMatches.push(
-                        { owner: email },
-                        { "partyStructure.owner": email },
-                        { associatedContact: email },
-                        { "partyStructure.buyer": email }
-                    );
-                });
-                query.$or.push(...identityMatches);
             }
         }
-    }
 
         const populateFields = [
             { path: 'inventoryId' },

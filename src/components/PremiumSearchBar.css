@@ -1,0 +1,9 @@
+/* PremiumSearchBar component – wrapper styling to match inventory search */
+.premium-search-bar {
+  position: relative;
+  width: 350px; /* same as inventory toolbar width */
+}
+
+/* The input uses .search-input-premium defined in index.css */
+
+/* Ensure the clear button and spinner are positioned correctly (already styled globally). */

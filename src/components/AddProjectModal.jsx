@@ -650,8 +650,8 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
                 ...formData,
                 category: formData.category.map(c => getLookupId('Category', c)).filter(Boolean),
                 subCategory: formData.subCategory.map(s => getLookupId('SubCategory', s)).filter(Boolean),
-                status: getLookupId('ProjectStatus', formData.status),
-                parkingType: getLookupId('ParkingType', formData.parkingType)
+                status: getLookupId('ProjectStatus', formData.status) || formData.status,
+                parkingType: getLookupId('ParkingType', formData.parkingType) || formData.parkingType
             };
 
             let response;

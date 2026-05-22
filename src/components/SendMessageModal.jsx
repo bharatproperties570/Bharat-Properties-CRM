@@ -3,6 +3,8 @@ import { useTriggers } from '../context/TriggersContext';
 import smsService from '../services/smsService';
 import whatsappService from '../services/whatsappService';
 import { systemSettingsAPI } from '../utils/api';
+import { sendCampaignWithRetry } from '../utils/communicationHelper';
+import { toast } from 'react-hot-toast';
 
 const SendMessageModal = ({ 
     isOpen, 
@@ -335,44 +337,49 @@ const SendMessageModal = ({
 
         try {
             let res;
-            if (channel === 'WHATSAPP') {
-                res = await whatsappService.sendMessage({
-                    mobile: recipients[0]?.phone || recipients[0]?.mobile,
-                    message: messageBody,
-                    templateId,
-                    // 🚀 SENIOR PROFESSIONAL: Best effort delivery. 
-                    // Even if modified, we send the resolved components. 
-                    // Meta will reject if the body doesn't match the template pattern, 
-                    // and our backend will fallback to a plain text message anyway.
-                    templateComponents: templateId ? whatsappComponents.map(c => c.text) : [],
-                    language: templateLanguage,
-                    mediaUrl: attachment?.url,
-                    filename: attachment?.name,
-                    type: attachment?.type || 'text'
-                });
-            } else {
-                res = await smsService.sendMessage(data);
-            }
+if (channel === 'WHATSAPP') {
+    // Build payload for the helper
+    const waPayload = {
+        channel: 'WHATSAPP',
+        recipients,
+        content: {
+            body: messageBody,
+            templateId,
+            rcs: { title: rcsTitle, actions: rcsActions },
+            mediaUrl: attachment?.url,
+            filename: attachment?.name,
+            type: attachment?.type || 'text'
+        },
+        schedule: isScheduled && showSchedule ? { date: scheduleDate, time: scheduleTime } : null
+    };
+    // Use the resilient helper which returns { success, error }
+    res = await sendCampaignWithRetry('WHATSAPP', waPayload);
+} else {
+    // SMS and other channels continue using existing service
+    res = await smsService.sendMessage(data);
+}
 
-            if (res && res.success) {
-                // If the parent provided an onSend callback, tell it we succeeded
-                if (onSend) onSend(data, res);
+if (res && res.success) {
+    // If the parent provided an onSend callback, tell it we succeeded
+    if (onSend) onSend(data, res);
 
-                // Fire Triggers
-                fireEvent('message_sent', data, { entityType: 'communication' });
+    // Fire Triggers
+    fireEvent('message_sent', data, { entityType: 'communication' });
 
-                // Dispatch Global Sync Event
-                window.dispatchEvent(new CustomEvent('activity-completed', {
-                    detail: { 
-                        entityId: recipients[0]?.id || recipients[0]?._id,
-                        type: channel
-                    }
-                }));
+    // Dispatch Global Sync Event
+    window.dispatchEvent(new CustomEvent('activity-completed', {
+        detail: { 
+            entityId: recipients[0]?.id || recipients[0]?._id,
+            type: channel
+        }
+    }));
 
-                onClose();
-            } else {
-                throw new Error(res?.error || "Failed to send message: Success flag false");
-            }
+    onClose();
+} else {
+    // Show toast error and close modal; user can check pending queue later
+    toast.error(`❌ ${channel} delivery failed: ${res?.error || 'Unknown error'}. Message queued for retry.`);
+    onClose();
+}
         } catch (error) {
             console.error(`${channel} Sending Error:`, error);
             const errorMsg = error.response?.data?.error || error.response?.data?.message || error.message || "Unknown error";

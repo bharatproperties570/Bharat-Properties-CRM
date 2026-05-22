@@ -10,7 +10,7 @@ const styles = {
     sectionTitle: {
         fontSize: '0.7rem',
         fontWeight: '700',
-        color: '#64748b',
+        color: 'var(--text-muted)',
         textTransform: 'uppercase',
         letterSpacing: '0.05em',
         marginBottom: '10px',
@@ -20,16 +20,16 @@ const styles = {
         display: 'block',
         fontSize: '0.85rem',
         fontWeight: '600',
-        color: '#1e293b',
+        color: 'var(--text-main)',
         marginBottom: '6px'
     },
     input: {
         width: '100%',
         padding: '10px 12px',
         fontSize: '0.9rem',
-        color: '#0f172a',
-        backgroundColor: '#fff',
-        border: '1px solid #cbd5e1',
+        color: 'var(--input-text)',
+        backgroundColor: 'var(--input-bg)',
+        border: '1px solid var(--input-border)',
         borderRadius: '8px',
         outline: 'none',
         transition: 'all 0.2s ease',
@@ -39,9 +39,9 @@ const styles = {
         width: '100%',
         padding: '10px 12px',
         fontSize: '0.9rem',
-        color: '#0f172a',
-        backgroundColor: '#fff',
-        border: '1px solid #cbd5e1',
+        color: 'var(--input-text)',
+        backgroundColor: 'var(--input-bg)',
+        border: '1px solid var(--input-border)',
         borderRadius: '8px',
         outline: 'none',
         transition: 'all 0.2s ease',
@@ -53,20 +53,20 @@ const styles = {
         backgroundSize: '16px'
     },
     activeBtn: {
-        backgroundColor: '#eff6ff',
-        borderColor: '#0066ff',
-        color: '#0066ff',
+        backgroundColor: 'var(--contact-row-selected)',
+        borderColor: 'var(--primary-color)',
+        color: 'var(--primary-color)',
         boxShadow: '0 1px 2px rgba(0, 102, 255, 0.1)'
     },
     inactiveBtn: {
-        backgroundColor: '#ffffff',
-        borderColor: '#e2e8f0',
-        color: '#64748b'
+        backgroundColor: 'var(--input-bg)',
+        borderColor: 'var(--input-border)',
+        color: 'var(--text-muted)'
     },
     resetBtn: {
         background: 'transparent',
         border: 'none',
-        color: '#64748b',
+        color: 'var(--text-muted)',
         fontSize: '0.85rem',
         fontWeight: '600',
         cursor: 'pointer',
@@ -76,7 +76,7 @@ const styles = {
     applyBtn: {
         width: '100%',
         padding: '14px',
-        backgroundColor: '#22c55e',
+        backgroundColor: 'var(--success-color)',
         color: 'white',
         border: 'none',
         borderRadius: '8px',
@@ -125,8 +125,8 @@ const MultiSelectDropdown = ({ options, selected, onChange, placeholder, disable
                 onClick={() => !disabled && setIsOpen(!isOpen)}
                 style={{
                     ...styles.input,
-                    color: disabled ? '#94a3b8' : '#0f172a',
-                    backgroundColor: disabled ? '#f1f5f9' : '#fff',
+                    color: disabled ? 'var(--text-muted)' : 'var(--input-text)',
+                    backgroundColor: disabled ? 'var(--bg-gray)' : 'var(--input-bg)',
                     cursor: disabled ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     justifyContent: 'space-between',
@@ -136,14 +136,14 @@ const MultiSelectDropdown = ({ options, selected, onChange, placeholder, disable
                 <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '90%' }}>
                     {displayText}
                 </span>
-                <i className={`fas fa-chevron-${isOpen ? 'up' : 'down'}`} style={{ fontSize: '0.8rem', color: '#64748b' }}></i>
+                <i className={`fas fa-chevron-${isOpen ? 'up' : 'down'}`} style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}></i>
             </div>
 
             {isOpen && !disabled && (
                 <div style={{
                     position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '4px',
-                    backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px',
-                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)', zIndex: 2001, maxHeight: '200px', overflowY: 'auto'
+                    backgroundColor: 'var(--contact-card-bg)', border: '1px solid var(--border-color)', borderRadius: '8px',
+                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.15)', zIndex: 2001, maxHeight: '200px', overflowY: 'auto'
                 }}>
                     {options.map(option => (
                         <div
@@ -151,11 +151,11 @@ const MultiSelectDropdown = ({ options, selected, onChange, placeholder, disable
                             onClick={() => handleSelect(option)}
                             style={{
                                 padding: '8px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px',
-                                backgroundColor: selected.includes(option) ? '#eff6ff' : 'transparent',
-                                color: selected.includes(option) ? '#0066ff' : '#0f172a', fontSize: '0.9rem'
+                                backgroundColor: selected.includes(option) ? 'var(--contact-row-selected)' : 'transparent',
+                                color: selected.includes(option) ? 'var(--primary-color)' : 'var(--text-main)', fontSize: '0.9rem'
                             }}
-                            onMouseEnter={e => e.currentTarget.style.backgroundColor = selected.includes(option) ? '#eff6ff' : '#f8fafc'}
-                            onMouseLeave={e => e.currentTarget.style.backgroundColor = selected.includes(option) ? '#eff6ff' : 'transparent'}
+                            onMouseEnter={e => e.currentTarget.style.backgroundColor = selected.includes(option) ? 'var(--contact-row-selected)' : 'var(--contact-row-hover)'}
+                            onMouseLeave={e => e.currentTarget.style.backgroundColor = selected.includes(option) ? 'var(--contact-row-selected)' : 'transparent'}
                         >
                             <input type="checkbox" checked={selected.includes(option)} readOnly style={{ pointerEvents: 'none' }} />
                             {option}
@@ -210,15 +210,15 @@ const ContactFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
         <div style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', justifyContent: 'flex-end', fontFamily: "'Inter', sans-serif" }}>
             <div style={{ position: 'absolute', inset: 0, background: 'rgba(15, 23, 42, 0.3)', opacity: isOpen ? 1 : 0, transition: 'opacity 200ms ease' }} onClick={onClose}></div>
             <div style={{
-                position: 'relative', width: '420px', height: '100%', background: '#ffffff', boxShadow: '-10px 0 40px rgba(0,0,0,0.1)',
+                position: 'relative', width: '420px', height: '100%', background: 'var(--bg-light)', boxShadow: '-10px 0 40px rgba(0,0,0,0.15)',
                 display: 'flex', flexDirection: 'column', transform: isOpen ? 'translateX(0)' : 'translateX(100%)', transition: 'transform 300ms cubic-bezier(0.16, 1, 0.3, 1)'
             }}>
-                <header style={{ padding: '20px 24px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#ffffff' }}>
+                <header style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--bg-light)' }}>
                     <div>
-                        <h2 style={{ fontSize: '1.25rem', fontWeight: '700', color: '#0f172a', letterSpacing: '-0.025em', margin: 0 }}>Filter Contacts</h2>
-                        <p style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '4px', margin: 0 }}>Real-time filtering enabled</p>
+                        <h2 style={{ fontSize: '1.25rem', fontWeight: '700', color: 'var(--text-main)', letterSpacing: '-0.025em', margin: 0 }}>Filter Contacts</h2>
+                        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '4px', margin: 0 }}>Real-time filtering enabled</p>
                     </div>
-                    <button onClick={onClose} style={{ width: '36px', height: '36px', borderRadius: '50%', border: 'none', background: '#f8fafc', color: '#64748b', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', transition: 'all 0.2s' }}>
+                    <button onClick={onClose} style={{ width: '36px', height: '36px', borderRadius: '50%', border: 'none', background: 'var(--contact-row-hover)', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', transition: 'all 0.2s' }}>
                         <i className="fas fa-times"></i>
                     </button>
                 </header>
@@ -266,7 +266,7 @@ const ContactFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
                         </div>
                     </section>
 
-                    <div style={{ height: '1px', background: '#f1f5f9' }}></div>
+                    <div style={{ height: '1px', background: 'var(--border-color)' }}></div>
 
                     {/* 2. Professional Details */}
                     <section>
@@ -294,7 +294,7 @@ const ContactFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
                         </div>
                     </section>
 
-                    <div style={{ height: '1px', background: '#f1f5f9' }}></div>
+                    <div style={{ height: '1px', background: 'var(--border-color)' }}></div>
 
                     {/* 3. Location */}
                     <section>
@@ -303,7 +303,7 @@ const ContactFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
                             <div>
                                 <label style={styles.label}>City</label>
                                 <div style={{ position: 'relative' }}>
-                                    <i className="fas fa-map-marker-alt" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.9rem' }}></i>
+                                    <i className="fas fa-map-marker-alt" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: '0.9rem' }}></i>
                                     <input
                                         type="text"
                                         placeholder="Search City..."
@@ -316,7 +316,7 @@ const ContactFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
                         </div>
                     </section>
 
-                    <div style={{ height: '1px', background: '#f1f5f9' }}></div>
+                    <div style={{ height: '1px', background: 'var(--border-color)' }}></div>
 
                     {/* 4. System & Tags */}
                     <section>
@@ -325,7 +325,7 @@ const ContactFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
                             <div>
                                 <label style={styles.label}>Tags</label>
                                 <div style={{ position: 'relative' }}>
-                                    <i className="fas fa-tag" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.9rem' }}></i>
+                                    <i className="fas fa-tag" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: '0.9rem' }}></i>
                                     <input
                                         type="text"
                                         placeholder="Search Tags..."
@@ -349,7 +349,7 @@ const ContactFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
                     </section>
                 </div>
 
-                <footer style={{ padding: '24px', borderTop: '1px solid #e2e8f0', backgroundColor: '#ffffff', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <footer style={{ padding: '24px', borderTop: '1px solid var(--border-color)', backgroundColor: 'var(--bg-light)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     <button onClick={onClose} style={styles.applyBtn}>
                         View {Object.keys(filters).length > 0 ? 'Filtered Results' : 'All Contacts'}
                     </button>

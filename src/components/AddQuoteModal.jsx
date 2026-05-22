@@ -242,7 +242,7 @@ const AddQuoteModal = ({ isOpen, onClose, deal, onSave }) => {
 
             try {
                 const uploadRes = await api.post('/upload', uploadFormData, {
-                    headers: { 'Content-Type': 'multipart/form-data' }
+                    headers: { 'Content-Type': undefined }
                 });
                 pdfUrl = uploadRes.data.url;
                 console.log("PDF Uploaded:", pdfUrl);

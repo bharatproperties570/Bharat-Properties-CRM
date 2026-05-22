@@ -835,7 +835,7 @@ const AddContactModal = ({
               const uploadData = new FormData();
               uploadData.append('file', doc.documentPicture);
               const res = await api.post('/upload', uploadData, {
-                headers: { 'Content-Type': 'multipart/form-data' }
+                headers: { 'Content-Type': undefined }
               });
               if (res.data && res.data.success) {
                 return { ...doc, documentPicture: res.data.url };

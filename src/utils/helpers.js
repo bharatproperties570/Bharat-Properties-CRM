@@ -1,3 +1,5 @@
+import { BASE_BACKEND_URL } from './api';
+
 export function getInitials(name) {
     if (!name) return '';
     return name.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2);
@@ -15,6 +17,11 @@ export function getSourceBadgeClass(source) {
 
 export function fixDriveUrl(url) {
     if (!url) return url;
+    if (typeof url !== 'string') return url;
+    if (url.startsWith('/uploads/') || url.startsWith('uploads/')) {
+        const normalized = url.startsWith('/') ? url : `/${url}`;
+        return `${BASE_BACKEND_URL}${normalized}`;
+    }
     if (url.includes('drive.google.com')) {
         const fileIdMatch = url.match(/\/file\/d\/([^/]+)/) || url.match(/[?&]id=([^&]+)/);
         if (fileIdMatch && fileIdMatch[1]) {

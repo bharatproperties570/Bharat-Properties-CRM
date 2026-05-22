@@ -1,0 +1,8 @@
+node_modules
+backend
+backend/node_modules
+.git
+*.log
+*.pem
+.env.local
+.env.development

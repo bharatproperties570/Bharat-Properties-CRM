@@ -1,11 +1,14 @@
 console.log('[DEBUG] src/App.jsx module evaluated');
 import { useState, useEffect, Suspense } from 'react';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { queryClient } from './utils/queryClient';
 import { isWeb, safeWindow, getPathname } from './utils/platform';
 import { Toaster } from 'react-hot-toast';
 import AppRouter from './router/AppRouter';
 import MainLayout from './layouts/MainLayout';
 import { PropertyConfigProvider } from './context/PropertyConfigContext';
 import { ContactConfigProvider } from './context/ContactConfigContext';
+import { ThemeProvider } from './context/ThemeContext';
 
 import { ActivityProvider } from './context/ActivityContext';
 import { FieldRulesProvider } from './context/FieldRulesContext';
@@ -358,35 +361,39 @@ const AppContent = () => {
 
 function App() {
     return (
+        <QueryClientProvider client={queryClient}>
         <ErrorBoundary>
             <UserProvider>
-                <ContactConfigProvider>
-                    <FieldRulesProvider>
-                        <PropertyConfigProvider>
-                            <ParsingProvider>
-                                <ActivityProvider>
-                                    <DistributionProvider>
-                                        <SequenceProvider>
-                                            <AutomatedActionsProvider>
-                                                <TriggersProvider>
-                                                    <CallProvider>
-                                                        {isWeb && <Toaster 
-                                                            position="top-right" 
-                                                            containerStyle={{ zIndex: 999999 }}
-                                                        />}
-                                                        <AppContent />
-                                                    </CallProvider>
-                                                </TriggersProvider>
-                                            </AutomatedActionsProvider>
-                                        </SequenceProvider>
-                                    </DistributionProvider>
-                                </ActivityProvider>
-                            </ParsingProvider>
-                        </PropertyConfigProvider>
-                    </FieldRulesProvider>
-                </ContactConfigProvider >
+                <ThemeProvider>
+                    <ContactConfigProvider>
+                        <FieldRulesProvider>
+                            <PropertyConfigProvider>
+                                <ParsingProvider>
+                                    <ActivityProvider>
+                                        <DistributionProvider>
+                                            <SequenceProvider>
+                                                <AutomatedActionsProvider>
+                                                    <TriggersProvider>
+                                                        <CallProvider>
+                                                            {isWeb && <Toaster 
+                                                                position="top-right" 
+                                                                containerStyle={{ zIndex: 999999 }}
+                                                            />}
+                                                            <AppContent />
+                                                        </CallProvider>
+                                                    </TriggersProvider>
+                                                </AutomatedActionsProvider>
+                                            </SequenceProvider>
+                                        </DistributionProvider>
+                                    </ActivityProvider>
+                                </ParsingProvider>
+                            </PropertyConfigProvider>
+                        </FieldRulesProvider>
+                    </ContactConfigProvider >
+                </ThemeProvider>
             </UserProvider>
         </ErrorBoundary>
+        </QueryClientProvider>
     );
 }
 

@@ -147,7 +147,7 @@ export const useContactIntelligence = ({
         `₹${Number(contact.budgetMin || 0).toLocaleString()} - ${Number(contact.budgetMax || 0).toLocaleString()}` :
         (renderLookup(contact?.budget) || '-'),
       flexibility: contact?.whitePortion ? `${contact.whitePortion}%` : '0%',
-      type: (Array.isArray(contact?.propertyType) && contact.propertyType[0]) ? renderLookup(contact.propertyType[0]) : (renderLookup(contact?.propertyType) || renderLookup(contact?.propertyCategory) || '-'),
+      type: (Array.isArray(contact?.propertyType) && contact.propertyType[0]) ? renderLookup(contact.propertyType[0], null) : (renderLookup(contact?.propertyType, null) || renderLookup(contact?.propertyCategory, null) || '-'),
       urgency: renderLookup(contact?.timeline) || (leadScore.total >= 80 ? 'Extreme' : 'Moderate'),
       dealType: renderLookup(contact?.requirement) || 'Direct Purchase',
       source: renderLookup(contact?.source) || '-',

@@ -87,7 +87,7 @@ const PublicChatWidget = () => {
                 mobile: userMobile
             };
 
-            const response = await fetch(`${BASE_BACKEND_URL}/api/webhooks/website-chat`, {
+            const response = await fetch(`/api/webhooks/website-chat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
@@ -124,7 +124,7 @@ const PublicChatWidget = () => {
     const handleSendHiddenMsg = async (hiddenMsg) => {
         setIsLoading(true);
         try {
-            const response = await fetch(`${BASE_BACKEND_URL}/api/webhooks/website-chat`, {
+            const response = await fetch(`/api/webhooks/website-chat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

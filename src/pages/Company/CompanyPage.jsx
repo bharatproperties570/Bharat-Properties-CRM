@@ -9,7 +9,7 @@ import { api } from '../../utils/api';
 import toast from 'react-hot-toast';
 import ManageGroupsModal from './components/ManageGroupsModal';
 import AssignGroupModal from './components/AssignGroupModal';
-
+import PremiumSearchBar from '../../components/PremiumSearchBar';
 function CompanyPage({ onEdit, onNavigate }) {
     const [selectedIds, setSelectedIds] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
@@ -357,26 +357,13 @@ function CompanyPage({ onEdit, onNavigate }) {
                                             style={{ cursor: 'pointer' }}
                                         />
                                     )}
-                                    <div style={{ position: 'relative', flex: 1, maxWidth: '500px' }}>
-                                        <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.85rem' }}></i>
-                                        <input
-                                            type="text"
-                                            placeholder="search by name, email, mobile, company and tags"
-                                            value={searchTerm}
-                                            onChange={(e) => setSearchTerm(e.target.value)}
-                                            style={{
-                                                width: '100%',
-                                                padding: '8px 12px 8px 36px',
-                                                border: '1px solid #e2e8f0',
-                                                borderRadius: '6px',
-                                                fontSize: '0.85rem',
-                                                outline: 'none',
-                                                transition: 'all 0.2s'
-                                            }}
-                                            onFocus={(e) => e.target.style.borderColor = 'var(--primary-color)'}
-                                            onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
-                                        />
-                                    </div>
+                                    <PremiumSearchBar
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                        placeholder="search by name, email, mobile, company and tags"
+                                        loading={loading}
+                                        className=""
+                                    />
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                                     <div style={{ fontSize: '0.8rem', color: '#64748b' }}>

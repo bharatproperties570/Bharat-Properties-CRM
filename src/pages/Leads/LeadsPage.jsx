@@ -31,7 +31,11 @@ import { useUserContext } from '../../context/UserContext';
 import { renderValue } from '../../utils/renderUtils';
 import { useCallback } from 'react';
 
-import usePermissions, { PermissionGate } from '../../hooks/usePermissions';
+import { usePermissions, PermissionGate } from '../../hooks/usePermissions';
+import PremiumSearchBar from '../../components/PremiumSearchBar';
+import { LeadsPageSkeleton } from '../../components/SkeletonLoader';
+import { useInvalidateLeads } from '../../utils/crmHooks';
+
 
 function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     console.log("[Leads Audit] LeadsPage rendering...");
@@ -841,35 +845,34 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                                     <div style={{ position: 'relative', width: '350px' }}>
-                                        <input
-                                            type="text"
-                                            className="search-input-premium"
-                                            placeholder="Search name, mobile, email..."
+                                        <PremiumSearchBar
                                             value={searchTerm}
                                             onChange={(e) => setSearchTerm(e.target.value)}
+                                            placeholder="Search name, mobile, email..."
+                                            loading={loading}
                                         />
-                                        <i className={`fas fa-search search-icon-premium ${searchTerm ? 'active' : ''}`}></i>
                                     </div>
                                 </div>
 
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                                    <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                                         Showing: <strong>{leads.length}</strong> / <strong>{totalCount}</strong>
                                     </div>
 
                                     {/* Records Per Page */}
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: '#64748b' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                                         <span>Show:</span>
                                         <select
                                             value={recordsPerPage}
                                             onChange={handleRecordsPerPageChange}
                                             style={{
                                                 padding: '4px 8px',
-                                                border: '1px solid #e2e8f0',
+                                                border: '1px solid var(--border-color)',
                                                 borderRadius: '6px',
                                                 fontSize: '0.8rem',
                                                 fontWeight: 600,
-                                                color: '#0f172a',
+                                                background: 'var(--input-bg)',
+                                                color: 'var(--text-main)',
                                                 outline: 'none',
                                                 cursor: 'pointer'
                                             }}
@@ -892,10 +895,10 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                             disabled={currentPage === 1}
                                             style={{
                                                 padding: '6px 12px',
-                                                border: '1px solid #e2e8f0',
+                                                border: '1px solid var(--border-color)',
                                                 borderRadius: '6px',
-                                                background: currentPage === 1 ? '#f8fafc' : '#fff',
-                                                color: currentPage === 1 ? '#cbd5e1' : '#0f172a',
+                                                background: currentPage === 1 ? 'var(--bg-gray)' : 'var(--input-bg)',
+                                                color: currentPage === 1 ? 'var(--text-muted)' : 'var(--text-main)',
                                                 cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
                                                 fontSize: '0.75rem',
                                                 fontWeight: 600
@@ -903,7 +906,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                         >
                                             <i className="fas fa-chevron-left"></i> Prev
                                         </button>
-                                        <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#0f172a', minWidth: '80px', textAlign: 'center' }}>
+                                        <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-main)', minWidth: '80px', textAlign: 'center' }}>
                                             {currentPage} / {totalPages || 1}
                                         </span>
                                         <button
@@ -911,10 +914,10 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                             disabled={currentPage >= totalPages}
                                             style={{
                                                 padding: '6px 12px',
-                                                border: '1px solid #e2e8f0',
+                                                border: '1px solid var(--border-color)',
                                                 borderRadius: '6px',
-                                                background: currentPage >= totalPages ? '#f8fafc' : '#fff',
-                                                color: currentPage >= totalPages ? '#cbd5e1' : '#0f172a',
+                                                background: currentPage >= totalPages ? 'var(--bg-gray)' : 'var(--input-bg)',
+                                                color: currentPage >= totalPages ? 'var(--text-muted)' : 'var(--text-main)',
                                                 cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer',
                                                 fontSize: '0.75rem',
                                                 fontWeight: 600,
@@ -931,9 +934,9 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                                 style={{ 
                                                     display: 'flex', alignItems: 'center', justifyContent: 'center', 
                                                     width: '32px', height: '32px', borderRadius: '8px',
-                                                    border: '1px solid #e2e8f0',
-                                                    background: isSortOpen ? 'var(--primary-color)' : '#fff',
-                                                    color: isSortOpen ? '#fff' : '#64748b',
+                                                    border: '1px solid var(--border-color)',
+                                                    background: isSortOpen ? 'var(--primary-color)' : 'var(--input-bg)',
+                                                    color: isSortOpen ? '#fff' : 'var(--text-muted)',
                                                     cursor: 'pointer', transition: 'all 0.2s'
                                                 }}
                                                 onClick={() => setIsSortOpen(!isSortOpen)}
@@ -949,11 +952,11 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                                     />
                                                     <ul className="shadow-lg border-0" style={{ 
                                                         position: 'absolute', top: '100%', right: 0, zIndex: 999,
-                                                        backgroundColor: '#fff', borderRadius: '16px', padding: '10px', 
+                                                        backgroundColor: 'var(--contact-card-bg)', borderRadius: '16px', padding: '10px', 
                                                         minWidth: '220px', marginTop: '8px', listStyle: 'none',
-                                                        border: '1px solid #eef2f5'
+                                                        border: '1px solid var(--border-color)'
                                                     }}>
-                                                        <li><h6 style={{ fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', color: '#94a3b8', padding: '10px 15px', margin: 0 }}>Advanced Sort</h6></li>
+                                                        <li><h6 style={{ fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-muted)', padding: '10px 15px', margin: 0 }}>Advanced Sort</h6></li>
                                                         {[
                                                             { label: 'Newest First', by: 'createdAt', order: -1, icon: 'fa-calendar-plus' },
                                                             { label: 'Oldest First', by: 'createdAt', order: 1, icon: 'fa-calendar-minus' },
@@ -961,24 +964,17 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                                             { label: 'Recently Updated', by: 'updatedAt', order: -1, icon: 'fa-bolt' },
                                                             { label: 'Name (A-Z)', by: 'firstName', order: 1, icon: 'fa-sort-alpha-down' },
                                                             { label: 'Stage Sequence', by: 'stage', order: 1, icon: 'fa-layer-group' }
-                                                        ].map((opt) => (
-                                                            <li key={opt.label}>
-                                                                <button 
-                                                                    className={`d-flex align-items-center gap-3`} 
-                                                                    style={{ 
-                                                                        width: '100%', border: 'none', textAlign: 'left',
-                                                                        borderRadius: '10px', 
-                                                                        padding: '10px 15px', 
-                                                                        fontSize: '0.85rem',
-                                                                        fontWeight: sortConfig.label === opt.label ? 700 : 500,
-                                                                        color: sortConfig.label === opt.label ? '#fff' : '#1e293b',
+                                                        ].map((opt, i) => (
+                                                            <li key={i}>
+                                                                <button
+                                                                    style={{
+                                                                        display: 'flex', alignItems: 'center', gap: '10px',
+                                                                        width: '100%', padding: '10px 15px', border: 'none',
                                                                         background: sortConfig.label === opt.label ? 'var(--primary-color)' : 'transparent',
-                                                                        cursor: 'pointer',
-                                                                        marginBottom: '2px',
-                                                                        transition: 'all 0.2s'
+                                                                        color: sortConfig.label === opt.label ? '#fff' : 'var(--text-main)',
+                                                                        borderRadius: '10px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600
                                                                     }}
                                                                     onClick={() => {
-                                                                        console.log(`[Sort] Changing sort to: ${opt.label} (${opt.by})`);
                                                                         setSortConfig(opt);
                                                                         setIsSortOpen(false);
                                                                         setCurrentPage(1);
@@ -990,6 +986,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                                                 </button>
                                                             </li>
                                                         ))}
+
                                                     </ul>
                                                 </React.Fragment>
                                             )}
@@ -1009,7 +1006,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
 
                     {/* Header Strip (Only for List View) */}
                     {viewMode === 'list' && (
-                        <div className="list-header lead-list-grid" style={{ position: 'sticky', top: '45px', background: '#f8fafc', zIndex: 99, borderBottom: '2px solid #e2e8f0', fontSize: '0.75rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        <div className="list-header lead-list-grid" style={{ position: 'sticky', top: '45px', background: 'var(--header-bg-translucent)', backdropFilter: 'var(--header-blur)', zIndex: 99, borderBottom: '2px solid var(--border-color)', fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                             <div><input type="checkbox" onChange={() => {
                                 if (selectedCount === leads.length) setSelectedIds([]);
                                 else setSelectedIds(leads.map(l => l._id));
@@ -1028,7 +1025,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                     <div id="leadListContent" style={{ display: viewMode === 'grid' || viewMode === 'card' ? 'block' : 'grid' }}>
                         {viewMode === 'card' ? (
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px', padding: '20px' }}>
-                                {loading ? <div style={{ padding: '20px', textAlign: 'center' }}>Loading...</div> : leads.map((lead, idx) => (
+                                {loading ? <LeadsPageSkeleton count={8} /> : leads.map((lead, idx) => (
                                     <LeadCard
                                         key={lead._id || idx}
                                         lead={lead}
@@ -1058,7 +1055,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                             </div>
                         ) : (
                             /* List View Rendering */
-                            loading ? <div style={{ padding: '20px', textAlign: 'center' }}>Loading...</div> : leads.map((c, idx) => (
+                            loading ? <LeadsPageSkeleton count={8} /> : leads.map((c, idx) => (
                                 <LeadItem
                                     key={c._id || idx}
                                     lead={c}

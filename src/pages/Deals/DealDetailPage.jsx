@@ -781,6 +781,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
 
                         <MediaVaultSection 
                             inventory={inventory}
+                            deal={deal}
                             onMediaClick={() => {
                                 if (!inventory?._id) {
                                     toast.error('Please link an inventory to manage media archive.');

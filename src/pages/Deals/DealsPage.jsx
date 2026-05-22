@@ -25,6 +25,7 @@ import PipelineDashboard from '../../components/PipelineDashboard';
 import useDebounce from '../../hooks/useDebounce';
 import { PermissionGate } from '../../hooks/usePermissions';
 import SocialPostModal from '../../components/SocialPostModal';
+import PremiumSearchBar from '../../components/PremiumSearchBar';
 import { List } from 'react-window';
 import { AutoSizer } from 'react-virtualized-auto-sizer';
 
@@ -650,10 +651,8 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                     />
                                     <i className={`fas fa-search search-icon-premium ${searchTerm ? 'active' : ''}`}></i>
                                 </div>
-                                <div
-                                    style={{ display: 'flex', alignItems: 'center', gap: '15px' }}
-                                >
-                                    <div style={{ fontSize: "0.8rem", color: "#64748b" }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                                    <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
                                         Showing: <strong>{deals.length}</strong> /{" "}
                                         <strong>{totalRecords}</strong>
                                     </div>
@@ -665,7 +664,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                             alignItems: "center",
                                             gap: "8px",
                                             fontSize: "0.8rem",
-                                            color: "#64748b",
+                                            color: "var(--text-muted)",
                                         }}
                                     >
                                         <span>Show:</span>
@@ -674,11 +673,12 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                             onChange={handleRecordsPerPageChange}
                                             style={{
                                                 padding: "4px 8px",
-                                                border: "1px solid #e2e8f0",
+                                                border: "1px solid var(--border-color)",
                                                 borderRadius: "6px",
                                                 fontSize: "0.8rem",
                                                 fontWeight: 600,
-                                                color: "#0f172a",
+                                                background: "var(--input-bg)",
+                                                color: "var(--text-main)",
                                                 outline: "none",
                                                 cursor: "pointer",
                                             }}
@@ -707,10 +707,10 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                             disabled={currentPage === 1 || loading}
                                             style={{
                                                 padding: "6px 12px",
-                                                border: "1px solid #e2e8f0",
+                                                border: "1px solid var(--border-color)",
                                                 borderRadius: "6px",
-                                                background: currentPage === 1 ? "#f8fafc" : "#fff",
-                                                color: currentPage === 1 ? "#cbd5e1" : "#0f172a",
+                                                background: currentPage === 1 ? "var(--bg-gray)" : "var(--input-bg)",
+                                                color: currentPage === 1 ? "var(--text-muted)" : "var(--text-main)",
                                                 cursor: currentPage === 1 ? "not-allowed" : "pointer",
                                                 fontSize: "0.75rem",
                                                 fontWeight: 600,
@@ -722,7 +722,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                             style={{
                                                 fontSize: "0.8rem",
                                                 fontWeight: 600,
-                                                color: "#0f172a",
+                                                color: "var(--text-main)",
                                                 minWidth: "80px",
                                                 textAlign: "center",
                                             }}
@@ -734,12 +734,12 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                             disabled={currentPage >= totalPages || loading}
                                             style={{
                                                 padding: "6px 12px",
-                                                border: "1px solid #e2e8f0",
+                                                border: "1px solid var(--border-color)",
                                                 borderRadius: "6px",
                                                 background:
-                                                    currentPage >= totalPages ? "#f8fafc" : "#fff",
+                                                    currentPage >= totalPages ? "var(--bg-gray)" : "var(--input-bg)",
                                                 color:
-                                                    currentPage >= totalPages ? "#cbd5e1" : "#0f172a",
+                                                    currentPage >= totalPages ? "var(--text-muted)" : "var(--text-main)",
                                                 cursor:
                                                     currentPage >= totalPages ? "not-allowed" : "pointer",
                                                 fontSize: "0.75rem",
@@ -757,9 +757,9 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                                 style={{ 
                                                     display: 'flex', alignItems: 'center', justifyContent: 'center', 
                                                     width: '32px', height: '32px', borderRadius: '8px',
-                                                    border: '1px solid #e2e8f0',
-                                                    background: isSortOpen ? 'var(--primary-color)' : '#fff',
-                                                    color: isSortOpen ? '#fff' : '#64748b',
+                                                    border: '1px solid var(--border-color)',
+                                                    background: isSortOpen ? 'var(--primary-color)' : 'var(--input-bg)',
+                                                    color: isSortOpen ? '#fff' : 'var(--text-muted)',
                                                     cursor: 'pointer', transition: 'all 0.2s'
                                                 }}
                                                 onClick={() => setIsSortOpen(!isSortOpen)}
@@ -775,46 +775,59 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                                     />
                                                     <ul className="shadow-lg border-0" style={{ 
                                                         position: 'absolute', top: '100%', right: 0, zIndex: 999,
-                                                        backgroundColor: '#fff', borderRadius: '16px', padding: '10px', 
+                                                        backgroundColor: 'var(--contact-card-bg)', borderRadius: '16px', padding: '10px', 
                                                         minWidth: '220px', marginTop: '8px', listStyle: 'none',
-                                                        border: '1px solid #eef2f5'
+                                                        border: '1px solid var(--border-color)'
                                                     }}>
-                                                        <li><h6 style={{ fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', color: '#94a3b8', padding: '10px 15px', margin: 0 }}>Advanced Sort</h6></li>
+                                                        <li><h6 style={{ fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-muted)', padding: '10px 15px', margin: 0 }}>Advanced Sort</h6></li>
                                                         {[
                                                             { label: 'Newest First', by: 'createdAt', order: -1, icon: 'fa-calendar-plus' },
                                                             { label: 'Oldest First', by: 'createdAt', order: 1, icon: 'fa-calendar-minus' },
                                                             { label: 'Recently Updated', by: 'updatedAt', order: -1, icon: 'fa-bolt' },
                                                             { label: 'Value (High to Low)', by: 'value', order: -1, icon: 'fa-sort-amount-up' },
                                                             { label: 'Value (Low to High)', by: 'value', order: 1, icon: 'fa-sort-amount-down' },
-                                                        ].map((opt) => (
-                                                            <li key={opt.label}>
-                                                                <button 
-                                                                    className={`d-flex align-items-center gap-3`} 
-                                                                    style={{ 
-                                                                        width: '100%', border: 'none', textAlign: 'left',
-                                                                        borderRadius: '10px', 
-                                                                        padding: '10px 15px', 
-                                                                        fontSize: '0.85rem',
-                                                                        fontWeight: sortConfig.label === opt.label ? 700 : 500,
-                                                                        color: sortConfig.label === opt.label ? '#fff' : '#1e293b',
-                                                                        background: sortConfig.label === opt.label ? 'var(--primary-color)' : 'transparent',
-                                                                        cursor: 'pointer',
-                                                                        marginBottom: '2px',
-                                                                        transition: 'all 0.2s'
-                                                                    }}
-                                                                    onClick={() => {
-                                                                        console.log(`[DealSort] Changing sort to: ${opt.label} (${opt.by})`);
-                                                                        setSortConfig(opt);
-                                                                        setIsSortOpen(false);
-                                                                        setCurrentPage(1);
-                                                                    }}
-                                                                >
-                                                                    <i className={`fas ${opt.icon}`} style={{ width: '18px', opacity: sortConfig.label === opt.label ? 1 : 0.6 }}></i>
-                                                                    {opt.label}
-                                                                    {sortConfig.label === opt.label && <i className="fas fa-check ms-auto" style={{ fontSize: '0.7rem' }}></i>}
-                                                                </button>
-                                                            </li>
-                                                        ))}
+                                                        ].map((opt) => {
+                                                            const isSelected = sortConfig.label === opt.label;
+                                                            return (
+                                                                <li key={opt.label}>
+                                                                    <button 
+                                                                        className={`d-flex align-items-center gap-3`} 
+                                                                        style={{ 
+                                                                            width: '100%', border: 'none', textAlign: 'left',
+                                                                            borderRadius: '10px', 
+                                                                            padding: '10px 15px', 
+                                                                            fontSize: '0.85rem',
+                                                                            fontWeight: isSelected ? 700 : 500,
+                                                                            color: isSelected ? '#fff' : 'var(--text-main)',
+                                                                            background: isSelected ? 'var(--primary-color)' : 'transparent',
+                                                                            cursor: 'pointer',
+                                                                            marginBottom: '2px',
+                                                                            transition: 'all 0.2s'
+                                                                        }}
+                                                                        onMouseEnter={(e) => {
+                                                                            if (!isSelected) {
+                                                                                e.currentTarget.style.background = 'var(--contact-row-hover)';
+                                                                            }
+                                                                        }}
+                                                                        onMouseLeave={(e) => {
+                                                                            if (!isSelected) {
+                                                                                e.currentTarget.style.background = 'transparent';
+                                                                            }
+                                                                        }}
+                                                                        onClick={() => {
+                                                                            console.log(`[DealSort] Changing sort to: ${opt.label} (${opt.by})`);
+                                                                            setSortConfig(opt);
+                                                                            setIsSortOpen(false);
+                                                                            setCurrentPage(1);
+                                                                        }}
+                                                                    >
+                                                                        <i className={`fas ${opt.icon}`} style={{ width: '18px', opacity: isSelected ? 1 : 0.6 }}></i>
+                                                                        {opt.label}
+                                                                        {isSelected && <i className="fas fa-check ms-auto" style={{ fontSize: '0.7rem' }}></i>}
+                                                                    </button>
+                                                                </li>
+                                                            );
+                                                        })}
                                                     </ul>
                                                 </React.Fragment>
                                             )}
@@ -835,7 +848,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
 
                     {/* Header */}
                     {currentView === 'list' && (
-                        <div className="list-header deals-list-grid" style={{ position: 'sticky', top: '45px', zIndex: 99, padding: '15px 1.5rem', background: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569', fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        <div className="list-header deals-list-grid" style={{ position: 'sticky', top: '45px', zIndex: 99, padding: '15px 1.5rem', background: 'var(--header-bg-translucent)', backdropFilter: 'var(--header-blur)', borderBottom: '2px solid var(--border-color)', color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                             <div>
                                 <input
                                     type="checkbox"
@@ -892,22 +905,19 @@ function DealsPage({ onNavigate, onAddActivity }) {
                     ) : (
                         <div className="map-view-container" style={{ height: 'calc(100vh - 250px)', position: 'relative', margin: '0', display: 'flex' }}>
                             {/* Left Sidebar with Deals List */}
-                            <div style={{ width: '320px', background: '#fff', borderRight: '1px solid #e2e8f0', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-                                <div style={{ padding: '15px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
-                                    <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
+                            <div style={{ width: '320px', background: 'var(--contact-card-bg)', borderRight: '1px solid var(--border-color)', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+                                <div style={{ padding: '15px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-gray)' }}>
+                                    <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '8px' }}>
                                         <i className="fas fa-map-pin" style={{ color: '#ef4444', marginRight: '6px' }}></i>
                                         Deals by Location ({filteredDeals.length})
                                     </div>
                                     <div style={{ position: 'relative' }}>
-                                        <input
-                                            type="text"
-                                            className="search-input-premium"
-                                            placeholder="Filter deals..."
+                                        <PremiumSearchBar
                                             value={searchTerm}
                                             onChange={(e) => setSearchTerm(e.target.value)}
-                                            style={{ width: '100%', padding: '8px 12px 8px 35px', fontSize: '0.8rem' }}
+                                            placeholder="Filter deals..."
+                                            loading={loading}
                                         />
-                                        <i className={`fas fa-search search-icon-premium ${searchTerm ? 'active' : ''}`} style={{ fontSize: '0.75rem', left: '10px' }}></i>
                                     </div>
                                 </div>
                                 <div style={{ flex: 1, overflowY: 'auto' }}>
@@ -916,13 +926,13 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                             key={deal.id}
                                             style={{
                                                 padding: '12px 15px',
-                                                borderBottom: '1px solid #f1f5f9',
+                                                borderBottom: '1px solid var(--border-color)',
                                                 cursor: 'pointer',
                                                 transition: 'all 0.2s',
-                                                background: '#fff'
+                                                background: 'var(--contact-card-bg)'
                                             }}
-                                            onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'}
-                                            onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}
+                                            onMouseEnter={(e) => e.currentTarget.style.background = 'var(--contact-row-hover)'}
+                                            onMouseLeave={(e) => e.currentTarget.style.background = 'var(--contact-card-bg)'}
                                         >
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
                                                 <div style={{
@@ -941,10 +951,10 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                                 </div>
                                                 <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--primary-color)' }}>#{deal.id}</div>
                                             </div>
-                                            <div style={{ fontSize: '0.75rem', color: '#0f172a', fontWeight: 600, marginBottom: '4px' }}>
+                                            <div style={{ fontSize: '0.75rem', color: 'var(--text-main)', fontWeight: 600, marginBottom: '4px' }}>
                                                 {renderValue(deal.location)}
                                             </div>
-                                            <div style={{ fontSize: '0.7rem', color: '#64748b', marginBottom: '4px' }}>
+                                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '4px' }}>
                                                 {renderValue(deal.propertyType)}
                                             </div>
                                             <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#10b981' }}>
@@ -1121,7 +1131,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                 />
             )}
 
-            <footer className="summary-footer" style={{ height: '55px', background: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', marginTop: 'auto' }}>
+            <footer className="summary-footer" style={{ height: '55px', background: 'var(--bg-gray)', borderTop: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', marginTop: 'auto' }}>
                 <div style={{ display: 'flex', gap: '20px', alignItems: 'center', padding: '0 2rem', width: '100%', overflowX: 'auto' }}>
                     <div className="summary-label" style={{ background: '#334155', color: '#fff', borderRadius: '8px', fontSize: '0.65rem', padding: '4px 12px', fontWeight: 800, whiteSpace: 'nowrap' }}>SUMMARY</div>
                     {categoryStats && categoryStats.length > 0 ? (
@@ -1168,9 +1178,9 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
     const isWon = deal.stage === 'Closed' && deal.status === 'Won';
     const isClosed = deal.stage === 'Closed';
     
-    let rowBackground = '#fff';
-    if (isBooked) rowBackground = '#fee2e2'; // Light Red
-    if (isWon) rowBackground = '#fce7f3'; // Light Pink
+    let rowBackground = 'var(--contact-row-bg)';
+    if (isBooked) rowBackground = 'var(--danger-bg)'; // Adaptive red
+    if (isWon) rowBackground = 'var(--stat-sales-bg)'; // Adaptive pink/purple
     
     const isNonActionable = isBooked || isClosed;
 
@@ -1194,17 +1204,18 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
             case 'stalled':
             case 'dormant':
                 return 'thumb-inactive'; // Grey gradient
-            default:
+            default: {
                 const statusVal = String(deal.status?.lookup_value || deal.status || 'open').toLowerCase();
                 if (statusVal === 'open' || statusVal === 'published') {
                     return 'thumb-active';
                 }
                 return 'thumb-inactive';
+            }
         }
     };
 
     return (
-        <div className={`list-item deals-list-grid ${isNonActionable ? 'non-actionable-row' : ''}`} style={{ ...style, padding: '18px 1.5rem', borderBottom: '1px solid #e2e8f0', transition: 'background 0.2s ease', background: rowBackground, opacity: isNonActionable ? 0.8 : 1, pointerEvents: isNonActionable ? 'none' : 'auto', display: 'grid', alignItems: 'center' }}>
+        <div className={`list-item deals-list-grid ${isNonActionable ? 'non-actionable-row' : ''}`} style={{ ...style, padding: '18px 1.5rem', borderBottom: '1px solid var(--border-color)', transition: 'background 0.2s ease', background: rowBackground, opacity: isNonActionable ? 0.8 : 1, pointerEvents: isNonActionable ? 'none' : 'auto', display: 'grid', alignItems: 'center' }}>
             <div>
                 <input
                     type="checkbox"

@@ -672,15 +672,17 @@ export const bulkRecalcStages = async (req, res) => {
  */
 export const getLeadScores = async (req, res) => {
     try {
+    console.log('getLeadScores invoked', { query: req.query });
         // 1. Fetch System Settings (Source of Truth for Scores)
         const SystemSetting = mongoose.model('SystemSetting');
         const settings = await SystemSetting.find({
             key: { $in: ['activityMasterFields', 'stageMultipliers', 'scoreBands'] }
         }).lean();
 
+        // Fallback: ensure we have config objects even if DB entries are missing
         const activityConfig = settings.find(s => s.key === 'activityMasterFields')?.value || {};
-
         const scoreBands = settings.find(s => s.key === 'scoreBands')?.value || {};
+        const stageMultipliers = settings.find(s => s.key === 'stageMultipliers')?.value || {};
 
         // Fallback weights if multipliers are missing (scaled to 100)
         const STAGE_WEIGHTS = {

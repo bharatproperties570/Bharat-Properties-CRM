@@ -867,7 +867,7 @@ function ThreadPanel({ item, T, isDark, onClose, onSend, setPreviewMedia, onConv
                 formData.append('file', pendingFile.file);
                 formData.append('entityType', 'Communication');
                 formData.append('entityName', item.participant);
-                const up = await api.post('/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+                const up = await api.post('/upload', formData);
                 if (up.data?.success) {
                     payload.attachment = { type: pendingFile.type, url: up.data.downloadUrl || up.data.url, filename: up.data.fileName };
                 }
@@ -1162,7 +1162,7 @@ function AIBotView({ T, isDark, convos, selected, onSelect, onTakeover, onRefres
                     formData.append('entityName', selected.name);
                     
                     const uploadRes = await api.post('/upload', formData, {
-                        headers: { 'Content-Type': 'multipart/form-data' }
+                        headers: { 'Content-Type': undefined }
                     });
                     
                     if (uploadRes.data?.success) {

@@ -104,15 +104,32 @@ const InventoryToolbar = ({
                     <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                         {/* Premium Search Input */}
                         <div style={{ position: 'relative', width: '350px' }}>
-                            <input
-                                type="text"
-                                className="search-input-premium"
-                                placeholder="Search by ID, Project or Owner..."
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                            />
-                            <i className={`fas fa-search search-icon-premium ${searchTerm ? 'active' : ''}`}></i>
-                        </div>
+                             <input
+                                 type="text"
+                                 className="search-input-premium"
+                                 placeholder="Search by ID, Project or Owner..."
+                                 aria-label="Search inventory"
+                                 value={searchTerm}
+                                 onChange={(e) => setSearchTerm(e.target.value)}
+                             />
+                             {/* Clear button appears when there is input */}
+                             {searchTerm && (
+                                 <button
+                                     type="button"
+                                     className="search-clear-btn"
+                                     aria-label="Clear search"
+                                     onClick={() => setSearchTerm('')}
+                                 >
+                                     <i className="fas fa-times"></i>
+                                 </button>
+                             )}
+                             {/* Loading spinner when fetching data */}
+                             {loading && (
+                                 <div className="search-spinner" title="Loading..."></div>
+                             )}
+                             <i className={`fas fa-search search-icon-premium ${searchTerm ? 'active' : ''}`}>
+                             </i>
+                         </div>
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>

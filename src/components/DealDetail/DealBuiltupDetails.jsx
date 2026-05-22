@@ -54,7 +54,7 @@ const DealBuiltupDetails = ({ deal, getLookupValue, onRefresh }) => {
             const formData = new FormData();
             formData.append('file', file);
             const res = await api.post('/upload', formData, {
-                headers: { 'Content-Type': 'multipart/form-data' }
+                headers: { 'Content-Type': undefined }
             });
             if (res.data && res.data.success) {
                 setNewImageUrl(res.data.url);
@@ -77,7 +77,7 @@ const DealBuiltupDetails = ({ deal, getLookupValue, onRefresh }) => {
             const formData = new FormData();
             formData.append('file', file);
             const res = await api.post('/upload', formData, {
-                headers: { 'Content-Type': 'multipart/form-data' }
+                headers: { 'Content-Type': undefined }
             });
             if (res.data && res.data.success) {
                 setNewVideoUrl(res.data.url);

@@ -172,7 +172,7 @@
     white-space: nowrap;
     background: rgba(255,255,255,0.5);
     padding: 2px 8px;
-    borderRadius: 6px;
+    border-radius: 6px;
     flex-shrink: 0;
 }
 

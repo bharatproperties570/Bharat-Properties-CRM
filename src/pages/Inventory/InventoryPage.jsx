@@ -303,7 +303,13 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                 getTeamName={getTeamName}
                                 onAction={handleRowAction}
                                 loading={loading}
-                            />
+                                                        />
+                            {/* No Results Feedback */}
+                            {!loading && inventoryItems.length === 0 && (
+                                <div className="no-results" style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>
+                                    No inventory records found.
+                                </div>
+                            )}
                         </>
                     ) : (
                         <div style={{ height: 'calc(100vh - 180px)', display: 'flex', position: 'relative', background: '#fff' }}>

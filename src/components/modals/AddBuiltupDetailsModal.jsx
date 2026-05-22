@@ -203,9 +203,7 @@ export default function AddBuiltupDetailsModal({
             const formData = new FormData();
             formData.append('file', file);
 
-            const res = await api.post('/upload', formData, {
-                headers: { 'Content-Type': 'multipart/form-data' }
-            });
+            const res = await api.post('/upload', formData);
 
             if (res.data && res.data.success) {
                 const uploadedUrl = res.data.url;
@@ -248,9 +246,7 @@ export default function AddBuiltupDetailsModal({
             const formData = new FormData();
             formData.append('file', file);
 
-            const res = await api.post('/upload', formData, {
-                headers: { 'Content-Type': 'multipart/form-data' }
-            });
+            const res = await api.post('/upload', formData);
 
             if (res.data && res.data.success) {
                 setBuiltupVideoUrl(res.data.url);
@@ -281,9 +277,7 @@ export default function AddBuiltupDetailsModal({
             const formData = new FormData();
             formData.append('file', file);
 
-            const res = await api.post('/upload', formData, {
-                headers: { 'Content-Type': 'multipart/form-data' }
-            });
+            const res = await api.post('/upload', formData);
 
             if (res.data && res.data.success) {
                 const uploadedUrl = res.data.url;
