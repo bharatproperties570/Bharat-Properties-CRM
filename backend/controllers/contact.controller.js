@@ -518,12 +518,9 @@ export const getContactUsage = async (req, res) => {
         const contact = await Contact.findById(id);
         if (!contact) return res.status(404).json({ success: false, error: "Contact not found" });
 
-        const mobile = contact.phones?.[0]?.number;
-        const email = contact.emails?.[0]?.address;
-
         const [leadsCount, inventoryCount, bookingsCount, activitiesCount] = await Promise.all([
-            Lead.countDocuments({ $or: [{ mobile }, { email }] }),
-            Inventory.countDocuments({ $or: [{ owners: id }, { associates: id }] }),
+            Lead.countDocuments({ contactDetails: id }),
+            Inventory.countDocuments({ $or: [{ owners: id }, { "associates.contact": id }] }),
             Booking.countDocuments({ $or: [{ lead: id }, { seller: id }, { channelPartner: id }] }),
             Activity.countDocuments({ $or: [{ entityId: id }, { 'relatedTo.id': id }] })
         ]);
@@ -539,6 +536,41 @@ export const getContactUsage = async (req, res) => {
         });
     } catch (error) {
         console.error("getContactUsage error:", error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+export const getContactDependencies = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const contact = await Contact.findById(id);
+        if (!contact) return res.status(404).json({ success: false, error: "Contact not found" });
+
+        const [leads, inventory, bookings, activities] = await Promise.all([
+            Lead.find({ contactDetails: id }).select('firstName lastName _id').lean(),
+            Inventory.find({ $or: [{ owners: id }, { "associates.contact": id }] }).select('unitNo projectName _id').lean(),
+            Booking.find({ $or: [{ lead: id }, { seller: id }, { channelPartner: id }] }).select('applicationNo _id').lean(),
+            Activity.find({ $or: [{ entityId: id }, { 'relatedTo.id': id }] }).select('subject _id').lean()
+        ]);
+
+        const formatLeads = (docs) => docs.map(d => ({ _id: d._id, name: `${d.firstName || ''} ${d.lastName || ''}`.trim() || 'Unknown Lead' }));
+        const formatInventory = (docs) => docs.map(d => ({ _id: d._id, name: `${d.projectName || 'Unknown Project'} - ${d.unitNo || 'Unknown Unit'}` }));
+        const formatBookings = (docs) => docs.map(d => ({ _id: d._id, name: `Booking ${d.applicationNo || d._id}` }));
+        const formatActivities = (docs) => docs.map(d => ({ _id: d._id, name: d.subject || 'Activity' }));
+
+        res.json({
+            success: true,
+            dependencies: {
+                leads: formatLeads(leads),
+                inventory: formatInventory(inventory),
+                deals: formatBookings(bookings),
+                activities: formatActivities(activities),
+                postSales: [], // Future implementation
+                marketing: [] // Future implementation
+            }
+        });
+    } catch (error) {
+        console.error("getContactDependencies error:", error);
         res.status(500).json({ success: false, error: error.message });
     }
 };
@@ -584,18 +616,12 @@ export const deleteContact = async (req, res, next) => {
         const contact = await Contact.findById(id);
         if (!contact) return res.status(404).json({ success: false, error: "Contact not found" });
 
-        const mobile = contact.phones?.[0]?.number;
-        const email = contact.emails?.[0]?.address;
-
         const contactId = new mongoose.Types.ObjectId(id);
 
         // Cascading Updates/Deletions
         await Promise.all([
             // Delete related Leads
-            mobile || email ? Lead.deleteMany({ $or: [
-                ...(mobile ? [{ mobile }] : []),
-                ...(email ? [{ email }] : [])
-            ] }) : Promise.resolve(),
+            Lead.deleteMany({ contactDetails: contactId }),
             // Remove from Inventory owners/associates
             Inventory.updateMany({ owners: contactId }, { $pull: { owners: contactId } }),
             Inventory.updateMany({ "associates.contact": contactId }, { $pull: { associates: { contact: contactId } } }),
@@ -633,16 +659,10 @@ export const bulkDeleteContacts = async (req, res, next) => {
         const objectIds = ids.map(id => new mongoose.Types.ObjectId(id));
         const contacts = await Contact.find({ _id: { $in: objectIds } });
 
-        const mobiles = contacts.map(c => c.phones?.[0]?.number).filter(Boolean);
-        const emails = contacts.map(c => c.emails?.[0]?.address).filter(Boolean);
-
         // Cascading Updates/Deletions
         await Promise.all([
             // Delete related Leads
-            (mobiles.length > 0 || emails.length > 0) ? Lead.deleteMany({ $or: [
-                ...(mobiles.length > 0 ? [{ mobile: { $in: mobiles } }] : []),
-                ...(emails.length > 0 ? [{ email: { $in: emails } }] : [])
-            ] }) : Promise.resolve(),
+            Lead.deleteMany({ contactDetails: { $in: objectIds } }),
             // Remove from Inventory
             Inventory.updateMany({ owners: { $in: objectIds } }, { $pull: { owners: { $in: objectIds } } }),
             Inventory.updateMany({ "associates.contact": { $in: objectIds } }, { $pull: { associates: { contact: { $in: objectIds } } } }),

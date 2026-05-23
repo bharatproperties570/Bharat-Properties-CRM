@@ -83,7 +83,7 @@ export const resolveHierarchicalAddress = async (addr) => {
     // User Specification: 'location' is ID, 'area' is Text
     const locationVal = addr.location || addr.locality || addr.sector || addr.area;
     if (locationVal) {
-        const locationId = await resolveLookup('Area', locationVal, cityId);
+        const locationId = await resolveLookup('Location', locationVal, cityId);
         if (locationId) {
             resolved.location = locationId;
             resolved.locality = locationId;

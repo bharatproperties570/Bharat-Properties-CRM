@@ -22,6 +22,8 @@ import { usePropertyConfig } from "../../context/PropertyConfigContext";
 import { renderValue } from "../../utils/renderUtils";
 import { PermissionGate } from '../../hooks/usePermissions';
 import ContactDependencyModal from '../../components/modals/ContactDependencyModal';
+import ManageGroupsModal from './components/ManageGroupsModal';
+import AssignGroupModal from './components/AssignGroupModal';
 
 // ─── DEBOUNCE UTILITY ──────────────────────────────────────────────────────────
 const useDebounce = (value, delay) => {
@@ -350,7 +352,10 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
   const [isAddLeadModalOpen, setIsAddLeadModalOpen] = useState(false);
   const [contactForLead, setContactForLead] = useState(null);
   const [sortConfig, setSortConfig] = useState({ label: 'Newest First', by: 'createdAt', order: -1, icon: 'fa-calendar-plus' });
+
   const [isSortOpen, setIsSortOpen] = useState(false);
+  const [isManageGroupsOpen, setIsManageGroupsOpen] = useState(false);
+  const [isAssignGroupModalOpen, setIsAssignGroupModalOpen] = useState(false);
   
   const { teams, users } = useUserContext();
   const { getLookupValue } = usePropertyConfig();
@@ -588,6 +593,9 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
               </div>
               <span className="sync-text">{isSyncing ? 'Syncing...' : 'Google Sync'}</span>
             </div>
+            <button className="btn-outline" onClick={() => setIsManageGroupsOpen(true)}>
+              <i className="fas fa-layer-group"></i> Groups
+            </button>
             <button className="btn-outline" onClick={() => setViewMode(viewMode === "list" ? "card" : "list")}>
               <i className={`fas ${viewMode === "list" ? "fa-th-large" : "fa-list"}`}></i>
               {viewMode === "list" ? "Card" : "List"}
@@ -645,6 +653,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                   }}><i className="fas fa-file-alt"></i> Documents</button>
                 )}
                 <button className="action-btn" onClick={() => { setSelectedContactsForAssign(getSelectedContacts()); setIsAssignModalOpen(true); }}><i className="fas fa-exchange-alt"></i> Assign</button>
+                <button className="action-btn" onClick={() => setIsAssignGroupModalOpen(true)}><i className="fas fa-folder-plus"></i> Groups</button>
                 <button className="action-btn" onClick={() => { setSelectedContactsForTags(getSelectedContacts()); setIsTagsModalOpen(true); }}><i className="fas fa-tag"></i> Tag</button>
                 {selectedIds.length === 1 && (
                   <button className="action-btn" onClick={() => {
@@ -907,6 +916,22 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
           cursor: not-allowed;
         }
       `}</style>
+      {/* Modals */}
+      <ManageGroupsModal 
+        isOpen={isManageGroupsOpen} 
+        onClose={() => setIsManageGroupsOpen(false)} 
+      />
+
+      <AssignGroupModal 
+        isOpen={isAssignGroupModalOpen} 
+        onClose={() => setIsAssignGroupModalOpen(false)} 
+        selectedContacts={getSelectedContacts()} 
+        onComplete={() => {
+          setSelectedIds([]);
+          fetchContacts();
+        }} 
+      />
+
     </section>
   );
 }

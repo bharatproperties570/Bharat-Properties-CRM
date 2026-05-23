@@ -864,11 +864,11 @@ export const publishMarketingContent = async (req, res) => {
 
 export const broadcastToBrokerGroup = async (req, res) => {
     try {
-        const { dealId, groupIds, channels = ['whatsapp'], templateId, language } = req.body;
-        console.log(`[BNA] Dispatching to groups: ${groupIds} (Template: ${templateId || 'NONE'})`);
+        const { dealId, groupIds, contactGroupIds, channels = ['whatsapp'], templateId, language } = req.body;
+        console.log(`[BNA] Dispatching to groups: Company=${groupIds} Contact=${contactGroupIds} (Template: ${templateId || 'NONE'})`);
         
-        if (!dealId || !groupIds || groupIds.length === 0) {
-            return res.status(400).json({ success: false, error: 'Deal ID and Company Groups are required' });
+        if (!dealId || (!(groupIds && groupIds.length > 0) && !(contactGroupIds && contactGroupIds.length > 0))) {
+            return res.status(400).json({ success: false, error: 'Deal ID and at least one Company or Contact Group are required' });
         }
 
         const Company = mongoose.model('Company');
@@ -881,27 +881,52 @@ export const broadcastToBrokerGroup = async (req, res) => {
         }
 
         // 2. Fetch Targeted Audience (Brokers in selected groups)
-        const companies = await Company.find({
-            groups: { $in: groupIds },
-            ...visibilityFilter
-        }).lean();
+        let recipients = [];
+        
+        if (groupIds && groupIds.length > 0) {
+            const companies = await Company.find({
+                groups: { $in: groupIds },
+                ...visibilityFilter
+            }).lean();
 
-        if (companies.length === 0) {
-            return res.status(404).json({ success: false, error: 'No brokers found in the selected groups.' });
+            const companyRecipients = companies.map(c => {
+                const phone = c.phones?.[0]?.phoneNumber || '';
+                const email = c.emails?.[0]?.address || '';
+                return {
+                    id: c._id,
+                    name: c.name,
+                    mobile: normalizePhone(phone),
+                    email: email,
+                    isVerified: c.isVerifiedBroker,
+                    context: { originalType: 'Company' }
+                };
+            }).filter(r => r.mobile || r.email);
+            
+            recipients = recipients.concat(companyRecipients);
         }
 
-        const recipients = companies.map(c => {
-            const phone = c.phones?.[0]?.phoneNumber || '';
-            const email = c.emails?.[0]?.address || '';
-            return {
-                id: c._id,
-                name: c.name,
-                mobile: normalizePhone(phone),
-                email: email,
-                isVerified: c.isVerifiedBroker,
-                context: { originalType: 'Company' }
-            };
-        }).filter(r => r.mobile || r.email);
+        if (contactGroupIds && contactGroupIds.length > 0) {
+            const Contact = mongoose.model('Contact');
+            const contacts = await Contact.find({
+                groups: { $in: contactGroupIds },
+                ...visibilityFilter
+            }).lean();
+
+            const contactRecipients = contacts.map(c => {
+                const phone = c.phones?.[0]?.number || '';
+                const email = c.emails?.[0]?.address || '';
+                return {
+                    id: c._id,
+                    name: `${c.name} ${c.surname || ''}`.trim(),
+                    mobile: normalizePhone(phone),
+                    email: email,
+                    isVerified: false,
+                    context: { originalType: 'Contact' }
+                };
+            }).filter(r => r.mobile || r.email);
+
+            recipients = recipients.concat(contactRecipients);
+        }
 
         if (recipients.length === 0) {
             return res.status(404).json({ success: false, error: 'No brokers with valid contact information found.' });

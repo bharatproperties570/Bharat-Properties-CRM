@@ -253,8 +253,14 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                 inventory.forEach(item => {
                     const prevOwnerPhone = normalize(item.previousOwnerPhone);
                     
-                    // Check main owner fields (legacy/history)
-                    if (contactPhone && prevOwnerPhone === contactPhone) {
+                    // 🚀 [ENTERPRISE] Check ownerHistory array for true removal tracking
+                    const wasRemoved = item.ownerHistory && Array.isArray(item.ownerHistory) && item.ownerHistory.some(h => 
+                        (h.contactId && (h.contactId._id || h.contactId).toString() === id.toString()) && 
+                        h.type === 'Removed' && h.role === 'Owner'
+                    );
+
+                    // Check main owner fields (legacy + new tracking)
+                    if (wasRemoved || (contactPhone && prevOwnerPhone === contactPhone)) {
                         history.push(item);
                     }
 

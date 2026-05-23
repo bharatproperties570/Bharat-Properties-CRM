@@ -27,6 +27,7 @@ const ImportDataPage = () => {
 
     // Enterprise Conflict Management States
     const [conflicts, setConflicts] = useState([]);
+    const [ownerUpdateMode, setOwnerUpdateMode] = useState('REPLACE');
     const [plannedUpdates, setPlannedUpdates] = useState([]);
     const [resolutions, setResolutions] = useState({});
     const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -237,11 +238,22 @@ const ImportDataPage = () => {
         setIsAnalyzing(true);
         setConflicts([]);
         try {
-            const transformedData = fileData.data.map(row => {
+            const transformedData = fileData.data.map((row, idx) => {
                 const item = {};
                 Object.entries(mapping).forEach(([systemKey, fileHeader]) => {
                     item[systemKey] = row[fileHeader];
                 });
+                Object.assign(item, row);
+                
+                if (module === 'sizes' || module === 'inventory' || module === 'propertyOwners') {
+                    const projectObj = projects.find(p => p._id === selectedProject);
+                    item.projectId = selectedProject;
+                    item.project = projectObj ? projectObj.name : (item.project || '');
+                    item.projectName = projectObj ? projectObj.name : (item.projectName || item.project || '');
+                    item.block = selectedBlock || item.block || '';
+                    item.module = module;
+                }
+                item._rowIdx = idx;
                 return item;
             });
 
@@ -261,7 +273,7 @@ const ImportDataPage = () => {
                 // Default resolutions
                 const initialResolutions = {};
                 (response.data.conflicts || []).forEach(c => {
-                    initialResolutions[c.rowKey] = { [c.type]: 'KEEP_SYSTEM' };
+                    initialResolutions[c.rowKey] = { [c.type]: c.type === 'ownership' ? 'SKIP_UPDATE' : 'KEEP_SYSTEM' };
                 });
                 setResolutions(initialResolutions);
                 setPlannedUpdates(response.data.plannedUpdates || []);
@@ -730,58 +742,100 @@ const ImportDataPage = () => {
                             <div>
                                 <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1e293b', marginBottom: '16px' }}>Review Data Analysis</h3>
 
-                                {module === 'propertyOwners' && conflicts.length > 0 && (
-                                    <div style={{ marginBottom: '32px', background: '#fff', border: '1px solid #fee2e2', borderRadius: '12px', padding: '24px', boxShadow: '0 4px 12px rgba(239, 68, 68, 0.05)' }}>
-                                        <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#991b1b', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                            <i className="fas fa-exclamation-triangle"></i> Data Conflicts Detected ({conflicts.length})
-                                        </h3>
-                                        <p style={{ fontSize: '0.85rem', color: '#b91c1c', marginBottom: '20px' }}>
-                                            The following records have mobile numbers that match existing contacts but with different names. Please choose an action for each.
-                                        </p>
+                                {module === 'propertyOwners' && (
+                                    <div style={{ marginBottom: '32px', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
+                                        <div style={{ padding: '20px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: conflicts.length > 0 ? '#fff1f2' : '#f8fafc' }}>
+                                            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: conflicts.length > 0 ? '#be123c' : '#1e293b', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <i className={conflicts.length > 0 ? "fas fa-exclamation-triangle" : "fas fa-table"}></i> 
+                                                {conflicts.length > 0 ? `Data Conflicts Detected (${conflicts.length})` : 'Data Preview (No Conflicts)'}
+                                            </h3>
+                                            <div style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>Total Rows: {fileData.data.length}</div>
+                                        </div>
                                         
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                            {conflicts.map((conflict, idx) => (
-                                                <div key={idx} style={{ padding: '16px', background: '#fef2f2', borderRadius: '8px', border: '1px solid #fecaca', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                    <div style={{ flex: 1 }}>
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                                                            <span style={{ fontWeight: 700, color: '#1e293b' }}>Unit: {conflict.unitNo}</span>
-                                                            <span style={{ fontSize: '0.8rem', background: '#fee2e2', color: '#b91c1c', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>{conflict.mobile}</span>
-                                                        </div>
-                                                        <div style={{ fontSize: '0.85rem', color: '#475569', marginBottom: '8px' }}>
-                                                            <span style={{ fontSize: '0.75rem', background: '#fef3c7', color: '#92400e', padding: '2px 8px', borderRadius: '4px', fontWeight: 700, border: '1px solid #fde68a' }}>
-                                                                <i className="fas fa-info-circle" style={{ marginRight: '4px' }}></i> {conflict.reason}
-                                                            </span>
-                                                        </div>
-                                                        <div style={{ fontSize: '0.85rem', color: '#475569' }}>
-                                                            System: <strong style={{ color: '#0f172a' }}>{conflict.existingName}</strong> {conflict.existingFatherName ? <span style={{ fontSize: '0.75rem', color: '#64748b' }}>(s/o {conflict.existingFatherName})</span> : ''} 
-                                                            <span style={{ fontSize: '0.75rem', color: '#64748b', marginLeft: '8px' }}>[{conflict.existingHNo}, {conflict.existingLoc}]</span>
-                                                            &nbsp;→ File: <strong style={{ color: '#0369a1' }}>{conflict.providedName}</strong> {conflict.providedFatherName ? <span style={{ fontSize: '0.75rem', color: '#0369a1' }}>(s/o {conflict.providedFatherName})</span> : ''}
-                                                            <span style={{ fontSize: '0.75rem', color: '#0369a1', marginLeft: '8px' }}>[{conflict.providedHNo}, {conflict.providedLoc}]</span>
-                                                        </div>
-                                                    </div>
-                                                    
-                                                    <div style={{ display: 'flex', gap: '8px' }}>
-                                                        <button 
-                                                            onClick={() => handleResolutionChange(conflict.rowKey, conflict.type, 'KEEP_SYSTEM')}
-                                                            style={{ padding: '6px 12px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', border: '1px solid #cbd5e1', background: resolutions[conflict.rowKey]?.[conflict.type] === 'KEEP_SYSTEM' ? '#0f172a' : '#fff', color: resolutions[conflict.rowKey]?.[conflict.type] === 'KEEP_SYSTEM' ? '#fff' : '#64748b' }}
-                                                        >
-                                                            Keep System Name
-                                                        </button>
-                                                        <button 
-                                                            onClick={() => handleResolutionChange(conflict.rowKey, conflict.type, 'UPDATE_SYSTEM')}
-                                                            style={{ padding: '6px 12px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', border: '1px solid #0284c7', background: resolutions[conflict.rowKey]?.[conflict.type] === 'UPDATE_SYSTEM' ? '#0284c7' : '#fff', color: resolutions[conflict.rowKey]?.[conflict.type] === 'UPDATE_SYSTEM' ? '#fff' : '#0284c7' }}
-                                                        >
-                                                            Update System
-                                                        </button>
-                                                        <button 
-                                                            onClick={() => handleResolutionChange(conflict.rowKey, conflict.type, 'CREATE_NEW')}
-                                                            style={{ padding: '6px 12px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', border: '1px solid #16a34a', background: resolutions[conflict.rowKey]?.[conflict.type] === 'CREATE_NEW' ? '#16a34a' : '#fff', color: resolutions[conflict.rowKey]?.[conflict.type] === 'CREATE_NEW' ? '#fff' : '#16a34a' }}
-                                                        >
-                                                            Create New Contact
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            ))}
+                                        <div style={{ overflowX: 'auto', maxHeight: '500px' }}>
+                                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                                                <thead style={{ background: '#f1f5f9', position: 'sticky', top: 0, zIndex: 10 }}>
+                                                    <tr>
+                                                        <th style={{ padding: '12px 16px', textAlign: 'left', borderBottom: '2px solid #cbd5e1', color: '#475569', fontWeight: 700, whiteSpace: 'nowrap' }}>Row #</th>
+                                                        <th style={{ padding: '12px 16px', textAlign: 'left', borderBottom: '2px solid #cbd5e1', color: '#475569', fontWeight: 700, whiteSpace: 'nowrap' }}>Unit No</th>
+                                                        <th style={{ padding: '12px 16px', textAlign: 'left', borderBottom: '2px solid #cbd5e1', color: '#475569', fontWeight: 700, whiteSpace: 'nowrap' }}>Name (File)</th>
+                                                        <th style={{ padding: '12px 16px', textAlign: 'left', borderBottom: '2px solid #cbd5e1', color: '#475569', fontWeight: 700, whiteSpace: 'nowrap' }}>Mobile (File)</th>
+                                                        <th style={{ padding: '12px 16px', textAlign: 'left', borderBottom: '2px solid #cbd5e1', color: '#475569', fontWeight: 700, whiteSpace: 'nowrap' }}>Status</th>
+                                                        <th style={{ padding: '12px 16px', textAlign: 'left', borderBottom: '2px solid #cbd5e1', color: '#475569', fontWeight: 700, whiteSpace: 'nowrap', minWidth: '250px' }}>Conflict Resolution</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {fileData.data.map((row, idx) => {
+                                                        const rowKey = `row_${idx}`;
+                                                        const conflict = conflicts.find(c => c.rowKey === rowKey);
+                                                        const isConflict = !!conflict;
+                                                        
+                                                        // Extract mapped values for display
+                                                        const getVal = (sysKey) => {
+                                                            const fileHeader = mapping[sysKey];
+                                                            return fileHeader ? row[fileHeader] : '-';
+                                                        };
+                                                        const unitNo = getVal('unitNo') || getVal('unitNumber') || getVal('inventory') || '-';
+                                                        const name = getVal('name') || getVal('ownerName') || '-';
+                                                        const mobile = getVal('mobile') || getVal('phone') || '-';
+
+                                                        return (
+                                                            <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0', background: isConflict ? '#fef2f2' : '#fff' }}>
+                                                                <td style={{ padding: '12px 16px', color: '#64748b', fontWeight: 600 }}>{idx + 1}</td>
+                                                                <td style={{ padding: '12px 16px', color: '#1e293b', fontWeight: 600 }}>{conflict ? conflict.unitNo : unitNo}</td>
+                                                                <td style={{ padding: '12px 16px', color: '#1e293b' }}>
+                                                                    {conflict ? (conflict.newOwnerName || conflict.providedName || name) : name}
+                                                                </td>
+                                                                <td style={{ padding: '12px 16px', color: '#1e293b' }}>
+                                                                    {conflict ? conflict.mobile : mobile}
+                                                                </td>
+                                                                <td style={{ padding: '12px 16px' }}>
+                                                                    {isConflict ? (
+                                                                        <span style={{ display: 'inline-block', padding: '4px 8px', borderRadius: '4px', background: '#fee2e2', color: '#b91c1c', fontSize: '0.75rem', fontWeight: 700 }}>
+                                                                            <i className="fas fa-exclamation-circle" style={{ marginRight: '4px' }}></i>
+                                                                            {conflict.type === 'ownership' ? 'Ownership Conflict' : 'Identity Conflict'}
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span style={{ display: 'inline-block', padding: '4px 8px', borderRadius: '4px', background: '#dcfce7', color: '#16a34a', fontSize: '0.75rem', fontWeight: 700 }}>
+                                                                            <i className="fas fa-check-circle" style={{ marginRight: '4px' }}></i> Ready
+                                                                        </span>
+                                                                    )}
+                                                                </td>
+                                                                <td style={{ padding: '12px 16px' }}>
+                                                                    {isConflict ? (
+                                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                                                            <select 
+                                                                                value={resolutions[rowKey]?.[conflict.type] || ''}
+                                                                                onChange={(e) => handleResolutionChange(rowKey, conflict.type, e.target.value)}
+                                                                                style={{ padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.8rem', fontWeight: 600, color: '#0f172a', width: '100%', outline: 'none', cursor: 'pointer', background: '#fff' }}
+                                                                            >
+                                                                                {conflict.type === 'ownership' ? (
+                                                                                    <>
+                                                                                        <option value="SKIP_UPDATE">Skip (Keep Existing Owners)</option>
+                                                                                        <option value="REPLACE_OWNER">Replace Existing (Transfer)</option>
+                                                                                        <option value="ADD_CO_OWNER">Add as Co-Owner (Joint)</option>
+                                                                                    </>
+                                                                                ) : (
+                                                                                    <>
+                                                                                        <option value="KEEP_SYSTEM">Keep System Data</option>
+                                                                                        <option value="UPDATE_SYSTEM">Update System Data</option>
+                                                                                        <option value="CREATE_NEW">Create New Contact</option>
+                                                                                    </>
+                                                                                )}
+                                                                            </select>
+                                                                            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                                                                                <strong>System:</strong> {conflict.type === 'ownership' ? conflict.existingOwnerNames : conflict.existingName}
+                                                                            </div>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <span style={{ color: '#94a3b8', fontSize: '0.8rem', fontStyle: 'italic' }}>No action needed</span>
+                                                                    )}
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                </tbody>
+                                            </table>
                                         </div>
                                     </div>
                                 )}

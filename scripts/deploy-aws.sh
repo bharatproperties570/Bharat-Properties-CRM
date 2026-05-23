@@ -4,9 +4,9 @@
 # Target Environment: AWS EC2 (Mumbai)
 # API Domain: api.bharatproperties.co
 
-SERVER_IP="54.252.168.43"
+SERVER_IP="api.bharatproperties.co"
 SERVER_USER="ubuntu"
-REMOTE_PATH="/home/ubuntu/Bharat-Properties-CRM"
+REMOTE_PATH="/home/ubuntu/bharat-properties-crm"
 
 # Colors
 GREEN='\033[0;32m'
@@ -20,14 +20,14 @@ KEY_PATH="$(cd "$(dirname "$0")/.." && pwd)/bharat_properties.pem"
 
 # 1. Connection Check
 echo -e "${GREEN}🔍 Checking connectivity to ${SERVER_IP}...${NC}"
-if ! ssh -i "$KEY_PATH" -o ConnectTimeout=5 -o BatchMode=yes ${SERVER_USER}@${SERVER_IP} exit 2>/dev/null; then
+if ! ssh -i "$KEY_PATH" -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o BatchMode=yes ${SERVER_USER}@${SERVER_IP} exit 2>/dev/null; then
     echo -e "${RED}❌ SSH Connection failed. Ensure the key at $KEY_PATH is valid.${NC}"
     # exit 1 (Removing hard exit to allow manual override if needed)
 fi
 
 # 2. Remote Execution
 echo -e "${GREEN}⚙️  Executing remote update script...${NC}"
-ssh -i "$KEY_PATH" ${SERVER_USER}@${SERVER_IP} "cd ${REMOTE_PATH} && bash scripts/update-live.sh"
+ssh -i "$KEY_PATH" -o StrictHostKeyChecking=no ${SERVER_USER}@${SERVER_IP} "cd ${REMOTE_PATH} && bash scripts/update-live.sh"
 
 # 3. Post-Deployment Health Check
 echo -e "${GREEN}🩺 Running Professional Health Check...${NC}"

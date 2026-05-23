@@ -7,7 +7,9 @@ function MarketingTab({ dealId, deal, onRefresh }) {
     const [sanitizing, setSanitizing] = useState(false);
     const [analytics, setAnalytics] = useState(null);
     const [groups, setGroups] = useState([]);
+    const [contactGroups, setContactGroups] = useState([]);
     const [selectedGroups, setSelectedGroups] = useState([]);
+    const [selectedContactGroups, setSelectedContactGroups] = useState([]);
     const [channels, setChannels] = useState({ whatsapp: true, email: true });
     const [sending, setSending] = useState(false);
     const [templates, setTemplates] = useState([]);
@@ -18,13 +20,15 @@ function MarketingTab({ dealId, deal, onRefresh }) {
         const fetchData = async () => {
             try {
                 setLoading(true);
-                const [groupsRes, templatesRes, analyticsRes, registryRes] = await Promise.all([
+                const [groupsRes, contactGroupsRes, templatesRes, analyticsRes, registryRes] = await Promise.all([
                     api.get('/company-groups'),
+                    api.get('/contact-groups'),
                     api.get('/marketing/whatsapp/templates'),
                     api.get(`/marketing/broadcast/analytics/${dealId}`),
                     api.get('/marketing/whatsapp/variable-registry').catch(() => ({ data: { success: true, data: { "1": "customer_name", "2": "property_list_default" } } }))
                 ]);
                 setGroups(groupsRes.data.data || []);
+                setContactGroups(contactGroupsRes.data.data || []);
                 // Only APPROVED templates
                 const approved = (templatesRes.data.templates || []).filter(t => t.status === 'APPROVED');
                 setTemplates(approved);
@@ -54,8 +58,8 @@ function MarketingTab({ dealId, deal, onRefresh }) {
     };
 
     const handleBroadcast = async () => {
-        if (selectedGroups.length === 0) {
-            toast.error("Please select at least one broker group");
+        if (selectedGroups.length === 0 && selectedContactGroups.length === 0) {
+            toast.error("Please select at least one broker or contact group");
             return;
         }
         const selectedChannels = Object.entries(channels).filter(([_, v]) => v).map(([k]) => k);
@@ -74,6 +78,7 @@ function MarketingTab({ dealId, deal, onRefresh }) {
             const res = await api.post('/marketing/broadcast/bna', {
                 dealId,
                 groupIds: selectedGroups,
+                contactGroupIds: selectedContactGroups,
                 channels: selectedChannels,
                 templateId: selectedTemplate?.name,
                 language: selectedTemplate?.language || 'en'
@@ -327,18 +332,53 @@ function MarketingTab({ dealId, deal, onRefresh }) {
                                 )}
                             </div>
 
+                            <div style={{ marginTop: '10px' }}>
+                                <label style={{ fontSize: '0.7rem', fontWeight: 900, color: '#64748b', letterSpacing: '0.5px', display: 'block', marginBottom: '8px' }}>CONTACT GROUPS</label>
+                                {contactGroups.length === 0 ? (
+                                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', padding: '12px', textAlign: 'center', border: '1px dashed #e2e8f0', borderRadius: '10px' }}>
+                                        No contact groups found
+                                    </div>
+                                ) : (
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                        {contactGroups.map(g => {
+                                            const isSelected = selectedContactGroups.includes(g._id);
+                                            return (
+                                                <button
+                                                    key={g._id}
+                                                    onClick={() => {
+                                                        if (isSelected) setSelectedContactGroups(selectedContactGroups.filter(id => id !== g._id));
+                                                        else setSelectedContactGroups([...selectedContactGroups, g._id]);
+                                                    }}
+                                                    style={{
+                                                        padding: '6px 14px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 700,
+                                                        border: `1.5px solid ${isSelected ? g.color || '#10b981' : '#e2e8f0'}`,
+                                                        background: isSelected ? (g.color || '#10b981') : '#fff',
+                                                        color: isSelected ? '#fff' : '#475569',
+                                                        cursor: 'pointer', transition: 'all 0.15s',
+                                                        display: 'flex', alignItems: 'center', gap: '5px'
+                                                    }}
+                                                >
+                                                    {isSelected && <i className="fas fa-check" style={{ fontSize: '10px' }}></i>}
+                                                    {g.name}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+
                             {/* Launch Button */}
                             <button
                                 onClick={handleBroadcast}
-                                disabled={sending || selectedGroups.length === 0 || (channels.whatsapp && !selectedTemplate)}
+                                disabled={sending || (selectedGroups.length === 0 && selectedContactGroups.length === 0) || (channels.whatsapp && !selectedTemplate)}
                                 style={{
                                     marginTop: 'auto', width: '100%', padding: '14px',
                                     borderRadius: '12px', border: 'none',
-                                    background: sending || selectedGroups.length === 0 || (channels.whatsapp && !selectedTemplate)
+                                    background: sending || (selectedGroups.length === 0 && selectedContactGroups.length === 0) || (channels.whatsapp && !selectedTemplate)
                                         ? '#e2e8f0' : 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-                                    color: sending || selectedGroups.length === 0 || (channels.whatsapp && !selectedTemplate) ? '#94a3b8' : '#fff',
+                                    color: sending || (selectedGroups.length === 0 && selectedContactGroups.length === 0) || (channels.whatsapp && !selectedTemplate) ? '#94a3b8' : '#fff',
                                     fontWeight: 900, fontSize: '0.85rem',
-                                    cursor: (sending || selectedGroups.length === 0 || (channels.whatsapp && !selectedTemplate)) ? 'not-allowed' : 'pointer',
+                                    cursor: (sending || (selectedGroups.length === 0 && selectedContactGroups.length === 0) || (channels.whatsapp && !selectedTemplate)) ? 'not-allowed' : 'pointer',
                                     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
                                     transition: 'all 0.2s', boxShadow: '0 4px 12px rgba(99,102,241,0.3)'
                                 }}
@@ -348,7 +388,7 @@ function MarketingTab({ dealId, deal, onRefresh }) {
                                     : <><i className="fas fa-paper-plane"></i> Launch Broadcast</>
                                 }
                             </button>
-                            {selectedGroups.length === 0 && (
+                            {selectedGroups.length === 0 && selectedContactGroups.length === 0 && (
                                 <p style={{ margin: '-8px 0 0', fontSize: '0.65rem', color: '#f59e0b', textAlign: 'center' }}>
                                     <i className="fas fa-arrow-up"></i> Select at least one group
                                 </p>

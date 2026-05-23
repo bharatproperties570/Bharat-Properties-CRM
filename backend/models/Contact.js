@@ -127,7 +127,7 @@ const ContactSchema = new mongoose.Schema({
     stage: { type: String, default: "New" },
     status: { type: String, default: "Active" },
     addOn: [String],
-    groups: [String],
+    groups: [{ type: mongoose.Schema.Types.ObjectId, ref: 'ContactGroup', index: true }],
     isActionable: { type: Boolean, default: false },
     googleContactId: { type: String, index: true }
 }, { timestamps: true, strict: true });
@@ -245,7 +245,7 @@ ContactSchema.pre("save", async function (next) {
                     this[field].pincode = await resolveLookupLocal('Pincode', this[field].pincode, cityId);
                 
                 if (this[field].location && typeof this[field].location === 'string') 
-                    this[field].location = await resolveLookupLocal('Area', this[field].location, cityId);
+                    this[field].location = await resolveLookupLocal('Location', this[field].location, cityId);
             }
         }
 
@@ -348,7 +348,7 @@ ContactSchema.pre("findOneAndUpdate", async function (next) {
                     addrObj.pincode = await resolveLookupLocal('Pincode', addrObj.pincode, cityId);
                 
                 if (addrObj.location && typeof addrObj.location === 'string') 
-                    addrObj.location = await resolveLookupLocal('Area', addrObj.location, cityId);
+                    addrObj.location = await resolveLookupLocal('Location', addrObj.location, cityId);
             };
 
             if (obj.personalAddress) await resolveAddrHierarchical(obj.personalAddress);

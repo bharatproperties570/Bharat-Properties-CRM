@@ -30,6 +30,7 @@ import InventoryFeedbackModal from '../../components/InventoryFeedbackModal';
 import InventoryFilterPanel from './components/InventoryFilterPanel';
 import AddDealModal from '../../components/AddDealModal';
 import SocialPostModal from '../../components/SocialPostModal';
+import BulkUpdateInventoryModal from '../../components/modals/BulkUpdateInventoryModal';
 
 export default function InventoryPage({ onNavigate, onAddActivity }) {
     const { teams, users } = useUserContext();
@@ -74,6 +75,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
     const [isTagsModalOpen, setIsTagsModalOpen] = useState(false);
     const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
     const [isAddDealModalOpen, setIsAddDealModalOpen] = useState(false);
+    const [isBulkUpdateModalOpen, setIsBulkUpdateModalOpen] = useState(false);
     const [selectedDealData, setSelectedDealData] = useState(null);
     const [modalData, setModalData] = useState([]);
     
@@ -283,6 +285,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                 handleUploadClick={() => { setSelectedProperty(getSelectedPropertyObj()); setIsUploadModalOpen(true); }}
                                 handleDocumentClick={() => { setSelectedProperty(getSelectedPropertyObj()); setIsDocumentModalOpen(true); }}
                                 handleFeedbackClick={() => { setSelectedProperty(getSelectedPropertyObj()); setIsFeedbackModalOpen(true); }}
+                                handleBulkUpdateClick={() => setIsBulkUpdateModalOpen(true)}
                                 handleDelete={handleDelete}
                                 sortConfig={sortConfig}
                                 setSortConfig={setSortConfig}
@@ -466,6 +469,17 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                 onClose={() => setIsTagsModalOpen(false)}
                 selectedContacts={selectedIds.map(id => ({ id }))}
                 onUpdateTags={refresh}
+            />
+
+            <BulkUpdateInventoryModal
+                isOpen={isBulkUpdateModalOpen}
+                onClose={() => setIsBulkUpdateModalOpen(false)}
+                selectedIds={selectedIds}
+                selectedProperties={inventoryItems.filter(item => selectedIds.includes(item._id))}
+                onUpdateSuccess={() => {
+                    setSelectedIds([]);
+                    refresh();
+                }}
             />
         </section>
     );
