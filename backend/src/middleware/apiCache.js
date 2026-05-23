@@ -96,7 +96,8 @@ export function cacheMiddleware(customTtl = null) {
 
         // Cache key: path + query + user scope
         const userId = req.user?._id || req.user?.id || 'anon';
-        const cacheKey = `${req.path}|${JSON.stringify(req.query)}|${userId}`;
+        const cachePath = req.originalUrl || req.url;
+        const cacheKey = `${cachePath}|${userId}`;
 
         const cached = apiCache.get(cacheKey);
         if (cached) {
