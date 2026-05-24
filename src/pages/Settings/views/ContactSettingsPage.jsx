@@ -253,8 +253,10 @@ const ContactSettingsPage = () => {
         page: 1, limit: 1000
       };
 
-      // If NOT mixed types, filter by specific lookup_type
-      if (!levels[levelIndex].mixed_types) {
+      // Support for mixed_types by sending comma-separated values
+      if (levels[levelIndex].mixed_types) {
+        params.lookup_type = levels[levelIndex].mixed_types.join(',');
+      } else {
         params.lookup_type = levels[levelIndex].lookup_type;
       }
 

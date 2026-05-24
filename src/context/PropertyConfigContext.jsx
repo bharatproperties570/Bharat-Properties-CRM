@@ -1240,13 +1240,82 @@ export const PropertyConfigProvider = ({ children }) => {
         return { migratedConfig: newConfig, hasChanged };
     }, []);
 
-    // Trigger Migration when lookups load
+    // Trigger Migration and Dynamic Hydration when lookups load
     useEffect(() => {
         if (Object.keys(lookups).length > 0 && propertyConfig) {
             const { migratedConfig, hasChanged } = migrateConfigToIds(propertyConfig, lookups);
-            if (hasChanged) {
-                console.log('[PropertyConfigContext] Migrated legacy Builtup Types to ID-based objects');
-                setPropertyConfig(migratedConfig);
+            
+            // PROFESSIONAL HYDRATION: Sync Builtup Types dynamically from lookups
+            let isHydrated = false;
+            const hydratedConfig = JSON.parse(JSON.stringify(migratedConfig));
+
+            const catMap = new Map();
+            if (lookups.Category) lookups.Category.forEach(l => {
+                if (l.lookup_value) catMap.set(l.lookup_value.toLowerCase(), l._id.toString());
+            });
+            
+            const subCatMap = new Map();
+            if (lookups.SubCategory) lookups.SubCategory.forEach(l => {
+                if (l.lookup_value) subCatMap.set(`${l.parent_lookup_id?.toString()}_${l.lookup_value.toLowerCase()}`, l._id.toString());
+            });
+            
+            const typeMap = new Map();
+            if (lookups.PropertyType) lookups.PropertyType.forEach(l => {
+                if (l.lookup_value) typeMap.set(`${l.parent_lookup_id?.toString()}_${l.lookup_value.toLowerCase()}`, l._id.toString());
+            });
+            
+            const builtupMap = new Map();
+            if (lookups.BuiltupType) {
+                lookups.BuiltupType.forEach(l => {
+                    if (!l.lookup_value) return;
+                    const pid = l.parent_lookup_id?.toString();
+                    if (pid) {
+                        if (!builtupMap.has(pid)) builtupMap.set(pid, []);
+                        builtupMap.get(pid).push({ id: l._id.toString(), name: l.lookup_value });
+                    }
+                });
+            }
+
+            Object.keys(hydratedConfig).forEach(catName => {
+                if (!catName) return;
+                const catId = catMap.get(catName.toLowerCase());
+                if (!catId) return;
+                
+                const cat = hydratedConfig[catName];
+                if (cat.subCategories) {
+                    cat.subCategories.forEach(sub => {
+                        if (!sub.name) return;
+                        const subCatId = subCatMap.get(`${catId}_${sub.name.toLowerCase()}`);
+                        if (!subCatId) return;
+                        
+                        if (sub.types) {
+                            sub.types.forEach(type => {
+                                if (!type.name) return;
+                                const typeId = typeMap.get(`${subCatId}_${type.name.toLowerCase()}`);
+                                if (typeId) {
+                                    const expectedBuiltups = builtupMap.get(typeId) || [];
+                                    const expectedLength = expectedBuiltups.length;
+                                    const currentLength = type.builtupTypes ? type.builtupTypes.length : 0;
+                                    
+                                    // Verify content equality to prevent infinite loops
+                                    const currentSet = new Set((type.builtupTypes || []).map(b => typeof b === 'object' ? (b.id || b._id) : b));
+                                    const isMatch = expectedLength === currentLength && expectedBuiltups.every(eb => currentSet.has(eb.id));
+                                    
+                                    if (!isMatch) {
+                                        type.builtupTypes = expectedBuiltups;
+                                        isHydrated = true;
+                                    }
+                                }
+                            });
+                        }
+                    });
+                }
+            });
+
+            if (hasChanged || isHydrated) {
+                if (isHydrated) console.log('[PropertyConfigContext] Hydrating Builtup Types dynamically from Lookups collection.');
+                if (hasChanged) console.log('[PropertyConfigContext] Migrated legacy Builtup Types to ID-based objects.');
+                setPropertyConfig(hydratedConfig);
             }
         }
     }, [lookups, migrateConfigToIds, propertyConfig, setPropertyConfig]);
