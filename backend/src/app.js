@@ -27,6 +27,7 @@ import configLookupRoutes from "./modules/lookups/lookup.routes.js";
 import customFieldRoutes from "./modules/customFields/customField.routes.js";
 import fieldRuleRoutes from "./modules/rules/fieldRule.routes.js";
 import distributionRoutes from "./modules/rules/distribution.routes.js";
+import aiAgentRoutes from "./modules/systemSettings/aiAgent.routes.js";
 // ScoringRule removed (Bug 4: was orphaned — never integrated into scoring pipeline)
 import systemRoutes from "./modules/systemSettings/system.routes.js";
 import parsingRoutes from "./modules/parsing/parsingRule.routes.js";
@@ -120,6 +121,7 @@ apiRouter.use("/rules/field", fieldRuleRoutes);
 apiRouter.use("/rules/distribution", distributionRoutes);
 apiRouter.use("/system-settings", systemRoutes);
 apiRouter.use("/settings/google", googleSettingsRoutes);
+apiRouter.use("/settings/ai-agents", aiAgentRoutes);
 apiRouter.use("/parsing-rules", parsingRoutes);
 apiRouter.use("/intake", intakeRoutes);
 apiRouter.use("/enrichment", enrichmentRoutes);
