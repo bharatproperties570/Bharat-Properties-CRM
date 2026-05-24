@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../../utils/api';
 import toast from 'react-hot-toast';
 
@@ -7,6 +7,20 @@ function AssignGroupModal({ isOpen, onClose, selectedContacts, onComplete }) {
     const [loading, setLoading] = useState(false);
     const [selectedGroupId, setSelectedGroupId] = useState('');
     const [actionType, setActionType] = useState('add');
+
+    const activeGroupIds = useMemo(() => {
+        const ids = new Set();
+        if (selectedContacts && selectedContacts.length > 0) {
+            selectedContacts.forEach(c => {
+                if (c.groups && Array.isArray(c.groups)) {
+                    c.groups.forEach(g => {
+                        ids.add(typeof g === 'object' ? g._id : g);
+                    });
+                }
+            });
+        }
+        return ids;
+    }, [selectedContacts]);
 
     useEffect(() => {
         if (isOpen) {
@@ -87,11 +101,11 @@ function AssignGroupModal({ isOpen, onClose, selectedContacts, onComplete }) {
 
                     <div style={{ display: 'flex', gap: '15px', marginBottom: '20px' }}>
                         <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', cursor: 'pointer', fontWeight: 600, color: actionType === 'add' ? 'var(--primary-color)' : '#64748b' }}>
-                            <input type="radio" name="actionType" value="add" checked={actionType === 'add'} onChange={() => setActionType('add')} style={{ cursor: 'pointer' }} />
+                            <input type="radio" name="actionType" value="add" checked={actionType === 'add'} onChange={() => { setActionType('add'); setSelectedGroupId(''); }} style={{ cursor: 'pointer' }} />
                             Add to Group
                         </label>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', cursor: 'pointer', fontWeight: 600, color: actionType === 'remove' ? '#ef4444' : '#64748b' }}>
-                            <input type="radio" name="actionType" value="remove" checked={actionType === 'remove'} onChange={() => setActionType('remove')} style={{ cursor: 'pointer' }} />
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', cursor: activeGroupIds.size > 0 ? 'pointer' : 'not-allowed', fontWeight: 600, color: activeGroupIds.size === 0 ? '#cbd5e1' : (actionType === 'remove' ? '#ef4444' : '#64748b') }}>
+                            <input type="radio" name="actionType" value="remove" checked={actionType === 'remove'} onChange={() => { setActionType('remove'); setSelectedGroupId(''); }} style={{ cursor: activeGroupIds.size > 0 ? 'pointer' : 'not-allowed' }} disabled={activeGroupIds.size === 0} />
                             Remove from Group
                         </label>
                     </div>
@@ -105,9 +119,20 @@ function AssignGroupModal({ isOpen, onClose, selectedContacts, onComplete }) {
                             style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}
                         >
                             <option value="">-- Choose Group --</option>
-                            {groups.map(g => (
-                                <option key={g._id} value={g._id}>{g.name} ({g.category})</option>
-                            ))}
+                            {groups.map(g => {
+                                const isAssigned = activeGroupIds.has(g._id);
+                                const isDisabled = actionType === 'remove' && !isAssigned;
+                                return (
+                                    <option 
+                                        key={g._id} 
+                                        value={g._id} 
+                                        disabled={isDisabled}
+                                        style={{ color: isDisabled ? '#94a3b8' : 'inherit' }}
+                                    >
+                                        {g.name} ({g.category}){isDisabled ? ' (Not Assigned)' : ''}
+                                    </option>
+                                );
+                            })}
                         </select>
                     </div>
                 </div>

@@ -36,6 +36,7 @@ import ContactOwnedProperties from '../../components/ContactDetail/ContactOwnedP
 import ContactDocuments from '../../components/ContactDetail/ContactDocuments';
 import ContactAutomation from '../../components/ContactDetail/ContactAutomation';
 import ContactHistory from '../../components/ContactDetail/ContactHistory';
+import ContactBookings from '../../components/ContactDetail/ContactBookings';
 
 const ContactDetail = ({ contactId, onBack, onNavigate }) => {
     const { scoringAttributes, activityMasterFields, scoreBands, getLookupValue } = usePropertyConfig(); // Inject Context
@@ -79,6 +80,7 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
     const [contactDocuments, setContactDocuments] = useState([]);
     const [matchedDeals, setMatchedDeals] = useState([]);
     const [loadingMatches, setLoadingMatches] = useState(false);
+    const [contactBookings, setContactBookings] = useState([]);
     // Live score state with sensible defaults; will be populated for lead records via live API
     const [liveScoreData, setLiveScoreData] = useState({ score: 0, label: 'Cold', color: 'var(--text-muted)', tempClass: 'cold' });
 
@@ -168,6 +170,16 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
             // Fetch Documents
             if (recordData.documents && Array.isArray(recordData.documents)) {
                 setContactDocuments(recordData.documents);
+            }
+
+            // Fetch Bookings where contact is involved
+            try {
+                const bookingsRes = await api.get(`bookings?contactId=${id}`);
+                if (bookingsRes.data && bookingsRes.data.success) {
+                    setContactBookings(bookingsRes.data.data || []);
+                }
+            } catch (err) {
+                console.error("Error fetching bookings:", err);
             }
 
             // Fetch Deals where contact is involved
@@ -739,6 +751,15 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                                         onNavigate={onNavigate}
                                     />
                                 </div>
+                                
+                                <ContactBookings
+                                    expandedSections={expandedSections}
+                                    toggleSection={toggleSection}
+                                    contactBookings={contactBookings}
+                                    renderValue={renderValue}
+                                    renderLookup={renderLookup}
+                                    onNavigate={onNavigate}
+                                />
                             </>
                         )}
 

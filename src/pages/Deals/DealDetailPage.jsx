@@ -41,6 +41,9 @@ import DealAnalysis from '../../components/DealDetail/DealAnalysis';
 import LandedCostSheet from '../../components/DealDetail/DealCostSheet';
 import { MediaViewerModal } from '../../components/DealDetail/DealCommon';
 import SocialPostModal from '../../components/SocialPostModal';
+import SendMessageModal from '../../components/SendMessageModal';
+import ComposeEmailModal from '../Communication/components/ComposeEmailModal';
+import ManageTagsModal from '../../components/ManageTagsModal';
 import MarketingTab from './components/MarketingTab';
 
 const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
@@ -155,10 +158,15 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     const fetchDealDetails = useCallback(async () => {
         setLoading(true);
         try {
-            const res = await api.get(`deals/${dealId}`);
+            const res = await api.get(`deals/${dealId}?unified=true`);
             if (res.data && (res.data.success || res.data.status === 'success')) {
                 const dealData = res.data.data;
                 setDeal(dealData);
+
+                // --- 🚀 UNIFIED API DATA SINK ---
+                if (res.data.activities) setActivities(res.data.activities);
+                if (res.data.matchingLeads) setMatchingLeads(res.data.matchingLeads);
+                if (res.data.liveScore) setLiveScoreData(res.data.liveScore);
 
                 // --- [ENTERPRISE HARDENING]: Instant Data Initialization ---
                 // If the deal already has enriched inventory data from the backend, 
@@ -526,14 +534,16 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
     // Effects (RESTORING MISSING DATA FETCHING)
     useEffect(() => {
         fetchDealDetails();
-        fetchLiveScore();
+        // fetchLiveScore(); // Replaced by Unified API
         fetchAllLeads();
-        fetchDealActivities();
-    }, [dealId, fetchDealDetails, fetchLiveScore, fetchAllLeads, fetchDealActivities]);
+        // fetchDealActivities(); // Replaced by Unified API
+    }, [dealId, fetchDealDetails, fetchAllLeads]);
 
     useEffect(() => {
-        fetchMatchingLeads();
-    }, [fetchMatchingLeads]);
+        if (dealId) {
+            fetchMatchingLeads();
+        }
+    }, [dealId, fetchMatchingLeads]);
 
     const stageStyle = useMemo(() => {
         const stageColors = {
@@ -567,7 +577,10 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                 setIsMarkingLost={setIsMarkingLost}
                 isMarkingLost={isMarkingLost}
                 setIsCallModalOpen={(val) => {
-                    if (val) startCall(deal.contactId, { entityId: dealId, entityType: 'Deal' });
+                    if (val) {
+                        const contactToCall = typeof val === 'object' ? val : deal.contactId;
+                        startCall(contactToCall, { entityId: dealId, entityType: 'Deal' });
+                    }
                 }}
                 setIsMessageOpen={setIsMessageOpen}
                 setIsMailOpen={setIsMailOpen}

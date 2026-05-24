@@ -103,14 +103,22 @@ export const createBooking = async (req, res) => {
 
 export const getBookings = async (req, res) => {
     try {
-        const { limit = 50, skip = 0, sortBy = 'createdAt', sortOrder = -1 } = req.query;
+        const { limit = 50, skip = 0, sortBy = 'createdAt', sortOrder = -1, contactId } = req.query;
         
         // Dynamic Sort Mapping
         let sortCriteria = {};
         sortCriteria[sortBy] = Number(sortOrder);
 
         const visibilityFilter = await getVisibilityFilter(req.user);
-        const bookings = await Booking.find({ ...visibilityFilter })
+        const queryFilter = { ...visibilityFilter };
+        if (contactId) {
+            queryFilter.$or = [
+                { lead: contactId },
+                { seller: contactId }
+            ];
+        }
+
+        const bookings = await Booking.find(queryFilter)
             .populate({
                 path: 'property',
                 populate: { path: 'projectId' }

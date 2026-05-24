@@ -233,6 +233,8 @@ InventorySchema.index({ projectName: 1, block: 1, unitNo: 1 });
 InventorySchema.index({ projectName: 1, block: 1, unitNumber: 1 });
 InventorySchema.index({ teams: 1, status: 1 });
 InventorySchema.index({ assignedTo: 1, status: 1 });
+InventorySchema.index({ facing: 1 });
+InventorySchema.index({ direction: 1 });
  
 // Permanent Fix: Deep Data Integrity Hooks
 

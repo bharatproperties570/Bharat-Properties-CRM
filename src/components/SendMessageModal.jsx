@@ -66,7 +66,8 @@ const SendMessageModal = ({
             loadVariableRegistry();
             setWhatsappComponents([]);
         }
-    }, [isOpen, initialChannel, initialTemplateId, initialRecipients, initialProperties, initialProperty]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOpen]);
 
     useEffect(() => {
         if (initialProperty) {
@@ -119,7 +120,14 @@ const SendMessageModal = ({
         setIsLoadingSms(true);
         try {
             const res = await smsService.getTemplates();
-            setSmsTemplates(res.data);
+            if (!res.data || res.data.length === 0) {
+                setSmsTemplates([
+                    { _id: 'mock_sms_1', name: 'Welcome Message', body: 'Hi {{Name}}, welcome to Bharat Properties! Let us know if you need any help.' },
+                    { _id: 'mock_sms_2', name: 'Follow-up', body: 'Hi {{Name}}, just following up regarding your property inquiry. Please call us back.' }
+                ]);
+            } else {
+                setSmsTemplates(res.data);
+            }
         } catch (err) {
             console.error('Failed to load SMS templates', err);
         } finally {
@@ -131,7 +139,14 @@ const SendMessageModal = ({
         setIsLoadingWhatsApp(true);
         try {
             const res = await whatsappService.getTemplates();
-            setWhatsappTemplates(res.templates || []);
+            if (!res.templates || res.templates.length === 0) {
+                setWhatsappTemplates([
+                    { id: 'mock_wa_1', name: 'property_offer', language: 'en_US', body: 'Hello {{Name}}, we have an exclusive offer on property. Reply YES to know more.' },
+                    { id: 'mock_wa_2', name: 'meeting_reminder', language: 'en_US', body: 'Hi {{Name}}, a gentle reminder for your site visit today.' }
+                ]);
+            } else {
+                setWhatsappTemplates(res.templates);
+            }
         } catch (err) {
             console.error('Failed to load WhatsApp templates', err);
         } finally {
@@ -582,9 +597,9 @@ if (res && res.success) {
                                 <div style={{ border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
                                     {/* Toolbar (Variables only) */}
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '8px 12px', borderBottom: '1px solid #f1f5f9', backgroundColor: '#f8fafc' }}>
-                                        <button style={toolbarBtnStyle} onClick={() => insertText('{{Name}}')} title="Insert Name"><i className="fas fa-user-tag" style={{ marginRight: '4px' }}></i> Name</button>
-                                        <button style={toolbarBtnStyle} onClick={() => insertText('{{Phone}}')} title="Insert Phone"><i className="fas fa-phone" style={{ marginRight: '4px' }}></i> Phone</button>
-                                        <button style={toolbarBtnStyle} onClick={() => insertText('{{Link}}')} title="Insert Link"><i className="fas fa-link" style={{ marginRight: '4px' }}></i> Link</button>
+                                        <button type="button" style={toolbarBtnStyle} onClick={() => insertText('{{Name}}')} title="Insert Name"><i className="fas fa-user-tag" style={{ marginRight: '4px' }}></i> Name</button>
+                                        <button type="button" style={toolbarBtnStyle} onClick={() => insertText('{{Phone}}')} title="Insert Phone"><i className="fas fa-phone" style={{ marginRight: '4px' }}></i> Phone</button>
+                                        <button type="button" style={toolbarBtnStyle} onClick={() => insertText('{{Link}}')} title="Insert Link"><i className="fas fa-link" style={{ marginRight: '4px' }}></i> Link</button>
                                     </div>
                                     <textarea
                                         ref={textAreaRef}
@@ -635,12 +650,12 @@ if (res && res.success) {
                                     <div style={{ border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
                                         {/* Full Toolbar */}
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '8px 12px', borderBottom: '1px solid #f1f5f9', backgroundColor: '#f8fafc' }}>
-                                            <button style={toolbarBtnStyle} onClick={() => wrapSelection('*')} title="Bold"><i className="fas fa-bold"></i></button>
-                                            <button style={toolbarBtnStyle} onClick={() => wrapSelection('_')} title="Italic"><i className="fas fa-italic"></i></button>
-                                            <button style={toolbarBtnStyle} onClick={() => wrapSelection('~')} title="Strikethrough"><i className="fas fa-strikethrough"></i></button>
+                                            <button type="button" style={toolbarBtnStyle} onClick={() => wrapSelection('*')} title="Bold"><i className="fas fa-bold"></i></button>
+                                            <button type="button" style={toolbarBtnStyle} onClick={() => wrapSelection('_')} title="Italic"><i className="fas fa-italic"></i></button>
+                                            <button type="button" style={toolbarBtnStyle} onClick={() => wrapSelection('~')} title="Strikethrough"><i className="fas fa-strikethrough"></i></button>
                                             <div style={{ width: '1px', height: '18px', backgroundColor: '#e2e8f0', margin: '0 6px' }}></div>
-                                            <button style={toolbarBtnStyle} onClick={() => insertText('{{Name}}')} title="Insert Name"><i className="fas fa-user-tag" style={{ marginRight: '4px' }}></i> Name</button>
-                                            <button style={toolbarBtnStyle} onClick={() => insertText('{{Link}}')} title="Insert Link"><i className="fas fa-link" style={{ marginRight: '4px' }}></i> Link</button>
+                                            <button type="button" style={toolbarBtnStyle} onClick={() => insertText('{{Name}}')} title="Insert Name"><i className="fas fa-user-tag" style={{ marginRight: '4px' }}></i> Name</button>
+                                            <button type="button" style={toolbarBtnStyle} onClick={() => insertText('{{Link}}')} title="Insert Link"><i className="fas fa-link" style={{ marginRight: '4px' }}></i> Link</button>
                                         </div>
                                         <textarea
                                             ref={textAreaRef}
@@ -678,8 +693,8 @@ if (res && res.success) {
                                     <label style={labelStyle}>Description / Body</label>
                                     <div style={{ border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '8px 12px', borderBottom: '1px solid #f1f5f9', backgroundColor: '#f8fafc' }}>
-                                            <button style={toolbarBtnStyle} onClick={() => insertText('{{Name}}')} title="Insert Name"><i className="fas fa-user-tag" style={{ marginRight: '4px' }}></i> Name</button>
-                                            <button style={toolbarBtnStyle} onClick={() => insertText('{{Link}}')} title="Insert Link"><i className="fas fa-link" style={{ marginRight: '4px' }}></i> Link</button>
+                                            <button type="button" style={toolbarBtnStyle} onClick={() => insertText('{{Name}}')} title="Insert Name"><i className="fas fa-user-tag" style={{ marginRight: '4px' }}></i> Name</button>
+                                            <button type="button" style={toolbarBtnStyle} onClick={() => insertText('{{Link}}')} title="Insert Link"><i className="fas fa-link" style={{ marginRight: '4px' }}></i> Link</button>
                                         </div>
                                         <textarea
                                             ref={textAreaRef}
@@ -710,7 +725,7 @@ if (res && res.success) {
                                         {rcsActions.map((action, idx) => (
                                             <div key={idx} style={{ display: 'flex', gap: '8px' }}>
                                                 <input style={{ ...inputStyle, flex: 1 }} placeholder="Button Label" value={action.label} readOnly />
-                                                <button onClick={() => setRcsActions(rcsActions.filter((_, i) => i !== idx))} style={{ ...toolbarBtnStyle, color: '#ef4444' }}><i className="fas fa-trash"></i></button>
+                                                <button type="button" onClick={() => setRcsActions(rcsActions.filter((_, i) => i !== idx))} style={{ ...toolbarBtnStyle, color: '#ef4444' }}><i className="fas fa-trash"></i></button>
                                             </div>
                                         ))}
                                         {rcsActions.length < 3 && (
@@ -744,7 +759,7 @@ if (res && res.success) {
                         )}
 
                         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                            <button onClick={onClose} style={{ padding: '12px 24px', borderRadius: '10px', border: '1px solid #cbd5e1', background: '#fff', color: '#64748b', fontWeight: 700, cursor: 'pointer', fontSize: '0.9rem' }}>Cancel</button>
+                            <button type="button" onClick={onClose} style={{ padding: '12px 24px', borderRadius: '10px', border: '1px solid #cbd5e1', background: '#fff', color: '#64748b', fontWeight: 700, cursor: 'pointer', fontSize: '0.9rem' }}>Cancel</button>
 
                             <div style={{ flex: 1 }}></div>
 

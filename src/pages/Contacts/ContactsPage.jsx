@@ -152,23 +152,41 @@ const ContactRow = memo(function ContactRow({
       </div>
 
       <div className="col-crm-linkage">
+        {/* Groups Display */}
+        {item?.groups && item.groups.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '8px' }}>
+                {item.groups.map(g => {
+                    const groupObj = typeof g === 'object' ? g : { _id: g, name: 'Group', color: '#6366f1' };
+                    return (
+                        <span key={groupObj._id} title={groupObj.name} style={{
+                            padding: '2px 8px', borderRadius: '10px', fontSize: '0.6rem', fontWeight: 800,
+                            background: groupObj.color || '#6366f1', color: '#fff', display: 'inline-block'
+                        }}>
+                            {groupObj.name}
+                        </span>
+                    );
+                })}
+            </div>
+        )}
+        
+        {/* CRM Linkages */}
         {item?.crmLinks && Object.keys(item.crmLinks).length > 0 ? (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
             {item?.crmLinks?.leads && (
-              <span style={{ fontSize: "0.65rem", padding: "2px 6px", background: "var(--stat-agent-bg)", color: "var(--stat-agent-color)", borderRadius: "4px", fontWeight: 700 }}>
-                <i className="fas fa-user-plus" style={{ marginRight: "2px", fontSize: "0.6rem" }}></i>
-                Leads ({item.crmLinks.leads})
+              <span title={`Leads (${item.crmLinks.leads})`} style={{ fontSize: "0.75rem", padding: "4px 8px", background: "var(--stat-agent-bg)", color: "var(--stat-agent-color)", borderRadius: "4px", fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <i className="fas fa-user-plus" style={{ fontSize: "0.85rem" }}></i>
+                {item.crmLinks.leads}
               </span>
             )}
             {item?.crmLinks?.deals && (
-              <span style={{ fontSize: "0.65rem", padding: "2px 6px", background: "var(--stat-property-bg)", color: "var(--stat-property-color)", borderRadius: "4px", fontWeight: 700 }}>
-                <i className="fas fa-handshake" style={{ marginRight: "2px", fontSize: "0.6rem" }}></i>
-                Deals ({item.crmLinks.deals})
+              <span title={`Deals (${item.crmLinks.deals})`} style={{ fontSize: "0.75rem", padding: "4px 8px", background: "var(--stat-property-bg)", color: "var(--stat-property-color)", borderRadius: "4px", fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <i className="fas fa-handshake" style={{ fontSize: "0.85rem" }}></i>
+                {item.crmLinks.deals}
               </span>
             )}
           </div>
         ) : (
-          <div style={{ fontSize: "0.7rem", color: "#cbd5e1", fontStyle: "italic" }}>-</div>
+          !item?.groups?.length && <div style={{ fontSize: "0.7rem", color: "#cbd5e1", fontStyle: "italic" }}>-</div>
         )}
       </div>
 

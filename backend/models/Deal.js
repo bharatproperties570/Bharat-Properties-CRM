@@ -354,4 +354,14 @@ DealSchema.post('save', invalidateDashboardCache);
 DealSchema.post('findOneAndUpdate', invalidateDashboardCache);
 DealSchema.post('findOneAndDelete', invalidateDashboardCache);
 
+// --- PERFORMANCE INDEXES FOR DEALS LIST VIEW ---
+DealSchema.index({ isVisible: 1, updatedAt: -1 }); // Default list load sorting
+DealSchema.index({ stage: 1, isVisible: 1 }); // Stage filtering
+DealSchema.index({ intent: 1 }); // Intent filtering
+DealSchema.index({ category: 1 }); // Category filtering
+DealSchema.index({ projectId: 1 }); // Project lookup
+DealSchema.index({ inventoryId: 1 }); // Inventory mapping
+DealSchema.index({ owner: 1 }); // Owner lookup
+DealSchema.index({ dealId: 1 }); // Quick search
+
 export default mongoose.model("Deal", DealSchema);

@@ -32,6 +32,11 @@ const MatchedLeadsCard = ({ matchingLeads, onNavigate, entityId, entityType = 'd
         gap: '12px'
     };
 
+    const validMatches = (matchingLeads || [])
+        .filter(lead => (lead.score || 0) > 0)
+        .sort((a, b) => (b.score || 0) - (a.score || 0))
+        .slice(0, 3);
+
     return (
         <div style={cardStyle}>
             <div style={{ ...sectionHeaderStyle, background: '#f0fdf4', borderBottom: '1px solid #dcfce7' }}>
@@ -49,7 +54,7 @@ const MatchedLeadsCard = ({ matchingLeads, onNavigate, entityId, entityType = 'd
                 </button>
             </div>
             <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                {matchingLeads && matchingLeads.length > 0 ? matchingLeads.slice(0, 3).map((lead, idx) => (
+                {validMatches.length > 0 ? validMatches.map((lead, idx) => (
                     <div key={idx} style={{
                         padding: '16px', background: '#fff', borderRadius: '12px', border: '1px solid #f0fdf4',
                         boxShadow: '0 4px 6px -2px rgba(0, 0, 0, 0.02)', transition: 'all 0.2s',
@@ -59,7 +64,9 @@ const MatchedLeadsCard = ({ matchingLeads, onNavigate, entityId, entityType = 'd
 
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px', paddingLeft: '8px' }}>
                             <div>
-                                <h4 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#1e293b', margin: '0 0 2px 0' }}>{lead.name}</h4>
+                                <h4 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#1e293b', margin: '0 0 2px 0' }}>
+                                    {lead.name || (lead.contactDetails ? `${lead.contactDetails.name || ''} ${lead.contactDetails.surname || ''}`.trim() : '') || `${lead.firstName || ''} ${lead.lastName || ''}`.trim() || 'Unknown'}
+                                </h4>
                                 <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
                                     <i className="fas fa-phone-alt" style={{ fontSize: '0.6rem', opacity: 0.7 }}></i> {lead.mobile || lead.phone || lead.contactDetails?.phones?.[0]?.number || 'No Phone'}
                                 </p>

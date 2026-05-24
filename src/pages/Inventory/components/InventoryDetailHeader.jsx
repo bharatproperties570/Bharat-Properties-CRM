@@ -21,6 +21,7 @@ const InventoryDetailHeader = ({
     startCall,
     getTargetContacts
 }) => {
+    const [showCallMenu, setShowCallMenu] = React.useState(false);
     const activeStatusNames = ['Available', 'Active', 'Interested / Warm', 'Interested / Hot', 'Request Call Back', 'Busy / Driving', 'Market Feedback', 'General Inquiry', 'Blocked', 'Booked', 'Interested'];
     const rawStatus = getLookupValue('Status', inventory.status) || 'Available';
     const isActive = activeStatusNames.includes(rawStatus) || !rawStatus || rawStatus === '-';
@@ -102,24 +103,70 @@ const InventoryDetailHeader = ({
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <button
-                        onClick={() => {
-                            const targets = getTargetContacts();
-                            if (targets.length > 0) {
-                                startCall({
-                                    name: targets[0].name || 'Unknown Owner',
-                                    mobile: targets[0].mobile
-                                }, {
-                                    purpose: 'Owner Update',
-                                    entityId: inventory._id,
-                                    entityType: 'inventory'
-                                });
-                            }
-                        }}
-                        style={{ border: 'none', background: 'rgba(241, 245, 249, 0.8)', color: '#475569', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
-                    >
-                        <i className="fas fa-phone-alt" style={{ color: '#16a34a' }}></i> CALL
-                    </button>
+                    <div style={{ position: 'relative' }}>
+                        <button
+                            onClick={() => {
+                                const targets = getTargetContacts();
+                                if (targets.length === 1) {
+                                    startCall({
+                                        name: targets[0].name || 'Unknown Owner',
+                                        mobile: targets[0].mobile
+                                    }, {
+                                        purpose: 'Owner Update',
+                                        entityId: inventory._id,
+                                        entityType: 'inventory'
+                                    });
+                                } else if (targets.length > 1) {
+                                    setShowCallMenu(!showCallMenu);
+                                } else {
+                                    startCall({
+                                        name: 'Unknown Owner',
+                                        mobile: inventory.ownerPhone
+                                    }, {
+                                        purpose: 'Owner Update',
+                                        entityId: inventory._id,
+                                        entityType: 'inventory'
+                                    });
+                                }
+                            }}
+                            style={{ border: 'none', background: 'rgba(241, 245, 249, 0.8)', color: '#475569', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                        >
+                            <i className="fas fa-phone-alt" style={{ color: '#16a34a' }}></i> CALL {getTargetContacts().length > 1 && <i className="fas fa-chevron-down" style={{fontSize:'0.65rem', marginLeft:'2px'}}></i>}
+                        </button>
+                        {showCallMenu && getTargetContacts().length > 1 && (
+                            <div style={{
+                                position: 'absolute', top: '100%', right: 0, marginTop: '8px',
+                                background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px',
+                                boxShadow: '0 10px 25px rgba(0,0,0,0.1)', zIndex: 1000, minWidth: '220px',
+                                padding: '8px 0', overflow: 'hidden'
+                            }}>
+                                {getTargetContacts().map((target, idx) => (
+                                    <button
+                                        key={idx}
+                                        onClick={() => {
+                                            setShowCallMenu(false);
+                                            startCall({
+                                                name: target.name || 'Unknown',
+                                                mobile: target.mobile
+                                            }, {
+                                                purpose: 'Owner Update',
+                                                entityId: inventory._id,
+                                                entityType: 'inventory'
+                                            });
+                                        }}
+                                        style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
+                                        className="hover:bg-slate-50"
+                                    >
+                                        <i className="fas fa-phone" style={{ color: '#16a34a', width: '16px' }}></i>
+                                        <div style={{display:'flex', flexDirection:'column', lineHeight:'1.4'}}>
+                                            <span>{target.name}</span>
+                                            <span style={{fontSize:'0.7rem', color:'#94a3b8'}}>{target.mobile}</span>
+                                        </div>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                     <button
                         onClick={handleMessageClick}
                         style={{ border: 'none', background: 'rgba(241, 245, 249, 0.8)', color: '#475569', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}

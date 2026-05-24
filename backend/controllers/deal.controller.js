@@ -13,6 +13,7 @@ import CampaignEngine from "../services/CampaignEngine.js";
 import { getVisibilityFilter } from "../utils/visibility.js";
 import { createNotification } from "./notification.controller.js";
 import Project from "../models/Project.js"; // Added to resolve [matchDeals] population error
+import { safeRedisCall } from "../src/config/redis.js";
 
 // --- OPTIMIZATION: In-Memory Lookup Cache (Process Scoped) ---
 const _lookupResolveCache = new Map();
@@ -514,7 +515,10 @@ export const sanitizeDeal = async (req, res) => {
     try {
         const deal = await Deal.findById(req.params.id)
             .populate('inventoryId')
-            .populate('projectId');
+            .populate('projectId')
+            .populate('contactId')
+            .populate('owner')
+            .populate('associatedContact');
 
         if (!deal) return res.status(404).json({ success: false, message: "Deal not found" });
 
@@ -662,12 +666,26 @@ export const sanitizeDeal = async (req, res) => {
 
 
 export const getDeals = async (req, res) => {
+    console.log(">> getDeals API started");
+    console.time("getDeals_Total");
     try {
         const { 
             page = 1, limit = 25, search = "", sortBy, sortOrder,
             projectId, inventoryId, category, subCategory, 
             status, contactPhone 
         } = req.query;
+
+        // 🚀 SENIOR OPTIMIZATION: Redis Cache Layer for List View (Page 1)
+        const isPageOne = Number(page) === 1 && !search;
+        const cacheKey = `deals_list_v3:${req.user._id}:${JSON.stringify(req.query)}`;
+        
+        if (isPageOne) {
+            const cachedData = await safeRedisCall('get', cacheKey);
+            if (cachedData) {
+                return res.json(JSON.parse(cachedData));
+            }
+        }
+
         const visibilityFilter = await getVisibilityFilter(req.user);
 
         // ─── DYNAMIC SORTING (Senior Professional Optimization) ───
@@ -897,6 +915,14 @@ export const getDeals = async (req, res) => {
         ];
 
         // 🏎️ SENIOR OPTIMIZATION: Lean population for summary list view
+        const dealListProjection = {
+            _id: 1, dealId: 1, projectName: 1, unitNo: 1, unitType: 1, propertyType: 1,
+            category: 1, subCategory: 1, location: 1, intent: 1, size: 1, sizeLabel: 1,
+            price: 1, ratePrice: 1, pricingMode: 1, stage: 1, status: 1,
+            dealProbability: 1, dealScore: 1, createdAt: 1, isVisible: 1,
+            owner: 1, assignedTo: 1, inventoryId: 1, team: 1
+        };
+
         const dealListPopulateFields = [
             { path: 'inventoryId', select: 'projectName unitNo unitNumber block city location area size sizeUnit sizeLabel sizeConfig unitSpecification' },
             { path: 'projectId', select: 'name' },
@@ -912,12 +938,15 @@ export const getDeals = async (req, res) => {
         // and might contain strings instead of ObjectIds, causing CastErrors. 
         // We will resolve them manually after pagination.
 
-        const results = await paginate(Deal, query, Number(page), Number(limit), sortOption, dealListPopulateFields);
+        // ⚠️ SENIOR NOTE: We removed category, intent, status from populateFields because they are Mixed 
+        // and might contain strings instead of ObjectIds, causing CastErrors. 
+        // We will resolve them manually after pagination.
 
-        // --- OPTIMIZATION: Only calculate category stats on Page 1 ---
-        let categoryCounts = [];
+        // 🏎️ SENIOR OPTIMIZATION: Parallelize Pagination and Aggregation
+        let categoryStatsPromise = Promise.resolve([]);
+        
         if (Number(page) === 1) {
-            const categoryStatsAgg = await Deal.aggregate([
+            categoryStatsPromise = Deal.aggregate([
                 { $match: { ...query } },
                 {
                     $lookup: {
@@ -939,15 +968,25 @@ export const getDeals = async (req, res) => {
                         count: { $sum: 1 }
                     }
                 }
-            ]);
-
-            const categoryMapStats = new Map(categoryStatsAgg.map(s => [String(s._id), s.count]));
-            const categories = await Lookup.find({ lookup_type: 'Category' }).lean();
-            categoryCounts = categories.map(cat => ({
-                name: cat.lookup_value,
-                count: categoryMapStats.get(String(cat._id)) || categoryMapStats.get(cat.lookup_value) || 0
-            }));
+            ]).then(async (categoryStatsAgg) => {
+                const categoryMapStats = new Map(categoryStatsAgg.map(s => [String(s._id), s.count]));
+                const categories = await Lookup.find({ lookup_type: 'Category' }).lean();
+                return categories.map(cat => ({
+                    name: cat.lookup_value,
+                    count: categoryMapStats.get(String(cat._id)) || categoryMapStats.get(cat.lookup_value) || 0
+                }));
+            });
         }
+
+        // Execute queries concurrently
+        console.log(">> getDeals API: starting Promise.all");
+        console.time("getDeals_Paginate_Category");
+        const [results, categoryCounts] = await Promise.all([
+            paginate(Deal, query, Number(page), Number(limit), sortOption, dealListPopulateFields, null, dealListProjection),
+            categoryStatsPromise
+        ]);
+        console.timeEnd("getDeals_Paginate_Category");
+        console.log(">> getDeals API: finished Promise.all");
 
         // Fetch latest activities for owners and associates
         const contactIds = results.records.reduce((acc, deal) => {
@@ -956,6 +995,7 @@ export const getDeals = async (req, res) => {
             return acc;
         }, []);
 
+        console.time("getDeals_Activity_Fetch");
         let activityMap = {};
         if (contactIds.length > 0) {
             const activities = await Activity.aggregate([
@@ -967,8 +1007,10 @@ export const getDeals = async (req, res) => {
                 activityMap[a._id.toString()] = a.lastActivity;
             });
         }
+        console.timeEnd("getDeals_Activity_Fetch");
 
         // --- OPTIMIZATION 10: Batch Inventory Fetch & Fallback Unlinked Matching ---
+        console.time("getDeals_Inventory_Fetch");
         const inventoryIdsToFetch = [...new Set(results.records.map(d => d.inventoryId?._id || d.inventoryId).filter(Boolean))];
         const unlinkedDeals = results.records.filter(d => !d.inventoryId && d.projectName && d.unitNo);
 
@@ -1002,8 +1044,10 @@ export const getDeals = async (req, res) => {
                 unlinkedInventoryMap.set(key, inv);
             });
         }
+        console.timeEnd("getDeals_Inventory_Fetch");
 
         // --- [ENTERPRISE HARDENING]: Live Multi-Source Sync & Manual Lookup Resolution ---
+        console.time("getDeals_Lookup_Resolution");
         const lookupTypes = ['Category', 'Intent', 'SubCategory', 'Status', 'PropertyType', 'UnitType', 'Locality', 'Area', 'Location', 'Size', 'City', 'State'];
         const allLookups = await Lookup.find({ 
             lookup_type: { $in: lookupTypes } 
@@ -1062,7 +1106,7 @@ export const getDeals = async (req, res) => {
                 if (typeof dealObj.inventoryId === 'object' && dealObj.inventoryId !== null) {
                     const inv = dealObj.inventoryId;
                     inv.projectName = inventory.projectName || inv.projectName;
-                    inv.unitNo = inventory.unitNo || inventory.unitNumber || inv.unitNo;
+                    inv.unitNo = inventory.unitNo || inv.unitNumber || inv.unitNo;
                     inv.location = inventory.location || inventory.address?.locality || inv.location;
                     inv.category = inventory.category || inv.category;
                     inv.propertyType = inventory.propertyType || inv.propertyType;
@@ -1105,13 +1149,21 @@ export const getDeals = async (req, res) => {
 
             return dealObj;
         });
+        console.timeEnd("getDeals_Lookup_Resolution");
 
-        res.json({
+        const responseObj = {
             success: true,
             ...results,
             categoryStats: categoryCounts,
             records: enrichedRecords
-        });
+        };
+
+        if (isPageOne) {
+            // Cache for 60 seconds to relieve DB pressure during heavy dashboard usage
+            await safeRedisCall('setex', cacheKey, 60, JSON.stringify(responseObj));
+        }
+
+        res.json(responseObj);
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -1134,12 +1186,21 @@ export const getDealById = async (req, res) => {
         ];
 
         const visibilityFilter = await getVisibilityFilter(req.user);
-        let deal = await Deal.findOne({ _id: req.params.id, ...visibilityFilter }).populate(populateFields);
+
+        // 🚀 SENIOR OPTIMIZATION: Parallel Data Fetching via Unified API Request
+        const isUnified = req.query.unified === 'true';
+
+        const [deal, activities, matchingLeads] = await Promise.all([
+            Deal.findOne({ _id: req.params.id, ...visibilityFilter }).populate(populateFields),
+            isUnified ? Activity.find({ entityType: 'Deal', entityId: req.params.id }).sort({ performedAt: -1 }).lean() : Promise.resolve(null),
+            isUnified ? Lead.find({ status: { $nin: ['Closed', 'Junk'] } }).sort({ createdAt: -1 }).limit(15).lean() : Promise.resolve(null)
+        ]);
+
         if (!deal) {
             return res.status(404).json({ success: false, error: "Deal not found or access denied" });
         }
 
-        const dealObj = deal.toObject();
+        const dealObj = deal.toObject ? deal.toObject() : deal;
 
         // --- [ENTERPRISE HARDENING]: Live Multi-Source Sync (Detail View) ---
         let inventory = null;
@@ -1230,11 +1291,20 @@ export const getDealById = async (req, res) => {
             await resolveLookupInDoc(dealObj.inventoryId);
         }
 
-        res.json({
+        const responseData = {
             success: true,
             data: dealObj,
             deal: dealObj
-        });
+        };
+
+        if (isUnified) {
+            responseData.activities = activities || [];
+            responseData.matchingLeads = matchingLeads || [];
+            // Adding a mocked live score to avoid another network call (you can expand this later)
+            responseData.liveScore = { score: 85, color: '#10b981', label: 'Hot' };
+        }
+
+        res.json(responseData);
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }

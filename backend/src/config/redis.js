@@ -20,6 +20,11 @@ class MockRedis extends EventEmitter {
     getMaxListeners() { return 100; }
     async get(key) { return this.data.get(key) || null; }
     async set(key, val) { this.data.set(key, val); return 'OK'; }
+    async setex(key, seconds, val) { 
+        this.data.set(key, val); 
+        setTimeout(() => this.data.delete(key), seconds * 1000);
+        return 'OK'; 
+    }
     async del(key) { this.data.delete(key); return 1; }
     async quit() { return 'OK'; }
     async ping() { return 'PONG'; }

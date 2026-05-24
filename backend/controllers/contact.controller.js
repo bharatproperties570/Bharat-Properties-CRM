@@ -17,6 +17,7 @@ const populateFields = [
     { path: 'owner', select: 'fullName email name' },
     { path: 'team', select: 'name' },
     { path: 'teams', select: 'name' },
+    { path: 'groups' },
     { path: 'assignment.assignedTo', select: 'fullName email name' },
     { path: 'assignment.assignedBy', select: 'fullName email name' },
     { path: 'assignment.team', select: 'name' }

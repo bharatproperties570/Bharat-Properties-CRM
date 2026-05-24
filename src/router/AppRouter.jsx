@@ -2,7 +2,7 @@ import { Suspense, lazy } from 'react';
 import { isWeb } from '../utils/platform';
 
 // Lazy load pages for massive bundle reduction
-const DashboardPage = lazy(() => import('../pages/Dashboard/DashboardPage'));
+const DashboardPage = lazy(() => import('../pages/Dashboard/DashboardPage')); // Force cache bust
 const ContactsPage = lazy(() => import('../pages/Contacts/ContactsPage'));
 const LeadsPage = lazy(() => import('../pages/Leads/LeadsPage'));
 // FormsPage removed

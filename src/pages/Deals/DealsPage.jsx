@@ -1,19 +1,19 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, Suspense, lazy } from 'react';
 import { useUserContext } from '../../context/UserContext';
 import { getInitials } from '../../utils/helpers';
-import AddDealModal from '../../components/AddDealModal';
-import AddBookingModal from '../../components/AddBookingModal';
+const AddDealModal = lazy(() => import('../../components/AddDealModal'));
+const AddBookingModal = lazy(() => import('../../components/AddBookingModal'));
 import DealsFilterPanel from './components/DealsFilterPanel';
 import ActiveFiltersChips from '../../components/ActiveFiltersChips';
 import { useCall } from '../../context/CallContext';
 import { applyDealsFilters } from '../../utils/dealsFilterLogic';
-import UploadModal from '../../components/UploadModal';
-import AddInventoryDocumentModal from '../../components/AddInventoryDocumentModal';
-import ComposeEmailModal from '../Communication/components/ComposeEmailModal';
-import SendMessageModal from '../../components/SendMessageModal';
-import ManageTagsModal from '../../components/ManageTagsModal';
-import AddQuoteModal from '../../components/AddQuoteModal';
-import AddOfferModal from '../../components/AddOfferModal';
+const UploadModal = lazy(() => import('../../components/UploadModal'));
+const AddInventoryDocumentModal = lazy(() => import('../../components/AddInventoryDocumentModal'));
+const ComposeEmailModal = lazy(() => import('../Communication/components/ComposeEmailModal'));
+const SendMessageModal = lazy(() => import('../../components/SendMessageModal'));
+const ManageTagsModal = lazy(() => import('../../components/ManageTagsModal'));
+const AddQuoteModal = lazy(() => import('../../components/AddQuoteModal'));
+const AddOfferModal = lazy(() => import('../../components/AddOfferModal'));
 import toast from 'react-hot-toast';
 import { api } from "../../utils/api";
 import ProfessionalMap from '../../components/ProfessionalMap';
@@ -24,7 +24,7 @@ import { renderValue } from "../../utils/renderUtils";
 import PipelineDashboard from '../../components/PipelineDashboard';
 import useDebounce from '../../hooks/useDebounce';
 import { PermissionGate } from '../../hooks/usePermissions';
-import SocialPostModal from '../../components/SocialPostModal';
+const SocialPostModal = lazy(() => import('../../components/SocialPostModal'));
 import PremiumSearchBar from '../../components/PremiumSearchBar';
 import { List } from 'react-window';
 import { AutoSizer } from 'react-virtualized-auto-sizer';
@@ -306,30 +306,32 @@ function DealsPage({ onNavigate, onAddActivity }) {
     };
 
 
-    const filteredDeals = deals.filter(deal => {
-        if (deal.isVisible === false) return false;
-        const search = debouncedSearchTerm.toLowerCase();
+    const filteredDeals = useMemo(() => {
+        return deals.filter(deal => {
+            if (deal.isVisible === false) return false;
+            const search = debouncedSearchTerm.toLowerCase();
 
-        const dealId = deal.id || deal._id;
-        const ownerName = deal.owner?.name || deal.owner;
-        const location = deal.location?.lookup_value || deal.location;
-        const propertyType = deal.propertyType?.lookup_value || deal.propertyType;
-        const assigned = deal.assigned;
+            const dealId = deal.id || deal._id;
+            const ownerName = deal.owner?.name || deal.owner;
+            const location = deal.location?.lookup_value || deal.location;
+            const propertyType = deal.propertyType?.lookup_value || deal.propertyType;
+            const assigned = deal.assigned;
 
-        // Basic Search
-        const matchesSearch = (
-            (dealId && dealId.toString().toLowerCase().includes(search)) ||
-            (ownerName && ownerName.toString().toLowerCase().includes(search)) ||
-            (location && location.toString().toLowerCase().includes(search)) ||
-            (propertyType && propertyType.toString().toLowerCase().includes(search)) ||
-            (assigned && assigned.toString().toLowerCase().includes(search))
-        );
+            // Basic Search
+            const matchesSearch = (
+                (dealId && dealId.toString().toLowerCase().includes(search)) ||
+                (ownerName && ownerName.toString().toLowerCase().includes(search)) ||
+                (location && location.toString().toLowerCase().includes(search)) ||
+                (propertyType && propertyType.toString().toLowerCase().includes(search)) ||
+                (assigned && assigned.toString().toLowerCase().includes(search))
+            );
 
-        if (!matchesSearch) return false;
+            if (!matchesSearch) return false;
 
-        // Advanced Filters via Utility
-        return applyDealsFilters(deal, filters);
-    });
+            // Advanced Filters via Utility
+            return applyDealsFilters(deal, filters);
+        });
+    }, [deals, debouncedSearchTerm, filters]);
 
 
     const getSelectedDeal = () => deals.find(d => d._id === selectedIds[0]);
@@ -876,30 +878,35 @@ function DealsPage({ onNavigate, onAddActivity }) {
                     )}
 
                     {currentView === 'list' ? (
-                        <div className="list-content" style={{ flex: 1, overflowY: 'auto', background: '#fafbfc' }}>
+                        <div className="list-content" style={{ height: 'calc(100vh - 250px)', overflow: 'hidden', background: '#fafbfc' }}>
                             {filteredDeals.length === 0 ? (
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#94a3b8', fontSize: '0.9rem' }}>
                                     No deals found matching your criteria.
                                 </div>
                             ) : (
-                                filteredDeals.map((deal, index) => (
-                                    <DealRow
-                                        key={deal._id || index}
-                                        deal={deal}
-                                        index={index}
-                                        selected={selectedIds.includes(deal._id)}
-                                        onSelect={toggleSelect}
-                                        onNavigate={onNavigate}
-                                        getLookupValue={getLookupValue}
-                                        resolveDealLookup={resolveDealLookup}
-                                        activeRowMenu={activeRowMenu}
-                                        setActiveRowMenu={setActiveRowMenu}
-                                        getUserName={getUserName}
-                                        getTeamName={getTeamName}
-                                        dealScores={dealScores}
-                                        onAction={handleAction}
+                                <div style={{ height: '100%', width: '100%' }}>
+                                    <List
+                                        style={{ height: window.innerHeight - 250, width: '100%' }}
+                                        rowCount={filteredDeals.length}
+                                        rowHeight={105}
+                                        rowProps={{
+                                            deals: filteredDeals,
+                                            selectedIds,
+                                            toggleSelect,
+                                            onNavigate,
+                                            getLookupValue,
+                                            resolveDealLookup,
+                                            activeRowMenu,
+                                            setActiveRowMenu,
+                                            getUserName,
+                                            getTeamName,
+                                            dealScores,
+                                            handleAction
+                                        }}
+                                        rowComponent={VirtualizedDealRow}
+                                        overscanCount={5}
                                     />
-                                ))
+                                </div>
                             )}
                         </div>
                     ) : (
@@ -1007,129 +1014,131 @@ function DealsPage({ onNavigate, onAddActivity }) {
                 </div>
             </div >
 
-            <AddDealModal
-                isOpen={isAddModalOpen}
-                onClose={() => {
-                    setIsAddModalOpen(false);
-                    setEditingDeal(null);
-                }}
-                dealData={editingDeal}
-                onSave={fetchDeals}
-            />
+            <Suspense fallback={<div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>Loading component...</div>}>
+                <AddDealModal
+                    isOpen={isAddModalOpen}
+                    onClose={() => {
+                        setIsAddModalOpen(false);
+                        setEditingDeal(null);
+                    }}
+                    dealData={editingDeal}
+                    onSave={fetchDeals}
+                />
 
-            <AddQuoteModal
-                isOpen={isQuoteModalOpen}
-                onClose={() => setIsQuoteModalOpen(false)}
-                deal={editingDeal}
-                onSuccess={() => {
-                    setIsQuoteModalOpen(false);
-                    fetchDeals();
-                }}
-            />
-
-            <AddOfferModal 
-                isOpen={isOfferModalOpen}
-                onClose={() => setIsOfferModalOpen(false)}
-                deal={editingDeal}
-                onSave={async (offerData) => {
-                    try {
-                        const response = await api.post(`deals/${editingDeal._id}/offers`, offerData);
-                        if (response.data.success) {
-                            toast.success('Offer registered successfully');
-                            setIsOfferModalOpen(false);
-                            fetchDeals();
-                        }
-                    } catch (error) {
-                        console.error('Failed to save offer:', error);
-                        toast.error('Failed to register offer');
-                    }
-                }}
-            />
-
-            <ComposeEmailModal
-                isOpen={isSendMailOpen}
-                onClose={() => setIsSendMailOpen(false)}
-                recipients={selectedDealsForMail}
-            />
-
-            <SendMessageModal
-                isOpen={isSendMessageOpen}
-                onClose={() => setIsSendMessageOpen(false)}
-                initialRecipients={selectedDealsForMessage?.map(deal => ({
-                    ...deal.owner,
-                    name: deal.owner?.name || deal.associatedContact?.name || 'Client',
-                    phone: deal.owner?.phone || deal.associatedContact?.phone,
-                    _id: deal.associatedContact?._id || deal.owner?._id || deal.id
-                })) || []}
-                onSend={(data, res) => {
-                    console.log('Message Data Outbound:', data);
-                    toast.success(res?.message || 'Message Sent Successfully!');
-                    setIsSendMessageOpen(false);
-                }}
-            />
-
-            <ManageTagsModal
-                isOpen={isManageTagsOpen}
-                onClose={() => setIsManageTagsOpen(false)}
-                selectedItems={selectedDealsForTags}
-                entityType="deals"
-                onSave={(updatedItems) => {
-                    updatedItems.map(item => item.id);
-                    setDeals(prev => prev.map(d => {
-                        const updatedItem = updatedItems.find(item => item.id === d.id);
-                        return updatedItem ? { ...d, tags: updatedItem.tags } : d;
-                    }));
-                }}
-            />
-
-            <DealsFilterPanel
-                isOpen={isFilterPanelOpen}
-                onClose={() => setIsFilterPanelOpen(false)}
-                filters={filters}
-                onFilterChange={setFilters}
-            />
-
-            <UploadModal
-                isOpen={isUploadModalOpen}
-                onClose={() => setIsUploadModalOpen(false)}
-                onSave={handleSaveUploads}
-                project={selectedDealState}
-                type="property"
-            />
-
-            <AddInventoryDocumentModal
-                isOpen={isDocumentModalOpen}
-                onClose={() => setIsDocumentModalOpen(false)}
-                onSave={handleSaveDocuments}
-                project={selectedDealState}
-            />
-
-            {
-                isAddBookingOpen && (
-                    <AddBookingModal
-                        isOpen={isAddBookingOpen}
-                        onClose={() => setIsAddBookingOpen(false)}
-                        dealId={selectedIds[0]}
-                        onSave={() => {
-                            fetchDeals();
-                            setSelectedIds([]);
-                        }}
-                    />
-                )
-            }
-
-            {isSocialModalOpen && (
-                <SocialPostModal
-                    isOpen={isSocialModalOpen}
-                    onClose={() => setIsSocialModalOpen(false)}
-                    initialData={{
-                        id: selectedSocialData?.id,
-                        type: 'Deal',
-                        text: `🏡 Fresh Deal Alert: ${selectedSocialData?.unitNo || 'New Property'} at ${selectedSocialData?.projectName || 'Prime Location'}.\n\n✨ Unit: ${selectedSocialData?.unitNo}\n📍 Location: ${selectedSocialData?.location}\n💰 Expected: ₹${selectedSocialData?.price?.toLocaleString('en-IN')}\n\nInterested? Contact us for exclusive details! #BharatProperties #RealEstate`,
-                        imageUrl: selectedSocialData?.images?.[0] || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?auto=format&fit=crop&q=80&w=1000'
+                <AddQuoteModal
+                    isOpen={isQuoteModalOpen}
+                    onClose={() => setIsQuoteModalOpen(false)}
+                    deal={editingDeal}
+                    onSuccess={() => {
+                        setIsQuoteModalOpen(false);
+                        fetchDeals();
                     }}
                 />
-            )}
+
+                <AddOfferModal 
+                    isOpen={isOfferModalOpen}
+                    onClose={() => setIsOfferModalOpen(false)}
+                    deal={editingDeal}
+                    onSave={async (offerData) => {
+                        try {
+                            const response = await api.post(`deals/${editingDeal._id}/offers`, offerData);
+                            if (response.data.success) {
+                                toast.success('Offer registered successfully');
+                                setIsOfferModalOpen(false);
+                                fetchDeals();
+                            }
+                        } catch (error) {
+                            console.error('Failed to save offer:', error);
+                            toast.error('Failed to register offer');
+                        }
+                    }}
+                />
+
+                <ComposeEmailModal
+                    isOpen={isSendMailOpen}
+                    onClose={() => setIsSendMailOpen(false)}
+                    recipients={selectedDealsForMail}
+                />
+
+                <SendMessageModal
+                    isOpen={isSendMessageOpen}
+                    onClose={() => setIsSendMessageOpen(false)}
+                    initialRecipients={selectedDealsForMessage?.map(deal => ({
+                        ...deal.owner,
+                        name: deal.owner?.name || deal.associatedContact?.name || 'Client',
+                        phone: deal.owner?.phone || deal.associatedContact?.phone,
+                        _id: deal.associatedContact?._id || deal.owner?._id || deal.id
+                    })) || []}
+                    onSend={(data, res) => {
+                        console.log('Message Data Outbound:', data);
+                        toast.success(res?.message || 'Message Sent Successfully!');
+                        setIsSendMessageOpen(false);
+                    }}
+                />
+
+                <ManageTagsModal
+                    isOpen={isManageTagsOpen}
+                    onClose={() => setIsManageTagsOpen(false)}
+                    selectedItems={selectedDealsForTags}
+                    entityType="deals"
+                    onSave={(updatedItems) => {
+                        updatedItems.map(item => item.id);
+                        setDeals(prev => prev.map(d => {
+                            const updatedItem = updatedItems.find(item => item.id === d.id);
+                            return updatedItem ? { ...d, tags: updatedItem.tags } : d;
+                        }));
+                    }}
+                />
+
+                <DealsFilterPanel
+                    isOpen={isFilterPanelOpen}
+                    onClose={() => setIsFilterPanelOpen(false)}
+                    filters={filters}
+                    onFilterChange={setFilters}
+                />
+
+                <UploadModal
+                    isOpen={isUploadModalOpen}
+                    onClose={() => setIsUploadModalOpen(false)}
+                    onSave={handleSaveUploads}
+                    project={selectedDealState}
+                    type="property"
+                />
+
+                <AddInventoryDocumentModal
+                    isOpen={isDocumentModalOpen}
+                    onClose={() => setIsDocumentModalOpen(false)}
+                    onSave={handleSaveDocuments}
+                    project={selectedDealState}
+                />
+
+                {
+                    isAddBookingOpen && (
+                        <AddBookingModal
+                            isOpen={isAddBookingOpen}
+                            onClose={() => setIsAddBookingOpen(false)}
+                            dealId={selectedIds[0]}
+                            onSave={() => {
+                                fetchDeals();
+                                setSelectedIds([]);
+                            }}
+                        />
+                    )
+                }
+
+                {isSocialModalOpen && (
+                    <SocialPostModal
+                        isOpen={isSocialModalOpen}
+                        onClose={() => setIsSocialModalOpen(false)}
+                        initialData={{
+                            id: selectedSocialData?.id,
+                            type: 'Deal',
+                            text: `🏡 Fresh Deal Alert: ${selectedSocialData?.unitNo || 'New Property'} at ${selectedSocialData?.projectName || 'Prime Location'}.\n\n✨ Unit: ${selectedSocialData?.unitNo}\n📍 Location: ${selectedSocialData?.location}\n💰 Expected: ₹${selectedSocialData?.price?.toLocaleString('en-IN')}\n\nInterested? Contact us for exclusive details! #BharatProperties #RealEstate`,
+                            imageUrl: selectedSocialData?.images?.[0] || 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?auto=format&fit=crop&q=80&w=1000'
+                        }}
+                    />
+                )}
+            </Suspense>
 
             <footer className="summary-footer" style={{ height: '55px', background: 'var(--bg-gray)', borderTop: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', marginTop: 'auto' }}>
                 <div style={{ display: 'flex', gap: '20px', alignItems: 'center', padding: '0 2rem', width: '100%', overflowX: 'auto' }}>
@@ -1215,7 +1224,7 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
     };
 
     return (
-        <div className={`list-item deals-list-grid ${isNonActionable ? 'non-actionable-row' : ''}`} style={{ ...style, padding: '18px 1.5rem', borderBottom: '1px solid var(--border-color)', transition: 'background 0.2s ease', background: rowBackground, opacity: isNonActionable ? 0.8 : 1, pointerEvents: isNonActionable ? 'none' : 'auto', display: 'grid', alignItems: 'center' }}>
+        <div className={`list-item deals-list-grid ${isNonActionable ? 'non-actionable-row' : ''}`} style={{ ...style, padding: '10px 1.5rem', borderBottom: '1px solid var(--border-color)', transition: 'background 0.2s ease', background: rowBackground, opacity: isNonActionable ? 0.8 : 1, pointerEvents: isNonActionable ? 'none' : 'auto', display: 'grid', alignItems: 'center' }}>
             <div>
                 <input
                     type="checkbox"
@@ -1420,6 +1429,29 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
         </div>
     );
 });
-DealRow.displayName = 'DealRow';
+// --- VIRTUALIZED WRAPPER ---
+const VirtualizedDealRow = React.memo((props) => {
+    const { index, style, deals, selectedIds, toggleSelect, onNavigate, getLookupValue, resolveDealLookup, activeRowMenu, setActiveRowMenu, getUserName, getTeamName, dealScores, handleAction } = props;
+    const deal = deals[index];
+    if (!deal) return null;
+    return (
+        <DealRow
+            style={style}
+            deal={deal}
+            index={index}
+            selected={selectedIds.includes(deal._id)}
+            onSelect={toggleSelect}
+            onNavigate={onNavigate}
+            getLookupValue={getLookupValue}
+            resolveDealLookup={resolveDealLookup}
+            activeRowMenu={activeRowMenu}
+            setActiveRowMenu={setActiveRowMenu}
+            getUserName={getUserName}
+            getTeamName={getTeamName}
+            dealScores={dealScores}
+            onAction={handleAction}
+        />
+    );
+});
 
 export default DealsPage;
