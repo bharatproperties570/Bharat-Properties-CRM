@@ -78,8 +78,23 @@ const ProfessionalMap = ({
         let validCoords = 0;
 
         items.forEach((item) => {
-            const lat = parseFloat(item.latitude || item.lat || (item.inventoryId && (item.inventoryId.latitude || item.inventoryId.lat)));
-            const lng = parseFloat(item.longitude || item.lng || (item.inventoryId && (item.inventoryId.longitude || item.inventoryId.lng)));
+            let lat = parseFloat(item.latitude || item.lat);
+            let lng = parseFloat(item.longitude || item.lng);
+
+            if (isNaN(lat) && item.inventoryId && typeof item.inventoryId === 'object') {
+                lat = parseFloat(item.inventoryId.latitude || item.inventoryId.lat);
+                lng = parseFloat(item.inventoryId.longitude || item.inventoryId.lng);
+            }
+
+            if (isNaN(lat) && item.projectId && typeof item.projectId === 'object') {
+                lat = parseFloat(item.projectId.latitude || item.projectId.lat);
+                lng = parseFloat(item.projectId.longitude || item.projectId.lng);
+            }
+
+            if (isNaN(lat) && item.locationCoords && typeof item.locationCoords === 'object') {
+                lat = parseFloat(item.locationCoords.lat);
+                lng = parseFloat(item.locationCoords.lng);
+            }
 
             if (!isNaN(lat) && !isNaN(lng)) {
                 validCoords++;
