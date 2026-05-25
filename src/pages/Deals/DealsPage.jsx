@@ -941,31 +941,77 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                             onMouseEnter={(e) => e.currentTarget.style.background = 'var(--contact-row-hover)'}
                                             onMouseLeave={(e) => e.currentTarget.style.background = 'var(--contact-card-bg)'}
                                         >
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                                                <div style={{
-                                                    width: '24px',
-                                                    height: '24px',
-                                                    background: '#ef4444',
-                                                    borderRadius: '50%',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    color: '#fff',
-                                                    fontSize: '0.7rem',
-                                                    fontWeight: 700
-                                                }}>
-                                                    {idx + 1}
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                    <div style={{
+                                                        width: '24px', height: '24px', background: '#3b82f6', borderRadius: '50%',
+                                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                        color: '#fff', fontSize: '0.7rem', fontWeight: 700
+                                                    }}>
+                                                        {idx + 1}
+                                                    </div>
+                                                    <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#1e293b' }}>
+                                                        {deal.dealId || `#${deal.id}`}
+                                                    </div>
                                                 </div>
-                                                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--primary-color)' }}>#{deal.id}</div>
+                                                <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#10b981' }}>
+                                                    {deal.price ? `₹${deal.price.toLocaleString('en-IN')}` : 'Price on Request'}
+                                                </div>
                                             </div>
-                                            <div style={{ fontSize: '0.75rem', color: 'var(--text-main)', fontWeight: 600, marginBottom: '4px' }}>
-                                                {renderValue(deal.location)}
+
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                                                <div
+                                                    className="project-thumbnail"
+                                                    style={{
+                                                        background: '#f1f5f9', color: '#475569', minWidth: '40px', padding: '2px 8px',
+                                                        borderRadius: '4px', fontSize: '0.7rem', fontWeight: 800, textAlign: 'center',
+                                                        border: '1px solid #e2e8f0'
+                                                    }}
+                                                >
+                                                    {deal.unitNo || 'UNIT'}
+                                                </div>
+                                                <div className="text-ellipsis" style={{ fontWeight: 800, color: '#1e293b', fontSize: '0.8rem' }}>
+                                                    {renderValue(deal.unitType) || 'Unit'}
+                                                </div>
                                             </div>
-                                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '4px' }}>
-                                                {renderValue(deal.propertyType)}
+
+                                            <div style={{ fontSize: '0.75rem', color: '#475569', marginBottom: '4px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                                <div style={{ fontWeight: 700 }}>
+                                                    {renderValue(resolveDealLookup(deal.category, 'Category') || resolveDealLookup(deal.propertyType, 'PropertyType'), 'N/A')}
+                                                    {deal.subCategory ? ` - ${renderValue(resolveDealLookup(deal.subCategory, 'SubCategory'))}` : ''}
+                                                </div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                    <i className="fas fa-expand-arrows-alt" style={{ fontSize: '0.65rem', color: '#2563eb' }}></i>
+                                                    <span style={{ fontWeight: 700, color: '#2563eb' }}>
+                                                        {(() => {
+                                                            const sizeFromLookup = resolveDealLookup(deal.sizeConfig, 'Size');
+                                                            if (sizeFromLookup) return renderValue(sizeFromLookup);
+                                                            if (deal.sizeLabel) return renderValue(deal.sizeLabel);
+                                                            if (deal.size) return `${renderValue(deal.size)} ${renderValue(deal.sizeUnit)}`;
+                                                            return 'Size N/A';
+                                                        })()}
+                                                    </span>
+                                                </div>
                                             </div>
-                                            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#10b981' }}>
-                                                ₹{renderValue(deal.price)}
+
+                                            <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px dashed #e2e8f0' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px' }}>
+                                                    <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.7rem' }}></i>
+                                                    <span className="text-ellipsis" style={{ fontSize: '0.75rem', fontWeight: 700, color: '#0f172a' }}>
+                                                        {renderValue(resolveDealLookup(deal.location, 'Locality') || resolveDealLookup(deal.location, 'Area') || resolveDealLookup(deal.location, 'Location'))}
+                                                    </span>
+                                                </div>
+                                                {deal.projectName && (
+                                                    <div style={{ fontSize: '0.7rem', color: '#64748b', marginBottom: '4px' }}>
+                                                        <i className="fas fa-building" style={{ marginRight: '4px', fontSize: '0.65rem' }}></i>
+                                                        {renderValue(deal.projectName)}
+                                                    </div>
+                                                )}
+                                                {deal.block && (
+                                                    <div style={{ display: 'inline-block', fontSize: '0.6rem', padding: '2px 8px', background: '#f1f5f9', color: '#475569', fontWeight: 800, borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                                                        BLOCK: {deal.block}
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     ))}
