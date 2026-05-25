@@ -7,6 +7,7 @@ const ProfessionalMap = ({
     center = MAP_CENTER,
     zoom = 13,
     onMarkerClick = null,
+    activeDealId = null,
     style = { width: '100%', height: '100%' }
 }) => {
     const mapRef = useRef(null);
@@ -176,6 +177,12 @@ const ProfessionalMap = ({
                     marker.addListener('click', handleOpenInfo);
                 }
 
+                // Store metadata for active tracking
+                marker._dealId = item._id || item.id;
+                marker._isDemand = isDemand;
+                marker._position = position;
+                marker._handleOpenInfo = handleOpenInfo;
+
                 markersRef.current.push(marker);
                 bounds.extend(position);
             }
@@ -201,6 +208,28 @@ const ProfessionalMap = ({
             googleMapRef.current.setZoom(zoom);
         }
     }, [items, center, zoom]);
+
+    // Handle Active Deal Selection Animation
+    useEffect(() => {
+        if (!googleMapRef.current || !window.google || !activeDealId) return;
+
+        const activeMarker = markersRef.current.find(m => m._dealId === activeDealId);
+        if (activeMarker) {
+            googleMapRef.current.panTo(activeMarker._position || (activeMarker.getPosition && activeMarker.getPosition()));
+            googleMapRef.current.setZoom(16);
+
+            if (!activeMarker._isDemand && activeMarker.setAnimation) {
+                activeMarker.setAnimation(window.google.maps.Animation.BOUNCE);
+                setTimeout(() => {
+                    if (activeMarker.setAnimation) activeMarker.setAnimation(null);
+                }, 2100); // Stop bouncing after 3 bounces
+            }
+
+            if (activeMarker._handleOpenInfo) {
+                activeMarker._handleOpenInfo();
+            }
+        }
+    }, [activeDealId]);
 
     return <div ref={mapRef} style={style} className="professional-map-container" />;
 };

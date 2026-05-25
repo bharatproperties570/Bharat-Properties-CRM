@@ -100,6 +100,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
     // ────────────────────────────────────────────────────────────────
     const [dealScores, setDealScores] = useState({}); // { dealId: { score, color, label } } from stage engine
     const [categoryStats, setCategoryStats] = useState([]);
+    const [activeMapDealId, setActiveMapDealId] = useState(null);
 
     // --- OPTIMIZATION: Debounced Search Term ---
     const debouncedSearchTerm = useDebounce(searchTerm, 500);
@@ -928,30 +929,51 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                     </div>
                                 </div>
                                 <div style={{ flex: 1, overflowY: 'auto' }}>
-                                    {filteredDeals.map((deal, idx) => (
+                                    {filteredDeals.map((deal, idx) => {
+                                        const getMapCardThumbnailClass = () => {
+                                            const stage = String(deal.stage || 'Open').toLowerCase();
+                                            switch (stage) {
+                                                case 'open': case 'new': return 'thumb-active';
+                                                case 'quote': case 'opportunity': return 'thumb-purple';
+                                                case 'negotiation': return 'thumb-orange';
+                                                case 'booked': return 'thumb-blue';
+                                                case 'closed': case 'closed won': return 'thumb-green';
+                                                case 'closed lost': case 'stalled': case 'dormant': return 'thumb-inactive';
+                                                default: {
+                                                    const statusVal = String(deal.status?.lookup_value || deal.status || 'open').toLowerCase();
+                                                    if (statusVal === 'open' || statusVal === 'published') return 'thumb-active';
+                                                    return 'thumb-inactive';
+                                                }
+                                            }
+                                        };
+                                        const isSelected = activeMapDealId === deal._id;
+
+                                        return (
                                         <div
-                                            key={deal.id}
+                                            key={deal.id || deal._id}
+                                            onClick={() => setActiveMapDealId(deal._id)}
                                             style={{
-                                                padding: '12px 15px',
+                                                padding: '8px 10px',
                                                 borderBottom: '1px solid var(--border-color)',
                                                 cursor: 'pointer',
                                                 transition: 'all 0.2s',
-                                                background: 'var(--contact-card-bg)'
+                                                background: isSelected ? 'var(--contact-row-hover)' : 'var(--contact-card-bg)',
+                                                borderLeft: isSelected ? '3px solid #3b82f6' : '3px solid transparent'
                                             }}
-                                            onMouseEnter={(e) => e.currentTarget.style.background = 'var(--contact-row-hover)'}
-                                            onMouseLeave={(e) => e.currentTarget.style.background = 'var(--contact-card-bg)'}
+                                            onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = 'var(--contact-row-hover)'}}
+                                            onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = 'var(--contact-card-bg)'}}
                                         >
-                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                     <div style={{
-                                                        width: '24px', height: '24px', background: '#3b82f6', borderRadius: '50%',
+                                                        width: '20px', height: '20px', background: isSelected ? '#ef4444' : '#3b82f6', borderRadius: '50%',
                                                         display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                        color: '#fff', fontSize: '0.7rem', fontWeight: 700
+                                                        color: '#fff', fontSize: '0.65rem', fontWeight: 700
                                                     }}>
                                                         {idx + 1}
                                                     </div>
-                                                    <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#1e293b' }}>
-                                                        {deal.dealId || `#${deal.id}`}
+                                                    <div style={{ fontSize: '0.7rem', fontWeight: 800, color: '#1e293b' }}>
+                                                        {deal.dealId || `#${String(deal._id).slice(-6).toUpperCase()}`}
                                                     </div>
                                                 </div>
                                                 <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#10b981' }}>
@@ -959,13 +981,12 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                                 </div>
                                             </div>
 
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
                                                 <div
-                                                    className="project-thumbnail"
+                                                    className={`project-thumbnail ${getMapCardThumbnailClass()}`}
                                                     style={{
-                                                        background: '#f1f5f9', color: '#475569', minWidth: '40px', padding: '2px 8px',
+                                                        minWidth: '40px', padding: '2px 8px',
                                                         borderRadius: '4px', fontSize: '0.7rem', fontWeight: 800, textAlign: 'center',
-                                                        border: '1px solid #e2e8f0'
                                                     }}
                                                 >
                                                     {deal.unitNo || 'UNIT'}
@@ -1014,7 +1035,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                                 )}
                                             </div>
                                         </div>
-                                    ))}
+                                    )})}
                                 </div>
                             </div>
 
@@ -1022,6 +1043,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                             <div style={{ flex: 1, position: 'relative' }}>
                                 <ProfessionalMap
                                     items={filteredDeals}
+                                    activeDealId={activeMapDealId}
                                     onMarkerClick={(deal) => onNavigate('deal-detail', deal._id)}
                                 />
                                 {/* Map Controls & Legend Overlay */}
