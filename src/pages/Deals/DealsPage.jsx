@@ -978,34 +978,44 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                     items={filteredDeals}
                                     onMarkerClick={(deal) => onNavigate('deal-detail', deal._id)}
                                 />
-                                {/* Map Controls Overlay */}
+                                {/* Map Controls & Legend Overlay */}
                                 <div style={{ position: 'absolute', top: '20px', right: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                                     <button style={{
-                                        background: '#fff',
-                                        border: '1px solid #e2e8f0',
-                                        borderRadius: '6px',
-                                        padding: '8px 12px',
-                                        fontSize: '0.75rem',
-                                        fontWeight: 600,
-                                        cursor: 'pointer',
+                                        background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px',
+                                        padding: '8px 12px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer',
                                         boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
                                     }}>
                                         <i className="fas fa-expand-arrows-alt" style={{ marginRight: '6px' }}></i>
                                         Fullscreen
                                     </button>
-                                    <button style={{
-                                        background: '#fff',
-                                        border: '1px solid #e2e8f0',
-                                        borderRadius: '6px',
-                                        padding: '8px 12px',
-                                        fontSize: '0.75rem',
-                                        fontWeight: 600,
-                                        cursor: 'pointer',
-                                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                                    }}>
-                                        <i className="fas fa-layer-group" style={{ marginRight: '6px' }}></i>
-                                        Layers
-                                    </button>
+                                </div>
+                                <div style={{ 
+                                    position: 'absolute', bottom: '20px', left: '20px', background: 'rgba(255, 255, 255, 0.95)',
+                                    padding: '12px', borderRadius: '8px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+                                    border: '1px solid #e2e8f0', fontSize: '0.75rem', zIndex: 10
+                                }}>
+                                    <div style={{ fontWeight: 700, marginBottom: '8px', color: '#1e293b' }}>Map Legend</div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#ec4899' }}></div>
+                                            <span>Sell (Supply Pin)</span>
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#3b82f6' }}></div>
+                                            <span>Lease (Supply Pin)</span>
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#8b5cf6', opacity: 0.5 }}></div>
+                                            <span>Buy (Search Zone)</span>
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#f59e0b', opacity: 0.5 }}></div>
+                                            <span>Rent (Search Zone)</span>
+                                        </div>
+                                        <div style={{ marginTop: '4px', borderTop: '1px solid #e2e8f0', paddingTop: '4px' }}>
+                                            <i className="fas fa-search-plus" style={{ color: '#64748b' }}></i> <span style={{ color: '#64748b', fontSize: '0.7rem' }}>Zoom out to see Deal Clusters</span>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>

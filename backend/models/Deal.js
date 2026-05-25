@@ -256,7 +256,24 @@ const DealSchema = new mongoose.Schema({
     longitude: { type: String }
 }, { timestamps: true, strict: false });
 
-DealSchema.pre("save", function (next) {
+DealSchema.pre("save", async function (next) {
+    // --- Auto-Sync Coordinates from Inventory ---
+    if (this.inventoryId && (!this.latitude || !this.longitude)) {
+        try {
+            // Import dynamically to avoid circular dependencies if any
+            const Inventory = mongoose.model('Inventory');
+            if (Inventory) {
+                const inventory = await Inventory.findById(this.inventoryId).select('latitude longitude lat lng');
+                if (inventory) {
+                    this.latitude = inventory.latitude || inventory.lat || this.latitude;
+                    this.longitude = inventory.longitude || inventory.lng || this.longitude;
+                }
+            }
+        } catch (err) {
+            console.error("Error syncing coordinates from inventory to deal:", err);
+        }
+    }
+
     // --- Assignment & Visibility Synchronization ---
     const primaryRM = this.assignedTo || this.assignment?.assignedTo;
     if (primaryRM) {

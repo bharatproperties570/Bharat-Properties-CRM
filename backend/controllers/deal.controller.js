@@ -920,11 +920,11 @@ export const getDeals = async (req, res) => {
             category: 1, subCategory: 1, location: 1, intent: 1, size: 1, sizeLabel: 1,
             price: 1, ratePrice: 1, pricingMode: 1, stage: 1, status: 1,
             dealProbability: 1, dealScore: 1, createdAt: 1, isVisible: 1,
-            owner: 1, assignedTo: 1, inventoryId: 1, team: 1
+            owner: 1, assignedTo: 1, inventoryId: 1, team: 1, latitude: 1, longitude: 1
         };
 
         const dealListPopulateFields = [
-            { path: 'inventoryId', select: 'projectName unitNo unitNumber block city location area size sizeUnit sizeLabel sizeConfig unitSpecification' },
+            { path: 'inventoryId', select: 'projectName unitNo unitNumber block city location area size sizeUnit sizeLabel sizeConfig unitSpecification latitude longitude lat lng' },
             { path: 'projectId', select: 'name' },
             { path: 'owner', select: 'name phones', model: 'Contact' },
             { path: 'assignedTo', select: 'fullName name email' },
