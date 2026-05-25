@@ -203,9 +203,12 @@ const ProfessionalMap = ({
 
                     const contentString = `
                         <div style="font-family: inherit; min-width: 200px; padding: 4px;">
-                            <h4 style="margin: 0 0 8px 0; font-size: 14px; font-weight: 700; color: #1e293b;">
-                                ${item.projectName || item.location || 'Property Requirement'}
+                            <h4 style="margin: 0 0 2px 0; font-size: 14px; font-weight: 700; color: #1e293b; display: flex; align-items: center; justify-content: space-between;">
+                                <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px;">${item.projectName || item.location || 'Property Requirement'}</span>
+                                ${item.unitNo ? `<span style="background: #f1f5f9; color: #475569; font-size: 10px; padding: 2px 6px; border-radius: 4px; border: 1px solid #e2e8f0;">Unit ${item.unitNo}</span>` : ''}
                             </h4>
+                            ${item.block ? `<div style="font-size: 11px; color: #64748b; margin-bottom: 8px; font-weight: 500;">Block: <span style="color: #475569; font-weight: 700;">${item.block}</span></div>` : '<div style="margin-bottom: 8px;"></div>'}
+                            
                             <div style="display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #475569;">
                                 <div style="display: flex; justify-content: space-between;">
                                     <span><strong>Client:</strong> ${clientName}</span>
@@ -216,11 +219,7 @@ const ProfessionalMap = ({
                                     <span><strong>Status:</strong> ${statusDisplay}</span>
                                     <span style="color: #10b981; font-weight: 600;">${priceFormatted}</span>
                                 </div>
-                                ` : `
-                                <div style="display: flex; justify-content: space-between;">
-                                    <span><strong>Status:</strong> ${statusDisplay}</span>
-                                </div>
-                                `}
+                                ` : ''}
                                 <div style="margin-top: 4px; padding-top: 4px; border-top: 1px dashed #e2e8f0;">
                                     <span style="display:block; font-size:10px; text-transform:uppercase; font-weight:700; color:#94a3b8; margin-bottom:2px;">Latest Feedback</span>
                                     <div style="font-size:11.5px; display: flex; justify-content: space-between;">
