@@ -115,10 +115,10 @@ const InventoryMapList = ({ items = [], onItemClick, getLookupValue, activeItemI
                                                 <span style={{ 
                                                     width: '6px', height: '6px', 
                                                     borderRadius: '50%', 
-                                                    background: isActive ? '#22c55e' : '#94a3b8',
-                                                    boxShadow: isActive ? '0 0 8px rgba(34, 197, 94, 0.4)' : 'none'
+                                                    background: isActiveStatus ? '#22c55e' : '#94a3b8',
+                                                    boxShadow: isActiveStatus ? '0 0 8px rgba(34, 197, 94, 0.4)' : 'none'
                                                 }}></span>
-                                                <span style={{ fontSize: '0.62rem', fontWeight: 800, color: isActive ? '#16a34a' : '#64748b', textTransform: 'uppercase' }}>
+                                                <span style={{ fontSize: '0.62rem', fontWeight: 800, color: isActiveStatus ? '#16a34a' : '#64748b', textTransform: 'uppercase' }}>
                                                     {renderValue(statusVal) || 'Inactive'}
                                                 </span>
                                             </div>
