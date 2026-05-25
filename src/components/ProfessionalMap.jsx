@@ -9,6 +9,7 @@ const ProfessionalMap = ({
     onMarkerClick = null,
     onVisibleItemsChange = null,
     activeDealId = null,
+    isInventory = false,
     style = { width: '100%', height: '100%' }
 }) => {
     const mapRef = useRef(null);
@@ -210,10 +211,16 @@ const ProfessionalMap = ({
                                     <span><strong>Client:</strong> ${clientName}</span>
                                     <span style="color: ${itemColor}; font-weight: 600;">${intentStr.toUpperCase() || 'DEAL'}</span>
                                 </div>
+                                ${!isInventory ? `
                                 <div style="display: flex; justify-content: space-between;">
                                     <span><strong>Status:</strong> ${statusDisplay}</span>
                                     <span style="color: #10b981; font-weight: 600;">${priceFormatted}</span>
                                 </div>
+                                ` : `
+                                <div style="display: flex; justify-content: space-between;">
+                                    <span><strong>Status:</strong> ${statusDisplay}</span>
+                                </div>
+                                `}
                                 <div style="margin-top: 4px; padding-top: 4px; border-top: 1px dashed #e2e8f0;">
                                     <span style="display:block; font-size:10px; text-transform:uppercase; font-weight:700; color:#94a3b8; margin-bottom:2px;">Latest Feedback</span>
                                     <div style="font-size:11.5px; display: flex; justify-content: space-between;">

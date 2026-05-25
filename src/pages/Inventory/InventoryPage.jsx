@@ -328,6 +328,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                 <ProfessionalMap 
                                     items={inventoryItems}
                                     activeDealId={activeMapItemId}
+                                    isInventory={true}
                                     onMarkerClick={(item) => onNavigate('inventory-detail', item?._id || item)}
                                     onVisibleItemsChange={setVisibleMapItemIds}
                                 />
