@@ -183,9 +183,9 @@ const ProfessionalMap = ({
                 const handleOpenInfo = () => {
                     const priceFormatted = item.price ? `₹${item.price.toLocaleString('en-IN')}` : 'Price on Request';
                     const stage = item.stage || 'New';
-                    const clientName = item.owner?.name || item.partyStructure?.buyer?.name || 'Unknown Client';
+                    const clientName = item.owner?.name || item.partyStructure?.buyer?.name || item.ownerName || item.owners?.[0]?.name || 'Unknown Client';
                     
-                    const ownerPhone = item.owner?.phones?.[0]?.number || item.ownerPhone || '';
+                    const ownerPhone = item.owner?.phones?.[0]?.number || item.ownerPhone || item.owners?.[0]?.phones?.[0]?.number || '';
                     const whatsappLink = ownerPhone ? `https://wa.me/${ownerPhone.replace(/\D/g,'')}` : '#';
                     const telLink = ownerPhone ? `tel:${ownerPhone.replace(/\D/g,'')}` : '#';
 
@@ -212,7 +212,7 @@ const ProfessionalMap = ({
                             <div style="display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #475569;">
                                 <div style="display: flex; justify-content: space-between;">
                                     <span><strong>Client:</strong> ${clientName}</span>
-                                    <span style="color: ${itemColor}; font-weight: 600;">${intentStr.toUpperCase() || 'DEAL'}</span>
+                                    ${intentStr ? `<span style="color: ${itemColor}; font-weight: 600;">${intentStr.toUpperCase()}</span>` : ''}
                                 </div>
                                 ${!isInventory ? `
                                 <div style="display: flex; justify-content: space-between;">
