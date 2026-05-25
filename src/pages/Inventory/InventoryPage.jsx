@@ -242,8 +242,6 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                 )}
 
                 <div className="content-body" style={{ overflowY: 'visible', paddingTop: 0 }}>
-                    {viewMode === 'list' ? (
-                        <>
                             <InventoryToolbar 
                                 selectedIds={selectedIds}
                                 searchTerm={searchTerm}
@@ -295,6 +293,8 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                 filters={filters}
                                 setIsFilterPanelOpen={setIsFilterPanelOpen}
                             />
+                    {viewMode === 'list' ? (
+                        <>
                             <InventoryTable 
                                 inventoryItems={inventoryItems}
                                 selectedIds={selectedIds}
