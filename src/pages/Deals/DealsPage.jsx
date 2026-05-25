@@ -312,11 +312,13 @@ function DealsPage({ onNavigate, onAddActivity }) {
             if (deal.isVisible === false) return false;
             const search = debouncedSearchTerm.toLowerCase();
 
-            const dealId = deal.id || deal._id;
+            const dealId = deal.dealId || deal.id || deal._id;
             const ownerName = deal.owner?.name || deal.owner;
             const location = deal.location?.lookup_value || deal.location;
             const propertyType = deal.propertyType?.lookup_value || deal.propertyType;
             const assigned = deal.assigned;
+            const unitNo = deal.unitNo;
+            const projectName = deal.projectName;
 
             // Basic Search
             const matchesSearch = (
@@ -324,7 +326,9 @@ function DealsPage({ onNavigate, onAddActivity }) {
                 (ownerName && ownerName.toString().toLowerCase().includes(search)) ||
                 (location && location.toString().toLowerCase().includes(search)) ||
                 (propertyType && propertyType.toString().toLowerCase().includes(search)) ||
-                (assigned && assigned.toString().toLowerCase().includes(search))
+                (assigned && assigned.toString().toLowerCase().includes(search)) ||
+                (unitNo && unitNo.toString().toLowerCase().includes(search)) ||
+                (projectName && projectName.toString().toLowerCase().includes(search))
             );
 
             if (!matchesSearch) return false;
@@ -914,20 +918,6 @@ function DealsPage({ onNavigate, onAddActivity }) {
                         <div className="map-view-container" style={{ height: 'calc(100vh - 250px)', position: 'relative', margin: '0', display: 'flex' }}>
                             {/* Left Sidebar with Deals List */}
                             <div style={{ width: '320px', background: 'var(--contact-card-bg)', borderRight: '1px solid var(--border-color)', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-                                <div style={{ padding: '15px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-gray)' }}>
-                                    <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '8px' }}>
-                                        <i className="fas fa-map-pin" style={{ color: '#ef4444', marginRight: '6px' }}></i>
-                                        Deals by Location ({filteredDeals.length})
-                                    </div>
-                                    <div style={{ position: 'relative' }}>
-                                        <PremiumSearchBar
-                                            value={searchTerm}
-                                            onChange={(e) => setSearchTerm(e.target.value)}
-                                            placeholder="Filter deals..."
-                                            loading={loading}
-                                        />
-                                    </div>
-                                </div>
                                 <div style={{ flex: 1, overflowY: 'auto' }}>
                                     {filteredDeals.map((deal, idx) => {
                                         const getMapCardThumbnailClass = () => {
@@ -985,7 +975,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                                 <div
                                                     className={`project-thumbnail ${getMapCardThumbnailClass()}`}
                                                     style={{
-                                                        minWidth: '40px', padding: '2px 8px',
+                                                        minWidth: '60px', height: '28px', padding: '0 10px', display: 'flex', alignItems: 'center', justifyContent: 'center',
                                                         borderRadius: '4px', fontSize: '0.7rem', fontWeight: 800, textAlign: 'center',
                                                     }}
                                                 >
