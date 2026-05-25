@@ -129,37 +129,37 @@ const ProfessionalMap = ({
 
                 // InfoWindow Content logic
                 const handleOpenInfo = () => {
-                    const priceFormatted = item.price ? \`₹\${item.price.toLocaleString('en-IN')}\` : 'Price on Request';
+                    const priceFormatted = item.price ? `₹${item.price.toLocaleString('en-IN')}` : 'Price on Request';
                     const stage = item.stage || 'New';
                     const clientName = item.owner?.name || item.partyStructure?.buyer?.name || 'Unknown Client';
                     
-                    const contentString = \`
+                    const contentString = `
                         <div style="font-family: inherit; min-width: 200px; padding: 4px;">
                             <h4 style="margin: 0 0 8px 0; font-size: 14px; font-weight: 700; color: #1e293b;">
-                                \${item.projectName || item.location || 'Property Requirement'}
+                                ${item.projectName || item.location || 'Property Requirement'}
                             </h4>
                             <div style="display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #475569;">
                                 <div style="display: flex; justify-content: space-between;">
-                                    <span><strong>Client:</strong> \${clientName}</span>
-                                    <span style="color: \${itemColor}; font-weight: 600;">\${intentStr.toUpperCase() || 'DEAL'}</span>
+                                    <span><strong>Client:</strong> ${clientName}</span>
+                                    <span style="color: ${itemColor}; font-weight: 600;">${intentStr.toUpperCase() || 'DEAL'}</span>
                                 </div>
                                 <div style="display: flex; justify-content: space-between;">
-                                    <span><strong>Stage:</strong> \${stage}</span>
-                                    <span style="color: #10b981; font-weight: 600;">\${priceFormatted}</span>
+                                    <span><strong>Stage:</strong> ${stage}</span>
+                                    <span style="color: #10b981; font-weight: 600;">${priceFormatted}</span>
                                 </div>
                                 <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                                    <span><strong>Prob:</strong> \${item.dealProbability || 50}%</span>
-                                    <span><strong>Score:</strong> \${item.dealScore || 0}</span>
+                                    <span><strong>Prob:</strong> ${item.dealProbability || 50}%</span>
+                                    <span><strong>Score:</strong> ${item.dealScore || 0}</span>
                                 </div>
                             </div>
                             <button 
-                                onclick="window.handleInfoWindowClick('\${item._id || item.id}')"
+                                onclick="window.handleInfoWindowClick('${item._id || item.id}')"
                                 style="width: 100%; background: #0f172a; color: white; border: none; border-radius: 4px; padding: 6px; font-size: 12px; font-weight: 600; cursor: pointer;"
                             >
                                 View Deal Details
                             </button>
                         </div>
-                    \`;
+                    `;
 
                     infoWindowRef.current.setContent(contentString);
                     if (isDemand) {
