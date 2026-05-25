@@ -171,7 +171,7 @@ const MultiSelectDropdown = ({ options, selected, onChange, placeholder, disable
     );
 };
 
-const DealsFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
+const DealsFilterPanel = ({ isOpen, onClose, filters, onFilterChange, portalTarget = document.body }) => {
     const { masterFields = {}, propertyConfig = {} } = usePropertyConfig();
     const [isVisible, setIsVisible] = useState(false);
     const [sizeMode, setSizeMode] = useState('type');
@@ -300,7 +300,7 @@ const DealsFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
     if (!isOpen && !isVisible) return null;
 
     return createPortal(
-        <div style={{ position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', justifyContent: 'flex-end', fontFamily: "'Inter', sans-serif" }}>
+        <div style={{ position: portalTarget === document.body ? 'fixed' : 'absolute', inset: 0, zIndex: 2000, display: 'flex', justifyContent: 'flex-end', fontFamily: "'Inter', sans-serif" }}>
             <div style={{ position: 'absolute', inset: 0, background: 'rgba(15, 23, 42, 0.3)', opacity: isOpen ? 1 : 0, transition: 'opacity 200ms ease' }} onClick={onClose}></div>
             <div style={{
                 position: 'relative', width: '420px', height: '100%', background: '#ffffff', boxShadow: '-10px 0 40px rgba(0,0,0,0.1)',
@@ -624,7 +624,7 @@ const DealsFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
                 </footer>
             </div >
         </div >,
-        document.body
+        portalTarget || document.body
     );
 };
 

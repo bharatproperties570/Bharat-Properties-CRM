@@ -1061,6 +1061,18 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                 />
                                 {/* Map Controls & Legend Overlay */}
                                 <div style={{ position: 'absolute', top: '20px', right: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                    {isMapFullscreen && (
+                                        <button 
+                                            onClick={() => setIsFilterPanelOpen(true)}
+                                            style={{
+                                            background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px',
+                                            padding: '8px 12px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer',
+                                            boxShadow: '0 2px 4px rgba(0,0,0,0.1)', color: Object.keys(filters).length > 0 ? '#2563eb' : 'inherit'
+                                        }}>
+                                            <i className="fas fa-filter" style={{ marginRight: '6px' }}></i>
+                                            Filters {Object.keys(filters).length > 0 && `(${Object.keys(filters).length})`}
+                                        </button>
+                                    )}
                                     <button 
                                         onClick={toggleMapFullscreen}
                                         style={{
@@ -1188,6 +1200,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                     onClose={() => setIsFilterPanelOpen(false)}
                     filters={filters}
                     onFilterChange={setFilters}
+                    portalTarget={isMapFullscreen ? document.getElementById('deal-map-wrapper') : document.body}
                 />
 
                 <UploadModal
