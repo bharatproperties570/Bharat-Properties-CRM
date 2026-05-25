@@ -289,6 +289,24 @@ export const PropertyConfigProvider = ({ children }) => {
                     { name: 'Newspaper Ad', mediums: ['Times of India', 'Hindustan Times'] },
                     { name: 'Hoarding', mediums: ['Sector 18', 'Main Highway'] }
                 ]
+            },
+            {
+                name: 'Online Campaign',
+                sources: [
+                    { name: 'Facebook Ads', mediums: ['Lead Gen Form', 'Website Traffic'] },
+                    { name: 'Google Ads', mediums: ['Search Network', 'Display Network'] },
+                    { name: 'Instagram Ads', mediums: ['Story Ads', 'Feed Ads'] },
+                    { name: 'Property Portals', mediums: ['MagicBricks', '99acres', 'Housing.com'] }
+                ]
+            },
+            {
+                name: 'Organic Campaign',
+                sources: [
+                    { name: 'Website SEO', mediums: ['Google Search', 'Bing Search'] },
+                    { name: 'Social Media Organic', mediums: ['Facebook Page', 'Instagram Profile', 'LinkedIn'] },
+                    { name: 'Referral', mediums: ['Existing Client', 'Channel Partner'] },
+                    { name: 'Direct Walk-in', mediums: ['Office Visit', 'Site Visit'] }
+                ]
             }
         ]
     });
