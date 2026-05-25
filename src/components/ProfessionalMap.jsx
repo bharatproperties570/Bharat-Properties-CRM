@@ -7,6 +7,7 @@ const ProfessionalMap = ({
     center = MAP_CENTER,
     zoom = 13,
     onMarkerClick = null,
+    onVisibleItemsChange = null,
     activeDealId = null,
     style = { width: '100%', height: '100%' }
 }) => {
@@ -58,13 +59,47 @@ const ProfessionalMap = ({
             }
         };
 
+        const idleListener = googleMapRef.current.addListener('idle', () => {
+            if (!googleMapRef.current || !onVisibleItemsChange) return;
+            const bounds = googleMapRef.current.getBounds();
+            if (!bounds) return;
+
+            const visibleIds = items.filter(item => {
+                let lat = parseFloat(item.latitude || item.lat);
+                let lng = parseFloat(item.longitude || item.lng);
+
+                if (isNaN(lat) && item.inventoryId && typeof item.inventoryId === 'object') {
+                    lat = parseFloat(item.inventoryId.latitude || item.inventoryId.lat);
+                    lng = parseFloat(item.inventoryId.longitude || item.inventoryId.lng);
+                }
+
+                if (isNaN(lat) && item.projectId && typeof item.projectId === 'object') {
+                    lat = parseFloat(item.projectId.latitude || item.projectId.lat);
+                    lng = parseFloat(item.projectId.longitude || item.projectId.lng);
+                }
+
+                if (isNaN(lat) && item.locationCoords && typeof item.locationCoords === 'object') {
+                    lat = parseFloat(item.locationCoords.lat);
+                    lng = parseFloat(item.locationCoords.lng);
+                }
+
+                if (isNaN(lat) || isNaN(lng)) return false;
+
+                const position = new window.google.maps.LatLng(lat, lng);
+                return bounds.contains(position);
+            }).map(item => item._id || item.id);
+
+            onVisibleItemsChange(visibleIds);
+        });
+
         return () => {
             if (clustererRef.current) clustererRef.current.clearMarkers();
             markersRef.current.forEach(marker => marker.setMap(null));
             if (window.handleInfoWindowClick) delete window.handleInfoWindowClick;
+            window.google.maps.event.removeListener(idleListener);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [items, onVisibleItemsChange]);
 
     useEffect(() => {
         if (!googleMapRef.current || !window.google) return;
@@ -149,6 +184,10 @@ const ProfessionalMap = ({
                     const stage = item.stage || 'New';
                     const clientName = item.owner?.name || item.partyStructure?.buyer?.name || 'Unknown Client';
                     
+                    const ownerPhone = item.owner?.phones?.[0]?.number || item.ownerPhone || '';
+                    const whatsappLink = ownerPhone ? `https://wa.me/${ownerPhone.replace(/\D/g,'')}` : '#';
+                    const telLink = ownerPhone ? `tel:${ownerPhone.replace(/\D/g,'')}` : '#';
+
                     const contentString = `
                         <div style="font-family: inherit; min-width: 200px; padding: 4px;">
                             <h4 style="margin: 0 0 8px 0; font-size: 14px; font-weight: 700; color: #1e293b;">
@@ -168,12 +207,22 @@ const ProfessionalMap = ({
                                     <span><strong>Score:</strong> ${item.dealScore || 0}</span>
                                 </div>
                             </div>
-                            <button 
-                                onclick="window.handleInfoWindowClick('${item._id || item.id}')"
-                                style="width: 100%; background: #0f172a; color: white; border: none; border-radius: 4px; padding: 6px; font-size: 12px; font-weight: 600; cursor: pointer;"
-                            >
-                                View Deal Details
-                            </button>
+                            <div style="display: flex; gap: 6px; margin-top: 8px;">
+                                <button 
+                                    onclick="window.handleInfoWindowClick('${item._id || item.id}')"
+                                    style="flex: 1; background: #0f172a; color: white; border: none; border-radius: 4px; padding: 6px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px;"
+                                >
+                                    <i class="fas fa-external-link-alt"></i> Details
+                                </button>
+                                ${ownerPhone ? `
+                                <button onclick="window.open('${whatsappLink}', '_blank')" style="background: #25D366; color: white; border: none; border-radius: 4px; padding: 6px 10px; font-size: 11px; cursor: pointer;" title="WhatsApp Client">
+                                    <i class="fab fa-whatsapp"></i>
+                                </button>
+                                <button onclick="window.location.href='${telLink}'" style="background: #3b82f6; color: white; border: none; border-radius: 4px; padding: 6px 10px; font-size: 11px; cursor: pointer;" title="Call Client">
+                                    <i class="fas fa-phone-alt"></i>
+                                </button>
+                                ` : ''}
+                            </div>
                         </div>
                     `;
 
