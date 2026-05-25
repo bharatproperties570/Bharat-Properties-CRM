@@ -1,7 +1,7 @@
 import React from 'react';
 import { renderValue } from '../../../utils/renderUtils';
 
-const InventoryMapList = ({ items = [], onItemClick, getLookupValue }) => {
+const InventoryMapList = ({ items = [], onItemClick, getLookupValue, activeItemId }) => {
     return (
         <div style={{ 
             width: '380px', 
@@ -33,31 +33,32 @@ const InventoryMapList = ({ items = [], onItemClick, getLookupValue }) => {
             <div style={{ 
                 flex: 1, 
                 overflowY: 'auto', 
-                padding: '12px'
+                padding: '0' // Removed padding to match Deals list
             }} className="custom-scrollbar">
                 {items.length === 0 ? (
                     <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8', fontSize: '0.85rem' }}>
                         No properties found in this area.
                     </div>
                 ) : (
-                    items.map((item) => {
+                    items.map((item, idx) => {
                         const statusVal = getLookupValue('Status', item.status);
-                        const isActive = statusVal === 'Active' || String(item.status?.lookup_value) === 'Active' || String(item.status) === 'Active';
+                        const isActiveStatus = statusVal === 'Active' || String(item.status?.lookup_value) === 'Active' || String(item.status) === 'Active';
                         
-                        const getCardBackground = () => {
-                            const intent = String(item.primaryDealIntent || '').toLowerCase();
-                            if (intent === 'sell') return '#ffe4e6'; // Rose-100
-                            if (intent === 'rent') return '#fef9c3'; // Yellow-100
-                            if (intent === 'lease') return '#dbeafe'; // Blue-100
-                            return '#fff';
+                        const intent = String(item.primaryDealIntent || item.intent?.[0]?.lookup_value || '').toLowerCase();
+                        const isSelected = activeItemId === item._id;
+
+                        const getUnitBg = () => {
+                            if (intent === 'sell') return '#fce7f3'; // pink
+                            if (intent === 'rent') return '#fef3c7'; // yellow
+                            if (intent === 'lease') return '#dbeafe'; // blue
+                            return isActiveStatus ? '#dcfce7' : '#f1f5f9';
                         };
 
-                        const getCardBorder = () => {
-                            const intent = String(item.primaryDealIntent || '').toLowerCase();
-                            if (intent === 'sell') return '2px solid #ec4899';
-                            if (intent === 'rent') return '2px solid #f59e0b';
-                            if (intent === 'lease') return '2px solid #3b82f6';
-                            return '1px solid #e2e8f0';
+                        const getUnitColor = () => {
+                            if (intent === 'sell') return '#db2777';
+                            if (intent === 'rent') return '#d97706';
+                            if (intent === 'lease') return '#2563eb';
+                            return isActiveStatus ? '#15803d' : '#475569';
                         };
 
                         return (
@@ -65,32 +66,30 @@ const InventoryMapList = ({ items = [], onItemClick, getLookupValue }) => {
                                 key={item._id}
                                 className="map-property-card"
                                 style={{ 
-                                    padding: '16px',
-                                    background: getCardBackground(),
-                                    borderRadius: '12px',
-                                    border: getCardBorder(),
-                                    borderLeft: `6px solid ${getCardBorder().split(' ')[2]}`,
-                                    marginBottom: '12px',
+                                    padding: '8px 12px',
+                                    background: isSelected ? 'var(--contact-row-hover, #f1f5f9)' : '#fff',
+                                    borderBottom: '1px solid #e2e8f0',
+                                    borderLeft: isSelected ? '4px solid #3b82f6' : '4px solid transparent',
                                     cursor: 'pointer',
-                                    transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
-                                    position: 'relative',
-                                    overflow: 'hidden'
+                                    transition: 'all 0.2s',
                                 }}
                                 onClick={() => onItemClick(item._id)}
+                                onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = '#f8fafc' }}
+                                onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = '#fff' }}
                             >
-                                <div style={{ display: 'flex', gap: '14px', alignItems: 'flex-start' }}>
-                                    {/* Unit Number Badge */}
+                                <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                                    {/* Unit Number Badge (Colored by Intent) */}
                                     <div style={{ 
-                                        minWidth: '50px', height: '24px', 
-                                        background: isActive ? '#dcfce7' : '#f1f5f9',
+                                        minWidth: '40px', height: '36px', 
+                                        background: getUnitBg(),
                                         borderRadius: '6px', display: 'flex', 
                                         alignItems: 'center', justifyContent: 'center',
-                                        fontSize: '0.8rem', fontWeight: 900,
-                                        color: isActive ? '#15803d' : '#475569',
-                                        border: isActive ? '1px solid #bdf4c9' : '1px solid #e2e8f0',
+                                        fontSize: '0.75rem', fontWeight: 800,
+                                        color: getUnitColor(),
+                                        border: `1px solid ${getUnitColor()}33`,
                                         flexShrink: 0
                                     }}>
-                                        {renderValue(item.unitNo)}
+                                        {renderValue(item.unitNo) || (idx + 1)}
                                     </div>
 
                                     <div style={{ flex: 1, minWidth: 0 }}>

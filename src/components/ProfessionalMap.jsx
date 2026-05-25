@@ -188,6 +188,18 @@ const ProfessionalMap = ({
                     const whatsappLink = ownerPhone ? `https://wa.me/${ownerPhone.replace(/\D/g,'')}` : '#';
                     const telLink = ownerPhone ? `tel:${ownerPhone.replace(/\D/g,'')}` : '#';
 
+                    let latestFeedbackText = 'No feedback yet';
+                    if (item.history && Array.isArray(item.history)) {
+                        const feedbacks = item.history.filter(h => h.type === 'Feedback' || h.note).sort((a, b) => new Date(b.date) - new Date(a.date));
+                        if (feedbacks.length > 0) {
+                            const lf = feedbacks[0];
+                            const dateStr = new Date(lf.date).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: '2-digit' });
+                            latestFeedbackText = `<span style="color:#1e293b; font-weight:600;">${lf.note || lf.details || 'Updated'}</span> <span style="color:#94a3b8;">(${dateStr})</span>`;
+                        }
+                    }
+
+                    const statusDisplay = item.status?.lookup_value || item.status || 'Active';
+
                     const contentString = `
                         <div style="font-family: inherit; min-width: 200px; padding: 4px;">
                             <h4 style="margin: 0 0 8px 0; font-size: 14px; font-weight: 700; color: #1e293b;">
@@ -199,15 +211,18 @@ const ProfessionalMap = ({
                                     <span style="color: ${itemColor}; font-weight: 600;">${intentStr.toUpperCase() || 'DEAL'}</span>
                                 </div>
                                 <div style="display: flex; justify-content: space-between;">
-                                    <span><strong>Stage:</strong> ${stage}</span>
+                                    <span><strong>Status:</strong> ${statusDisplay}</span>
                                     <span style="color: #10b981; font-weight: 600;">${priceFormatted}</span>
                                 </div>
-                                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                                    <span><strong>Prob:</strong> ${item.dealProbability || 50}%</span>
-                                    <span><strong>Score:</strong> ${item.dealScore || 0}</span>
+                                <div style="margin-top: 4px; padding-top: 4px; border-top: 1px dashed #e2e8f0;">
+                                    <span style="display:block; font-size:10px; text-transform:uppercase; font-weight:700; color:#94a3b8; margin-bottom:2px;">Latest Feedback</span>
+                                    <div style="font-size:11.5px; display: flex; justify-content: space-between;">
+                                        <span>${latestFeedbackText}</span>
+                                        <span style="font-weight:700; color:${statusDisplay.toLowerCase() === 'active' ? '#10b981' : '#f59e0b'}; margin-left:8px;">${statusDisplay}</span>
+                                    </div>
                                 </div>
                             </div>
-                            <div style="display: flex; gap: 6px; margin-top: 8px;">
+                            <div style="display: flex; gap: 6px; margin-top: 10px;">
                                 <button 
                                     onclick="window.handleInfoWindowClick('${item._id || item.id}')"
                                     style="flex: 1; background: #0f172a; color: white; border: none; border-radius: 4px; padding: 6px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px;"

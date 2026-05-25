@@ -79,6 +79,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
     const [selectedDealData, setSelectedDealData] = useState(null);
     const [modalData, setModalData] = useState([]);
     const [visibleMapItemIds, setVisibleMapItemIds] = useState(null);
+    const [activeMapItemId, setActiveMapItemId] = useState(null);
     
     // -- Social Sharing State --
     const [isSocialModalOpen, setIsSocialModalOpen] = useState(false);
@@ -319,12 +320,14 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                         <div style={{ height: 'calc(100vh - 180px)', display: 'flex', position: 'relative', background: '#fff' }}>
                             <InventoryMapList 
                                 items={visibleMapItemIds ? inventoryItems.filter(item => visibleMapItemIds.includes(item._id || item.id)) : inventoryItems}
-                                onItemClick={(id) => onNavigate('inventory-detail', id)}
+                                onItemClick={(id) => setActiveMapItemId(id)}
+                                activeItemId={activeMapItemId}
                                 getLookupValue={getLookupValue}
                             />
                             <div style={{ flex: 1, position: 'relative' }}>
                                 <ProfessionalMap 
                                     items={inventoryItems}
+                                    activeDealId={activeMapItemId}
                                     onMarkerClick={(item) => onNavigate('inventory-detail', item?._id || item)}
                                     onVisibleItemsChange={setVisibleMapItemIds}
                                 />
