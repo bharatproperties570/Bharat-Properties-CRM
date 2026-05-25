@@ -148,6 +148,22 @@ const ProfessionalMap = ({
                 };
 
                 const itemColor = getMarkerColor();
+                
+                const getUnitBg = () => {
+                    if (intentStr === 'sell') return '#fdf2f8';
+                    if (intentStr === 'rent') return '#fef3c7';
+                    if (intentStr === 'lease') return '#eff6ff';
+                    if (intentStr === 'buy') return '#f3e8ff';
+                    return '#f1f5f9';
+                };
+                
+                const getUnitColor = () => {
+                    if (intentStr === 'sell') return '#db2777';
+                    if (intentStr === 'rent') return '#d97706';
+                    if (intentStr === 'lease') return '#2563eb';
+                    if (intentStr === 'buy') return '#7e22ce';
+                    return '#475569';
+                };
 
                 let marker;
                 if (isDemand) {
@@ -205,7 +221,7 @@ const ProfessionalMap = ({
                         <div style="font-family: inherit; min-width: 200px; padding: 4px;">
                             <h4 style="margin: 0 0 2px 0; font-size: 14px; font-weight: 700; color: #1e293b; display: flex; align-items: center; justify-content: space-between;">
                                 <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px;">${item.projectName || item.location || 'Property Requirement'}</span>
-                                ${item.unitNo ? `<span style="background: #f1f5f9; color: #475569; font-size: 10px; padding: 2px 6px; border-radius: 4px; border: 1px solid #e2e8f0;">Unit ${item.unitNo}</span>` : ''}
+                                ${item.unitNo ? `<span style="background: ${getUnitBg()}; color: ${getUnitColor()}; font-size: 10px; padding: 2px 6px; border-radius: 4px; border: 1px solid ${getUnitColor()}33;">Unit ${item.unitNo}</span>` : ''}
                             </h4>
                             ${item.block ? `<div style="font-size: 11px; color: #64748b; margin-bottom: 8px; font-weight: 500;">Block: <span style="color: #475569; font-weight: 700;">${item.block}</span></div>` : '<div style="margin-bottom: 8px;"></div>'}
                             
