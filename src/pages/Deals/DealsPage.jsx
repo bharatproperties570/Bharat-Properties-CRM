@@ -101,6 +101,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
     const [dealScores, setDealScores] = useState({}); // { dealId: { score, color, label } } from stage engine
     const [categoryStats, setCategoryStats] = useState([]);
     const [activeMapDealId, setActiveMapDealId] = useState(null);
+    const [isMapFullscreen, setIsMapFullscreen] = useState(false);
 
     // --- OPTIMIZATION: Debounced Search Term ---
     const debouncedSearchTerm = useDebounce(searchTerm, 500);
@@ -193,6 +194,28 @@ function DealsPage({ onNavigate, onAddActivity }) {
             setLoading(false);
         }
     }, [currentPage, recordsPerPage, debouncedSearchTerm, sortConfig, filters]);
+
+    // Track fullscreen changes
+    useEffect(() => {
+        const handleFullscreenChange = () => {
+            setIsMapFullscreen(!!document.fullscreenElement);
+        };
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    }, []);
+
+    const toggleMapFullscreen = () => {
+        const elem = document.getElementById('deal-map-wrapper');
+        if (!elem) return;
+
+        if (!document.fullscreenElement) {
+            elem.requestFullscreen().catch(err => {
+                console.error(`Error attempting to enable fullscreen: ${err.message}`);
+            });
+        } else {
+            document.exitFullscreen();
+        }
+    };
 
     // 🧠 SENIOR PROFESSIONAL: Robust Lookup Resolver for Deals
     const resolveDealLookup = useCallback((val, type) => {
@@ -915,7 +938,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                             )}
                         </div>
                     ) : (
-                        <div className="map-view-container" style={{ height: 'calc(100vh - 250px)', position: 'relative', margin: '0', display: 'flex' }}>
+                        <div id="deal-map-wrapper" className="map-view-container" style={{ height: isMapFullscreen ? '100vh' : 'calc(100vh - 250px)', width: isMapFullscreen ? '100vw' : 'auto', position: 'relative', margin: '0', display: 'flex', background: '#fff' }}>
                             {/* Left Sidebar with Deals List */}
                             <div style={{ width: '320px', background: 'var(--contact-card-bg)', borderRight: '1px solid var(--border-color)', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
                                 <div style={{ flex: 1, overflowY: 'auto' }}>
@@ -1038,13 +1061,15 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                 />
                                 {/* Map Controls & Legend Overlay */}
                                 <div style={{ position: 'absolute', top: '20px', right: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                    <button style={{
+                                    <button 
+                                        onClick={toggleMapFullscreen}
+                                        style={{
                                         background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px',
                                         padding: '8px 12px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer',
                                         boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
                                     }}>
-                                        <i className="fas fa-expand-arrows-alt" style={{ marginRight: '6px' }}></i>
-                                        Fullscreen
+                                        <i className={isMapFullscreen ? "fas fa-compress-arrows-alt" : "fas fa-expand-arrows-alt"} style={{ marginRight: '6px' }}></i>
+                                        {isMapFullscreen ? "Exit Fullscreen" : "Fullscreen"}
                                     </button>
                                 </div>
                                 <div style={{ 
