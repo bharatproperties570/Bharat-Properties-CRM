@@ -61,55 +61,141 @@ const InventorySidebar = ({
                 onDocumentClick={onDocumentClick}
             />
 
-            {/* Ownership Timeline */}
+            {/* Chain of Title History */}
             <div className="glass-card">
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
-                    <div style={{ width: '36px', height: '36px', background: '#f1f5f9', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <i className="fas fa-history" style={{ color: '#64748b', fontSize: '0.9rem' }}></i>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{ width: '36px', height: '36px', background: 'linear-gradient(135deg, #0f172a, #334155)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 8px rgba(15,23,42,0.2)' }}>
+                            <i className="fas fa-landmark" style={{ color: '#fbbf24', fontSize: '0.85rem' }}></i>
+                        </div>
+                        <div>
+                            <h3 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 900, color: '#0f172a' }}>Chain of Title History</h3>
+                            <p style={{ margin: 0, fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600 }}>Legal ownership transfer trail</p>
+                        </div>
                     </div>
-                    <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 900, color: '#0f172a' }}>Chain of Title History</h3>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', position: 'relative', paddingLeft: '14px' }}>
-                    <div style={{ position: 'absolute', left: '0', top: '8px', bottom: '8px', width: '2px', background: '#f1f5f9' }}></div>
-
-                    {renderValue(inventory.ownerHistory)?.length > 0 ? (
-                        [...(inventory.ownerHistory || [])].reverse().map((item, idx) => (
-                            <div key={idx} style={{ position: 'relative' }}>
-                                <div style={{ 
-                                    position: 'absolute', left: '-19px', top: '4px', width: '12px', height: '12px', 
-                                    background: item.type === 'Removed' ? '#ef4444' : '#10b981', 
-                                    borderRadius: '50%', border: '3px solid #fff', boxShadow: '0 0 0 2px #f1f5f9' 
-                                }}></div>
-                                
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                            <div>
-                                                <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 850, color: '#1e293b' }}>{renderValue(item.contactName)}</p>
-                                                {item.contactMobile && (
-                                                    <p style={{ margin: 0, fontSize: '0.65rem', color: '#64748b', fontWeight: 700 }}>{item.contactMobile}</p>
-                                                )}
-                                            </div>
-                                            <span style={{ fontSize: '0.6rem', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                                                {formatSafeDate(item.date, { day: '2-digit', month: 'short', year: '2-digit' })}
-                                            </span>
-                                        </div>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                            <span style={{ fontSize: '0.65rem', fontWeight: 900, color: item.type === 'Removed' ? '#ef4444' : '#475569', background: item.type === 'Removed' ? '#fef2f2' : '#f1f5f9', padding: '2px 8px', borderRadius: '6px', textTransform: 'uppercase' }}>
-                                                {item.role || 'Property Owner'}
-                                            </span>
-                                            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', fontWeight: 700 }}>
-                                                <i className="fas fa-info-circle" style={{ fontSize: '0.6rem', marginRight: '4px' }}></i>
-                                                Reason: {renderValue(item.source)}
-                                            </p>
-                                        </div>
-                                    </div>
-                            </div>
-                        ))
-                    ) : (
-                        <p style={{ margin: 0, fontSize: '0.75rem', color: '#94a3b8', fontStyle: 'italic', fontWeight: 700, textAlign: 'center' }}>First hand record entry</p>
+                    {Array.isArray(inventory.ownerHistory) && inventory.ownerHistory.length > 0 && (
+                        <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#fff', background: '#0f172a', padding: '3px 10px', borderRadius: '20px' }}>
+                            {inventory.ownerHistory.length} EVENT{inventory.ownerHistory.length !== 1 ? 'S' : ''}
+                        </div>
                     )}
                 </div>
+
+                {Array.isArray(inventory.ownerHistory) && inventory.ownerHistory.length > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0px', position: 'relative', paddingLeft: '18px' }}>
+                        {/* Vertical timeline line */}
+                        <div style={{ position: 'absolute', left: '6px', top: '8px', bottom: '8px', width: '2px', background: 'linear-gradient(to bottom, #e2e8f0, #f1f5f9)' }}></div>
+
+                        {[...(inventory.ownerHistory)].reverse().map((entry, idx) => {
+                            const isRemoved = entry.type === 'Removed';
+                            const dotColor = isRemoved ? '#ef4444' : '#10b981';
+                            const bgColor  = isRemoved ? '#fef2f2' : '#f0fdf4';
+                            const textColor = isRemoved ? '#be123c' : '#065f46';
+                            const displayName = entry.contactName || 'Unknown Contact';
+                            const displayMobile = entry.contactMobile || '';
+                            const dateStr = entry.date
+                                ? new Date(entry.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+                                : '—';
+                            const timeStr = entry.date
+                                ? new Date(entry.date).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+                                : '';
+                            const source = entry.source || 'Manual Update';
+                            const role = entry.role || 'Property Owner';
+                            const authorName = entry.authorName || '';
+
+                            return (
+                                <div key={idx} style={{ position: 'relative', paddingBottom: idx < inventory.ownerHistory.length - 1 ? '16px' : '0' }}>
+                                    {/* Timeline dot */}
+                                    <div style={{
+                                        position: 'absolute', left: '-18px', top: '6px',
+                                        width: '14px', height: '14px',
+                                        background: dotColor, borderRadius: '50%',
+                                        border: '3px solid #fff',
+                                        boxShadow: `0 0 0 2px ${dotColor}40`
+                                    }}></div>
+
+                                    <div style={{
+                                        background: bgColor,
+                                        border: `1px solid ${dotColor}30`,
+                                        borderRadius: '12px',
+                                        padding: '12px 14px',
+                                        transition: 'all 0.2s'
+                                    }}>
+                                        {/* Row 1: Name + Badge */}
+                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0 }}>
+                                                <div style={{
+                                                    width: '28px', height: '28px', borderRadius: '50%',
+                                                    background: isRemoved ? '#fecaca' : '#bbf7d0',
+                                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                    fontSize: '0.65rem', fontWeight: 900, color: textColor,
+                                                    flexShrink: 0
+                                                }}>
+                                                    {displayName.charAt(0).toUpperCase()}
+                                                </div>
+                                                <div style={{ minWidth: 0 }}>
+                                                    <p style={{ margin: 0, fontSize: '0.82rem', fontWeight: 800, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                        {displayName}
+                                                    </p>
+                                                    {displayMobile && (
+                                                        <p style={{ margin: 0, fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>
+                                                            <i className="fas fa-phone-alt" style={{ fontSize: '0.55rem', marginRight: '4px' }}></i>
+                                                            {displayMobile}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            <span style={{
+                                                fontSize: '0.6rem', fontWeight: 900, padding: '3px 8px',
+                                                borderRadius: '6px', textTransform: 'uppercase', letterSpacing: '0.5px',
+                                                background: isRemoved ? '#ef4444' : '#10b981', color: '#fff',
+                                                flexShrink: 0, marginLeft: '8px'
+                                            }}>
+                                                {entry.type || 'Added'}
+                                            </span>
+                                        </div>
+
+                                        {/* Row 2: Role + Source */}
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px', flexWrap: 'wrap' }}>
+                                            <span style={{
+                                                fontSize: '0.6rem', fontWeight: 800, padding: '2px 8px',
+                                                borderRadius: '6px', background: '#f1f5f9', color: '#475569',
+                                                border: '1px solid #e2e8f0', textTransform: 'uppercase'
+                                            }}>
+                                                {role}
+                                            </span>
+                                            <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600 }}>
+                                                <i className="fas fa-link" style={{ fontSize: '0.55rem', marginRight: '3px' }}></i>
+                                                {source}
+                                            </span>
+                                        </div>
+
+                                        {/* Row 3: Date + Author */}
+                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                            <span style={{ fontSize: '0.62rem', color: '#94a3b8', fontWeight: 700 }}>
+                                                <i className="fas fa-calendar-alt" style={{ fontSize: '0.55rem', marginRight: '4px' }}></i>
+                                                {dateStr} {timeStr && `· ${timeStr}`}
+                                            </span>
+                                            {authorName && (
+                                                <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600 }}>
+                                                    <i className="fas fa-user-edit" style={{ fontSize: '0.55rem', marginRight: '3px' }}></i>
+                                                    {authorName}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                ) : (
+                    <div style={{ textAlign: 'center', padding: '24px 16px' }}>
+                        <div style={{ width: '48px', height: '48px', background: '#f1f5f9', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
+                            <i className="fas fa-shield-alt" style={{ color: '#94a3b8', fontSize: '1.2rem' }}></i>
+                        </div>
+                        <p style={{ margin: '0 0 4px', fontSize: '0.8rem', fontWeight: 800, color: '#475569' }}>First-Hand Record</p>
+                        <p style={{ margin: 0, fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600 }}>No ownership transfers recorded. This is the original entry in the system.</p>
+                    </div>
+                )}
             </div>
             
             <OwnerSuggestionSection 

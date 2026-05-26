@@ -2,6 +2,9 @@ import mongoose from "mongoose";
 import Company from "../models/Company.js";
 import User from "../models/User.js";
 import Lookup from "../models/Lookup.js";
+import Contact from "../models/Contact.js";
+import Inventory from "../models/Inventory.js";
+import Deal from "../models/Deal.js";
 import { paginate } from "../utils/pagination.js";
 import { createCompanySchema, updateCompanySchema } from "../validations/company.validation.js";
 import { getVisibilityFilter } from "../utils/visibility.js";
@@ -417,6 +420,82 @@ export const checkDuplicatesImport = async (req, res, next) => {
             }))
         });
     } catch (error) {
+        next(error);
+    }
+};
+
+export const getCompanyAssociatedAssets = async (req, res, next) => {
+    try {
+        const companyId = req.params.id;
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        
+        // Fetch company and its employees
+        const company = await Company.findOne({ _id: companyId, ...visibilityFilter }).select('employees name');
+        
+        if (!company) {
+            return res.status(404).json({ success: false, error: "Company not found or access denied" });
+        }
+
+        // Resolve Lookups for 'SELF EMPLOYED' and 'Real Estate Agent'
+        const selfEmployedLookup = await Lookup.findOne({ lookup_type: 'ProfessionCategory', lookup_value: { $regex: /^SELF EMPLOYED$/i } });
+        const realEstateAgentLookup = await Lookup.findOne({ lookup_type: 'ProfessionSubCategory', lookup_value: { $regex: /^Real Estate Agent$/i } });
+        
+        const conditions = [
+            { professionCategory: { $regex: /^SELF EMPLOYED$/i } },
+            { professionSubCategory: { $regex: /^Real Estate Agent$/i } }
+        ];
+        
+        if (selfEmployedLookup) conditions.push({ professionCategory: selfEmployedLookup._id });
+        if (realEstateAgentLookup) conditions.push({ professionSubCategory: realEstateAgentLookup._id });
+
+        // Find employees that match the professional criteria
+        // Also include contacts that have the company's name as a string
+        const eligibleEmployees = await Contact.find({
+            $and: [
+                {
+                    $or: [
+                        { _id: { $in: company.employees || [] } },
+                        { company: company.name }
+                    ]
+                },
+                { $or: conditions }
+            ]
+        }).select('_id');
+
+        const eligibleContactIds = eligibleEmployees.map(e => e._id);
+
+        if (eligibleContactIds.length === 0) {
+            return res.json({ success: true, data: { properties: [], deals: [] } });
+        }
+
+        // Fetch Inventory where eligible contacts are owners or associates
+        const properties = await Inventory.find({
+            $or: [
+                { owners: { $in: eligibleContactIds } },
+                { 'associates.contact': { $in: eligibleContactIds } }
+            ]
+        }).populate([
+            { path: 'projectName', select: 'lookup_value name' },
+            { path: 'status', select: 'lookup_value' },
+            { path: 'unitType', select: 'lookup_value' }
+        ]).lean();
+
+        // Fetch all Deals where eligible contacts are involved
+        const deals = await Deal.find({
+            $or: [
+                { owner: { $in: eligibleContactIds } },
+                { associatedContact: { $in: eligibleContactIds } },
+                { 'partyStructure.owner': { $in: eligibleContactIds } },
+                { 'partyStructure.buyer': { $in: eligibleContactIds } },
+                { 'partyStructure.channelPartner': { $in: eligibleContactIds } }
+            ]
+        }).populate([
+            { path: 'projectId', select: 'name' }
+        ]).lean();
+
+        res.json({ success: true, data: { properties, deals } });
+    } catch (error) {
+        console.error("Error fetching company associated assets:", error);
         next(error);
     }
 };

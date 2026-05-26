@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { MAP_CENTER } from '../utils/mapUtils';
 import { MarkerClusterer } from '@googlemaps/markerclusterer';
 
@@ -17,6 +17,16 @@ const ProfessionalMap = ({
     const markersRef = useRef([]);
     const clustererRef = useRef(null);
     const infoWindowRef = useRef(null);
+    
+    const drawingManagerRef = useRef(null);
+    const drawnPolygonRef = useRef(null);
+    const transitLayerRef = useRef(null);
+    const trafficLayerRef = useRef(null);
+    const [layerStates, setLayerStates] = useState({
+        transit: false,
+        traffic: false,
+        drawing: false
+    });
 
     useEffect(() => {
         if (!window.google || !window.google.maps || !mapRef.current) return;
@@ -60,8 +70,71 @@ const ProfessionalMap = ({
             }
         };
 
+        // Enterprise Setup Layers
+        transitLayerRef.current = new window.google.maps.TransitLayer();
+        trafficLayerRef.current = new window.google.maps.TrafficLayer();
+
+        // Setup Drawing Manager
+        drawingManagerRef.current = new window.google.maps.drawing.DrawingManager({
+            drawingMode: null,
+            drawingControl: false,
+            polygonOptions: {
+                fillColor: '#3b82f6',
+                fillOpacity: 0.2,
+                strokeWeight: 2,
+                strokeColor: '#2563eb',
+                clickable: false,
+                editable: false,
+                zIndex: 1
+            }
+        });
+        drawingManagerRef.current.setMap(googleMapRef.current);
+
+        const filterByPolygon = (polygon) => {
+            if (!polygon || !onVisibleItemsChange || !window.google.maps.geometry) return;
+            const visibleIds = items.filter(item => {
+                let lat = parseFloat(item.latitude || item.lat);
+                let lng = parseFloat(item.longitude || item.lng);
+
+                if (isNaN(lat) && item.inventoryId && typeof item.inventoryId === 'object') {
+                    lat = parseFloat(item.inventoryId.latitude || item.inventoryId.lat);
+                    lng = parseFloat(item.inventoryId.longitude || item.inventoryId.lng);
+                }
+
+                if (isNaN(lat) && item.projectId && typeof item.projectId === 'object') {
+                    lat = parseFloat(item.projectId.latitude || item.projectId.lat);
+                    lng = parseFloat(item.projectId.longitude || item.projectId.lng);
+                }
+
+                if (isNaN(lat) && item.locationCoords && typeof item.locationCoords === 'object') {
+                    lat = parseFloat(item.locationCoords.lat);
+                    lng = parseFloat(item.locationCoords.lng);
+                }
+
+                if (isNaN(lat) || isNaN(lng)) return false;
+
+                const position = new window.google.maps.LatLng(lat, lng);
+                return window.google.maps.geometry.poly.containsLocation(position, polygon);
+            }).map(item => item._id || item.id);
+            onVisibleItemsChange(visibleIds);
+        };
+
+        const drawListener = window.google.maps.event.addListener(drawingManagerRef.current, 'polygoncomplete', (polygon) => {
+            if (drawnPolygonRef.current) drawnPolygonRef.current.setMap(null);
+            drawnPolygonRef.current = polygon;
+            drawingManagerRef.current.setDrawingMode(null);
+            setLayerStates(prev => ({ ...prev, drawing: false }));
+            filterByPolygon(polygon);
+        });
+
         const idleListener = googleMapRef.current.addListener('idle', () => {
             if (!googleMapRef.current || !onVisibleItemsChange) return;
+            
+            if (drawnPolygonRef.current) {
+                filterByPolygon(drawnPolygonRef.current);
+                return;
+            }
+
             const bounds = googleMapRef.current.getBounds();
             if (!bounds) return;
 
@@ -96,8 +169,10 @@ const ProfessionalMap = ({
         return () => {
             if (clustererRef.current) clustererRef.current.clearMarkers();
             markersRef.current.forEach(marker => marker.setMap(null));
+            if (drawnPolygonRef.current) drawnPolygonRef.current.setMap(null);
             if (window.handleInfoWindowClick) delete window.handleInfoWindowClick;
             window.google.maps.event.removeListener(idleListener);
+            if (drawListener) window.google.maps.event.removeListener(drawListener);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [items, onVisibleItemsChange]);
@@ -199,19 +274,40 @@ const ProfessionalMap = ({
                 const handleOpenInfo = () => {
                     const priceFormatted = item.price ? `₹${item.price.toLocaleString('en-IN')}` : 'Price on Request';
                     const stage = item.stage || 'New';
-                    const clientName = item.owner?.name || item.partyStructure?.buyer?.name || item.ownerName || item.owners?.[0]?.name || 'Unknown Client';
                     
-                    const ownerPhone = item.owner?.phones?.[0]?.number || item.ownerPhone || item.owners?.[0]?.phones?.[0]?.number || '';
+                    const ownerName = item.owner?.name || item.partyStructure?.buyer?.name || item.ownerName || item.owners?.[0]?.name;
+                    const associateName = item.associatedContact?.name || item.associateName || item.associates?.[0]?.contact?.name || item.associates?.[0]?.name;
+                    const clientName = ownerName || associateName || 'Unknown Client';
+                    
+                    const ownerPhoneRaw = item.owner?.phones?.[0]?.number || item.owner?.phone || item.ownerPhone || item.owners?.[0]?.phones?.[0]?.number;
+                    const associatePhoneRaw = item.associatedContact?.phones?.[0]?.number || item.associatedContact?.mobile || item.associatedContact?.phone || item.associatePhone || item.associates?.[0]?.contact?.phones?.[0]?.number || item.associates?.[0]?.contact?.mobile;
+                    const ownerPhone = ownerPhoneRaw || associatePhoneRaw || '';
+                    
                     const whatsappLink = ownerPhone ? `https://wa.me/${ownerPhone.replace(/\D/g,'')}` : '#';
                     const telLink = ownerPhone ? `tel:${ownerPhone.replace(/\D/g,'')}` : '#';
 
-                    let latestFeedbackText = 'No feedback yet';
-                    if (item.history && Array.isArray(item.history)) {
-                        const feedbacks = item.history.filter(h => h.type === 'Feedback' || h.note).sort((a, b) => new Date(b.date) - new Date(a.date));
-                        if (feedbacks.length > 0) {
-                            const lf = feedbacks[0];
-                            const dateStr = new Date(lf.date).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: '2-digit' });
-                            latestFeedbackText = `<span style="color:#1e293b; font-weight:600;">${lf.note || lf.details || 'Updated'}</span> <span style="color:#94a3b8;">(${dateStr})</span>`;
+                    let footerTitle = 'Latest Feedback';
+                    let footerText = 'No feedback yet';
+
+                    if (isInventory) {
+                        if (item.history && Array.isArray(item.history)) {
+                            const feedbacks = item.history.filter(h => h.type === 'Feedback' || h.note).sort((a, b) => new Date(b.date) - new Date(a.date));
+                            if (feedbacks.length > 0) {
+                                const lf = feedbacks[0];
+                                const dateStr = new Date(lf.date).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: '2-digit' });
+                                footerText = `<span style="color:#1e293b; font-weight:600;">${lf.note || lf.details || 'Updated'}</span> <span style="color:#94a3b8;">(${dateStr})</span>`;
+                            }
+                        }
+                    } else {
+                        footerTitle = 'Latest Interaction';
+                        footerText = 'No recent interaction';
+                        if (item.lastActivity) {
+                            const type = item.lastActivity.type?.lookup_value || item.lastActivity.type || 'Activity';
+                            const content = item.lastActivity.content || '';
+                            const dateStr = item.lastActivity.performedAt ? new Date(item.lastActivity.performedAt).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' }) : '';
+                            footerText = `<span style="color:#6366f1; font-weight:700;">[${type}]</span> <span style="color:#1e293b; font-weight:600;">${content}</span> <span style="color:#94a3b8;">(${dateStr})</span>`;
+                        } else if (item.remarks) {
+                            footerText = `<span style="color:#1e293b; font-weight:600;">${item.remarks}</span>`;
                         }
                     }
 
@@ -219,9 +315,9 @@ const ProfessionalMap = ({
 
                     const contentString = `
                         <div style="font-family: inherit; min-width: 200px; padding: 4px;">
-                            <h4 style="margin: 0 0 2px 0; font-size: 14px; font-weight: 700; color: #1e293b; display: flex; align-items: center; justify-content: space-between;">
+                            <h4 style="margin: 0 0 2px 0; font-size: 14px; font-weight: 700; color: #1e293b; display: flex; align-items: center; justify-content: flex-start; gap: 8px;">
+                                ${item.unitNo ? `<span style="background: ${getUnitBg()}; color: ${getUnitColor()}; font-size: 10px; padding: 2px 6px; border-radius: 4px; border: 1px solid ${getUnitColor()}33; white-space: nowrap;">${item.unitNo}</span>` : ''}
                                 <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px;">${item.projectName || item.location || 'Property Requirement'}</span>
-                                ${item.unitNo ? `<span style="background: ${getUnitBg()}; color: ${getUnitColor()}; font-size: 10px; padding: 2px 6px; border-radius: 4px; border: 1px solid ${getUnitColor()}33;">Unit ${item.unitNo}</span>` : ''}
                             </h4>
                             ${item.block ? `<div style="font-size: 11px; color: #64748b; margin-bottom: 8px; font-weight: 500;">Block: <span style="color: #475569; font-weight: 700;">${item.block}</span></div>` : '<div style="margin-bottom: 8px;"></div>'}
                             
@@ -237,9 +333,9 @@ const ProfessionalMap = ({
                                 </div>
                                 ` : ''}
                                 <div style="margin-top: 4px; padding-top: 4px; border-top: 1px dashed #e2e8f0;">
-                                    <span style="display:block; font-size:10px; text-transform:uppercase; font-weight:700; color:#94a3b8; margin-bottom:2px;">Latest Feedback</span>
+                                    <span style="display:block; font-size:10px; text-transform:uppercase; font-weight:700; color:#94a3b8; margin-bottom:2px;">${footerTitle}</span>
                                     <div style="font-size:11.5px; display: flex; justify-content: space-between;">
-                                        <span>${latestFeedbackText}</span>
+                                        <span>${footerText}</span>
                                         <span style="font-weight:700; color:${statusDisplay.toLowerCase() === 'active' ? '#10b981' : '#f59e0b'}; margin-left:8px;">${statusDisplay}</span>
                                     </div>
                                 </div>
@@ -259,6 +355,9 @@ const ProfessionalMap = ({
                                     <i class="fas fa-phone-alt"></i>
                                 </button>
                                 ` : ''}
+                                <button onclick="window.open('http://maps.google.com/maps?q=&layer=c&cbll=${lat},${lng}', '_blank')" style="background: #f59e0b; color: white; border: none; border-radius: 4px; padding: 6px 10px; font-size: 11px; cursor: pointer;" title="Street View">
+                                    <i class="fas fa-street-view"></i>
+                                </button>
                             </div>
                         </div>
                     `;
@@ -332,7 +431,66 @@ const ProfessionalMap = ({
         }
     }, [activeDealId]);
 
-    return <div ref={mapRef} style={style} className="professional-map-container" />;
+    const toggleLayer = (layer) => {
+        setLayerStates(prev => {
+            const next = { ...prev, [layer]: !prev[layer] };
+            if (layer === 'transit' && transitLayerRef.current) transitLayerRef.current.setMap(next.transit ? googleMapRef.current : null);
+            if (layer === 'traffic' && trafficLayerRef.current) trafficLayerRef.current.setMap(next.traffic ? googleMapRef.current : null);
+            if (layer === 'drawing' && drawingManagerRef.current) {
+                if (next.drawing) {
+                    drawingManagerRef.current.setDrawingMode(window.google.maps.drawing.OverlayType.POLYGON);
+                    if (drawnPolygonRef.current) {
+                        drawnPolygonRef.current.setMap(null);
+                        drawnPolygonRef.current = null;
+                        if (googleMapRef.current) window.google.maps.event.trigger(googleMapRef.current, 'idle');
+                    }
+                } else {
+                    drawingManagerRef.current.setDrawingMode(null);
+                }
+            }
+            return next;
+        });
+    };
+
+    const clearPolygon = () => {
+        if (drawnPolygonRef.current) {
+            drawnPolygonRef.current.setMap(null);
+            drawnPolygonRef.current = null;
+            setLayerStates(prev => ({ ...prev, drawing: false }));
+            if (googleMapRef.current) window.google.maps.event.trigger(googleMapRef.current, 'idle');
+        }
+    };
+
+    return (
+        <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+            <div ref={mapRef} style={style} className="professional-map-container" />
+            
+            {/* Map Control Panel */}
+            <div style={{ position: 'absolute', bottom: '60px', right: '20px', background: 'white', padding: '10px', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', display: 'flex', flexDirection: 'column', gap: '8px', zIndex: 10, minWidth: '130px' }}>
+                <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '2px', letterSpacing: '0.5px' }}>Map Controls</div>
+                
+                <button onClick={() => toggleLayer('transit')} style={{ background: layerStates.transit ? '#eff6ff' : '#f8fafc', color: layerStates.transit ? '#2563eb' : '#475569', border: `1px solid ${layerStates.transit ? '#bfdbfe' : '#e2e8f0'}`, padding: '8px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s' }}>
+                    <i className="fas fa-subway" style={{ width: '16px', textAlign: 'center' }}></i> Transit
+                </button>
+                
+                <button onClick={() => toggleLayer('traffic')} style={{ background: layerStates.traffic ? '#fef2f2' : '#f8fafc', color: layerStates.traffic ? '#dc2626' : '#475569', border: `1px solid ${layerStates.traffic ? '#fecaca' : '#e2e8f0'}`, padding: '8px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s' }}>
+                    <i className="fas fa-car" style={{ width: '16px', textAlign: 'center' }}></i> Traffic
+                </button>
+                
+                <div style={{ borderTop: '1px dashed #cbd5e1', margin: '4px 0' }}></div>
+                
+                <button onClick={() => toggleLayer('drawing')} style={{ background: layerStates.drawing ? '#eef2ff' : '#f8fafc', color: layerStates.drawing ? '#4f46e5' : '#475569', border: `1px solid ${layerStates.drawing ? '#c7d2fe' : '#e2e8f0'}`, padding: '8px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s' }}>
+                    <i className="fas fa-draw-polygon" style={{ width: '16px', textAlign: 'center' }}></i> Draw Area
+                </button>
+                
+                {drawnPolygonRef.current && (
+                    <button onClick={clearPolygon} style={{ background: '#fef2f2', color: '#991b1b', border: '1px solid #fecaca', padding: '8px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s', marginTop: '4px' }}>
+                        <i className="fas fa-times" style={{ width: '16px', textAlign: 'center' }}></i> Clear Area
+                    </button>
+                )}
+            </div>
+        </div>
+    );
 };
 
 export default ProfessionalMap;

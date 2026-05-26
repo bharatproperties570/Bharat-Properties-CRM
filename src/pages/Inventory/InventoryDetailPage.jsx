@@ -383,50 +383,18 @@ export default function InventoryDetailPage({ inventoryId, onBack, onAddActivity
                 ]}
                 onSave={async (newOwners) => {
                     try {
-                        const currentOwnersIds = (inventory.owners || []).map(o => o._id || o.id);
-                        const currentAssociatesIds = (inventory.associates || []).map(a => a.contact?._id || a.contact?.id || a.id);
-                        const allCurrentIds = [...currentOwnersIds, ...currentAssociatesIds];
-
-                        const historyEntries = [];
-                        
-                        // Track additions
-                        newOwners.forEach(no => {
-                            if (!allCurrentIds.includes(no.id)) {
-                                historyEntries.push({
-                                    contactName: no.name,
-                                    contactMobile: no.mobile,
-                                    contactId: no.id,
-                                    role: no.role,
-                                    author: user?._id || null,
-                                    source: no.source || 'Update data',
-                                    date: no.date || new Date().toISOString(),
-                                    type: 'Added'
-                                });
-                            }
-                        });
-
-                        // Track removals
-                        const newOwnersIds = newOwners.map(no => no.id);
-                        [...(inventory.owners || []), ...(inventory.associates || [])].forEach(old => {
-                            const oldId = old._id || old.id || (old.contact?._id || old.contact?.id);
-                            if (oldId && !newOwnersIds.includes(oldId)) {
-                                historyEntries.push({
-                                    contactName: old.name || old.contact?.name || 'Unknown',
-                                    contactMobile: old.mobile || old.contact?.mobile || (old.contact?.phones?.[0]?.number) || '',
-                                    contactId: oldId,
-                                    role: old.role || (old.contact ? 'Associate' : 'Property Owner'),
-                                    author: user?._id || null,
-                                    source: 'Removed from current profile',
-                                    date: new Date().toISOString(),
-                                    type: 'Removed'
-                                });
-                            }
+                        // Backend is sole authority for ownerHistory tracking.
+                        // We send owners/associates arrays + an ownerSources map {contactId: source}
+                        // so backend can store the reason the user selected in the modal.
+                        const ownerSources = {};
+                        newOwners.forEach(o => {
+                            if (o.id && o.source) ownerSources[o.id] = o.source;
                         });
 
                         const updates = {
                             owners: newOwners.filter(o => o.role === 'Property Owner').map(o => o.id),
                             associates: newOwners.filter(o => o.role === 'Associate').map(o => ({ contact: o.id, relationship: o.relationship })),
-                            ownerHistory: [...(inventory.ownerHistory || []), ...historyEntries]
+                            ownerSources,
                         };
 
                         const res = await api.put(`inventory/${inventoryId}`, updates);

@@ -12,6 +12,8 @@ const CompanyDetailPage = ({ companyId, onBack, onNavigate, onAddProject, onAddI
     const [activeTab, setActiveTab] = useState('activity');
     const [projectsData, setProjectsData] = useState([]);
     const [dealsData, setDealsData] = useState([]);
+    const [associateProperties, setAssociateProperties] = useState([]);
+    const [associateDeals, setAssociateDeals] = useState([]);
 
     const [inventoryData, setInventoryData] = useState([]);
     const [contactsData, setContactsData] = useState([]);
@@ -53,8 +55,33 @@ const CompanyDetailPage = ({ companyId, onBack, onNavigate, onAddProject, onAddI
             setContactsData(companyData.employees || []); // Using employees as contacts for now
             // 5. Fetch Documents (Real data from company object)
             setDocumentsData(companyData.documents || []);
-            // 6. Relationship Intelligence & Commission
-            // (These are already in companyData)
+            
+            // 6. Fetch Associated Assets (Owned Properties and Active Deals for Employees)
+            try {
+                const assetsRes = await api.get(`companies/${companyId}/associated-assets`);
+                if (assetsRes.data?.success) {
+                    const assocProps = assetsRes.data.data.properties || [];
+                    const assocDeals = assetsRes.data.data.deals || [];
+                    
+                    // Merge and deduplicate Inventory
+                    const inventoryMap = new Map();
+                    inventory.forEach(i => inventoryMap.set(i._id, i));
+                    assocProps.forEach(i => inventoryMap.set(i._id, i));
+                    inventory = Array.from(inventoryMap.values());
+                    
+                    // Merge and deduplicate Deals
+                    const dealsMap = new Map();
+                    deals.forEach(d => dealsMap.set(d._id, d));
+                    assocDeals.forEach(d => dealsMap.set(d._id, d));
+                    deals = Array.from(dealsMap.values());
+
+                    setInventoryData(inventory);
+                    setDealsData(deals);
+                }
+            } catch (err) {
+                console.error("Error fetching associated assets:", err);
+            }
+
             // Calculate Stats
             const closedRevenue = deals
                 .filter(d => d.stage === 'Closed')
@@ -361,11 +388,51 @@ const CompanyDetailPage = ({ companyId, onBack, onNavigate, onAddProject, onAddI
                                     <span>CONVERSION: {stats.totalDeals > 0 ? Math.round((dealsData.filter(d => d.stage === 'Closed').length / stats.totalDeals) * 100) : 0}%</span>
                                 </div>
                                 <div style={{ height: '10px', background: '#f1f5f9', borderRadius: '10px', display: 'flex', overflow: 'hidden' }}>
-                                    <div style={{ width: '40%', background: '#3b82f6' }} title="Negotiation"></div>
-                                    <div style={{ width: '20%', background: '#6366f1' }} title="Booked"></div>
-                                    <div style={{ width: '30%', background: '#10b981' }} title="Closed"></div>
-                                    <div style={{ width: '10%', background: '#f43f5e' }} title="Cancelled"></div>
+                                    {dealsData.length > 0 ? (
+                                        <>
+                                            <div style={{ width: `${(dealsData.filter(d => !['Closed', 'Cancelled', 'Closed Won', 'Closed Lost', 'Booked'].includes(d.stage)).length / dealsData.length) * 100}%`, background: '#3b82f6' }} title="In Progress"></div>
+                                            <div style={{ width: `${(dealsData.filter(d => d.stage === 'Booked').length / dealsData.length) * 100}%`, background: '#6366f1' }} title="Booked"></div>
+                                            <div style={{ width: `${(dealsData.filter(d => ['Closed', 'Closed Won'].includes(d.stage)).length / dealsData.length) * 100}%`, background: '#10b981' }} title="Closed"></div>
+                                            <div style={{ width: `${(dealsData.filter(d => ['Cancelled', 'Closed Lost'].includes(d.stage)).length / dealsData.length) * 100}%`, background: '#f43f5e' }} title="Cancelled"></div>
+                                        </>
+                                    ) : (
+                                        <div style={{ width: '100%', background: '#e2e8f0' }} title="No Deals"></div>
+                                    )}
                                 </div>
+                            </div>
+
+                            {/* Linked Deals Table */}
+                            <div style={{ marginTop: '32px' }}>
+                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
+                                    <thead style={{ background: '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>
+                                        <tr>
+                                            <th style={tableHeaderStyle}>Deal ID</th>
+                                            <th style={tableHeaderStyle}>Project</th>
+                                            <th style={tableHeaderStyle}>Stage</th>
+                                            <th style={tableHeaderStyle}>Value</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {dealsData.slice(0, 5).map((deal, i) => (
+                                            <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                                <td style={tableCellStyle}><strong>{deal.dealId || `Deal #${i+1}`}</strong></td>
+                                                <td style={tableCellStyle}>{deal.projectName || 'N/A'} {deal.unitNo ? `(${deal.unitNo})` : ''}</td>
+                                                <td style={tableCellStyle}>
+                                                    <span style={{
+                                                        padding: '2px 6px', borderRadius: '4px',
+                                                        background: deal.stage === 'Closed' ? '#dcfce7' : (deal.stage === 'Cancelled' ? '#fee2e2' : '#e0e7ff'),
+                                                        color: deal.stage === 'Closed' ? '#166534' : (deal.stage === 'Cancelled' ? '#991b1b' : '#3730a3'),
+                                                        fontWeight: 700, fontSize: '0.6rem'
+                                                    }}>{deal.stage || 'Active'}</span>
+                                                </td>
+                                                <td style={tableCellStyle}><strong>{formatIndianCurrency(deal.price)}</strong></td>
+                                            </tr>
+                                        ))}
+                                        {dealsData.length === 0 && (
+                                            <tr><td colSpan="4" style={{ textAlign: 'center', padding: '20px', color: '#94a3b8' }}>No linked deals.</td></tr>
+                                        )}
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
                     </div>

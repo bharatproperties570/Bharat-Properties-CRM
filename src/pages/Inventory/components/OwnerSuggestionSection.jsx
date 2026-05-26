@@ -7,6 +7,7 @@ import toast from 'react-hot-toast';
 const OwnerSuggestionSection = ({ inventory, onRefresh }) => {
     const [suggestions, setSuggestions] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [showLocationMatches, setShowLocationMatches] = useState(false);
     const inventoryId = inventory?._id;
 
     useEffect(() => {
@@ -79,6 +80,91 @@ const OwnerSuggestionSection = ({ inventory, onRefresh }) => {
         </div>
     );
 
+    const highConfidence = suggestions.filter(c => c.matchConfidence >= 80);
+    const locationMatches = suggestions.filter(c => c.matchConfidence < 80);
+
+    const renderContact = (contact) => {
+        const addr = contact.personalAddress || contact.correspondenceAddress || {};
+        const addrStr = [addr.hNo, addr.area || addr.location, addr.city].filter(Boolean).join(', ');
+        
+        return (
+            <div key={contact._id} style={{ 
+                padding: '12px', 
+                background: '#fff', 
+                borderRadius: '16px', 
+                border: '1px solid #f1f5f9',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                transition: 'all 0.2s',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+            }}>
+                <div style={{ 
+                    width: '36px', 
+                    height: '36px', 
+                    borderRadius: '10px', 
+                    background: '#f8fafc',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '0.75rem',
+                    fontWeight: 900,
+                    color: '#64748b',
+                    border: '1px solid #e2e8f0'
+                }}>
+                    {getInitials(contact.name)}
+                </div>
+                
+                <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 850, color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {contact.name}
+                    </p>
+                    <p style={{ margin: 0, fontSize: '0.62rem', color: '#94a3b8', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <i className="fas fa-map-marker-alt" style={{ fontSize: '0.55rem' }}></i>
+                        <span>{addrStr}</span>
+                    </p>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
+                        <span style={{ 
+                            fontSize: '0.55rem', 
+                            fontWeight: 800, 
+                            padding: '2px 6px', 
+                            borderRadius: '12px',
+                            background: contact.matchConfidence === 100 ? 'rgba(34, 197, 94, 0.1)' : 
+                                        contact.matchConfidence === 80 ? 'rgba(59, 130, 246, 0.1)' : 'rgba(100, 116, 139, 0.1)',
+                            color: contact.matchConfidence === 100 ? '#22c55e' : 
+                                   contact.matchConfidence === 80 ? '#3b82f6' : '#64748b',
+                            border: contact.matchConfidence === 100 ? '1px solid rgba(34, 197, 94, 0.2)' : 
+                                    contact.matchConfidence === 80 ? '1px solid rgba(59, 130, 246, 0.2)' : '1px solid rgba(100, 116, 139, 0.2)'
+                        }}>
+                            {contact.matchConfidence === 100 ? 'Direct H.No Match' : 
+                             contact.matchConfidence === 80 ? 'Fuzzy Match' : 'Location Option (Blank H.No)'}
+                        </span>
+                    </div>
+                </div>
+
+                <button 
+                    onClick={() => handleQuickAdd(contact)}
+                    style={{
+                        width: '28px',
+                        height: '28px',
+                        borderRadius: '8px',
+                        border: 'none',
+                        background: '#4f46e5',
+                        color: '#fff',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        boxShadow: '0 4px 8px rgba(79, 70, 229, 0.15)'
+                    }}
+                    title="Quick Link"
+                >
+                    <i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i>
+                </button>
+            </div>
+        );
+    };
+
     return (
         <div className="glass-card" style={{ border: '1px solid rgba(79, 70, 229, 0.1)', minHeight: '120px' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
@@ -106,85 +192,48 @@ const OwnerSuggestionSection = ({ inventory, onRefresh }) => {
                 </div>
             ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    {suggestions.map((contact) => {
-                        const addr = contact.personalAddress || contact.correspondenceAddress || {};
-                        const addrStr = [addr.hNo, addr.area || addr.location, addr.city].filter(Boolean).join(', ');
-                        
-                        return (
-                            <div key={contact._id} style={{ 
-                                padding: '12px', 
-                                background: '#fff', 
-                                borderRadius: '16px', 
-                                border: '1px solid #f1f5f9',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '12px'
-                            }}>
-                                <div style={{ 
-                                    width: '36px', 
-                                    height: '36px', 
-                                    borderRadius: '10px', 
-                                    background: '#f8fafc',
+                    {highConfidence.length > 0 ? (
+                        highConfidence.map(renderContact)
+                    ) : (
+                        <div style={{ textAlign: 'center', padding: '16px', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #e2e8f0', marginBottom: '8px' }}>
+                            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>No exact or fuzzy unit matches found.</p>
+                        </div>
+                    )}
+
+                    {locationMatches.length > 0 && (
+                        <div style={{ marginTop: '8px' }}>
+                            <button 
+                                onClick={() => setShowLocationMatches(!showLocationMatches)}
+                                style={{
+                                    width: '100%',
+                                    padding: '8px 12px',
+                                    background: showLocationMatches ? '#f1f5f9' : '#fff',
+                                    border: '1px solid #e2e8f0',
+                                    borderRadius: '10px',
                                     display: 'flex',
                                     alignItems: 'center',
-                                    justifyContent: 'center',
-                                    fontSize: '0.75rem',
-                                    fontWeight: 900,
-                                    color: '#64748b',
-                                    border: '1px solid #e2e8f0'
-                                }}>
-                                    {getInitials(contact.name)}
+                                    justifyContent: 'space-between',
+                                    cursor: 'pointer',
+                                    color: '#475569',
+                                    fontSize: '0.7rem',
+                                    fontWeight: 700,
+                                    transition: 'all 0.2s'
+                                }}
+                            >
+                                <span>
+                                    <i className="fas fa-map-marked-alt" style={{ marginRight: '6px', color: '#94a3b8' }}></i>
+                                    Show Location-Based Options ({locationMatches.length})
+                                </span>
+                                <i className={`fas fa-chevron-${showLocationMatches ? 'up' : 'down'}`} style={{ color: '#94a3b8', fontSize: '0.6rem' }}></i>
+                            </button>
+                            
+                            {showLocationMatches && (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px', paddingLeft: '8px', borderLeft: '2px solid #f1f5f9' }}>
+                                    {locationMatches.map(renderContact)}
                                 </div>
-                                
-                                <div style={{ flex: 1, minWidth: 0 }}>
-                                    <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 850, color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                        {contact.name}
-                                    </p>
-                                    <p style={{ margin: 0, fontSize: '0.62rem', color: '#94a3b8', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                        <i className="fas fa-map-marker-alt" style={{ fontSize: '0.55rem' }}></i>
-                                        <span>{addrStr}</span>
-                                    </p>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
-                                        <span style={{ 
-                                            fontSize: '0.55rem', 
-                                            fontWeight: 800, 
-                                            padding: '2px 6px', 
-                                            borderRadius: '12px',
-                                            background: contact.matchConfidence === 100 ? 'rgba(34, 197, 94, 0.1)' : 
-                                                        contact.matchConfidence === 80 ? 'rgba(59, 130, 246, 0.1)' : 'rgba(100, 116, 139, 0.1)',
-                                            color: contact.matchConfidence === 100 ? '#22c55e' : 
-                                                   contact.matchConfidence === 80 ? '#3b82f6' : '#64748b',
-                                            border: contact.matchConfidence === 100 ? '1px solid rgba(34, 197, 94, 0.2)' : 
-                                                    contact.matchConfidence === 80 ? '1px solid rgba(59, 130, 246, 0.2)' : '1px solid rgba(100, 116, 139, 0.2)'
-                                        }}>
-                                            {contact.matchConfidence === 100 ? 'Direct H.No Match' : 
-                                             contact.matchConfidence === 80 ? 'Fuzzy Match' : 'Location Option (Blank H.No)'}
-                                        </span>
-                                    </div>
-                                </div>
-
-                                <button 
-                                    onClick={() => handleQuickAdd(contact)}
-                                    style={{
-                                        width: '28px',
-                                        height: '28px',
-                                        borderRadius: '8px',
-                                        border: 'none',
-                                        background: '#4f46e5',
-                                        color: '#fff',
-                                        cursor: 'pointer',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        boxShadow: '0 4px 8px rgba(79, 70, 229, 0.15)'
-                                    }}
-                                    title="Quick Link"
-                                >
-                                    <i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i>
-                                </button>
-                            </div>
-                        );
-                    })}
+                            )}
+                        </div>
+                    )}
                 </div>
             )}
         </div>

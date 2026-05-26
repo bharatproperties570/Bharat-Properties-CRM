@@ -1060,7 +1060,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                     onMarkerClick={(deal) => onNavigate('deal-detail', deal._id)}
                                 />
                                 {/* Map Controls & Legend Overlay */}
-                                <div style={{ position: 'absolute', top: '20px', right: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                <div style={{ position: 'absolute', top: '20px', right: '20px', display: 'flex', flexDirection: 'column', gap: '10px', zIndex: 10 }}>
                                     {isMapFullscreen && (
                                         <button 
                                             onClick={() => setIsFilterPanelOpen(true)}

@@ -811,7 +811,9 @@ export const getInventoryById = async (req, res) => {
             { path: "projectId" },
             { path: "team", select: "name" },
             { path: "assignedTo", select: "fullName name team" },
-            { path: "teams", select: "name" }
+            { path: "teams", select: "name" },
+            { path: "ownerHistory.contactId", model: 'Contact', select: "name phones" },
+            { path: "ownerHistory.author", model: 'User', select: "fullName name" }
         ];
 
         let inventory = await Inventory.findOne({
@@ -930,7 +932,25 @@ export const getInventoryById = async (req, res) => {
         // Legacy support for older mobile versions
         inventoryData.images = inventory.inventoryImages;
 
-        console.log(`[DIAGNOSTIC] ✅ Success: ${inventory.projectName} | Deals found: ${deals.length} | Media: ${inventoryData.media.length}`);
+        // 🚀 [SENIOR] Hydrate ownerHistory entries: use populated contact data if stored name/mobile is missing
+        if (Array.isArray(inventoryData.ownerHistory)) {
+            inventoryData.ownerHistory = inventoryData.ownerHistory.map(entry => {
+                const enriched = { ...entry };
+                const contact = entry.contactId;
+                if (contact && typeof contact === 'object') {
+                    if (!enriched.contactName) enriched.contactName = contact.name || '';
+                    if (!enriched.contactMobile) enriched.contactMobile = contact.phones?.[0]?.number || '';
+                    // Keep contactId as plain ID string for frontend (avoid circular ref)
+                    enriched.contactId = contact._id || entry.contactId;
+                }
+                if (entry.author && typeof entry.author === 'object') {
+                    enriched.authorName = entry.author.fullName || entry.author.name || '';
+                }
+                return enriched;
+            });
+        }
+
+        console.log(`[DIAGNOSTIC] ✅ Success: ${inventory.projectName} | Deals found: ${deals.length} | Media: ${inventoryData.media.length} | OwnerHistory: ${inventoryData.ownerHistory?.length || 0}`);
         res.status(200).json({ success: true, data: { ...inventoryData, deals } });
     } catch (error) {
         console.error(`[DIAGNOSTIC] ❌ getInventoryById CRASH:`, error.message);
@@ -1111,42 +1131,73 @@ export const updateInventory = async (req, res) => {
             return res.status(404).json({ success: false, error: "Inventory item not found" });
         }
 
-        // 🚀 [ENTERPRISE] Ownership History & Auto-Tagging for Manual Updates
-        if (data.owners && Array.isArray(data.owners)) {
-            const currentOwnerIds = currentInv.owners?.map(o => o._id?.toString() || o.toString()) || [];
+        // 🚀 [SENIOR HARDENED] Single-Source-of-Truth Ownership History Tracking
+        // Backend is the SOLE authority for ownerHistory — frontend should NOT send ownerHistory.
+        // We detect additions + removals here and push both atomically.
+        if (data.owners !== undefined && Array.isArray(data.owners)) {
+            const currentOwnerIds = currentInv.owners?.map(o => (o._id?.toString() || o.toString())) || [];
             const newOwnerIds = data.owners.map(o => o.toString());
-            
-            const removedOwnerIds = currentOwnerIds.filter(id => !newOwnerIds.includes(id));
-            
-            if (removedOwnerIds.length > 0) {
-                const ownerHistoryEntries = removedOwnerIds.map(id => ({
-                    date: new Date(),
-                    author: req.user?._id || data.assignedTo || null,
-                    contactId: id,
-                    role: 'Owner',
-                    type: 'Removed',
-                    source: 'ManualUpdate'
-                }));
-                
-                if (!data.$push) data.$push = {};
-                data.$push.ownerHistory = { $each: ownerHistoryEntries };
 
-                // Auto-Tag removed owners
+            const removedOwnerIds = currentOwnerIds.filter(id => !newOwnerIds.includes(id));
+            const addedOwnerIds   = newOwnerIds.filter(id => !currentOwnerIds.includes(id));
+
+            const ownerHistoryEntries = [];
+            const ownerSources = data.ownerSources || {};
+
+            // Additions
+            if (addedOwnerIds.length > 0) {
+                addedOwnerIds.forEach(id => {
+                    ownerHistoryEntries.push({
+                        date: new Date(),
+                        author: req.user?._id || null,
+                        contactId: id,
+                        role: 'Property Owner',
+                        type: 'Added',
+                        source: ownerSources[id] || 'Manual Update'
+                    });
+                });
+            }
+
+            // Removals
+            if (removedOwnerIds.length > 0) {
+                removedOwnerIds.forEach(id => {
+                    // Try to find if there's a reason provided for removal. If not, default to Manual Update.
+                    // Usually, the reason is associated with the *new* owner (e.g., Transfer), so we might just use that 
+                    // or default to 'Manual Update' for the removed entry.
+                    const removalReason = 'Removed from current profile';
+                    ownerHistoryEntries.push({
+                        date: new Date(),
+                        author: req.user?._id || null,
+                        contactId: id,
+                        role: 'Property Owner',
+                        type: 'Removed',
+                        source: removalReason
+                    });
+                });
+
+                // Auto-Tag removed owners as previous_owner_unit_project
                 try {
-                    const unitLabel = currentInv.unitNo || currentInv.unitNumber || 'unit';
+                    const unitLabel    = currentInv.unitNo || currentInv.unitNumber || 'unit';
                     const projectLabel = currentInv.projectName ? currentInv.projectName.replace(/\s+/g, '') : 'project';
                     const tagToAdd = `previous_owner_${unitLabel}_${projectLabel}`.toLowerCase();
-                    
-                    const Contact = mongoose.models.Contact || mongoose.model('Contact');
                     await Contact.updateMany(
                         { _id: { $in: removedOwnerIds } },
                         { $addToSet: { tags: tagToAdd } }
                     );
                 } catch (tagErr) {
-                    console.error("[InventorySync] Failed to auto-tag removed owners:", tagErr.message);
+                    console.error('[InventorySync] Failed to auto-tag removed owners:', tagErr.message);
                 }
             }
+
+            if (ownerHistoryEntries.length > 0) {
+                if (!data.$push) data.$push = {};
+                data.$push.ownerHistory = { $each: ownerHistoryEntries };
+            }
         }
+
+        // Strip ownerHistory and ownerSources from direct $set — backend is sole authority via $push above
+        delete data.ownerHistory;
+        delete data.ownerSources;
 
         // 🌟 SENIOR HARDENING: Resolve categorical fields BEFORE update to prevent populate-stage CastErrors
         const categoricalFields = [

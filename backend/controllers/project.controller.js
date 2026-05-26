@@ -13,11 +13,16 @@ import { paginate } from "../utils/pagination.js";
 
 export const getProjects = async (req, res) => {
     try {
-        const { sortBy, sortOrder, page, limit, search } = req.query;
+        const { sortBy, sortOrder, page, limit, search, developerId } = req.query;
         const visibilityFilter = await getVisibilityFilter(req.user);
 
         // Professional Search Logic
         let query = { ...visibilityFilter };
+        
+        if (developerId && mongoose.Types.ObjectId.isValid(developerId)) {
+            query.developerId = developerId;
+        }
+
         if (search) {
             const searchRegex = new RegExp(search, 'i');
             query.$or = [
