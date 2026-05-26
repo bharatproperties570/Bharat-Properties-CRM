@@ -2753,37 +2753,38 @@ export const getSuggestedOwners = async (req, res) => {
 
         const cityQueryValues = await resolveQueryValues(inventory.address?.city, 'City');
 
-        const fuzzyUnitOrBlankPersonal = [
-            { 'personalAddress.hNo': { $regex: fuzzyUnitPattern } },
+        const fuzzyUnitPersonal = [{ 'personalAddress.hNo': { $regex: fuzzyUnitPattern } }];
+        const blankUnitPersonal = [
             { 'personalAddress.hNo': { $in: [null, "", undefined] } },
             { 'personalAddress.hNo': { $exists: false } }
         ];
 
-        const fuzzyUnitOrBlankCorrespondence = [
-            { 'correspondenceAddress.hNo': { $regex: fuzzyUnitPattern } },
+        const fuzzyUnitCorrespondence = [{ 'correspondenceAddress.hNo': { $regex: fuzzyUnitPattern } }];
+        const blankUnitCorrespondence = [
             { 'correspondenceAddress.hNo': { $in: [null, "", undefined] } },
             { 'correspondenceAddress.hNo': { $exists: false } }
         ];
 
-        const searchQueries = [];
+        // First Query: Exact/Fuzzy House Number matches
+        const exactSearchQueries = [];
+        // Second Query: Blank House Number matches
+        const fallbackSearchQueries = [];
 
-        // Logic A: Unit/Blank + City (High Confidence)
         if (cityQueryValues.length > 0) {
-            searchQueries.push({
+            exactSearchQueries.push({
                 $or: [
-                    { 
-                        $or: fuzzyUnitOrBlankPersonal, 
-                        'personalAddress.city': { $in: cityQueryValues } 
-                    },
-                    { 
-                        $or: fuzzyUnitOrBlankCorrespondence, 
-                        'correspondenceAddress.city': { $in: cityQueryValues } 
-                    }
+                    { $or: fuzzyUnitPersonal, 'personalAddress.city': { $in: cityQueryValues } },
+                    { $or: fuzzyUnitCorrespondence, 'correspondenceAddress.city': { $in: cityQueryValues } }
+                ]
+            });
+            fallbackSearchQueries.push({
+                $or: [
+                    { $or: blankUnitPersonal, 'personalAddress.city': { $in: cityQueryValues } },
+                    { $or: blankUnitCorrespondence, 'correspondenceAddress.city': { $in: cityQueryValues } }
                 ]
             });
         }
 
-        // Logic B: Unit/Blank + Location/Area/Project Context (Intelligence Fallback)
         const locationVal = inventory.address?.location || inventory.address?.area || inventory.address?.locality || inventory.projectName;
         if (locationVal) {
             const locationQueryValues = [];
@@ -2793,53 +2794,67 @@ export const getSuggestedOwners = async (req, res) => {
                 { val: inventory.address?.locality, type: 'Locality' },
                 { val: inventory.projectName, type: 'Project' }
             ];
-            
             for (const item of fieldsToResolve) {
                 if (item.val) {
                     const resolved = await resolveQueryValues(item.val, item.type);
                     locationQueryValues.push(...resolved);
                 }
             }
-
             if (locationQueryValues.length === 0 && locationVal) {
                 locationQueryValues.push(locationVal);
             }
 
-            searchQueries.push({
+            exactSearchQueries.push({
                 $or: [
-                    { 
-                        $or: fuzzyUnitOrBlankPersonal, 
-                        $or: [
-                            { 'personalAddress.location': { $in: locationQueryValues } },
-                            { 'personalAddress.area': { $in: locationQueryValues } },
-                            { 'personalAddress.locality': { $in: locationQueryValues } }
-                        ] 
-                    },
-                    { 
-                        $or: fuzzyUnitOrBlankCorrespondence, 
-                        $or: [
-                            { 'correspondenceAddress.location': { $in: locationQueryValues } },
-                            { 'correspondenceAddress.area': { $in: locationQueryValues } },
-                            { 'correspondenceAddress.locality': { $in: locationQueryValues } }
-                        ] 
-                    }
+                    { $or: fuzzyUnitPersonal, $or: [ { 'personalAddress.location': { $in: locationQueryValues } }, { 'personalAddress.area': { $in: locationQueryValues } }, { 'personalAddress.locality': { $in: locationQueryValues } } ] },
+                    { $or: fuzzyUnitCorrespondence, $or: [ { 'correspondenceAddress.location': { $in: locationQueryValues } }, { 'correspondenceAddress.area': { $in: locationQueryValues } }, { 'correspondenceAddress.locality': { $in: locationQueryValues } } ] }
+                ]
+            });
+
+            fallbackSearchQueries.push({
+                $or: [
+                    { $or: blankUnitPersonal, $or: [ { 'personalAddress.location': { $in: locationQueryValues } }, { 'personalAddress.area': { $in: locationQueryValues } }, { 'personalAddress.locality': { $in: locationQueryValues } } ] },
+                    { $or: blankUnitCorrespondence, $or: [ { 'correspondenceAddress.location': { $in: locationQueryValues } }, { 'correspondenceAddress.area': { $in: locationQueryValues } }, { 'correspondenceAddress.locality': { $in: locationQueryValues } } ] }
                 ]
             });
         }
 
-        if (searchQueries.length === 0) return res.status(200).json({ success: true, data: [] });
+        if (exactSearchQueries.length === 0 && fallbackSearchQueries.length === 0) {
+            return res.status(200).json({ success: true, data: [] });
+        }
 
-        // 3. [EXECUTION] Secure Query with exclusions
-        const suggestedContacts = await Contact.find({ 
-            $and: [
-                { $or: searchQueries },
-                { _id: { $nin: existingContactIds } },
-                visibilityFilter
-            ]
-        })
-        .select('name phones emails personalAddress correspondenceAddress title visibleTo assignedTo assignment teams')
-        .limit(10)
-        .lean();
+        // 3. [EXECUTION] Run Exact matches first
+        let suggestedContacts = [];
+        if (exactSearchQueries.length > 0) {
+            suggestedContacts = await Contact.find({ 
+                $and: [
+                    { $or: exactSearchQueries },
+                    { _id: { $nin: existingContactIds } },
+                    visibilityFilter
+                ]
+            })
+            .select('name phones emails personalAddress correspondenceAddress title visibleTo assignedTo assignment teams')
+            .limit(10)
+            .lean();
+        }
+
+        // If we didn't fill the 10 spots, fetch fallbacks (blank unit matches)
+        if (suggestedContacts.length < 10 && fallbackSearchQueries.length > 0) {
+            const alreadyFetchedIds = [...existingContactIds, ...suggestedContacts.map(c => c._id.toString())];
+            const fallbacks = await Contact.find({
+                $and: [
+                    { $or: fallbackSearchQueries },
+                    { _id: { $nin: alreadyFetchedIds } },
+                    visibilityFilter
+                ]
+            })
+            .select('name phones emails personalAddress correspondenceAddress title visibleTo assignedTo assignment teams')
+            .limit(10 - suggestedContacts.length)
+            .lean();
+            
+            suggestedContacts = [...suggestedContacts, ...fallbacks];
+        }
+
 
         // 4. [HYDRATION] Resolve all lookup references for UI parity
         const uniqueLookupIds = new Set();
