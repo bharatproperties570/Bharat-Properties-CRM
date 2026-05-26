@@ -44,10 +44,11 @@ const resolveAbsoluteMediaUrl = (url, req) => {
     }
     
     // 2. If it's a relative local upload path, prepend the backend host dynamically
-    if (url.startsWith('/uploads/')) {
+    if (url.startsWith('/uploads/') || url.startsWith('uploads/')) {
+        const normalizedUrl = url.startsWith('/') ? url : `/${url}`;
         const protocol = req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
         const host = req.get('host');
-        return `${protocol}://${host}${url}`;
+        return `${protocol}://${host}${normalizedUrl}`;
     }
     
     return url;
@@ -243,9 +244,27 @@ export const getListings = async (req, res) => {
                     address: { $ifNull: ['$address', '$inventoryInfo.address'] },
                     sizeLabel: { $ifNull: ['$sizeLabel', { $ifNull: ['$unitSpecification.sizeLabel', '$inventoryInfo.sizeLabel'] }] },
                     subCategory: { $ifNull: ['$subCategory', '$inventoryInfo.subCategory'] },
-                    images: { $ifNull: ['$websiteMetadata.images', { $ifNull: ['$inventoryInfo.inventoryImages', []] }] },
-                    videos: { $ifNull: ['$websiteMetadata.videos', { $ifNull: ['$inventoryInfo.inventoryVideos', []] }] },
-                    builtupDetails: { $ifNull: ['$builtupDetails', { $ifNull: ['$inventoryInfo.builtupDetails', []] }] }
+                    images: {
+                        $cond: {
+                            if: { $gt: [ { $size: { $ifNull: [ '$websiteMetadata.images', [] ] } }, 0 ] },
+                            then: '$websiteMetadata.images',
+                            else: { $ifNull: [ '$inventoryInfo.inventoryImages', [] ] }
+                        }
+                    },
+                    videos: {
+                        $cond: {
+                            if: { $gt: [ { $size: { $ifNull: [ '$websiteMetadata.videos', [] ] } }, 0 ] },
+                            then: '$websiteMetadata.videos',
+                            else: { $ifNull: [ '$inventoryInfo.inventoryVideos', [] ] }
+                        }
+                    },
+                    builtupDetails: {
+                        $cond: {
+                            if: { $gt: [ { $size: { $ifNull: [ '$builtupDetails', [] ] } }, 0 ] },
+                            then: '$builtupDetails',
+                            else: { $ifNull: [ '$inventoryInfo.builtupDetails', [] ] }
+                        }
+                    }
                 }
             },
             {
@@ -624,9 +643,27 @@ export const getListingBySlug = async (req, res) => {
                     sizeLabel: { $ifNull: ['$sizeLabel', { $ifNull: ['$unitSpecification.sizeLabel', '$inventoryInfo.sizeLabel'] }] },
                     category: { $ifNull: ['$category', '$inventoryInfo.category'] },
                     subCategory: { $ifNull: ['$subCategory', '$inventoryInfo.subCategory'] },
-                    images: { $ifNull: ['$websiteMetadata.images', { $ifNull: ['$inventoryInfo.inventoryImages', []] }] },
-                    videos: { $ifNull: ['$websiteMetadata.videos', { $ifNull: ['$inventoryInfo.inventoryVideos', []] }] },
-                    builtupDetails: { $ifNull: ['$builtupDetails', { $ifNull: ['$inventoryInfo.builtupDetails', []] }] }
+                    images: {
+                        $cond: {
+                            if: { $gt: [ { $size: { $ifNull: [ '$websiteMetadata.images', [] ] } }, 0 ] },
+                            then: '$websiteMetadata.images',
+                            else: { $ifNull: [ '$inventoryInfo.inventoryImages', [] ] }
+                        }
+                    },
+                    videos: {
+                        $cond: {
+                            if: { $gt: [ { $size: { $ifNull: [ '$websiteMetadata.videos', [] ] } }, 0 ] },
+                            then: '$websiteMetadata.videos',
+                            else: { $ifNull: [ '$inventoryInfo.inventoryVideos', [] ] }
+                        }
+                    },
+                    builtupDetails: {
+                        $cond: {
+                            if: { $gt: [ { $size: { $ifNull: [ '$builtupDetails', [] ] } }, 0 ] },
+                            then: '$builtupDetails',
+                            else: { $ifNull: [ '$inventoryInfo.builtupDetails', [] ] }
+                        }
+                    }
                 }
             },
             {
