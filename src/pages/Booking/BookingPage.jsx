@@ -1001,8 +1001,8 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                         <div style={{ width: '40px', height: '40px', border: '3px solid #e2e8f0', borderTopColor: '#6366f1', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
                     </div >
                 ) : (
-                    <div style={{ flex: 1, overflow: 'auto', padding: '20px 32px' }}>
-                        <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
+                    <div style={{ flex: 1, overflow: 'auto', padding: '0px' }}>
+                        <div style={{ background: '#fff', borderTop: '1px solid #e2e8f0', overflow: 'hidden' }}>
                                 {/* Risk Alert Banner */}
                                 {stats.atRiskDeals > 0 && (
                                     <div style={{ background: stats.criticalCount > 0 ? 'linear-gradient(135deg, #fef2f2, #fee2e2)' : 'linear-gradient(135deg, #fffbeb, #fef3c7)', padding: '12px 20px', display: 'flex', alignItems: 'center', gap: '12px', borderBottom: '1px solid #fecaca' }}>
@@ -1015,7 +1015,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                                         </button>
                                     </div>
                                 )}
-                            <div style={{ display: 'grid', gridTemplateColumns: '40px 1.5fr 1.2fr 2fr 1.5fr 2fr 1.2fr', background: '#f8fafc', padding: '16px 20px', borderBottom: '1px solid #e2e8f0', fontWeight: 600, color: '#475569', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '40px 1.5fr 1.2fr 2fr 1.5fr 2fr 1.2fr', background: '#f8fafc', padding: '16px 32px', borderBottom: '1px solid #e2e8f0', fontWeight: 600, color: '#475569', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                                 <div><input type="checkbox" onChange={toggleSelectAll} checked={selectedIds.length === filteredData.length && filteredData.length > 0} /></div>
                                 <div>Booking & Status</div>
                                 <div>Health</div>
@@ -1033,7 +1033,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                                 const urgencyColor = { Low: '#10b981', Medium: '#f59e0b', High: '#ef4444', Critical: '#dc2626' };
 
                                 return (
-                                    <div key={item.id} style={{ display: 'grid', gridTemplateColumns: '40px 1.5fr 1.2fr 2fr 1.5fr 2fr 1.2fr', padding: '20px', borderBottom: '1px solid #f1f5f9', alignItems: 'center', fontSize: '0.9rem', background: isSelected ? '#f0f9ff' : '#fff', transition: 'background 0.2s', cursor: 'pointer' }} onClick={() => toggleSelect(item.id)}>
+                                    <div key={item.id} style={{ display: 'grid', gridTemplateColumns: '40px 1.5fr 1.2fr 2fr 1.5fr 2fr 1.2fr', padding: '20px 32px', borderBottom: '1px solid #f1f5f9', alignItems: 'center', fontSize: '0.9rem', background: isSelected ? '#f0f9ff' : '#fff', transition: 'background 0.2s', cursor: 'pointer' }} onClick={() => toggleSelect(item.id)}>
                                         <div onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={isSelected} onChange={() => toggleSelect(item.id)} /></div>
                                         <div>
                                             <div style={{ fontWeight: 700, color: '#0f172a', marginBottom: '4px' }}>{item.id}</div>
