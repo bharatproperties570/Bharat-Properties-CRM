@@ -1,12 +1,18 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import AccountPage from '../Account/AccountPage'; // Import AccountPage as a sub-view
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import AccountPage from '../Account/AccountPage';
 import AddBookingModal from '../../components/AddBookingModal';
+import PaymentScheduleDrawer from '../../components/PaymentScheduleDrawer';
+import BookingFilterPanel from '../../components/BookingFilterPanel';
+import BookingAnalytics from './BookingAnalytics';
 import { api } from '../../utils/api';
 import ClosingFormModal from '../../components/ClosingFormModal';
 
 const BookingPage = ({ onNavigate, initialContextId }) => {
-    // View State: 'deals' (Command Center) or 'ledger' (Financial Control)
+    // View State: 'deals' | 'ledger' | 'analytics'
     const [currentView, setCurrentView] = useState('deals');
+
+    // Active server-side filters
+    const [activeFilters, setActiveFilters] = useState({});
 
     // --- Deals State ---
     const [activeTab, setActiveTab] = useState('All');
@@ -21,6 +27,13 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
     const [bookingToClose, setBookingToClose] = useState(null);
     const [filters, setFilters] = useState({});
     const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+    const activeFilterCount = Object.values(activeFilters).filter(v => (Array.isArray(v) ? v.length > 0 : !!v)).length;
+
+    // Payment Schedule Drawer
+    const [drawerBooking, setDrawerBooking] = useState(null);
+
+    // Dashboard KPI Stats (from server aggregate — true totals)
+    const [dashStats, setDashStats] = useState(null);
 
     const handleFeedbackClick = () => {
         const booking = bookings.find(b => b.id === selectedIds[0]);
@@ -39,40 +52,68 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
     const [sortConfig, setSortConfig] = useState({ label: 'Booking Date', by: 'bookingDate', order: -1 });
     const [isSortOpen, setIsSortOpen] = useState(false);
 
-    const fetchBookings = async () => {
+    const fetchBookings = useCallback(async () => {
         setIsLoading(true);
         try {
             const skip = (currentPage - 1) * recordsPerPage;
-            const response = await api.get(`/bookings?limit=${recordsPerPage}&skip=${skip}&sortBy=${sortConfig.by}&sortOrder=${sortConfig.order}`);
+            // Build query params including active filters
+            const params = new URLSearchParams({
+                limit: recordsPerPage,
+                skip,
+                sortBy: sortConfig.by,
+                sortOrder: sortConfig.order,
+            });
+            // Append active filters
+            if (activeFilters.status?.length)        activeFilters.status.forEach(s => params.append('status', s));
+            if (activeFilters.health?.length)         activeFilters.health.forEach(h => params.append('health', h));
+            if (activeFilters.salesAgent)             params.set('salesAgent', activeFilters.salesAgent);
+            if (activeFilters.channelPartner)         params.set('channelPartner', activeFilters.channelPartner);
+            if (activeFilters.project)               params.set('project', activeFilters.project);
+            if (activeFilters.dateFrom)              params.set('dateFrom', activeFilters.dateFrom);
+            if (activeFilters.dateTo)                params.set('dateTo', activeFilters.dateTo);
+            if (activeFilters.minValue)              params.set('minValue', activeFilters.minValue);
+            if (activeFilters.maxValue)              params.set('maxValue', activeFilters.maxValue);
+
+            const response = await api.get(`/bookings?${params.toString()}`);
             if (response.data.success) {
                 setTotalCount(response.data.count || 0);
                 const mapped = response.data.data.map(b => ({
-                    id: b.id || b._id.substring(b._id.length - 8).toUpperCase(),
+                    id: b.applicationNo || b._id.substring(b._id.length - 8).toUpperCase(),
                     _id: b._id,
                     dealType: b.type,
                     stage: b.status,
                     health: b.health || 'On Track',
+                    healthReason: b.healthReason || null,
                     dealDate: b.bookingDate,
+                    nextAction: b.nextAction || null,
                     customer: {
                         seller: {
                             name: b.seller?.name || 'N/A',
                             mobile: b.seller?.phones?.[0]?.number || b.seller?.mobile || '',
-                            avatar: b.seller?.name?.substring(0, 2).toUpperCase() || 'S'
+                            avatar: b.seller?.name?.substring(0, 2).toUpperCase() || 'S',
+                            fatherName: b.seller?.fatherName || '',
+                            address: b.seller?.personalAddress || {},
+                            raw: b.seller || {}
                         },
                         buyer: {
                             name: b.lead?.name || 'N/A',
                             mobile: b.lead?.phones?.[0]?.number || '',
-                            avatar: b.lead?.name?.substring(0, 2).toUpperCase() || 'NA'
+                            avatar: b.lead?.name?.substring(0, 2).toUpperCase() || 'NA',
+                            fatherName: b.lead?.fatherName || '',
+                            address: b.lead?.personalAddress || {},
+                            raw: b.lead || {}
                         }
                     },
                     property: {
-                        project: b.property?.projectName || b.project?.name || 'N/A',
+                        project: b.property?.projectName || b.property?.projectId?.name || b.project?.name || 'N/A',
                         unit: b.property?.unitNo || b.property?.unitNumber || 'N/A',
                         location: b.property?.location || b.project?.location || 'N/A',
                         block: b.property?.block || 'N/A'
                     },
                     financials: {
                         dealValue: b.totalDealAmount || 0,
+                        totalPaidAmount: b.totalPaidAmount || 0,
+                        totalBalanceAmount: b.totalBalanceAmount || 0,
                         agreementAmount: b.agreementAmount || 0,
                         agreementDate: b.agreementDate,
                         finalPaymentDate: b.finalPaymentDate,
@@ -81,13 +122,8 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                         buyerBrokerageAmount: b.buyerBrokerageAmount || 0,
                         commissionReceived: b.commissionReceived || 0,
                         commissionPending: b.commissionPending || 0
-                    },
-                    timeline: {
-                        daysInStage: 0,
-                        nextAction: null
                     }
                 }));
-
                 setBookings(mapped);
             }
         } catch (error) {
@@ -96,11 +132,24 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
         } finally {
             setIsLoading(false);
         }
-    };
+    }, [currentPage, recordsPerPage, sortConfig, activeFilters]);
+
+    const fetchDashStats = useCallback(async () => {
+        try {
+            const res = await api.get('/bookings/dashboard/stats');
+            if (res.data.success) setDashStats(res.data.data);
+        } catch (e) {
+            console.warn('Dashboard stats unavailable:', e.message);
+        }
+    }, []);
 
     useEffect(() => {
         fetchBookings();
-    }, [currentPage, recordsPerPage, sortConfig]);
+    }, [fetchBookings]);
+
+    useEffect(() => {
+        fetchDashStats();
+    }, [fetchDashStats]);
 
     // Logic to handle specific deal navigation (Drill-down)
     const handleViewLedger = (dealId) => {
@@ -137,10 +186,32 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
         return res.trim();
     };
 
-    const printShortAgreement = (booking) => {
+    const handleGenerateDoc = (docType) => {
+        if (selectedIds.length !== 1) {
+            alert("Please select exactly one booking to generate documents.");
+            return;
+        }
+        const booking = filteredData.find(b => b.id === selectedIds[0]);
+        if (!booking) return;
+
         const printWindow = window.open('', '_blank', 'width=900,height=800');
         if (printWindow) {
-            printWindow.document.write(`
+            const buyerName = booking.customer?.buyer?.name || '___________________________';
+            const buyerPhone = booking.customer?.buyer?.mobile || '___________________________';
+            const sellerName = booking.customer?.seller?.name || '___________________________';
+            const sellerPhone = booking.customer?.seller?.mobile || '___________________________';
+            
+            const propertyDetails = {
+                project: booking.property?.project || '___________________________',
+                unit: booking.property?.unit || '___________________________',
+                location: booking.property?.location || '___________________________',
+                block: booking.property?.block || '___________________________'
+            };
+
+            const totalValue = booking.financials?.dealValue || 0;
+
+            if (docType === 'Short Agreement') {
+                printWindow.document.write(`
                 <html>
                     <head>
                         <title>Short Agreement - ${booking.id}</title>
@@ -151,92 +222,339 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                             .party-info { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-bottom: 30px; background: #f8fafc; padding: 20px; borderRadius: 12px; }
                             .party-box h4 { margin: 0 0 10px 0; color: #6366f1; text-transform: uppercase; font-size: 0.8rem; letter-spacing: 1px; }
                             .party-name { font-size: 1.1rem; font-weight: 700; color: #0f172a; }
-                            .section { margin-bottom: 25px; }
-                            .section-title { font-weight: 800; color: #1e293b; margin-bottom: 10px; border-left: 4px solid #6366f1; padding-left: 10px; }
-                            .terms { padding-left: 20px; }
-                            .terms li { margin-bottom: 8px; text-align: justify; }
-                            .footer { margin-top: 50px; display: flex; justify-content: space-between; align-items: flex-end; }
-                            .sign-box { text-align: center; width: 220px; }
-                            .sign-line { border-top: 2px solid #cbd5e1; margin-bottom: 10px; }
+                            body { font-family: 'Helvetica', 'Arial', sans-serif; margin: 40px; color: #1e293b; line-height: 1.6; }
+                            .header { text-align: center; border-bottom: 3px solid #334155; padding-bottom: 20px; margin-bottom: 30px; }
+                            .company-name { font-size: 28px; font-weight: 900; color: #0f172a; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 2px; }
+                            .doc-title { font-size: 20px; font-weight: 600; color: #64748b; margin-top: 15px; }
+                            .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-bottom: 30px; }
+                            .box { border: 1px solid #cbd5e1; padding: 20px; border-radius: 8px; background: #f8fafc; }
+                            .box-title { font-size: 14px; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 12px; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; }
+                            .row { display: flex; justify-content: space-between; margin-bottom: 8px; border-bottom: 1px dotted #e2e8f0; padding-bottom: 4px; }
+                            .label { font-weight: 600; color: #475569; }
+                            .val { font-weight: 700; color: #0f172a; }
+                            .signature-section { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 60px; }
+                            .sig-box { border-top: 1px solid #94a3b8; padding-top: 10px; text-align: center; font-weight: 600; }
+                            .footer { margin-top: 50px; text-align: center; font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 20px; }
                         </style>
                     </head>
                     <body>
                         <div class="header">
-                            <div class="title">Property Booking Agreement</div>
-                            <div style="color: #64748b; font-size: 0.9rem; margin-top: 5px;">Reference ID: ${booking.id} | Date: ${new Date().toLocaleDateString()}</div>
+                            <div class="company-name">Bharat Properties</div>
+                            <div style="color: #64748b; font-size: 14px;">The Mark of Trust & Excellence in Real Estate</div>
+                            <div class="doc-title">BOOKING AGREEMENT (SHORT FORM)</div>
                         </div>
 
-                        <div class="party-info">
-                            <div class="party-box">
-                                <h4>First Party (Seller)</h4>
-                                <div class="party-name">${booking.customer.seller.name}</div>
-                                <div style="font-size: 0.85rem;">Mobile: ${booking.customer.seller.mobile}</div>
+                        <div style="text-align: right; margin-bottom: 20px; font-weight: 600;">
+                            Date: ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })}<br/>
+                            Ref: ${booking.id}
+                        </div>
+
+                        <div class="grid-2">
+                            <div class="box">
+                                <div class="box-title">Buyer Details (First Party)</div>
+                                <div class="row"><span class="label">Name:</span> <span class="val">${buyerName}</span></div>
+                                <div class="row"><span class="label">Contact:</span> <span class="val">${buyerPhone}</span></div>
                             </div>
-                            <div class="party-box">
-                                <h4>Second Party (Buyer)</h4>
-                                <div class="party-name">${booking.customer.buyer.name}</div>
-                                <div style="font-size: 0.85rem;">Mobile: ${booking.customer.buyer.mobile}</div>
+                            <div class="box">
+                                <div class="box-title">Seller Details (Second Party)</div>
+                                <div class="row"><span class="label">Name:</span> <span class="val">${sellerName}</span></div>
+                                <div class="row"><span class="label">Contact:</span> <span class="val">${sellerPhone}</span></div>
                             </div>
                         </div>
 
-                        <div class="section">
-                            <div class="section-title">Property Details</div>
-                            <p>Development/Project: <strong>${booking.property.project}</strong><br/>
-                               Unit/Plot No: <strong>${booking.property.unit}</strong> | Block: <strong>${booking.property.block}</strong><br/>
-                               Location: <strong>${booking.property.location}</strong>
-                            </p>
+                        <div class="box" style="margin-bottom: 30px;">
+                            <div class="box-title">Property Schedule</div>
+                            <div class="grid-2" style="margin-bottom: 0;">
+                                <div>
+                                    <div class="row"><span class="label">Project/Society:</span> <span class="val">${propertyDetails.project}</span></div>
+                                    <div class="row"><span class="label">Unit No:</span> <span class="val">${propertyDetails.unit}</span></div>
+                                </div>
+                                <div>
+                                    <div class="row"><span class="label">Location:</span> <span class="val">${propertyDetails.location}</span></div>
+                                    <div class="row"><span class="label">Block/Tower:</span> <span class="val">${propertyDetails.block}</span></div>
+                                </div>
+                            </div>
                         </div>
 
-                        <div class="section">
-                            <div class="section-title">Financial Summary</div>
-                            <table style="width: 100%; border-collapse: collapse;">
-                                <tr>
-                                    <td style="padding: 8px 0;">Total Consideration:</td>
-                                    <td style="text-align: right; font-weight: 700;">${formatCurrency(booking.financials.dealValue)}</td>
-                                </tr>
-                                <tr>
-                                    <td style="padding: 8px 0;">Booking Token Received:</td>
-                                    <td style="text-align: right; font-weight: 700;">${formatCurrency(booking.financials.agreementAmount)}</td>
-                                </tr>
-                                <tr style="border-top: 1px solid #e2e8f0;">
-                                    <td style="padding: 8px 0; font-weight: 700;">Balance Payment:</td>
-                                    <td style="text-align: right; font-weight: 800; color: #6366f1;">${formatCurrency(booking.financials.dealValue - booking.financials.agreementAmount)}</td>
-                                </tr>
-                            </table>
+                        <div class="box" style="margin-bottom: 30px; background: #fffbeb; border-color: #fcd34d;">
+                            <div class="box-title" style="color: #b45309; border-bottom-color: #fde68a;">Financial Summary</div>
+                            <div class="row"><span class="label">Total Consideration Value:</span> <span class="val" style="font-size: 16px; color: #b45309;">${formatCurrency(totalValue)}</span></div>
+                            <div class="row"><span class="label">Booking/Token Amount Paid:</span> <span class="val">${formatCurrency(booking.financials.totalPaidAmount || 0)}</span></div>
+                            <div class="row"><span class="label">Balance Amount Due:</span> <span class="val">${formatCurrency(booking.financials.totalBalanceAmount || 0)}</span></div>
+                            ${booking.financials.finalPaymentDate ? `<div class="row"><span class="label">Final Payment Due Date:</span> <span class="val">${new Date(booking.financials.finalPaymentDate).toLocaleDateString('en-IN')}</span></div>` : ''}
                         </div>
 
-                        <div class="section">
-                            <div class="section-title">Agreed Terms & Conditions</div>
-                            <ul class="terms">
-                                <li>The Second Party has verified the property and title documents and is satisfied with the same.</li>
-                                <li>The balance amount shall be paid on or before <strong>${booking.financials.finalPaymentDate ? new Date(booking.financials.finalPaymentDate).toLocaleDateString() : 'the time of registration'}</strong>.</li>
-                                <li>The First Party shall be responsible for clear title and handing over possession upon full payment.</li>
-                                <li>Transfer charges, registry fees, and other government levies shall be borne by the Second Party.</li>
-                                <li>If the Second Party fails to pay the balance within the stipulated time, the token amount may be forfeited.</li>
-                            </ul>
+                        </div>
+
+                        <div style="font-size: 13px; color: #475569; margin-bottom: 40px; text-align: justify;">
+                            <strong>Terms & Conditions:</strong><br/>
+                            1. This is a preliminary short agreement acknowledging the token amount received against the property mentioned above.<br/>
+                            2. A detailed and registered Agreement to Sell will be executed upon receipt of the mutually agreed milestone payment.<br/>
+                            3. In case of cancellation by the buyer, the token amount shall be forfeited as per standard market practice, unless agreed otherwise in writing.<br/>
+                            4. Bharat Properties acts solely as a facilitator/broker in this transaction.
+                        </div>
+
+                        <div class="signature-section">
+                            <div class="sig-box">Signature of First Party (Buyer)</div>
+                            <div class="sig-box">Signature of Second Party (Seller)</div>
                         </div>
 
                         <div class="footer">
-                            <div class="sign-box">
-                                <div class="sign-line"></div>
-                                <strong>Seller Signature</strong>
-                            </div>
-                            <div class="sign-box">
-                                <div class="sign-line"></div>
-                                <strong>Buyer Signature</strong>
-                            </div>
+                            Generated by Bharat Properties Enterprise CRM on ${new Date().toLocaleString('en-IN')}<br/>
+                            This is a system generated document.
                         </div>
-                        <script>window.onload = function() { window.print(); window.close(); }</script>
                     </body>
                 </html>
             `);
-            printWindow.document.close();
-        }
-    };
+        } else if (docType === 'Sale Agreement') {
+            printWindow.document.write(`
+                <html>
+                    <head>
+                        <title>Agreement for Sale - ${booking.id}</title>
+                        <style>
+                            body { font-family: 'Times New Roman', serif; margin: 60px; color: #000; line-height: 1.6; font-size: 15px; }
+                            .header { text-align: center; margin-bottom: 40px; }
+                            .doc-title { font-size: 24px; font-weight: 900; text-decoration: underline; margin-bottom: 5px; }
+                            .sub-title { font-size: 16px; font-weight: bold; }
+                            .section-heading { font-weight: bold; text-transform: uppercase; margin-top: 25px; margin-bottom: 10px; font-size: 16px; }
+                            .text-justify { text-align: justify; margin-bottom: 15px; }
+                            .bold { font-weight: bold; }
+                            .highlight { color: #b91c1c; font-weight: bold; } /* Based on the red highlights in user doc */
+                        </style>
+                    </head>
+                    <body>
+                        <div class="header">
+                            <div class="doc-title">AGREEMENT FOR SALE</div>
+                            <div class="sub-title">(SALE AGREEMENT / IKRARNAMA)</div>
+                        </div>
+                        
+                        <div class="text-justify">
+                            THIS AGREEMENT FOR SALE is executed on the <span class="bold">${new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</span> by and between the following parties:
+                        </div>
 
-    const printTokenReceipt = (booking) => {
-        const printWindow = window.open('', '_blank', 'width=800,height=600');
-        if (printWindow) {
+                        <div class="section-heading">FIRST PARTY (SELLER/VENDOR):</div>
+                        <div class="text-justify">
+                            <span class="bold">Sh. ${sellerName}</span>, son of Sh. _________________, resident of ${booking.customer?.seller?.address || '___________________________'}, 
+                            <span class="highlight">PAN: ${booking.customer?.seller?.pan || '___________'} | Aadhaar No.: ${booking.customer?.seller?.aadhaar || '___________'}</span>, 
+                            hereinafter referred to as the <span class="bold">"FIRST PARTY"</span> or <span class="bold">"SELLER"</span>, who is the owner and vendor of the plot described herein, and is represented by/in association with Sh. Praveen Kumar, son of Sh. Jai Bhagwan, resident of House No. 32, Sonkra Road, Taraori, District Karnal. 
+                            <span class="highlight">The First Party's legal heirs, successors, and permitted assigns shall also be bound by this Agreement.</span>
+                        </div>
+
+                        <div class="section-heading">SECOND PARTY (PURCHASER/BUYER):</div>
+                        <div class="text-justify">
+                            <span class="bold">Sh. ${buyerName}</span>, son of Sh. _________________, resident of ${booking.customer?.buyer?.address || '___________________________'}, 
+                            <span class="highlight">PAN: ${booking.customer?.buyer?.pan || '___________'} | Aadhaar No.: ${booking.customer?.buyer?.aadhaar || '___________'}</span>, 
+                            hereinafter referred to as the <span class="bold">"SECOND PARTY"</span> or <span class="bold">"PURCHASER"</span>. 
+                            <span class="highlight">The Second Party's legal heirs, successors, and permitted assigns shall also be bound by this Agreement.</span>
+                        </div>
+
+                        <div class="section-heading">WHEREAS:</div>
+                        <div class="text-justify">
+                            The First Party has agreed to sell and the Second Party has agreed to purchase <span class="bold">Plot No. ${propertyDetails.unit}, measuring _________</span>, 
+                            situated in <span class="bold">${propertyDetails.project}, ${propertyDetails.location}</span>, 
+                            for a total consideration of <span class="bold">${formatCurrency(totalValue)} (${numberToIndianWords(totalValue)} Only)</span>, 
+                            minus any outstanding dues payable to HUDA (if any), subject to the following terms and conditions:
+                        </div>
+
+                        <div class="section-heading">NOW, THEREFORE, IN CONSIDERATION OF THE MUTUAL COVENANTS AND AGREEMENTS, THE PARTIES AGREE AS FOLLOWS:</div>
+                        
+                        <div class="text-justify">
+                            <span class="bold">1. Title & Encumbrances:</span> The above-mentioned Plot No. ${propertyDetails.unit}, measuring _________, situated in ${propertyDetails.project}, ${propertyDetails.location}, was re-allotted to the First Party vide HUDA Letter No. 4033 dated 03/04/2006. The said plot is presently free and clear of all encumbrances, charges, liens, and liabilities of any kind with respect to HUDA. 
+                            <span class="highlight">The First Party further confirms that the said plot is free from any benami claim, court attachment, or government acquisition proceeding, and that the First Party holds clear and marketable title with full authority to sell.</span>
+                        </div>
+
+                        <div class="text-justify">
+                            <span class="bold">2. Token/Earnest Money Received:</span> The First Party acknowledges receipt of <span class="bold">${formatCurrency(booking.financials.totalPaidAmount || 0)} (${numberToIndianWords(booking.financials.totalPaidAmount || 0)} Only)</span> as earnest money/token amount from the Second Party, comprising: (a) <span class="bold">${formatCurrency(booking.financials.totalPaidAmount || 0)} (${numberToIndianWords(booking.financials.totalPaidAmount || 0)} Only)</span> via Transaction Nos. ________________ dated __________; and (b) <span class="bold">Rs. ______________/- (Rupees ___________________ Only)</span> in cash on ______________. 
+                            <span class="highlight">Both parties confirm that all payments have been made through legitimate and disclosed sources of funds, and both parties shall duly declare this amount in their respective Income Tax Returns for the relevant financial year.</span>
+                        </div>
+
+                        <div class="text-justify">
+                            <span class="bold">3. Tax Deduction at Source (TDS):</span> <span class="highlight">Since the total sale deed consideration amount exceeds Rs. 50,00,000/-, the Second Party (Purchaser) is required to deduct 1% TDS from the total sale deed consideration amount at the time of each payment, and deposit the same with the Government within the prescribed timeline using the applicable online form. The Second Party shall provide the TDS certificate to the First Party after such deposit. Both parties shall provide their respective PAN details, which are mandatory for this purpose. If the First Party fails to provide PAN, TDS shall be deducted at a higher rate as applicable under law.</span>
+                        </div>
+                        <div class="text-justify">
+                            <span class="bold">4. Payment of Balance Amount & Execution of Sale Deed:</span> The First Party shall receive the balance sale consideration from the Second Party within <span class="bold">${booking.financials?.finalPaymentDate ? new Date(booking.financials.finalPaymentDate).toLocaleDateString('en-IN', {day: '2-digit', month: '2-digit', year: 'numeric'}) : '________________'}</span>, upon receiving intimation of transfer approval from the concerned office. Upon receipt of the balance amount, the First Party shall simultaneously hand over all documents relating to the said plot to the Second Party and shall get the said plot registered in the office of the Sub-Registrar/Tehsil office. <span class="highlight">The Sale Deed shall be executed on non-judicial stamp paper of appropriate value and presented for registration within four months of execution. It is agreed that this Agreement to Sell does not transfer ownership of the said plot; title shall pass only upon execution and registration of the formal Sale Deed.</span>
+                        </div>
+
+                        <div class="text-justify">
+                            <span class="bold">5. Right to Transfer:</span> The Second Party shall have the absolute right to get the above-mentioned plot transferred and registered in his/her own name or in the name of any person of his/her choice, either by way of Transfer Deed, Sale Deed, or Power of Attorney. The First Party shall have no objection whatsoever in this regard. <span class="highlight">However, both parties acknowledge that transfer of ownership in immovable property is legally effective only upon registration of a duly executed Sale Deed; a Power of Attorney alone does not confer title.</span>
+                        </div>
+
+                        <div class="text-justify">
+                            <span class="bold">6. Liability for Dues Prior to Transfer:</span> Any amount outstanding or payable to HUDA, or to any other government or non-government authority or individual, with respect to the above-mentioned plot, up to the date of grant of transfer permission by the HUDA office, shall be the sole responsibility of the First Party. All dues arising after such date of transfer permission shall be the responsibility of the Second Party. <span class="highlight">This shall include, but not be limited to, property tax, development charges, maintenance dues, and any other statutory levies outstanding as of the transfer date.</span>
+                        </div>
+
+                        <div class="text-justify">
+                            <span class="bold">7. Interest on Delayed Payment:</span> In the event of any default or delay in payment of any instalment by the First Party, the First Party shall be liable to pay interest on the delayed amount. <span class="highlight">The rate of interest shall be calculated at SBI's prevailing Marginal Cost of Lending Rate (MCLR) plus 2% per annum, computed on a daily basis from the due date until the date of actual payment.</span>
+                        </div>
+
+                        <div class="text-justify">
+                            <span class="bold">8. Consequences of Non-Performance by First Party:</span> If the First Party fails to get the plot transferred and registered in the name of the Second Party by <span class="bold">${booking.financials?.finalPaymentDate ? new Date(booking.financials.finalPaymentDate).toLocaleDateString('en-IN', {day: '2-digit', month: '2-digit', year: 'numeric'}) : '________________'}</span> or before, after receipt of the transfer order, the First Party shall be bound to refund double the above-mentioned amount, i.e., <span class="bold">${formatCurrency((booking.financials.totalPaidAmount || 0) * 2)} (${numberToIndianWords((booking.financials.totalPaidAmount || 0) * 2)} Only)</span>, within 10 days. However, if the Second Party does not wish to accept double the amount and instead insists on taking possession of the said plot, then the Second Party/Purchaser shall have the right to get the said plot transferred in his/her own name or in the name of any person of his/her choice through a court of law, and shall also be entitled to recover all costs and litigation expenses from the First Party. The First Party shall have no objection in this regard. <span class="highlight">The Second Party shall also be entitled to seek specific performance of this Agreement through a competent court, and the First Party shall have no defence to such a claim.</span>
+                            <br/><br/>
+                            Conversely, if the Second Party fails to take possession of the plot by the specified date, the earnest money paid today shall stand forfeited in favour of the First Party, and the sale transaction shall stand cancelled.
+                        </div>
+
+                        <div class="text-justify">
+                            <span class="bold">9. Refund on Legal Impediment:</span> If the HUDA office refuses to grant transfer permission due to any legal impediment or restriction, the First Party shall be bound to refund the entire amount received from the Second Party within 7 (seven) days. <span class="highlight">In the event of such refund, interest at the applicable rate shall also be payable on the refund amount for each day of delay beyond the said 7-day period.</span>
+                        </div>
+
+                        <div class="text-justify">
+                            <span class="bold">10. Exclusive Agreement:</span> The First Party hereby assures the Second Party that no other agreement, sale deed, or any other document has been executed by the First Party with respect to this plot till date. The First Party further undertakes that during the validity/tenure of this Agreement, no other agreement shall be executed with any other person in respect of the said plot. <span class="highlight">Any breach of this undertaking shall entitle the Second Party to seek immediate relief from a court of law in addition to all other remedies available under this Agreement.</span>
+                        </div>
+
+                        <div class="text-justify">
+                            <span class="bold">11. Conveyance Deed Expenses:</span> In the event that HUDA issues orders for execution of a Conveyance Deed in favour of the First Party as a condition for transfer permission, the cost/stamp duty for the Conveyance Deed shall be borne by the First Party, and the cost of the Sale Deed shall be borne by the Second Party.
+                        </div>
+
+                        <div class="text-justify">
+                            <span class="bold">12. Transfer & Stamp Duty Expenses:</span> All expenses incurred in connection with the transfer of the said plot shall be borne by the Second Party. However, the First Party shall be bound to sign all documents required/demanded by the HUDA office in connection therewith. <span class="highlight">Stamp duty shall be paid on the higher of the actual sale consideration or the applicable circle rate, whichever is greater, as per the prevailing rates in Haryana. Registration charges shall be paid in addition to stamp duty and shall also be borne by the Second Party.</span>
+                        </div>
+
+                        <div class="text-justify">
+                            <span class="bold">13. Right of Second Party to Re-Sell:</span> If the Second Party wishes to further sell the above-mentioned plot to any other person, the Second Party shall have the full right to execute an agreement in writing with any third party in respect of the said plot. The First Party shall be bound to honour/abide by such agreement executed by the Second Party.
+                        </div>
+
+                        <div class="text-justify">
+                            <span class="bold">14. Brokerage/Commission:</span> This sale transaction has been facilitated by <span class="bold">Bharat Properties, Kurukshetra</span>. Both parties, i.e., the Buyer and Seller, shall be bound to pay commission at the rate of <span class="bold">1% (one percent)</span> of the total sale value to Bharat Properties. If either party fails to pay the commission, Bharat Properties, 166, Sector 3, HUDA Market, Kurukshetra, shall have the right to recover its commission amount along with costs of litigation through a court of law. Both parties have no objection in this regard. <span class="highlight">Both parties also confirm that they have provided the necessary identity and address proof documents to the real estate agent as part of the transaction process.</span>
+                        </div>
+
+                        <div class="text-justify">
+                            IN WITNESS WHEREOF, both parties have read, heard, and understood this Agreement and have signed the same of their own free will and volition, without any coercion or undue influence, so that it may serve as evidence at the appropriate time. The legal heirs and representatives/nominees of both parties shall also be legally bound by this Agreement. Any dispute arising in connection with this Agreement shall be subject to the jurisdiction of the Courts at <span class="bold">Kurukshetra</span>. <span class="highlight">Both parties further confirm that the transaction has been entered into with full disclosure of all material facts and that no misrepresentation has been made by either side.</span>
+                        </div>
+
+                        <div class="bold" style="text-transform: uppercase; margin-top: 40px; margin-bottom: 60px;">
+                            IN WITNESS WHEREOF BOTH THE PARTIES HAVE SIGNED THIS AGREEMENT ON THE ${new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }).toUpperCase()}, AT KURUKSHETRA.
+                        </div>
+
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 80px;">
+                            <div style="text-align: left;">
+                                <span class="bold">Signature of First Party</span><br/><br/><br/><br/>
+                                (${sellerName})
+                            </div>
+                            <div style="text-align: right;">
+                                <span class="bold">Signature of Second Party</span><br/><br/><br/><br/>
+                                (${buyerName})
+                            </div>
+                        </div>
+
+                        <div style="display: flex; justify-content: space-between;">
+                            <div style="text-align: left;">
+                                Witness No. 1: _______________________________<br/><br/>
+                                ________________________________________
+                            </div>
+                            <div style="text-align: left; padding-right: 150px;">
+                                Witness No. 2: 
+                            </div>
+                        </div>
+                    </body>
+                </html>
+            `);
+        } else if (docType === 'Demand Letter') {
+            printWindow.document.write(`
+                <html>
+                    <head>
+                        <title>Demand Letter - ${booking.id}</title>
+                        <style>
+                            body { font-family: 'Helvetica', 'Arial', sans-serif; margin: 50px; color: #1e293b; line-height: 1.6; }
+                            .header { text-align: center; border-bottom: 3px solid #334155; padding-bottom: 20px; margin-bottom: 40px; }
+                            .company-name { font-size: 28px; font-weight: 900; color: #0f172a; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 2px; }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="header">
+                            <div class="company-name">Bharat Properties</div>
+                            <div style="color: #64748b; font-size: 14px;">The Mark of Trust & Excellence in Real Estate</div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 40px; font-weight: 600;">
+                            <div>Date: ${new Date().toLocaleDateString('en-IN')}</div>
+                            <div>Ref: DL/${booking.id}</div>
+                        </div>
+                        <div style="margin-bottom: 30px;">
+                            <strong>To,</strong><br/>
+                            <strong>${buyerName}</strong><br/>
+                            Ph: ${buyerPhone}
+                        </div>
+                        <div style="text-align: center; font-weight: bold; font-size: 18px; margin-bottom: 30px; text-decoration: underline;">
+                            PAYMENT DEMAND LETTER
+                        </div>
+                        <div style="margin-bottom: 20px;">
+                            Dear Sir/Madam,<br/><br/>
+                            Greetings from Bharat Properties.<br/><br/>
+                            This is with reference to your booking of <strong>Unit No. ${propertyDetails.unit}</strong> in <strong>${propertyDetails.project}</strong>.<br/>
+                            As per the agreed payment schedule, your next installment is now due for payment.
+                        </div>
+                        <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px; text-align: left;">
+                            <tr style="background: #f1f5f9; border: 1px solid #cbd5e1;">
+                                <th style="padding: 10px; border: 1px solid #cbd5e1;">Description</th>
+                                <th style="padding: 10px; border: 1px solid #cbd5e1;">Amount Due</th>
+                            </tr>
+                            <tr>
+                                <td style="padding: 10px; border: 1px solid #cbd5e1;">Balance Consideration / Installment</td>
+                                <td style="padding: 10px; border: 1px solid #cbd5e1; font-weight: bold;">${formatCurrency(booking.financials.totalBalanceAmount || 0)}</td>
+                            </tr>
+                        </table>
+                        <div style="margin-bottom: 50px;">
+                            Kindly remit the payment at the earliest to avoid any delays in the registry/possession process.<br/>
+                            If the payment has already been made, please ignore this letter and share the transaction details with your relationship manager.<br/><br/>
+                            Thanking you,<br/><br/>
+                            <strong>For Bharat Properties</strong><br/><br/><br/>
+                            Authorized Signatory
+                        </div>
+                    </body>
+                </html>
+            `);
+        } else if (docType === 'Brokerage Invoice') {
+            printWindow.document.write(`
+                <html>
+                    <head>
+                        <title>Tax Invoice - ${booking.id}</title>
+                        <style>
+                            body { font-family: 'Helvetica', 'Arial', sans-serif; margin: 50px; color: #1e293b; line-height: 1.6; }
+                            .header { display: flex; justify-content: space-between; border-bottom: 3px solid #334155; padding-bottom: 20px; margin-bottom: 40px; }
+                            .company-name { font-size: 28px; font-weight: 900; color: #0f172a; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 2px; }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="header">
+                            <div>
+                                <div class="company-name">Bharat Properties</div>
+                                <div style="color: #64748b; font-size: 14px;">The Mark of Trust & Excellence in Real Estate</div>
+                            </div>
+                            <div style="text-align: right;">
+                                <h2 style="margin:0; color:#334155;">TAX INVOICE</h2>
+                                <div>Invoice No: INV/${booking.id}</div>
+                                <div>Date: ${new Date().toLocaleDateString('en-IN')}</div>
+                            </div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 40px;">
+                            <div>
+                                <strong>Billed To:</strong><br/>
+                                ${buyerName} (Buyer)<br/>
+                                ${sellerName} (Seller)<br/>
+                                Ref Property: ${propertyDetails.unit}, ${propertyDetails.project}
+                            </div>
+                        </div>
+                        <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
+                            <tr style="background: #f1f5f9;">
+                                <th style="padding: 12px; border: 1px solid #cbd5e1; text-align: left;">Description of Services</th>
+                                <th style="padding: 12px; border: 1px solid #cbd5e1; text-align: right;">Amount (INR)</th>
+                            </tr>
+                            <tr>
+                                <td style="padding: 12px; border: 1px solid #cbd5e1;">Professional Real Estate Brokerage / Consultancy Fees<br/><small style="color:#64748b;">(Against sale/purchase of property unit ${propertyDetails.unit})</small></td>
+                                <td style="padding: 12px; border: 1px solid #cbd5e1; text-align: right; font-weight: bold;">${formatCurrency(booking.financials.commissionTotal || 0)}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 12px; border: 1px solid #cbd5e1; text-align: right; font-weight: bold;">Total Amount Payable</td>
+                                <td style="padding: 12px; border: 1px solid #cbd5e1; text-align: right; font-weight: bold; font-size: 18px;">${formatCurrency(booking.financials.commissionTotal || 0)}</td>
+                            </tr>
+                        </table>
+                        <div style="margin-top: 60px;">
+                            <strong>Authorized Signatory</strong><br/><br/><br/>
+                            Bharat Properties
+                        </div>
+                    </body>
+                </html>
+            `);
+        } else if (docType === 'Token Receipt') {
             const amountInWords = numberToIndianWords(booking.financials.agreementAmount);
             printWindow.document.write(`
                 <html>
@@ -296,35 +614,38 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                     </body>
                 </html>
             `);
-            printWindow.document.close();
         }
-    };
+    }
+    printWindow.document.close();
+    setShowDocOptions(false);
+};
 
-    const handleGenerateDoc = (docType) => {
-        if (selectedIds.length !== 1) {
-            alert("Please select exactly one booking to generate documents.");
-            return;
-        }
-        const booking = filteredData.find(b => b.id === selectedIds[0]);
-        if (!booking) return;
-
-        if (docType === 'Short Agreement') {
-            printShortAgreement(booking);
-        } else if (docType === 'Token Receipt') {
-            printTokenReceipt(booking);
-        }
-        setShowDocOptions(false);
-    };
-
-    // --- Stats Calculation ---
+    // --- Stats: Use real server aggregate when available, fallback to page data ---
     const stats = useMemo(() => {
+        if (dashStats) {
+            return {
+                totalDeals: dashStats.activeBookings,
+                totalValue: dashStats.totalPipelineValue,
+                pendingComm: dashStats.totalCommissionPending,
+                atRiskDeals: dashStats.atRiskCount,
+                criticalCount: dashStats.criticalCount,
+                statusBreakdown: {
+                    pending: dashStats.pendingCount,
+                    booked: dashStats.bookedCount,
+                    agreement: dashStats.agreementCount,
+                    registry: dashStats.registryCount,
+                    cancelled: dashStats.cancelledCount,
+                }
+            };
+        }
+        // Fallback to page-local computation
         const data = bookings;
-        const totalDeals = data.length;
+        const totalDeals = data.filter(b => b.stage !== 'Cancelled').length;
         const totalValue = data.reduce((sum, b) => b.stage !== 'Cancelled' ? sum + b.financials.dealValue : sum, 0);
         const pendingComm = data.reduce((sum, b) => b.stage !== 'Cancelled' ? sum + b.financials.commissionPending : sum, 0);
-        const atRiskDeals = data.filter(b => b.health === 'At Risk' || b.health === 'Delayed').length;
-        return { totalDeals, totalValue, pendingComm, atRiskDeals };
-    }, [bookings]);
+        const atRiskDeals = data.filter(b => ['At Risk', 'Delayed', 'Critical'].includes(b.health)).length;
+        return { totalDeals, totalValue, pendingComm, atRiskDeals, criticalCount: 0 };
+    }, [bookings, dashStats]);
 
     // --- Filtering ---
     const filteredData = useMemo(() => {
@@ -425,6 +746,29 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
         );
     }
 
+    if (currentView === 'analytics') {
+        return (
+            <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                <div style={{ background: '#fff', borderBottom: '1px solid #e2e8f0', padding: '10px 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                        <button onClick={() => setCurrentView('deals')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}>
+                            <i className="fas fa-arrow-left"></i> Back to Bookings
+                        </button>
+                        <h2 style={{ fontSize: '1.1rem', margin: 0, fontWeight: 700, color: '#0f172a' }}>Post-Sale Analytics</h2>
+                    </div>
+                    <div style={{ background: '#f1f5f9', padding: '4px', borderRadius: '8px', display: 'flex', gap: '4px' }}>
+                        <button onClick={() => setCurrentView('deals')} style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', background: 'transparent', color: '#64748b', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}>Bookings</button>
+                        <button onClick={() => setCurrentView('analytics')} style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', background: '#fff', color: '#0f172a', fontWeight: 600, fontSize: '0.85rem', boxShadow: '0 1px 2px rgba(0,0,0,0.05)', cursor: 'default' }}>Analytics</button>
+                        <button onClick={() => setCurrentView('ledger')} style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', background: 'transparent', color: '#64748b', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}>Ledger</button>
+                    </div >
+                </div >
+                <div style={{ flex: 1, overflow: 'auto', background: '#f8fafc' }}>
+                    <BookingAnalytics />
+                </div>
+            </div >
+        );
+    }
+
     return (
         <section className="main-content" style={{ background: '#f8fafc', height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
             <div style={{ background: '#fff', borderBottom: '1px solid #e2e8f0', padding: '20px 32px' }}>
@@ -436,28 +780,42 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                         </div>
                         <p style={{ margin: 0, color: '#64748b', fontSize: '0.9rem' }}>Track deals, monitor risks, and ensure timely closings.</p>
                     </div>
-                    <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
-                        <div style={{ background: '#f1f5f9', padding: '4px', borderRadius: '8px', display: 'flex', gap: '4px' }}>
-                            <button onClick={() => setCurrentView('deals')} style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', background: '#fff', color: '#0f172a', fontWeight: 700, fontSize: '0.85rem', boxShadow: '0 1px 2px rgba(0,0,0,0.05)', cursor: 'default' }}>Bookings</button>
-                            <button onClick={() => setCurrentView('ledger')} style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', background: 'transparent', color: '#64748b', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}>Ledger</button>
+                    <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+                        {/* View Switcher — Bookings | Ledger | Analytics */}
+                        <div style={{ background: '#f1f5f9', padding: '4px', borderRadius: '10px', display: 'flex', gap: '2px' }}>
+                            {[['deals','fa-list','Bookings'],['analytics','fa-chart-bar','Analytics'],['ledger','fa-wallet','Ledger']].map(([view, icon, label]) => (
+                                <button key={view} onClick={() => setCurrentView(view)} style={{
+                                    padding: '7px 14px', borderRadius: '7px', border: 'none',
+                                    background: currentView === view ? '#fff' : 'transparent',
+                                    color: currentView === view ? '#4f46e5' : '#64748b',
+                                    fontWeight: currentView === view ? 700 : 600,
+                                    fontSize: '0.82rem',
+                                    boxShadow: currentView === view ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                                    cursor: 'pointer', transition: 'all 0.2s',
+                                    display: 'flex', alignItems: 'center', gap: '6px'
+                                }}>
+                                    <i className={`fas ${icon}`} style={{ fontSize: '0.75rem' }} />{label}
+                                </button>
+                            ))}
                         </div>
-                        <div style={{ display: 'flex', gap: '12px' }}>
-                            <button 
-                                className="btn-outline" 
-                                style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative' }}
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                            {/* Filters Button with active count */}
+                            <button
+                                className="btn-outline"
+                                style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative', background: activeFilterCount > 0 ? '#eef2ff' : undefined, borderColor: activeFilterCount > 0 ? '#6366f1' : undefined, color: activeFilterCount > 0 ? '#4f46e5' : undefined }}
                                 onClick={() => setIsFilterPanelOpen(true)}
                             >
-                                <i className="fas fa-filter"></i> Filters
-                                {Object.keys(filters || {}).length > 0 && (
+                                <i className="fas fa-sliders-h"></i> Filters
+                                {activeFilterCount > 0 && (
                                     <span style={{
-                                        position: 'absolute', top: '-5px', right: '-5px',
-                                        width: '10px', height: '10px', background: 'red', borderRadius: '50%',
-                                        border: '2px solid #fff', boxShadow: '0 0 5px rgba(255,0,0,0.3)'
-                                    }}></span>
+                                        background: '#6366f1', color: '#fff',
+                                        fontSize: '0.65rem', fontWeight: 700,
+                                        padding: '1px 6px', borderRadius: '99px', lineHeight: 1.5
+                                    }}>{activeFilterCount}</span>
                                 )}
                             </button>
                             <button className="btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <i className="fas fa-file-export"></i> Reports
+                                <i className="fas fa-file-export"></i> Export
                             </button>
                             <button onClick={() => setIsAddBookingModalOpen(true)} className="btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 4px 6px -1px rgba(99,102,241, 0.2)' }}>
                                 <i className="fas fa-plus"></i> New Booking
@@ -465,6 +823,23 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                         </div>
                     </div>
                 </div >
+
+                {/* Active Filter Pills */}
+                {activeFilterCount > 0 && (
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center', paddingBottom: '4px' }}>
+                        <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: 700 }}>FILTERS:</span>
+                        {activeFilters.status?.map(s => (
+                            <span key={s} onClick={() => { const nf = { ...activeFilters, status: activeFilters.status.filter(x => x !== s) }; setActiveFilters(nf); }} style={{ background: '#eef2ff', color: '#4f46e5', border: '1px solid #c7d2fe', borderRadius: '99px', padding: '2px 10px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>Status: {s} <i className="fas fa-times" style={{ fontSize: '0.6rem' }} /></span>
+                        ))}
+                        {activeFilters.health?.map(h => (
+                            <span key={h} onClick={() => { const nf = { ...activeFilters, health: activeFilters.health.filter(x => x !== h) }; setActiveFilters(nf); }} style={{ background: '#f0fdf4', color: '#15803d', border: '1px solid #bbf7d0', borderRadius: '99px', padding: '2px 10px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>Health: {h} <i className="fas fa-times" style={{ fontSize: '0.6rem' }} /></span>
+                        ))}
+                        {activeFilters.project && <span onClick={() => setActiveFilters(p => ({...p, project: ''}))} style={{ background: '#f8fafc', color: '#475569', border: '1px solid #e2e8f0', borderRadius: '99px', padding: '2px 10px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>Project: {activeFilters.project} <i className="fas fa-times" style={{ fontSize: '0.6rem' }} /></span>}
+                        {(activeFilters.dateFrom || activeFilters.dateTo) && <span onClick={() => setActiveFilters(p => ({...p, dateFrom: '', dateTo: ''}))} style={{ background: '#f8fafc', color: '#475569', border: '1px solid #e2e8f0', borderRadius: '99px', padding: '2px 10px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><i className="fas fa-calendar" /> {activeFilters.dateFrom||'…'} → {activeFilters.dateTo||'…'} <i className="fas fa-times" style={{ fontSize: '0.6rem' }} /></span>}
+                        {(activeFilters.minValue || activeFilters.maxValue) && <span onClick={() => setActiveFilters(p => ({...p, minValue: '', maxValue: ''}))} style={{ background: '#f8fafc', color: '#475569', border: '1px solid #e2e8f0', borderRadius: '99px', padding: '2px 10px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>₹{activeFilters.minValue||'0'} – ₹{activeFilters.maxValue||'∞'} <i className="fas fa-times" style={{ fontSize: '0.6rem' }} /></span>}
+                        <button onClick={() => setActiveFilters({})} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', padding: '2px 6px' }}>Clear all</button>
+                    </div>
+                )}
             </div >
 
             <div style={{ padding: '16px 32px', background: '#fff', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: '72px' }}>
@@ -500,14 +875,23 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                                 <i className={`fas fa-chevron-${showDocOptions ? 'up' : 'down'}`} style={{ fontSize: '0.7rem', marginLeft: '4px' }}></i>
                             </button>
                             {showDocOptions && (
-                                <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: '4px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 50, minWidth: '160px', overflow: 'hidden' }}>
+                                <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: '4px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 50, minWidth: '220px', overflow: 'hidden' }}>
+                                    <button onClick={() => handleGenerateDoc('Sale Agreement')} style={{ display: 'block', width: '100%', padding: '10px 16px', textAlign: 'left', border: 'none', background: '#fff', cursor: 'pointer', fontSize: '0.85rem', color: '#334155', borderBottom: '1px solid #f1f5f9', fontWeight: 600 }}>
+                                        <i className="fas fa-file-contract" style={{ marginRight: '8px', color: '#3b82f6' }}></i> Detailed Sale Agreement
+                                    </button>
                                     <button onClick={() => handleGenerateDoc('Short Agreement')} style={{ display: 'block', width: '100%', padding: '10px 16px', textAlign: 'left', border: 'none', background: '#fff', cursor: 'pointer', fontSize: '0.85rem', color: '#334155', borderBottom: '1px solid #f1f5f9' }}>
                                         <i className="fas fa-file-signature" style={{ marginRight: '8px', color: '#6366f1' }}></i> Short Agreement
                                     </button>
-                                    <button onClick={() => handleGenerateDoc('Token Receipt')} style={{ display: 'block', width: '100%', padding: '10px 16px', textAlign: 'left', border: 'none', background: '#fff', cursor: 'pointer', fontSize: '0.85rem', color: '#334155' }}>
+                                    <button onClick={() => handleGenerateDoc('Token Receipt')} style={{ display: 'block', width: '100%', padding: '10px 16px', textAlign: 'left', border: 'none', background: '#fff', cursor: 'pointer', fontSize: '0.85rem', color: '#334155', borderBottom: '1px solid #f1f5f9' }}>
                                         <i className="fas fa-receipt" style={{ marginRight: '8px', color: '#10b981' }}></i> Token Receipt
                                     </button>
-                                </div >
+                                    <button onClick={() => handleGenerateDoc('Demand Letter')} style={{ display: 'block', width: '100%', padding: '10px 16px', textAlign: 'left', border: 'none', background: '#fff', cursor: 'pointer', fontSize: '0.85rem', color: '#334155', borderBottom: '1px solid #f1f5f9' }}>
+                                        <i className="fas fa-envelope-open-text" style={{ marginRight: '8px', color: '#f59e0b' }}></i> Demand Letter
+                                    </button>
+                                    <button onClick={() => handleGenerateDoc('Brokerage Invoice')} style={{ display: 'block', width: '100%', padding: '10px 16px', textAlign: 'left', border: 'none', background: '#fff', cursor: 'pointer', fontSize: '0.85rem', color: '#334155' }}>
+                                        <i className="fas fa-file-invoice-dollar" style={{ marginRight: '8px', color: '#8b5cf6' }}></i> Brokerage Invoice
+                                    </button>
+                                </div>
                             )}
                         </div >
                         <div style={{ marginLeft: 'auto' }}>
@@ -627,6 +1011,18 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                 ) : (
                     <div style={{ flex: 1, overflow: 'auto', padding: '20px 32px' }}>
                         <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
+                                {/* Risk Alert Banner */}
+                                {stats.atRiskDeals > 0 && (
+                                    <div style={{ background: stats.criticalCount > 0 ? 'linear-gradient(135deg, #fef2f2, #fee2e2)' : 'linear-gradient(135deg, #fffbeb, #fef3c7)', padding: '12px 20px', display: 'flex', alignItems: 'center', gap: '12px', borderBottom: '1px solid #fecaca' }}>
+                                        <i className={`fas fa-${stats.criticalCount > 0 ? 'fire' : 'exclamation-triangle'}`} style={{ color: stats.criticalCount > 0 ? '#dc2626' : '#d97706', fontSize: '1rem' }} />
+                                        <span style={{ fontWeight: 700, color: stats.criticalCount > 0 ? '#991b1b' : '#92400e', fontSize: '0.85rem' }}>
+                                            {stats.criticalCount > 0 ? `🚨 ${stats.criticalCount} booking(s) CRITICAL` : `⚠️ ${stats.atRiskDeals} booking(s) at risk`} — review payment timelines
+                                        </span>
+                                        <button onClick={() => setActiveTab('All')} style={{ marginLeft: 'auto', fontSize: '0.78rem', padding: '4px 10px', background: '#fff', border: '1px solid #fecaca', borderRadius: '6px', color: '#dc2626', fontWeight: 600, cursor: 'pointer' }}>
+                                            View At Risk <i className="fas fa-arrow-right" />
+                                        </button>
+                                    </div>
+                                )}
                             <div style={{ display: 'grid', gridTemplateColumns: '40px 1.5fr 1.2fr 2fr 1.5fr 2fr 1.2fr', background: '#f8fafc', padding: '16px 20px', borderBottom: '1px solid #e2e8f0', fontWeight: 600, color: '#475569', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                                 <div><input type="checkbox" onChange={toggleSelectAll} checked={selectedIds.length === filteredData.length && filteredData.length > 0} /></div>
                                 <div>Booking & Status</div>
@@ -640,8 +1036,9 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                                 const stageStyle = getStageColor(item.stage);
                                 const healthColor = getHealthColor(item.health);
                                 const isSelected = selectedIds.includes(item.id);
-                                const dealPaidPercent = Math.min(((item.financials.dealPaid || 0) / (item.financials.dealValue || 1)) * 100, 100);
+                                const dealPaidPercent = Math.min(((item.financials.totalPaidAmount || 0) / (item.financials.dealValue || 1)) * 100, 100);
                                 const commPaidPercent = item.financials.commissionTotal > 0 ? Math.min(((item.financials.commissionReceived || 0) / item.financials.commissionTotal) * 100, 100) : 0;
+                                const urgencyColor = { Low: '#10b981', Medium: '#f59e0b', High: '#ef4444', Critical: '#dc2626' };
 
                                 return (
                                     <div key={item.id} style={{ display: 'grid', gridTemplateColumns: '40px 1.5fr 1.2fr 2fr 1.5fr 2fr 1.2fr', padding: '20px', borderBottom: '1px solid #f1f5f9', alignItems: 'center', fontSize: '0.9rem', background: isSelected ? '#f0f9ff' : '#fff', transition: 'background 0.2s', cursor: 'pointer' }} onClick={() => toggleSelect(item.id)}>
@@ -691,8 +1088,32 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                                                 <div style={{ width: '100%', height: '6px', background: '#e2e8f0', borderRadius: '3px' }}><div style={{ width: `${commPaidPercent}%`, height: '100%', background: '#10b981', borderRadius: '3px' }}></div></div>
                                             </div>
                                         </div>
-                                        <div>
-                                            <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>No pending actions</span>
+                                        <div onClick={e => { e.stopPropagation(); setDrawerBooking(item); }} style={{ cursor: 'pointer' }}>
+                                            {item.nextAction?.label ? (
+                                                <div>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
+                                                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: urgencyColor[item.nextAction.urgency] || '#f59e0b', flexShrink: 0 }} />
+                                                        <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#334155', lineHeight: 1.3 }}>{item.nextAction.label}</span>
+                                                    </div>
+                                                    {item.nextAction.dueDate && (
+                                                        <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginBottom: '6px' }}>
+                                                            <i className="fas fa-calendar" style={{ marginRight: '4px' }} />
+                                                            {new Date(item.nextAction.dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                                                        </div>
+                                                    )}
+                                                    <button style={{ fontSize: '0.72rem', padding: '3px 8px', background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}>
+                                                        <i className="fas fa-wallet" style={{ marginRight: '4px' }} /> View Payments
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <div>
+                                                    <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>—</span>
+                                                    <br />
+                                                    <button style={{ marginTop: '4px', fontSize: '0.72rem', padding: '3px 8px', background: '#f8fafc', color: '#475569', border: '1px solid #e2e8f0', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}>
+                                                        <i className="fas fa-wallet" style={{ marginRight: '4px' }} /> Payments
+                                                    </button>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 );
@@ -712,7 +1133,26 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
             <AddBookingModal
                 isOpen={isAddBookingModalOpen}
                 onClose={() => setIsAddBookingModalOpen(false)}
-                onSave={() => fetchBookings()}
+                onSave={() => { fetchBookings(); fetchDashStats(); }}
+            />
+
+            {drawerBooking && (
+                <PaymentScheduleDrawer
+                    booking={drawerBooking}
+                    onClose={() => setDrawerBooking(null)}
+                    onUpdate={() => { fetchBookings(); fetchDashStats(); }}
+                />
+            )}
+
+            <BookingFilterPanel
+                isOpen={isFilterPanelOpen}
+                onClose={() => setIsFilterPanelOpen(false)}
+                currentFilters={activeFilters}
+                onApply={(newFilters) => {
+                    setActiveFilters(newFilters);
+                    setCurrentPage(1);
+                    fetchDashStats();
+                }}
             />
 
             < SummaryFooter stats={stats} formatCurrency={formatCurrency} />
@@ -737,16 +1177,22 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
 };
 
 const SummaryFooter = ({ stats, formatCurrency }) => (
-    <div style={{ background: '#fff', borderTop: '1px solid #e2e8f0', padding: '16px 32px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '24px', position: 'sticky', bottom: 0, zIndex: 10 }}>
+    <div style={{ background: '#fff', borderTop: '2px solid #e2e8f0', padding: '14px 32px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '24px', position: 'sticky', bottom: 0, zIndex: 10 }}>
         {[
-            { label: 'Total Active Bookings', value: stats.totalDeals, color: '#10b981' },
-            { label: 'Active Pipeline Value', value: formatCurrency(stats.totalValue), color: '#0ea5e9' },
-            { label: 'Pending Commission', value: formatCurrency(stats.pendingComm), color: '#f59e0b' },
-            { label: 'Deals At Risk', value: stats.atRiskDeals, color: '#ef4444' }
+            { label: 'Total Active Bookings', value: stats.totalDeals, subValue: null, color: '#10b981', icon: 'fa-home' },
+            { label: 'Active Pipeline Value', value: formatCurrency(stats.totalValue), subValue: null, color: '#0ea5e9', icon: 'fa-rupee-sign' },
+            { label: 'Pending Commission', value: formatCurrency(stats.pendingComm), subValue: null, color: '#f59e0b', icon: 'fa-percentage' },
+            { label: 'Deals At Risk', value: stats.atRiskDeals, subValue: stats.criticalCount > 0 ? `${stats.criticalCount} Critical` : null, color: stats.atRiskDeals > 0 ? '#ef4444' : '#10b981', icon: 'fa-exclamation-triangle' }
         ].map((stat, i) => (
-            <div key={i} style={{ display: 'flex', flexDirection: 'column' }}>
-                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>{stat.label}</span>
-                <span style={{ fontSize: '1.1rem', fontWeight: 800, color: stat.color }}>{stat.value}</span>
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ width: '38px', height: '38px', background: `${stat.color}15`, borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <i className={`fas ${stat.icon}`} style={{ color: stat.color, fontSize: '0.9rem' }} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{stat.label}</span>
+                    <span style={{ fontSize: '1.05rem', fontWeight: 800, color: stat.color, lineHeight: 1.2 }}>{stat.value}</span>
+                    {stat.subValue && <span style={{ fontSize: '0.7rem', color: '#ef4444', fontWeight: 700 }}>{stat.subValue}</span>}
+                </div>
             </div>
         ))}
     </div>

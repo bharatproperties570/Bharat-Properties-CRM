@@ -227,9 +227,13 @@ app.use("/api/company-groups", companyGroupRoutes);
 app.use("/api/contact-groups", contactGroupRoutes);
 app.use("/api/portfolios", portfolioRoutes);
 app.use("/api/discovery", discoveryRoutes);
+import os from 'os';
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
+app.use("/uploads", express.static(os.tmpdir()));
 app.use("/api/uploads", express.static(path.join(process.cwd(), "uploads")));
+app.use("/api/uploads", express.static(os.tmpdir()));
 app.use("/api/public/uploads", express.static(path.join(process.cwd(), "uploads")));
+app.use("/api/public/uploads", express.static(os.tmpdir()));
 
 app.all("*", (req, res, next) => {
     console.error(`[404_FALLBACK] Missing Route: ${req.method} ${req.originalUrl}`);

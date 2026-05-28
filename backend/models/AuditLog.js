@@ -45,6 +45,9 @@ const AuditLogSchema = new mongoose.Schema({
             'lead_updated',
             'lead_deleted',
 
+            // Financial Events
+            'payment_updated',
+
             // Password Events
             'password_changed',
             'password_reset',

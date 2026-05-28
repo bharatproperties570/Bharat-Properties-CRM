@@ -148,17 +148,40 @@ export const invalidateDashboardCache = async (userId) => {
 };
 
 // Senior Professional Wrapper: Dynamic Queue and Worker mocking
+const mockQueues = new Map();
+const mockWorkers = new Map();
+
 export class Queue {
     constructor(name, opts = {}) {
         if (internalConnection.isMock) {
             this.name = name;
+            mockQueues.set(name, this);
             console.log(`[MockQueue] Registered mock queue: ${name}`);
             return this;
         }
         return new BullQueue(name, opts);
     }
     async add(name, data, opts) {
-        return { id: `mock-${Date.now()}` };
+        const jobId = `mock-${Date.now()}`;
+        if (internalConnection.isMock) {
+            const worker = mockWorkers.get(this.name);
+            if (worker && worker.processor) {
+                setTimeout(async () => {
+                    try {
+                        console.log(`[MockQueue] Processing job ${jobId} on queue ${this.name}`);
+                        await worker.processor({
+                            id: jobId,
+                            name: name,
+                            data: data,
+                            progress: 0
+                        });
+                    } catch (err) {
+                        console.error(`[MockQueue] Job ${jobId} failed:`, err);
+                    }
+                }, 50);
+            }
+        }
+        return { id: jobId };
     }
     on(event, cb) {
         return this;
@@ -173,6 +196,7 @@ export class Worker {
         if (internalConnection.isMock) {
             this.name = name;
             this.processor = processor;
+            mockWorkers.set(name, this);
             console.log(`[MockWorker] Registered mock worker: ${name}`);
             return this;
         }

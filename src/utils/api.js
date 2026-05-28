@@ -169,6 +169,11 @@ api.interceptors.request.use((config) => {
         // Let Axios handle boundary for FormData automatically
         if (config.data instanceof FormData) {
             delete config.headers['Content-Type'];
+            delete config.headers['content-type'];
+            if (config.headers.delete) {
+                config.headers.delete('content-type');
+                config.headers.delete('Content-Type');
+            }
         }
 
         // Also normalize the URL here for safety if called directly

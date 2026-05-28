@@ -244,7 +244,7 @@ const AddBookingModal = ({ isOpen, onClose, onSave, dealId = null }) => {
         const submissionData = { ...formData };
 
         // Ensure IDs are properly formatted strings if they come as objects
-        ['salesAgent', 'channelPartner', 'lead', 'property', 'project'].forEach(key => {
+        ['salesAgent', 'channelPartner', 'lead', 'property', 'project', 'dealId', 'seller'].forEach(key => {
             if (submissionData[key] && typeof submissionData[key] === 'object') {
                 submissionData[key] = submissionData[key]._id || submissionData[key].id || submissionData[key];
             }
@@ -361,7 +361,13 @@ const AddBookingModal = ({ isOpen, onClose, onSave, dealId = null }) => {
 
                                     const name = owner.name || 'N/A';
                                     const fatherName = owner.fatherName || owner.guardian || 'N/A';
-                                    const address = owner.personalAddress || owner.address?.locality || owner.address?.city || 'N/A';
+                                    
+                                    const formatAddr = (addr) => {
+                                        if (!addr) return null;
+                                        if (typeof addr === 'string') return addr;
+                                        return [addr.hNo, addr.street, addr.locality?.lookup_value || addr.locality, addr.city?.lookup_value || addr.city].filter(x => x && typeof x === 'string').join(', ') || null;
+                                    };
+                                    const address = formatAddr(owner.personalAddress) || owner.address?.locality || owner.address?.city || 'N/A';
 
                                     return (
                                         <>

@@ -387,9 +387,9 @@ const AddContactModal = ({
     workOffice: "",
 
     // System Details
-    campaign: null,
-    source: null,
-    subSource: null,
+    campaign: "",
+    source: "",
+    subSource: "",
     team: "",
     owner: null,
     visibleTo: "",
@@ -503,9 +503,9 @@ const AddContactModal = ({
           ...initialData,
           title: getId(initialData.title),
           countryCode: getId(initialData.countryCode),
-          campaign: getId(initialData.campaign),
-          source: getId(initialData.source),
-          subSource: getId(initialData.subSource),
+          campaign: getLookupValue('Campaign', initialData.campaign) || "",
+          source: getLookupValue('Source', initialData.source) || "",
+          subSource: getLookupValue('SubSource', initialData.subSource) || "",
           professionCategory: getId(initialData.professionCategory),
           professionSubCategory: getId(initialData.professionSubCategory),
           designation: getId(initialData.designation),
@@ -750,6 +750,17 @@ const AddContactModal = ({
 
       // --- DATA NORMALIZATION FOR BACKEND ---
       let finalFormData = { ...formData };
+
+      // Resolve String Names to Lookup IDs for Campaign/Source/Sub-Source
+      if (finalFormData.source) {
+        finalFormData.source = getLookupId('Source', finalFormData.source) || finalFormData.source;
+      }
+      if (finalFormData.subSource) {
+        finalFormData.subSource = getLookupId('SubSource', finalFormData.subSource) || finalFormData.subSource;
+      }
+      if (finalFormData.campaign) {
+        finalFormData.campaign = getLookupId('Campaign', finalFormData.campaign) || finalFormData.campaign;
+      }
 
       // 🛡️ Senior Implementation: Recursive Reference Normalizer & Cleaner
       const deepNormalize = (obj) => {

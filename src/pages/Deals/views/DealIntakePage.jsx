@@ -1074,14 +1074,14 @@ const DealIntakePage = () => {
 
                         return (
                             <div
-                                key={item.id}
+                                key={item._id || item.id}
                                 onClick={() => handleSelectIntake(item)}
                                 style={{
                                     padding: '15px',
                                     borderBottom: '1px solid #f1f5f9',
                                     cursor: 'pointer',
-                                    background: (currentItem?.id === item.id || currentItem?._id === item._id) ? '#eff6ff' : '#fff',
-                                    borderLeft: (currentItem?.id === item.id || currentItem?._id === item._id) ? '4px solid #3b82f6' : '4px solid transparent',
+                                    background: ((currentItem?._id || currentItem?.id) === (item._id || item.id)) ? '#eff6ff' : '#fff',
+                                    borderLeft: ((currentItem?._id || currentItem?.id) === (item._id || item.id)) ? '4px solid #3b82f6' : '4px solid transparent',
                                     transition: 'all 0.2s'
                                 }}
                             >
@@ -1134,7 +1134,7 @@ const DealIntakePage = () => {
                                                         if (data.success) {
                                                             toast.success('Item removed');
                                                             loadIntakeHistory();
-                                                            if (currentItem?.id === item.id || currentItem?._id === item._id) setCurrentItem(null);
+                                                            if ((currentItem?._id || currentItem?.id) === (item._id || item.id)) setCurrentItem(null);
                                                         }
                                                     } catch (err) {
                                                         toast.error('Failed to remove item');
@@ -1150,7 +1150,7 @@ const DealIntakePage = () => {
                                     </div>
                                 </div>
                                 <div style={{ fontSize: '0.8rem', color: '#334155', lineHeight: '1.4', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                                    {item.content}
+                                    {item.contentSnippet || item.content}
                                 </div>
                             </div>
                         );
@@ -1207,7 +1207,7 @@ const DealIntakePage = () => {
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                                 <div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                        <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>Intake #{renderValue(currentItem.id || currentItem._id)}</h2>
+                                        <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>Intake #{currentItem?._id ? currentItem._id.slice(-6).toUpperCase() : renderValue(currentItem?.id)}</h2>
                                         <div style={{
                                             padding: '2px 8px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 800,
                                             background: intakeType === 'BUYER' ? '#f0fdf4' : '#eff6ff',
@@ -1279,6 +1279,28 @@ const DealIntakePage = () => {
                                     </div>
                                 </div>
                             )}
+
+                            {/* Raw Source Data Box */}
+                            <div style={{ padding: '16px 40px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                                <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#475569', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <i className="fas fa-align-left"></i> Original Raw Message
+                                </div>
+                                <div style={{ 
+                                    background: '#fff', 
+                                    border: '1px solid #cbd5e1', 
+                                    borderRadius: '6px', 
+                                    padding: '12px', 
+                                    fontSize: '0.85rem', 
+                                    color: '#1e293b', 
+                                    whiteSpace: 'pre-wrap', 
+                                    maxHeight: '150px', 
+                                    overflowY: 'auto',
+                                    fontFamily: 'monospace',
+                                    lineHeight: '1.4'
+                                }}>
+                                    {currentItem?.content || "No raw content available."}
+                                </div>
+                            </div>
 
                             {/* Smart Structured ID Card */}
                             {duplicateStatus && (
@@ -1556,12 +1578,12 @@ const DealIntakePage = () => {
                                         }
                                     }}
                                     style={{ padding: '6px 12px', background: '#fff', color: '#475569', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <i className="far fa-copy"></i> Copy Text
+                                            <i className="far fa-copy"></i> Copy Text
                                 </button>
                                 <button
                                     onClick={() => {
                                         if (window.confirm("Mark as Spam and Remove?")) {
-                                            setIntakeItems(prev => prev.filter(i => i.id !== currentItem.id));
+                                            setIntakeItems(prev => prev.filter(i => (i._id || i.id) !== (currentItem._id || currentItem.id)));
                                             setCurrentItem(null);
                                             setStage(0);
                                             toast.success("Marked as Spam");
@@ -2043,7 +2065,7 @@ const DealIntakePage = () => {
                                             <div style={{ marginTop: '30px', textAlign: 'center' }}>
                                                 <button
                                                     onClick={() => {
-                                                        setIntakeItems(prev => prev.filter(i => i.id !== currentItem.id));
+                                                        setIntakeItems(prev => prev.filter(i => (i._id || i.id) !== (currentItem._id || currentItem.id)));
                                                         setStage(0);
                                                         setCurrentItem(null);
                                                         toast.success("Buyer Intake Completed");

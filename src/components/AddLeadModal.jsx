@@ -536,6 +536,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
         purpose: 'End use',
         nri: false,
         subType: [],
+        sizeType: [],
         unitType: [],
         budgetMin: '',
         budgetMax: '',
@@ -653,7 +654,8 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                 status: getLookupValue('Status', initialData.status) || prev.status,
                 budget: getLookupValue('Budget', initialData.budget) || prev.budget,
                 propertyType: Array.isArray(initialData.propertyType) ? initialData.propertyType.map(v => getLookupValue('Category', v)).filter(Boolean) : (initialData.propertyType ? [getLookupValue('Category', initialData.propertyType)].filter(Boolean) : []),
-                subType: Array.isArray(initialData.subType) ? initialData.subType.map(v => getLookupValue('SubCategory', v)).filter(Boolean) : (initialData.subRequirement ? [getLookupValue('SubCategory', initialData.subRequirement)].filter(Boolean) : []),
+                subType: Array.isArray(initialData.subType) ? initialData.subType.map(v => getLookupValue('SubCategory', v)).filter(Boolean) : [],
+                sizeType: Array.isArray(initialData.sizeType) ? initialData.sizeType.map(v => getLookupValue('PropertyType', v)).filter(Boolean) : [],
                 unitType: Array.isArray(initialData.unitType) ? initialData.unitType.map(v => getLookupValue('UnitType', v)).filter(Boolean) : [],
                 facing: Array.isArray(initialData.facing) ? initialData.facing.map(v => getLookupValue('Facing', v)).filter(Boolean) : [],
                 roadWidth: Array.isArray(initialData.roadWidth) ? initialData.roadWidth.map(v => getLookupValue('RoadWidth', v)).filter(Boolean) : [],
@@ -698,6 +700,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                 purpose: 'End use',
                 nri: false,
                 subType: [],
+                sizeType: [],
                 unitType: [],
                 budgetMin: '',
                 budgetMax: '',
@@ -1015,6 +1018,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                     status: getLookupId('Status', leadPayload.status) || leadPayload.status,
                     propertyType: (leadPayload.propertyType || []).map(v => getLookupId('Category', v) || v).filter(Boolean),
                     subType: (leadPayload.subType || []).map(v => getLookupId('SubCategory', v) || v).filter(Boolean),
+                    sizeType: (leadPayload.sizeType || []).map(v => getLookupId('PropertyType', v) || v).filter(Boolean),
                     unitType: (leadPayload.unitType || []).map(v => getLookupId('UnitType', v) || v).filter(Boolean),
                     facing: (leadPayload.facing || []).map(v => getLookupId('Facing', v) || v).filter(Boolean),
                     roadWidth: (leadPayload.roadWidth || []).map(v => getLookupId('RoadWidth', v) || v).filter(Boolean),
@@ -2405,8 +2409,8 @@ const RequirementSection = React.memo(function RequirementSection({
                                 });
                                 return Array.from(new Set(allRawTypes)).sort();
                             })()}
-                            value={formData.unitType}
-                            onChange={(val) => handleInputChange('unitType', val)}
+                            value={formData.sizeType || []}
+                            onChange={(val) => handleInputChange('sizeType', val)}
                             placeholder={formData.subType.length > 0 ? "Select Size Types" : "Select Sub-Category First"}
                             disabled={formData.subType.length === 0}
                         />

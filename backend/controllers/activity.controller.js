@@ -1344,7 +1344,7 @@ export const getMessagingActivities = async (req, res) => {
             unified = unified.filter(i => i.participant.toLowerCase().includes(s) || i.phone.includes(s) || (i.description || '').toLowerCase().includes(s));
         }
 
-        unified.sort((a, b) => (new Date(b.timestamp) - new Date(a.timestamp)) * sortOrder);
+        unified.sort((a, b) => (new Date(a.timestamp) - new Date(b.timestamp)) * sortOrder);
 
         const totalCount = unified.length;
         const startIndex = (page - 1) * limit;

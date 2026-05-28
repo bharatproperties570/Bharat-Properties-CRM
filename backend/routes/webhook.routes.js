@@ -11,6 +11,8 @@ import {
     websiteLiveBotWebhook,
     launchCampaignManual,
     exotelCallback,
+    facebookLeadVerify,
+    facebookLeadWebhook
 } from '../controllers/webhook.controller.js';
 
 const router = express.Router();
@@ -32,6 +34,8 @@ router.get('/whatsapp-live-bot',  whatsAppLiveBotVerify);    // Live AI WhatsApp
 router.post('/whatsapp-live-bot', whatsAppLiveBotWebhook);   // Live AI WhatsApp Meta Incoming Messages
 router.post('/website-chat',     websiteLiveBotWebhook);     // Public Website Live Chat API
 router.post('/exotel-callback',  exotelCallback);            // Exotel call status callback
+router.get('/facebook-lead',     facebookLeadVerify);        // Facebook Lead ads webhook verification
+router.post('/facebook-lead',    facebookLeadWebhook);       // Facebook Lead ads inbound webhook
 
 // ── Internal endpoint (called from Marketing Suite UI, auth applied globally) ──
 router.post('/campaign/launch',  launchCampaignManual);      // Manual campaign trigger

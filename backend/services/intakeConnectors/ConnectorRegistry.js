@@ -29,11 +29,10 @@ class ConnectorRegistry {
 
     getConnector(sourceType) {
         console.log(`[ConnectorRegistry] Fetching connector for: ${sourceType}`);
-        console.log(`[ConnectorRegistry] Registered types:`, Array.from(this.connectors.keys()));
-        const connector = this.connectors.get(sourceType);
+        let connector = this.connectors.get(sourceType);
         if (!connector) {
-            console.error(`[ConnectorRegistry] CRITICAL: No connector found for ${sourceType}`);
-            throw new Error(`No connector registered for source_type: ${sourceType}`);
+            console.warn(`[ConnectorRegistry] No connector found for ${sourceType}. Falling back to manual connector.`);
+            connector = this.connectors.get('manual');
         }
         return connector;
     }

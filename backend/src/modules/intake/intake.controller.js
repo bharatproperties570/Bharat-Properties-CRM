@@ -21,8 +21,28 @@ if (!fs.existsSync(uploadsDir)) {
  */
 export const getIntakes = async (req, res) => {
     try {
-        // Exclude 'content' to keep the list lightweight
-        const intakes = await Intake.find().select('-content').sort({ receivedAt: -1 }).limit(100);
+        const intakes = await Intake.aggregate([
+            { $sort: { receivedAt: -1 } },
+            { $limit: 100 },
+            {
+                $addFields: {
+                    contentSnippet: {
+                        $cond: {
+                            if: { $eq: [{ $type: "$content" }, "string"] },
+                            then: { $substrCP: ["$content", 0, 150] },
+                            else: ""
+                        }
+                    }
+                }
+            },
+            { $project: { content: 0 } }
+        ]);
+        
+        // Ensure id property is present for frontend compatibility
+        intakes.forEach(item => {
+            item.id = item._id.toString();
+        });
+        
         res.status(200).json({ success: true, data: intakes });
     } catch (error) {
         console.error("[Intake:Get Error]:", error);

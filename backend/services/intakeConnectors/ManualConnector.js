@@ -13,9 +13,10 @@ class ManualConnector extends BaseConnector {
         // Use AI Parsing or simple extraction if parsedData is already provided
         const extracted = parsedData || {};
         
+        const cleanText = (text || extracted.rawText || '').substring(0, 50000);
         const normalized = {
             title: extracted.projectName || extracted.location || 'Manual Entry',
-            description: text || extracted.rawText || '',
+            description: cleanText,
             location: extracted.location || '',
             sector: extracted.sector || '',
             property_type: extracted.property_type || '',
@@ -26,7 +27,10 @@ class ManualConnector extends BaseConnector {
             extracted_entities: extracted,
             verification_status: 'unverified',
             source_confidence: parsedData ? 80 : 50,
-            raw_source_data: inputData
+            raw_source_data: typeof inputData === 'object' ? {
+                ...inputData,
+                text: (inputData.text || '').substring(0, 50000)
+            } : inputData
         };
 
         const finalData = this.validateAndClean(normalized);

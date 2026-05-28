@@ -38,6 +38,7 @@ const LeadSchema = new mongoose.Schema({
     propertyType: [{ type: mongoose.Schema.Types.Mixed, ref: 'Lookup' }],
     subType: [{ type: mongoose.Schema.Types.Mixed, ref: 'Lookup' }],
     unitType: [{ type: mongoose.Schema.Types.Mixed, ref: 'Lookup' }],
+    sizeType: [{ type: mongoose.Schema.Types.Mixed, ref: 'Lookup' }],
     facing: [{ type: mongoose.Schema.Types.Mixed, ref: 'Lookup' }],
     roadWidth: [{ type: mongoose.Schema.Types.Mixed, ref: 'Lookup' }],
     direction: [{ type: mongoose.Schema.Types.Mixed, ref: 'Lookup' }],
@@ -203,7 +204,7 @@ const sanitizeLeadData = async (data) => {
     });
 
     // 3. Array Protection (Ensure arrays are arrays and not corrupted)
-    const arrayFields = ['propertyType', 'subType', 'unitType', 'facing', 'roadWidth', 'direction', 'teams', 'tags', 'projectName'];
+    const arrayFields = ['propertyType', 'subType', 'unitType', 'sizeType', 'facing', 'roadWidth', 'direction', 'teams', 'tags', 'projectName'];
     arrayFields.forEach(f => {
         if (data[f] !== undefined) {
             if (!Array.isArray(data[f])) {
@@ -253,6 +254,8 @@ LeadSchema.pre('save', async function (next) {
     const arrayLookups = {
         propertyType: 'Category',
         subType: 'SubCategory',
+        unitType: 'UnitType',
+        sizeType: 'PropertyType',
         facing: 'Facing',
         roadWidth: 'RoadWidth',
         direction: 'Direction'
@@ -334,6 +337,7 @@ LeadSchema.pre('findOneAndUpdate', async function (next) {
         propertyType: 'Category',
         subType: 'SubCategory',
         unitType: 'UnitType',
+        sizeType: 'PropertyType',
         facing: 'Facing',
         roadWidth: 'RoadWidth',
         direction: 'Direction'

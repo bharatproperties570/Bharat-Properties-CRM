@@ -1,5 +1,6 @@
 import multer from 'multer';
 import path from 'path';
+import fs from 'fs';
 
 // Allowed MIME types across the entire Application
 const ALLOWED_MIME_TYPES = {
@@ -27,8 +28,24 @@ const ALLOWED_MIME_TYPES = {
     'application/octet-stream': ['.zip', '.csv', '.txt']
 };
 
+import os from 'os';
+
+const getUploadDir = () => {
+    try {
+        if (!fs.existsSync('uploads')) {
+            fs.mkdirSync('uploads', { recursive: true });
+        }
+        return 'uploads/';
+    } catch (e) {
+        console.warn('[Multer] uploads/ is not writeable. Falling back to OS temp directory.');
+        return os.tmpdir();
+    }
+};
+
 const storage = multer.diskStorage({
-    destination: 'uploads/',
+    destination: (req, file, cb) => {
+        cb(null, getUploadDir());
+    },
     filename: (req, file, cb) => {
         // Prevent Path traversal & overwrite attacks
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);

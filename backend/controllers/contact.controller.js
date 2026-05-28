@@ -20,7 +20,15 @@ const populateFields = [
     { path: 'groups' },
     { path: 'assignment.assignedTo', select: 'fullName email name' },
     { path: 'assignment.assignedBy', select: 'fullName email name' },
-    { path: 'assignment.team', select: 'name' }
+    { path: 'assignment.team', select: 'name' },
+    { path: 'source' },
+    { path: 'subSource' },
+    { path: 'campaign' },
+    { path: 'title' },
+    { path: 'countryCode' },
+    { path: 'professionCategory' },
+    { path: 'professionSubCategory' },
+    { path: 'designation' }
 ];
 
 // 🛡️ Senior Professional: Data Normalization Utility
