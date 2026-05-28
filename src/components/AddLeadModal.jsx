@@ -14,7 +14,7 @@ import { renderValue } from '../utils/renderUtils';
 // DIRECTION_OPTIONS import removed if unused
 
 // Simple Custom Multi-Select Component
-const CustomMultiSelect = ({ options, value, onChange, placeholder, disabled }) => {
+const CustomMultiSelect = ({ options, value, onChange, placeholder, disabled, allowSelectAll = false }) => {
     const [isOpen, setIsOpen] = useState(false);
     const containerRef = useRef(null);
 
@@ -65,6 +65,37 @@ const CustomMultiSelect = ({ options, value, onChange, placeholder, disabled }) 
 
             {isOpen && !disabled && (
                 <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', marginTop: '4px', zIndex: 50, maxHeight: '220px', overflowY: 'auto', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}>
+                    {allowSelectAll && options.length > 0 && (
+                        <div
+                            onClick={() => {
+                                const safeValue = Array.isArray(value) ? value : [];
+                                if (safeValue.length === options.length) {
+                                    onChange([]);
+                                } else {
+                                    onChange([...options]);
+                                }
+                            }}
+                            style={{
+                                padding: '10px 12px',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px',
+                                borderBottom: '2px solid #e2e8f0',
+                                background: '#f8fafc',
+                                fontWeight: 600
+                            }}
+                            className="hover:bg-slate-100"
+                        >
+                            <input
+                                type="checkbox"
+                                checked={Array.isArray(value) && value.length === options.length && options.length > 0}
+                                readOnly
+                                style={{ width: '14px', height: '14px', cursor: 'pointer' }}
+                            />
+                            <span style={{ fontSize: '0.9rem', color: '#0f172a' }}>Select All</span>
+                        </div>
+                    )}
                     {options.length > 0 ? options.map(opt => (
                         <div
                             key={opt}
@@ -2654,19 +2685,19 @@ const LocationSection = React.memo(function LocationSection({
                     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '20px' }}>
                         <div>
                             <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Facing</label>
-                            <CustomMultiSelect options={masterFields.facings || []} value={formData.facing} onChange={(val) => handleInputChange('facing', val)} placeholder="Select Facing" />
+                            <CustomMultiSelect options={masterFields.facings || []} value={formData.facing || []} onChange={(val) => handleInputChange('facing', val)} placeholder="Select Facing" allowSelectAll={true} />
                         </div>
                         <div>
                             <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Road Width</label>
-                            <CustomMultiSelect options={masterFields.roadWidths || []} value={formData.roadWidth} onChange={(val) => handleInputChange('roadWidth', val)} placeholder="Select Width" />
+                            <CustomMultiSelect options={masterFields.roadWidths || []} value={formData.roadWidth || []} onChange={(val) => handleInputChange('roadWidth', val)} placeholder="Select Width" allowSelectAll={true} />
                         </div>
                         <div>
                             <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Direction</label>
-                            <CustomMultiSelect options={masterFields.directions || []} value={formData.direction || []} onChange={(val) => handleInputChange('direction', val)} placeholder="Select Direction" />
+                            <CustomMultiSelect options={masterFields.directions || []} value={formData.direction || []} onChange={(val) => handleInputChange('direction', val)} placeholder="Select Direction" allowSelectAll={true} />
                         </div>
                         <div>
                             <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px' }}>Unit Type</label>
-                            <CustomMultiSelect options={masterFields.unitTypes || []} value={formData.unitType || []} onChange={(val) => handleInputChange('unitType', val)} placeholder="Select Unit Type" />
+                            <CustomMultiSelect options={masterFields.unitTypes || []} value={formData.unitType || []} onChange={(val) => handleInputChange('unitType', val)} placeholder="Select Unit Type" allowSelectAll={true} />
                         </div>
                     </div>
                 </div>
