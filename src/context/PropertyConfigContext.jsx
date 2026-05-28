@@ -1490,7 +1490,7 @@ export const PropertyConfigProvider = ({ children }) => {
                     id: l._id,
                     name: l.lookup_value
                 })) || []
-            }));
+            }), true);
 
             // Sync Lead Master Fields from Lookups (Funding, Timeline, Furnishing, Transaction)
             // This ensures "Add Lead" form is ALWAYS up to date with DB Lookups
@@ -1507,7 +1507,7 @@ export const PropertyConfigProvider = ({ children }) => {
                     furnishingStatuses: furnishingStatuses.length > 0 ? furnishingStatuses : prev.furnishingStatuses,
                     timelines: timelines.length > 0 ? timelines : prev.timelines
                 };
-            });
+            }, true);
 
             // Map Sizes for refreshSizes compatibility
             const sizesList = helperGet(newLookups, 'Size');
