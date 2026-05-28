@@ -1010,7 +1010,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                                         <span style={{ fontWeight: 700, color: stats.criticalCount > 0 ? '#991b1b' : '#92400e', fontSize: '0.85rem' }}>
                                             {stats.criticalCount > 0 ? `🚨 ${stats.criticalCount} booking(s) CRITICAL` : `⚠️ ${stats.atRiskDeals} booking(s) at risk`} — review payment timelines
                                         </span>
-                                        <button onClick={() => setActiveTab('All')} style={{ marginLeft: 'auto', fontSize: '0.78rem', padding: '4px 10px', background: '#fff', border: '1px solid #fecaca', borderRadius: '6px', color: '#dc2626', fontWeight: 600, cursor: 'pointer' }}>
+                                        <button onClick={() => { setActiveTab('All'); setActiveFilters(prev => ({ ...prev, health: ['At Risk', 'Delayed', 'Critical'] })); }} style={{ marginLeft: 'auto', fontSize: '0.78rem', padding: '4px 10px', background: '#fff', border: '1px solid #fecaca', borderRadius: '6px', color: '#dc2626', fontWeight: 600, cursor: 'pointer' }}>
                                             View At Risk <i className="fas fa-arrow-right" />
                                         </button>
                                     </div>
