@@ -799,26 +799,18 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                             ))}
                         </div>
                         <div style={{ display: 'flex', gap: '10px' }}>
-                            {/* Filters Button with active count */}
-                            <button
-                                className="btn-outline"
-                                style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative', background: activeFilterCount > 0 ? '#eef2ff' : undefined, borderColor: activeFilterCount > 0 ? '#6366f1' : undefined, color: activeFilterCount > 0 ? '#4f46e5' : undefined }}
-                                onClick={() => setIsFilterPanelOpen(true)}
-                            >
-                                <i className="fas fa-sliders-h"></i> Filters
-                                {activeFilterCount > 0 && (
-                                    <span style={{
-                                        background: '#6366f1', color: '#fff',
-                                        fontSize: '0.65rem', fontWeight: 700,
-                                        padding: '1px 6px', borderRadius: '99px', lineHeight: 1.5
-                                    }}>{activeFilterCount}</span>
-                                )}
-                            </button>
                             <button className="btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <i className="fas fa-file-export"></i> Export
                             </button>
-                            <button onClick={() => setIsAddBookingModalOpen(true)} className="btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 4px 6px -1px rgba(99,102,241, 0.2)' }}>
-                                <i className="fas fa-plus"></i> New Booking
+                            <button className="btn-outline" onClick={() => setIsFilterPanelOpen(true)} style={{ position: 'relative' }}>
+                                <i className="fas fa-filter"></i> Filters
+                                {activeFilterCount > 0 && (
+                                    <span style={{ 
+                                        position: 'absolute', top: '-5px', right: '-5px', 
+                                        width: '10px', height: '10px', background: 'red', borderRadius: '50%',
+                                        border: '2px solid #fff', boxShadow: '0 0 5px rgba(255,0,0,0.3)' 
+                                    }}></span>
+                                )}
                             </button>
                         </div>
                     </div>

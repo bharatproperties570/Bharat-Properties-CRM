@@ -15,6 +15,7 @@ import AddDealModal from '../components/AddDealModal';
 import AddQuoteModal from '../components/AddQuoteModal';
 import AddOfferModal from '../components/AddOfferModal';
 import ClosingFormModal from '../components/ClosingFormModal';
+import AddBookingModal from '../components/AddBookingModal';
 import { REQUIRED_FORM_TYPES } from '../utils/FormTriggerService';
 import { leadsAPI, dealsAPI } from '../utils/api';
 
@@ -26,6 +27,7 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
     const [showAddProjectModal, setShowAddProjectModal] = useState(false);
     const [showAddInventoryModal, setShowAddInventoryModal] = useState(false);
     const [showAddDealModal, setShowAddDealModal] = useState(false);
+    const [showAddBookingModal, setShowAddBookingModal] = useState(false);
     const [editingInventory, setEditingInventory] = useState(null);
     const [editingProject, setEditingProject] = useState(null);
     const [dealContext, setDealContext] = useState(null);
@@ -235,6 +237,7 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
                     onAddDeal={() => setShowAddDealModal(true)}
                     onAddProject={handleAddProject}
                     onAddInventory={() => setShowAddInventoryModal(true)}
+                    onAddBooking={() => setShowAddBookingModal(true)}
                 />
 
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
@@ -325,6 +328,19 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
                         }
                     }}
                 />
+
+                {showAddBookingModal && (
+                    <AddBookingModal
+                        isOpen={showAddBookingModal}
+                        onClose={() => setShowAddBookingModal(false)}
+                        onSave={() => {
+                            setShowAddBookingModal(false);
+                            if (typeof window !== 'undefined') {
+                                window.dispatchEvent(new Event('booking-updated'));
+                            }
+                        }}
+                    />
+                )}
 
                 {/* Additional Dynamic Modals */}
                 {showQuoteModal && (

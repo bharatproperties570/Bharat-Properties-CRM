@@ -6,7 +6,8 @@ const HeaderActionMenu = ({
     onAddDeal, 
     onAddProject, 
     onAddInventory, 
-    onAddActivity 
+    onAddActivity,
+    onAddBooking
 }) => {
     return (
         <div className="add-dropdown">
@@ -21,6 +22,7 @@ const HeaderActionMenu = ({
                 <a href="#" onClick={(e) => { e.preventDefault(); onAddDeal(); }}><i className="fas fa-handshake"></i> Add Deal</a>
                 <a href="#" onClick={(e) => { e.preventDefault(); onAddProject(); }}><i className="fas fa-building"></i> Add Project</a>
                 <a href="#" onClick={(e) => { e.preventDefault(); onAddInventory(); }}><i className="fas fa-boxes"></i> Add Inventory</a>
+                <a href="#" onClick={(e) => { e.preventDefault(); onAddBooking(); }}><i className="fas fa-file-contract"></i> Add Booking</a>
                 <a href="#" onClick={(e) => { e.preventDefault(); onAddActivity(); }}><i className="fas fa-tasks"></i> Add Activities</a>
             </div>
         </div>

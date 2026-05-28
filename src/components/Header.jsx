@@ -14,7 +14,7 @@ import ProfileMenu from './Header/ProfileMenu';
 // Hooks
 import { useNotifications } from '../hooks/useNotifications';
 
-function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompany, onAddProject, onAddInventory, onAddDeal }) {
+function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompany, onAddProject, onAddInventory, onAddDeal, onAddBooking }) {
     const { currentUser, logout } = useUserContext();
     const { isDark } = useTheme();
 
@@ -81,6 +81,7 @@ function Header({ onNavigate, onAddContact, onAddLead, onAddActivity, onAddCompa
                     onAddProject={onAddProject}
                     onAddInventory={onAddInventory}
                     onAddActivity={onAddActivity}
+                    onAddBooking={onAddBooking}
                 />
             </div>
 
