@@ -786,6 +786,39 @@ if (res && res.success) {
                                 <i className="fas fa-paper-plane"></i> {showSchedule ? 'Schedule Campaign' : 'Send Now'}
                             </button>
                         </div>
+                        {channel === 'WHATSAPP' && (
+                            <div style={{ marginTop: '16px', display: 'flex', justifyContent: 'flex-end' }}>
+                                <button
+                                    onClick={() => {
+                                        if (recipients.length === 0) {
+                                            toast.error("Please select at least one recipient");
+                                            return;
+                                        }
+                                        const phone = recipients[0].mobile || recipients[0].phone;
+                                        if (!phone) {
+                                            toast.error("First recipient does not have a valid phone number");
+                                            return;
+                                        }
+                                        if (recipients.length > 1) {
+                                            toast.success("Opening WhatsApp App for the first contact only. Browser popups restrict multiple tabs.");
+                                        }
+                                        const cleanPhone = phone.replace(/\D/g, '').slice(-10);
+                                        const text = encodeURIComponent(messageBody);
+                                        window.open(`https://wa.me/91${cleanPhone}?text=${text}`, '_blank');
+                                    }}
+                                    style={{
+                                        padding: '10px 24px', borderRadius: '8px', border: '1px solid #16a34a',
+                                        background: '#f0fdf4', color: '#16a34a', fontWeight: 700, cursor: 'pointer',
+                                        fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '8px',
+                                        transition: 'all 0.2s'
+                                    }}
+                                    onMouseEnter={(e) => { e.currentTarget.style.background = '#16a34a'; e.currentTarget.style.color = '#fff'; }}
+                                    onMouseLeave={(e) => { e.currentTarget.style.background = '#f0fdf4'; e.currentTarget.style.color = '#16a34a'; }}
+                                >
+                                    <i className="fab fa-whatsapp"></i> Send via WhatsApp App (Fallback)
+                                </button>
+                            </div>
+                        )}
                     </div>
 
                 </div>
