@@ -4,7 +4,7 @@ import Swal from 'sweetalert2';
 import { toast } from 'react-hot-toast';
 import { Sparkles, ShieldCheck, MessageSquare, Clock, Globe, Settings, Database, History, Ban } from 'lucide-react';
 import smsService from '../../../services/smsService';
-import { systemSettingsAPI } from '../../../utils/api';
+import api, { systemSettingsAPI } from '../../../utils/api';
 
 
 // --- Sub-Components ---
@@ -807,8 +807,28 @@ const MessagingSettingsPage = () => {
         }
     };
 
+    const loadWhatsAppTemplates = async () => {
+        try {
+            const res = await api.getWhatsAppTemplates();
+            if (res && res.templates) {
+                setAllTemplates(prev => ({
+                    ...prev,
+                    whatsapp: res.templates.map(t => ({ 
+                        ...t, 
+                        id: t.id || t.name, 
+                        tags: t.tags || ['Meta'],
+                        content: t.components?.find(c => c.type === 'BODY')?.text || '' 
+                    }))
+                }));
+            }
+        } catch (err) {
+            console.error('Failed to load WhatsApp templates', err);
+        }
+    };
+
     useEffect(() => {
         loadSmsTemplates();
+        loadWhatsAppTemplates();
     }, []);
 
     const tabs = [
