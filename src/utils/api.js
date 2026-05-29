@@ -599,6 +599,7 @@ export const authAPI = {
     login: (credentials) => apiRequest('/auth/login', { method: 'POST', body: JSON.stringify(credentials) }),
     register: (data) => apiRequest('/auth/register', { method: 'POST', body: JSON.stringify(data) }),
     getMe: () => apiRequest('/auth/me', { method: 'GET' }),
+    updateProfile: (data) => apiRequest('/auth/profile', { method: 'PUT', body: JSON.stringify(data) }),
 };
 
 // AI Agents API

@@ -108,6 +108,30 @@ const UserSchema = new mongoose.Schema({
     resetPasswordToken: String,
     resetPasswordExpires: Date,
 
+    // ========== Enterprise Profile ==========
+    preferences: {
+        language: { type: String, default: 'English (United States)' },
+        currency: { type: String, default: 'INR (₹)' },
+        workingHours: {
+            start: { type: String, default: '09:00' },
+            end: { type: String, default: '18:30' }
+        },
+        emailSignature: { type: String, default: '' }
+    },
+    security: {
+        twoFactorEnabled: { type: Boolean, default: false }
+    },
+    notifications: {
+        email: { type: Boolean, default: true },
+        push: { type: Boolean, default: true },
+        sms: { type: Boolean, default: false }
+    },
+    outOfOffice: {
+        active: { type: Boolean, default: false },
+        until: { type: Date },
+        message: { type: String }
+    },
+
     // ========== Security & Audit ==========
     lastLogin: {
         type: Date

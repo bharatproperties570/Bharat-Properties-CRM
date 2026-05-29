@@ -214,7 +214,90 @@ export const resetPassword = async (req, res) => {
 export const getMe = async (req, res) => {
     try {
         // req.user is already populated by the authenticate middleware
-        res.json({ success: true, user: { id: req.user._id, name: req.user.fullName || req.user.username, role: req.user.role, dataScope: req.user.dataScope, email: req.user.email } });
+        const user = await User.findById(req.user._id).populate('role', 'name moduleAccess');
+        if (!user) {
+            return res.status(404).json({ success: false, message: "User not found" });
+        }
+        res.json({ 
+            success: true, 
+            user: { 
+                id: user._id, 
+                _id: user._id,
+                name: user.fullName || user.username, 
+                fullName: user.fullName,
+                username: user.username,
+                email: user.email,
+                mobile: user.mobile,
+                phone: user.mobile,
+                role: user.role, 
+                dataScope: user.dataScope, 
+                department: user.department,
+                avatar: user.avatar,
+                preferences: user.preferences,
+                security: user.security,
+                notifications: user.notifications,
+                outOfOffice: user.outOfOffice
+            } 
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+export const updateProfile = async (req, res) => {
+    try {
+        const userId = req.user._id;
+        const updates = req.body;
+        
+        // Prevent users from escalating their own privileges
+        delete updates.role;
+        delete updates.dataScope;
+        delete updates.financialPermissions;
+        delete updates.isActive;
+        delete updates.status;
+        delete updates.department; // Generally department shouldn't be self-updated
+        
+        // Allowed nested fields
+        const allowedFields = ['preferences', 'security', 'notifications', 'outOfOffice', 'avatar', 'mobile', 'fullName'];
+        const updateObj = {};
+        
+        for (const field of allowedFields) {
+            if (updates[field] !== undefined) {
+                updateObj[field] = updates[field];
+            }
+        }
+
+        const updatedUser = await User.findByIdAndUpdate(
+            userId,
+            { $set: updateObj },
+            { new: true, runValidators: true }
+        ).populate('role', 'name');
+
+        if (!updatedUser) {
+            return res.status(404).json({ success: false, message: "User not found" });
+        }
+
+        res.json({
+            success: true,
+            user: {
+                id: updatedUser._id,
+                _id: updatedUser._id,
+                name: updatedUser.fullName || updatedUser.username,
+                fullName: updatedUser.fullName,
+                email: updatedUser.email,
+                mobile: updatedUser.mobile,
+                phone: updatedUser.mobile,
+                role: updatedUser.role,
+                dataScope: updatedUser.dataScope,
+                department: updatedUser.department,
+                avatar: updatedUser.avatar,
+                preferences: updatedUser.preferences,
+                security: updatedUser.security,
+                notifications: updatedUser.notifications,
+                outOfOffice: updatedUser.outOfOffice
+            }
+        });
+
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }

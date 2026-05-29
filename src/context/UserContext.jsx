@@ -129,6 +129,25 @@ export const UserProvider = ({ children }) => {
         };
     }, [logout]);
 
+    // Profile Operations
+    const updateProfile = async (profileData) => {
+        try {
+            const response = await authAPI.updateProfile(profileData);
+            if (response.success) {
+                const updatedUser = processUserWithAdminFlag(response.user || response.data);
+                setCurrentUser(updatedUser);
+                
+                // Also update in users list if present
+                setUsers(prev => prev.map(u => u._id === updatedUser._id ? updatedUser : u));
+                
+                return { success: true, data: updatedUser };
+            }
+            return { success: false, error: response.error || 'Failed to update profile' };
+        } catch (err) {
+            return { success: false, error: err.message };
+        }
+    };
+
     // User Operations
     const addUser = async (userData) => {
         try {
@@ -274,6 +293,7 @@ export const UserProvider = ({ children }) => {
         refreshData,
         login,
         logout,
+        updateProfile,
         token,
         currentUser
     };

@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { useUserContext } from '../../context/UserContext';
+import Swal from 'sweetalert2';
 
 const ProfilePage = () => {
-    const { currentUser } = useUserContext();
+    const { currentUser, updateProfile, logout } = useUserContext();
 
     // Mock user statistics
     const stats = [
@@ -13,14 +14,44 @@ const ProfilePage = () => {
     ];
 
     const [profilePicture, setProfilePicture] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
+    
+    // Enterprise States
+    const [preferences, setPreferences] = useState({
+        language: 'English (United States)',
+        currency: 'INR (₹)',
+        workingHours: { start: '09:00', end: '18:30' },
+        emailSignature: ''
+    });
+    const [toggles, setToggles] = useState({
+        twoFactor: false,
+        emailNotif: true,
+        pushNotif: true,
+        smsNotif: false
+    });
     const fileInputRef = useRef(null);
 
     useEffect(() => {
-        const savedPicture = localStorage.getItem('userProfilePicture');
-        if (savedPicture) {
-            setProfilePicture(savedPicture);
+        if (currentUser) {
+            setProfilePicture(currentUser.avatar || '');
+            if (currentUser.preferences) {
+                setPreferences({
+                    language: currentUser.preferences.language || 'English (United States)',
+                    currency: currentUser.preferences.currency || 'INR (₹)',
+                    workingHours: currentUser.preferences.workingHours || { start: '09:00', end: '18:30' },
+                    emailSignature: currentUser.preferences.emailSignature || ''
+                });
+            }
+            if (currentUser.security || currentUser.notifications) {
+                setToggles({
+                    twoFactor: currentUser.security?.twoFactorEnabled || false,
+                    emailNotif: currentUser.notifications?.email ?? true,
+                    pushNotif: currentUser.notifications?.push ?? true,
+                    smsNotif: currentUser.notifications?.sms ?? false
+                });
+            }
         }
-    }, []);
+    }, [currentUser]);
 
     const handlePictureUpload = (e) => {
         const file = e.target.files[0];
@@ -33,22 +64,42 @@ const ProfilePage = () => {
             reader.onload = () => {
                 const base64 = reader.result;
                 setProfilePicture(base64);
-                localStorage.setItem('userProfilePicture', base64);
-                window.dispatchEvent(new Event('storage'));
+                // Also trigger save for avatar immediately or let save button do it
             };
             reader.readAsDataURL(file);
         }
     };
 
-    const [toggles, setToggles] = useState({
-        twoFactor: true,
-        dataSync: true,
-        emailNotif: true
-    });
-
     const toggleSwitch = (key) => {
         setToggles(prev => ({ ...prev, [key]: !prev[key] }));
     };
+
+    const handlePreferenceChange = (field, value, isWorkingHour = false) => {
+        if (isWorkingHour) {
+            setPreferences(prev => ({ ...prev, workingHours: { ...prev.workingHours, [field]: value } }));
+        } else {
+            setPreferences(prev => ({ ...prev, [field]: value }));
+        }
+    };
+
+    const handleSave = async () => {
+        setIsSaving(true);
+        const data = {
+            avatar: profilePicture,
+            preferences,
+            security: { twoFactorEnabled: toggles.twoFactor },
+            notifications: { email: toggles.emailNotif, push: toggles.pushNotif, sms: toggles.smsNotif }
+        };
+        const res = await updateProfile(data);
+        setIsSaving(false);
+        if (res.success) {
+            Swal.fire('Saved!', 'Profile updated successfully.', 'success');
+        } else {
+            Swal.fire('Error', res.error || 'Failed to update profile', 'error');
+        }
+    };
+
+
 
     return (
         <section id="profileView" className="view-section active" style={{
@@ -76,8 +127,8 @@ const ProfilePage = () => {
                     <button className="btn-outline" style={{ padding: '6px 16px', fontSize: '0.8rem', borderRadius: '8px', border: '1px solid #e2e8f0', color: '#475569' }}>
                         <i className="fas fa-history" style={{ marginRight: '6px' }}></i> Log
                     </button>
-                    <button className="btn-primary" style={{ padding: '6px 20px', fontSize: '0.8rem', borderRadius: '8px' }}>
-                        SAVE
+                    <button className="btn-primary" onClick={handleSave} disabled={isSaving} style={{ padding: '6px 20px', fontSize: '0.8rem', borderRadius: '8px', opacity: isSaving ? 0.7 : 1 }}>
+                        {isSaving ? 'SAVING...' : 'SAVE'}
                     </button>
                 </div>
             </div>
@@ -191,11 +242,15 @@ const ProfilePage = () => {
                                 </h3>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                                     <div>
-                                        <label className="section-label" style={{ fontSize: '0.6rem' }}>Email Signature</label>
-                                        <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '8px', border: '1px solid #f1f5f9', fontSize: '0.75rem' }}>
-                                            <strong>{currentUser?.name || 'User'}</strong><br />
-                                            Bharat Properties {currentUser?.role?.name || ''}<br />
-                                            <span style={{ color: 'var(--primary-color)' }}>www.bharatproperties.in</span>
+                                        <label className="section-label" style={{ fontSize: '0.6rem' }}>Email Signature (HTML)</label>
+                                        <div style={{ marginTop: '4px' }}>
+                                            <textarea 
+                                                className="form-control" 
+                                                style={{ fontSize: '0.75rem', padding: '10px', height: '80px', resize: 'none' }}
+                                                value={preferences.emailSignature}
+                                                onChange={(e) => handlePreferenceChange('emailSignature', e.target.value)}
+                                                placeholder={`<strong>${currentUser?.name || 'User'}</strong><br/>...`}
+                                            ></textarea>
                                         </div>
                                     </div>
                                     <div>
@@ -213,16 +268,18 @@ const ProfilePage = () => {
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                                     <div>
                                         <label className="section-label" style={{ fontSize: '0.6rem' }}>Language</label>
-                                        <select className="form-control" style={{ fontSize: '0.8rem', padding: '6px 10px' }}>
-                                            <option>English (United States)</option>
+                                        <select className="form-control" value={preferences.language} onChange={(e) => handlePreferenceChange('language', e.target.value)} style={{ fontSize: '0.8rem', padding: '6px 10px' }}>
+                                            <option value="English (United States)">English (United States)</option>
+                                            <option value="Hindi">Hindi</option>
+                                            <option value="Spanish">Spanish</option>
                                         </select>
                                     </div>
                                     <div>
                                         <label className="section-label" style={{ fontSize: '0.6rem' }}>Working Hours</label>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                            <input type="time" className="form-control" defaultValue="09:00" style={{ fontSize: '0.8rem', padding: '6px 5px' }} />
+                                            <input type="time" className="form-control" value={preferences.workingHours.start} onChange={(e) => handlePreferenceChange('start', e.target.value, true)} style={{ fontSize: '0.8rem', padding: '6px 5px' }} />
                                             <span style={{ fontSize: '0.7rem' }}>-</span>
-                                            <input type="time" className="form-control" defaultValue="18:30" style={{ fontSize: '0.8rem', padding: '6px 5px' }} />
+                                            <input type="time" className="form-control" value={preferences.workingHours.end} onChange={(e) => handlePreferenceChange('end', e.target.value, true)} style={{ fontSize: '0.8rem', padding: '6px 5px' }} />
                                         </div>
                                     </div>
                                 </div>
@@ -235,8 +292,9 @@ const ProfilePage = () => {
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                             <div>
                                 <label className="section-label" style={{ fontSize: '0.6rem' }}>Currency & Format</label>
-                                <select className="form-control" style={{ fontSize: '0.8rem', padding: '6px 10px' }}>
-                                    <option>INR (₹) - Indian Rupee</option>
+                                <select className="form-control" value={preferences.currency} onChange={(e) => handlePreferenceChange('currency', e.target.value)} style={{ fontSize: '0.8rem', padding: '6px 10px' }}>
+                                    <option value="INR (₹)">INR (₹) - Indian Rupee</option>
+                                    <option value="USD ($)">USD ($) - US Dollar</option>
                                 </select>
                             </div>
                             <div>
@@ -291,7 +349,7 @@ const ProfilePage = () => {
                                 </div>
                             </div>
 
-                            <button className="btn-outline" style={{ width: '100%', fontSize: '0.75rem', padding: '10px', color: '#ef4444', borderColor: '#fee2e2', background: '#fef2f2' }}>
+                            <button className="btn-outline" onClick={() => logout()} style={{ width: '100%', fontSize: '0.75rem', padding: '10px', color: '#ef4444', borderColor: '#fee2e2', background: '#fef2f2' }}>
                                 Sign out all devices
                             </button>
                         </div>
