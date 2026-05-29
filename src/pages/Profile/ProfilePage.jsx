@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
+import { useUserContext } from '../../context/UserContext';
 
 const ProfilePage = () => {
+    const { currentUser } = useUserContext();
+
     // Mock user statistics
     const stats = [
         { label: 'Deals Managed', value: '₹ 142.5 Cr', icon: 'fa-handshake', color: '#3b82f6' },
@@ -59,9 +62,13 @@ const ProfilePage = () => {
             {/* Page Header - Compact */}
             <div className="profile-header" style={{ padding: '16px 40px', background: '#fff', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: '64px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                    <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: 'var(--primary-color)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800 }}>BP</div>
+                    <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: 'var(--primary-color)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800 }}>
+                        {currentUser?.name ? currentUser.name.substring(0, 2).toUpperCase() : 'BP'}
+                    </div>
                     <div>
-                        <h1 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>Suraj Key (Admin)</h1>
+                        <h1 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>
+                            {currentUser?.name || 'User'} {currentUser?.isAdmin ? '(Admin)' : ''}
+                        </h1>
                         <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Professional Management Console</span>
                     </div>
                 </div>
@@ -113,17 +120,17 @@ const ProfilePage = () => {
                                 <i className="fas fa-camera" style={{ fontSize: '0.65rem' }}></i>
                             </button>
                         </div>
-                        <h4 style={{ margin: '0', fontSize: '1.1rem', fontWeight: 800 }}>Suraj Key</h4>
-                        <p style={{ color: '#64748b', fontSize: '0.75rem', margin: '2px 0 15px 0' }}>BP-SRM-2024-084</p>
+                        <h4 style={{ margin: '0', fontSize: '1.1rem', fontWeight: 800 }}>{currentUser?.name || 'User'}</h4>
+                        <p style={{ color: '#64748b', fontSize: '0.75rem', margin: '2px 0 15px 0' }}>{currentUser?.employeeId || 'BP-EMP-001'}</p>
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', textAlign: 'left', borderTop: '1px solid #f1f5f9', paddingTop: '15px' }}>
                             <div>
                                 <label className="section-label" style={{ fontSize: '0.6rem' }}>Designation</label>
-                                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#1e293b' }}>Senior Relationship Manager</div>
+                                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#1e293b' }}>{currentUser?.role?.name || 'User'}</div>
                             </div>
                             <div>
                                 <label className="section-label" style={{ fontSize: '0.6rem' }}>Department</label>
-                                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#1e293b' }}>Sales Development</div>
+                                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#1e293b' }}>{currentUser?.department || 'Sales'}</div>
                             </div>
                         </div>
                     </div>
@@ -136,11 +143,11 @@ const ProfilePage = () => {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                             <div>
                                 <label className="section-label" style={{ fontSize: '0.6rem' }}>Mobile Number</label>
-                                <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>+91 9991333570</div>
+                                <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>{currentUser?.phone || currentUser?.mobile || 'Not Provided'}</div>
                             </div>
                             <div>
                                 <label className="section-label" style={{ fontSize: '0.6rem' }}>Email Address</label>
-                                <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>suraj.key@bharatproperties.in</div>
+                                <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>{currentUser?.email || 'Not Provided'}</div>
                             </div>
                             <div>
                                 <label className="section-label" style={{ fontSize: '0.6rem' }}>Official Address</label>
@@ -186,15 +193,15 @@ const ProfilePage = () => {
                                     <div>
                                         <label className="section-label" style={{ fontSize: '0.6rem' }}>Email Signature</label>
                                         <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '8px', border: '1px solid #f1f5f9', fontSize: '0.75rem' }}>
-                                            <strong>Suraj Key</strong><br />
-                                            Bharat Properties SRM<br />
+                                            <strong>{currentUser?.name || 'User'}</strong><br />
+                                            Bharat Properties {currentUser?.role?.name || ''}<br />
                                             <span style={{ color: 'var(--primary-color)' }}>www.bharatproperties.in</span>
                                         </div>
                                     </div>
                                     <div>
                                         <label className="section-label" style={{ fontSize: '0.6rem' }}>WhatsApp Business</label>
                                         <div style={{ display: 'flex', gap: '5px', marginTop: '4px' }}>
-                                            <input type="text" className="form-control" defaultValue="wa.me/919991333570" style={{ fontSize: '0.8rem', padding: '6px 10px' }} readOnly />
+                                            <input type="text" className="form-control" value={`wa.me/91${(currentUser?.phone || currentUser?.mobile || '').replace(/\D/g, '').slice(-10)}`} style={{ fontSize: '0.8rem', padding: '6px 10px' }} readOnly />
                                         </div>
                                     </div>
                                 </div>
