@@ -11,6 +11,9 @@ import { useActivities } from '../../../context/ActivityContext';
 import { renderValue } from '../../../utils/renderUtils';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import QuickFillModal from '../components/QuickFillModal';
+import whatsappService from '../../../services/whatsappService';
+import { systemSettingsAPI } from '../../../utils/api';
+import { useUserContext } from '../../../context/UserContext';
 
 const LeadMatchingPage = ({ onNavigate, leadId }) => {
     const { addActivity } = useActivities();
@@ -143,6 +146,8 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
     const [initialTemplateId, setInitialTemplateId] = useState('');
     const [initialChannel, setInitialChannel] = useState('SMS');
     const [selectedProperties, setSelectedProperties] = useState([]);
+    const [isSendingPortfolio, setIsSendingPortfolio] = useState(false);
+    const { currentUser } = useUserContext();
 
     // 2. Pre-parse Lead Context (Simplified for display only)
     const leadContext = useMemo(() => {
@@ -502,26 +507,125 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
         );
     }
 
-    const handleSendPortfolio = () => {
+    const handleSendPortfolio = async () => {
         const selectedDeals = matchedItems.filter(item => selectedItems.includes(item.id || item.unitNo));
         if (selectedDeals.length === 0) {
             toast.error('Please select at least one property to send.');
             return;
         }
 
-        // 🚀 Senior Professional: Bridge to Official WhatsApp API
-        setRecipients([{
-            ...lead,
-            name: lead.name || 'Lead',
-            phone: lead.mobile || lead.phone
-        }]);
-        setInitialTemplateId('property_match_alert');
-        setInitialChannel('WHATSAPP');
-        setSelectedProperties(selectedDeals);
-        setIsMessageOpen(true);
+        setIsSendingPortfolio(true);
+        const loadToast = toast.loading('Resolving template and preparing dispatch...');
 
-        selectedDeals.forEach(item => logActivity('Portfolio Preparation', item));
-        // Note: The variable mapping is handled by the Modal's reactive resolver
+        try {
+            // 1. Fetch template from DB or fallback
+            let templates = whatsappTemplates;
+            try {
+                const dbRes = await systemSettingsAPI.getByKey('crm_whatsapp_templates');
+                if (dbRes?.data?.value?.length) {
+                    templates = dbRes.data.value;
+                }
+            } catch (err) {
+                console.warn('Could not read DB templates, utilizing default fallback.');
+            }
+
+            // Identify Single vs Portfolio Template
+            const isSingle = selectedDeals.length === 1;
+            const templateKey = isSingle ? 'Requirement Match (Single)' : 'Requirement Match (Portfolio)';
+            const template = templates.find(t => t.name === templateKey) || templates[isSingle ? 1 : 2]; // Match standard portfolio fallback index 2
+
+            if (!template) {
+                throw new Error('Target portfolio template could not be resolved.');
+            }
+
+            const bodyComp = template.components?.find(c => c.type === 'BODY');
+            const rawBody = bodyComp?.text || template.body || template.content || template.text || '';
+
+            // 2. Set Up Unified Dynamic Context
+            const propertyListDefault = selectedDeals.map((p, i) => `${i + 1}️⃣ ${p.unitNo || 'Unit'} - ${p.location || p.city || 'Sector'}`).join('\n');
+            const propertyListDetailed = selectedDeals.map((p, i) => `${i + 1}️⃣ 📍 ${p.location || p.city}\n📏 Size: ${p.size}\n💰 Price: ₹${p.price}`).join('\n');
+
+            const agentName = lead.assignedTo?.name || lead.owner || lead.agentName || currentUser?.name || 'Our Representative';
+            const agentMobile = lead.assignment?.assignedTo?.mobile || lead.assignedTo?.mobile || lead.ownerMobile || lead.agentMobile || currentUser?.mobile || currentUser?.phone || '';
+            const agentDetails = agentMobile ? `${agentName} (📞 ${agentMobile})` : agentName;
+
+            const safePropLoc = selectedDeals.length > 0 ? (selectedDeals[0].inventoryId?.address?.locality || selectedDeals[0].inventoryId?.address?.area || selectedDeals[0].inventoryId?.address?.location || selectedDeals[0].location || selectedDeals[0].city) : null;
+            const safePropProj = selectedDeals.length > 0 ? (selectedDeals[0].inventoryId?.projectName || selectedDeals[0].projectName || selectedDeals[0].unitNo) : 'Property';
+
+            const unifiedContext = {
+                'name': lead.name,
+                'firstName': lead.firstName || lead.name?.split(' ')[0] || 'customer',
+                'surname': lead.surname || '',
+                'mobile': lead.phone || lead.mobile || '',
+                'email': lead.email || '',
+                'source': lead.source || '',
+                'status': lead.status || lead.stage || '',
+                'requirement': lead.requirement || lead.requirementType || 'property',
+                'budgetMin': lead.budgetMin || lead.budget || '',
+                'budgetMax': lead.budgetMax || '',
+                'areaMin': lead.areaMin || '',
+                'areaMax': lead.areaMax || '',
+                'locCity': lead.locCity || lead.location || '',
+                'locArea': lead.locArea || '',
+                'assignedTo': agentDetails,
+                'ownerMobile': agentMobile,
+                'ownerEmail': lead.assignedTo?.email || currentUser?.email || '',
+                'projectName': safePropProj,
+                'unitNo': selectedDeals.length > 0 ? selectedDeals[0].unitNo : '',
+                'block': selectedDeals.length > 0 ? selectedDeals[0].block : '',
+                'unitType': selectedDeals.length > 0 ? selectedDeals[0].unitType : '',
+                'category': selectedDeals.length > 0 ? (selectedDeals[0].category?.name || selectedDeals[0].category) : '',
+                'subCategory': selectedDeals.length > 0 ? (selectedDeals[0].subCategory?.name || selectedDeals[0].subCategory) : '',
+                'price': selectedDeals.length > 0 ? selectedDeals[0].price : 'N/A',
+                'size': selectedDeals.length > 0 ? (selectedDeals[0].sizeConfig || selectedDeals[0].size) : 'N/A',
+                'location': selectedDeals.length > 0 ? safePropLoc : lead.location || 'our project',
+                'propertyList': propertyListDefault,
+                'property_list_default': propertyListDefault,
+                'property_list_detailed': propertyListDetailed,
+                'propertiesCount': selectedDeals.length || 0,
+                'customer_name': lead.firstName || lead.name?.split(' ')[0] || 'customer'
+            };
+
+            // 3. Resolve variables in template
+            const resolvedBody = rawBody.replace(/{{([^}]+)}}/g, (match, vIdx) => {
+                const cleanKey = vIdx.trim();
+                if (unifiedContext[cleanKey] !== undefined) {
+                    return unifiedContext[cleanKey];
+                }
+                return match;
+            });
+
+            // 4. Dispatch using WhatsApp Service
+            const targetPhone = lead.mobile || lead.phone;
+            if (!targetPhone) {
+                throw new Error('Customer does not have a valid mobile number configured.');
+            }
+
+            const response = await whatsappService.sendMessage({
+                mobile: targetPhone,
+                message: resolvedBody,
+                templateId: template.name,
+                type: 'text'
+            });
+
+            if (response && response.success) {
+                toast.success(`Portfolio shared successfully via WhatsApp to ${lead.name}!`, { id: loadToast });
+                selectedDeals.forEach(item => logActivity('Portfolio Dispatched', item));
+
+                // Dispatch event to refresh timeline/activities stream
+                window.dispatchEvent(new CustomEvent('activity-completed', {
+                    detail: { entityId: lead._id, type: 'WHATSAPP' }
+                }));
+            } else {
+                throw new Error(response?.error || 'Direct dispatch API returned success flag false.');
+            }
+        } catch (error) {
+            console.error('[PORTFOLIO_DISPATCH_FAILED]', error);
+            const msg = error.response?.data?.message || error.message || 'Unknown error occurred.';
+            toast.error(`Direct Dispatch Failed: ${msg}`, { id: loadToast });
+        } finally {
+            setIsSendingPortfolio(false);
+        }
     };
 
     const generateEmailContent = (items) => {
@@ -616,13 +720,23 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                     <button 
                         onClick={handleSendPortfolio}
                         className="btn-secondary"
+                        disabled={isSendingPortfolio}
                         style={{ 
                             display: 'flex', alignItems: 'center', gap: '8px',
                             padding: '8px 16px', borderRadius: '10px', background: '#fff', 
-                            color: '#0f172a', border: '1px solid #e2e8f0', fontWeight: 700 
+                            color: '#0f172a', border: '1px solid #e2e8f0', fontWeight: 700,
+                            opacity: isSendingPortfolio ? 0.6 : 1, cursor: isSendingPortfolio ? 'not-allowed' : 'pointer'
                         }}
                     >
-                        <i className="fas fa-share-alt" style={{ color: '#6366f1' }}></i> Share Portfolio
+                        {isSendingPortfolio ? (
+                            <>
+                                <i className="fas fa-circle-notch fa-spin" style={{ color: '#6366f1' }}></i> Sharing...
+                            </>
+                        ) : (
+                            <>
+                                <i className="fas fa-share-alt" style={{ color: '#6366f1' }}></i> Share Portfolio
+                            </>
+                        )}
                     </button>
                     <button
                         className="btn-primary"
@@ -1306,7 +1420,22 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             {selectedItems.length > 0 && (
                 <div style={{ position: 'fixed', bottom: '24px', left: '50%', transform: 'translateX(-50%)', background: '#0f172a', padding: '12px 24px', borderRadius: '20px', display: 'flex', alignItems: 'center', gap: '20px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.3)', zIndex: 1000 }}>
                     <span style={{ color: '#fff', fontWeight: 600 }}>{selectedItems.length} selected</span>
-                    <button className="btn-primary" onClick={handleSendPortfolio}>Send Portfolio</button>
+                    <button 
+                        className="btn-primary" 
+                        onClick={handleSendPortfolio} 
+                        disabled={isSendingPortfolio}
+                        style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+                    >
+                        {isSendingPortfolio ? (
+                            <>
+                                <i className="fas fa-circle-notch fa-spin"></i> Sending Portfolio...
+                            </>
+                        ) : (
+                            <>
+                                Send Portfolio
+                            </>
+                        )}
+                    </button>
                 </div>
             )}
 
