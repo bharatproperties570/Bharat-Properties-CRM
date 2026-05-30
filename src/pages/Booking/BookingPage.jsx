@@ -349,7 +349,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                         <div class="box" style="margin-bottom: 30px; background: #f0fdf4; border-color: #86efac;">
                             <div class="box-title" style="color: #166534; border-bottom-color: #bbf7d0;">Token / Advance Payment Receipt</div>
                             <div style="font-size: 15px; line-height: 1.8; color: #166534; text-align: justify;">
-                                Received a sum of <strong>${tokenAnko}</strong>/- (<strong>${tokenWords}</strong>) by <strong>${tokenMode}</strong> on dated <strong>${tokenDate}</strong> as an advance Payment against the sale of my above said property.
+                                Received a sum of <strong>${tokenAnko}</strong>/- (<strong>${tokenWords}</strong>) by <strong>${tokenMode}</strong> (Cheque/RTGS/Transaction No: ____________) on dated <strong>${tokenDate}</strong> as an advance Payment against the sale of my above said property.
                             </div>
                         </div>
 
@@ -363,7 +363,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
 
                             <div style="display: grid; grid-template-columns: 1fr; gap: 8px;">
                                 <div class="row" style="background: #f8fafc; padding: 10px 15px; border-radius: 4px; border-left: 4px solid #3b82f6; border-bottom: none;">
-                                    <span class="label" style="color: #1e293b;">Agreement Amount to be Paid:</span> 
+                                    <span class="label" style="color: #1e293b;">Agreement Amount to be Paid <span style="font-size: 13px; color: #64748b; font-weight: normal;">(Including Token Amount)</span>:</span> 
                                     <span class="val">${formatCurrency(booking.financials.agreementAmount || 0)} <span style="font-size: 13px; color: #64748b; font-weight: 500; margin-left: 8px;">${booking.financials.agreementDate ? `(Due: ${new Date(booking.financials.agreementDate).toLocaleDateString('en-IN')})` : ''}</span></span>
                                 </div>
                                 <div class="row" style="background: #f8fafc; padding: 10px 15px; border-radius: 4px; border-left: 4px solid #f59e0b; border-bottom: none;">
@@ -386,17 +386,19 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                             1. This is a preliminary short agreement acknowledging the token amount received against the property mentioned above.<br/>
                             2. A detailed and registered Agreement to Sell will be executed upon receipt of the mutually agreed milestone payment.<br/>
                             3. In case of cancellation by the buyer, the token amount shall be forfeited as per standard market practice, unless agreed otherwise in writing.<br/>
-                            4. Bharat Properties acts solely as a facilitator/broker in this transaction.<br/>
-                            5. The Seller shall handover all original papers and documents of the said property along with vacant possession to the Purchaser at the time of final payment and execution of the sale deed.<br/>
-                            6. All expenses on the execution of the sale deed, transfer permission, stamp duty, registration fees, and transfer fees shall be borne by the Purchaser.<br/>
-                            7. The Seller shall be responsible for clearing all previous dues, taxes, and liabilities of the said property up to the date of execution of the sale deed.
+                            4. If the Seller cancels the deal, the Seller shall be liable to return double the Token Amount to the Buyer at the time of cancellation.<br/>
+                            5. If the Buyer fails to execute the agreement by the stipulated Agreement Due Date, the Seller reserves the full right to cancel the deal. It will be at the sole discretion of the Seller whether to proceed with the Buyer after the due date.<br/>
+                            6. Bharat Properties acts solely as a facilitator/broker in this transaction.<br/>
+                            7. The Seller shall handover all original papers and documents of the said property along with vacant possession to the Purchaser at the time of final payment and execution of the sale deed.<br/>
+                            8. All expenses on the execution of the sale deed, transfer permission, stamp duty, registration fees, and transfer fees shall be borne by the Purchaser.<br/>
+                            9. The Seller shall be responsible for clearing all previous dues, taxes, and liabilities of the said property up to the date of execution of the sale deed.
                         </div>
 
                         <div style="text-align: center; margin-bottom: 30px; font-size: 14px; color: #475569;">
                             This Receipt/Agreement is executed at <strong>Kurukshetra</strong> on this <strong>${new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</strong>.
                         </div>
 
-                        <div class="signature-section">
+                        <div class="signature-section" style="margin-top: 80px;">
                             <div class="sig-box">Signature of First Party (Buyer)</div>
                             <div class="sig-box">Signature of Second Party (Seller)</div>
                         </div>
