@@ -301,7 +301,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                         <div class="header">
                             <div class="company-name">Bharat Properties</div>
                             <div style="color: #64748b; font-size: 14px;">The Mark of Trust & Excellence in Real Estate</div>
-                            <div class="doc-title">BOOKING AGREEMENT (SHORT FORM)</div>
+                            <div class="doc-title">BOOKING AGREEMENT (TOKEN)</div>
                         </div>
 
                         <div style="text-align: right; margin-bottom: 20px; font-weight: 600;">
@@ -353,25 +353,32 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                             </div>
                         </div>
 
-                        <div class="box" style="margin-bottom: 30px; background: #fffbeb; border-color: #fcd34d;">
-                            <div class="box-title" style="color: #b45309; border-bottom-color: #fde68a;">Financial Summary</div>
-                            <div class="row">
-                                <span class="label">Total Consideration Value:</span> 
-                                <span class="val" style="font-size: 16px; color: #b45309;">${formatCurrency(totalValue)} ${booking.financials.bookingDate ? `(Booking Date: ${new Date(booking.financials.bookingDate).toLocaleDateString('en-IN')})` : ''}</span>
+                        <div class="box" style="margin-bottom: 30px; border-color: #cbd5e1; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+                            <div class="box-title" style="color: #0f172a; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; margin-bottom: 15px; font-size: 15px;">Financial Summary</div>
+                            
+                            <div style="background: #fdfae8; padding: 15px; border-radius: 6px; margin-bottom: 15px; border: 1px solid #fde68a; display: flex; justify-content: space-between; align-items: center;">
+                                <span style="font-weight: 700; color: #92400e; font-size: 16px;">Total Consideration (Sale) Value:</span> 
+                                <span style="font-size: 20px; font-weight: 900; color: #b45309;">${formatCurrency(totalValue)}</span>
                             </div>
-                            <div class="row">
-                                <span class="label">Agreement Amount to be Paid:</span> 
-                                <span class="val">${formatCurrency(booking.financials.agreementAmount || 0)} ${booking.financials.agreementDate ? `(Agreement Date: ${new Date(booking.financials.agreementDate).toLocaleDateString('en-IN')})` : ''}</span>
+
+                            <div style="display: grid; grid-template-columns: 1fr; gap: 8px;">
+                                <div class="row" style="background: #f8fafc; padding: 10px 15px; border-radius: 4px; border-left: 4px solid #3b82f6; border-bottom: none;">
+                                    <span class="label" style="color: #1e293b;">Agreement Amount to be Paid:</span> 
+                                    <span class="val">${formatCurrency(booking.financials.agreementAmount || 0)} <span style="font-size: 13px; color: #64748b; font-weight: 500; margin-left: 8px;">${booking.financials.agreementDate ? `(Due: ${new Date(booking.financials.agreementDate).toLocaleDateString('en-IN')})` : ''}</span></span>
+                                </div>
+                                <div class="row" style="background: #f8fafc; padding: 10px 15px; border-radius: 4px; border-left: 4px solid #f59e0b; border-bottom: none;">
+                                    <span class="label" style="color: #1e293b;">Part Payment Amount:</span> 
+                                    <span class="val">${formatCurrency(booking.financials.partPaymentAmount || 0)} <span style="font-size: 13px; color: #64748b; font-weight: 500; margin-left: 8px;">${booking.financials.partPaymentDate ? `(Due: ${new Date(booking.financials.partPaymentDate).toLocaleDateString('en-IN')})` : ''}</span></span>
+                                </div>
+                                <div class="row" style="background: #fef2f2; padding: 12px 15px; border-radius: 4px; border-left: 4px solid #ef4444; border-bottom: none;">
+                                    <span class="label" style="color: #991b1b; font-size: 15px;">Rest (Balance) Payment Due:</span> 
+                                    <span class="val" style="color: #dc2626; font-size: 16px;">${formatCurrency(booking.financials.totalBalanceAmount || 0)}</span>
+                                </div>
+                                ${booking.financials.finalPaymentDate ? `
+                                <div class="row" style="padding: 4px 15px; border-bottom: none; justify-content: flex-end; margin-top: -4px;">
+                                    <span style="font-size: 13px; color: #475569;"><strong>Full & Final Payment Due Date:</strong> ${new Date(booking.financials.finalPaymentDate).toLocaleDateString('en-IN')}</span>
+                                </div>` : ''}
                             </div>
-                            <div class="row">
-                                <span class="label">Part Payment Amount:</span> 
-                                <span class="val">${formatCurrency(booking.financials.partPaymentAmount || 0)} ${booking.financials.partPaymentDate ? `(Date: ${new Date(booking.financials.partPaymentDate).toLocaleDateString('en-IN')})` : ''}</span>
-                            </div>
-                            <div class="row">
-                                <span class="label">Rest (Balance) Payment Due:</span> 
-                                <span class="val" style="color: #ef4444;">${formatCurrency(booking.financials.totalBalanceAmount || 0)}</span>
-                            </div>
-                            ${booking.financials.finalPaymentDate ? `<div class="row"><span class="label">Full & Final Payment Due Date:</span> <span class="val">${new Date(booking.financials.finalPaymentDate).toLocaleDateString('en-IN')}</span></div>` : ''}
                         </div>
 
                         <div style="font-size: 13px; color: #475569; margin-bottom: 40px; text-align: justify;">
