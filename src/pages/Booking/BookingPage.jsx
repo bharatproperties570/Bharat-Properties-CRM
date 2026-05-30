@@ -111,7 +111,10 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                         unit: b.property?.unitNo || b.property?.unitNumber || 'N/A',
                         location: b.property?.location || b.project?.location || 'N/A',
                         block: b.property?.block || 'N/A',
-                        sizeLabel: b.property?.sizeLabel || (b.property?.sizeConfig && typeof b.property.sizeConfig === 'object' ? b.property.sizeConfig.lookup_value : b.property?.sizeConfig) || (b.property?.size ? `${b.property.size} ${b.property.sizeUnit || 'Sq.Yd.'}` : 'N/A')
+                        sizeLabel: b.property?.sizeLabel || (b.property?.sizeConfig && typeof b.property.sizeConfig === 'object' ? b.property.sizeConfig.lookup_value : b.property?.sizeConfig) || (b.property?.size ? `${b.property.size} ${b.property.sizeUnit || 'Sq.Yd.'}` : 'N/A'),
+                        category: b.property?.category || 'N/A',
+                        subCategory: b.property?.subCategory || 'N/A',
+                        unitType: b.property?.unitType || 'N/A'
                     },
                     financials: {
                         dealValue: b.totalDealAmount || 0,
@@ -210,7 +213,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                 if (!c) return '___________________________';
                 let titleVal = c.title ? (typeof c.title === 'object' ? c.title.lookup_value : c.title) : '';
                 if (typeof titleVal === 'string' && /^[0-9a-fA-F]{24}$/.test(titleVal)) {
-                    titleVal = getLookupValue(titleVal) || titleVal;
+                    titleVal = getLookupValue(null, titleVal) || titleVal;
                 }
                 const first = c.name || '';
                 const last = c.surname || '';
@@ -223,7 +226,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                     if (!field) return '';
                     if (typeof field === 'object') return field.lookup_value || field.name || '';
                     if (typeof field === 'string' && /^[0-9a-fA-F]{24}$/.test(field)) {
-                        return getLookupValue(field) || field;
+                        return getLookupValue(null, field) || field;
                     }
                     return field;
                 };
@@ -258,7 +261,10 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                 unit: booking.property?.unit || '___________________________',
                 location: booking.property?.location || '___________________________',
                 block: booking.property?.block || '___________________________',
-                sizeLabel: booking.property?.sizeLabel ? (typeof booking.property.sizeLabel === 'string' && /^[0-9a-fA-F]{24}$/.test(booking.property.sizeLabel) ? getLookupValue(booking.property.sizeLabel) || booking.property.sizeLabel : booking.property.sizeLabel) : '___________________________'
+                sizeLabel: booking.property?.sizeLabel ? (typeof booking.property.sizeLabel === 'string' && /^[0-9a-fA-F]{24}$/.test(booking.property.sizeLabel) ? getLookupValue(null, booking.property.sizeLabel) || booking.property.sizeLabel : booking.property.sizeLabel) : '___________________________',
+                category: booking.property?.category ? (typeof booking.property.category === 'string' && /^[0-9a-fA-F]{24}$/.test(booking.property.category) ? getLookupValue(null, booking.property.category) || booking.property.category : booking.property.category) : '___________________________',
+                subCategory: booking.property?.subCategory ? (typeof booking.property.subCategory === 'string' && /^[0-9a-fA-F]{24}$/.test(booking.property.subCategory) ? getLookupValue(null, booking.property.subCategory) || booking.property.subCategory : booking.property.subCategory) : '___________________________',
+                unitType: booking.property?.unitType ? (typeof booking.property.unitType === 'string' && /^[0-9a-fA-F]{24}$/.test(booking.property.unitType) ? getLookupValue(null, booking.property.unitType) || booking.property.unitType : booking.property.unitType) : '___________________________'
             };
 
             const totalValue = booking.financials?.dealValue || 0;
@@ -316,14 +322,17 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                         </div>
 
                         <div class="box" style="margin-bottom: 30px;">
-                            <div class="box-title">Property Schedule</div>
+                            <div class="box-title">Property Details</div>
                             <div class="grid-2" style="margin-bottom: 0;">
                                 <div>
                                     <div class="row"><span class="label">Project/Society:</span> <span class="val">${propertyDetails.project}</span></div>
                                     <div class="row"><span class="label">Unit No:</span> <span class="val">${propertyDetails.unit}</span></div>
                                     <div class="row"><span class="label">Block/Tower:</span> <span class="val">${propertyDetails.block}</span></div>
+                                    <div class="row"><span class="label">Unit Type:</span> <span class="val">${propertyDetails.unitType}</span></div>
                                 </div>
                                 <div>
+                                    <div class="row"><span class="label">Category:</span> <span class="val">${propertyDetails.category}</span></div>
+                                    <div class="row"><span class="label">Sub Category:</span> <span class="val">${propertyDetails.subCategory}</span></div>
                                     <div class="row"><span class="label">Location:</span> <span class="val">${propertyDetails.location}</span></div>
                                     <div class="row"><span class="label">Size Label:</span> <span class="val">${propertyDetails.sizeLabel}</span></div>
                                 </div>
@@ -338,7 +347,15 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                             </div>
                             <div class="row">
                                 <span class="label">Earnest Money (Bayana):</span> 
-                                <span class="val">${formatCurrency(booking.financials.tokenAmount || 0)} ${booking.financials.bookingDate ? `(Bayana Date: ${new Date(booking.financials.bookingDate).toLocaleDateString('en-IN')})` : ''} (Mode: ${booking.financials.paymentMode || '___________'})</span>
+                                <span class="val">${formatCurrency(booking.financials.tokenAmount || 0)}</span>
+                            </div>
+                            <div class="row">
+                                <span class="label">Bayana Date:</span> 
+                                <span class="val">${booking.financials.bookingDate ? new Date(booking.financials.bookingDate).toLocaleDateString('en-IN') : '___________________'}</span>
+                            </div>
+                            <div class="row">
+                                <span class="label">Mode of Payment (Cheque/Cash/Trans No.):</span> 
+                                <span class="val">${booking.financials.paymentMode || '___________________'}</span>
                             </div>
                             <div class="row">
                                 <span class="label">Agreement Amount to be Paid:</span> 
