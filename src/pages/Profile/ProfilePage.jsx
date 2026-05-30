@@ -21,7 +21,9 @@ const ProfilePage = () => {
         language: 'English (United States)',
         currency: 'INR (₹)',
         workingHours: { start: '09:00', end: '18:30' },
-        emailSignature: ''
+        emailSignature: '',
+        whatsappSignature: '',
+        smsSignature: ''
     });
     const [toggles, setToggles] = useState({
         twoFactor: false,
@@ -39,7 +41,9 @@ const ProfilePage = () => {
                     language: currentUser.preferences.language || 'English (United States)',
                     currency: currentUser.preferences.currency || 'INR (₹)',
                     workingHours: currentUser.preferences.workingHours || { start: '09:00', end: '18:30' },
-                    emailSignature: currentUser.preferences.emailSignature || ''
+                    emailSignature: currentUser.preferences.emailSignature || '',
+                    whatsappSignature: currentUser.preferences.whatsappSignature || '',
+                    smsSignature: currentUser.preferences.smsSignature || ''
                 });
             }
             if (currentUser.security || currentUser.notifications) {
@@ -254,9 +258,27 @@ const ProfilePage = () => {
                                         </div>
                                     </div>
                                     <div>
-                                        <label className="section-label" style={{ fontSize: '0.6rem' }}>WhatsApp Business</label>
-                                        <div style={{ display: 'flex', gap: '5px', marginTop: '4px' }}>
-                                            <input type="text" className="form-control" value={`wa.me/91${(currentUser?.phone || currentUser?.mobile || '').replace(/\D/g, '').slice(-10)}`} style={{ fontSize: '0.8rem', padding: '6px 10px' }} readOnly />
+                                        <label className="section-label" style={{ fontSize: '0.6rem' }}>WhatsApp Signature (Text)</label>
+                                        <div style={{ marginTop: '4px' }}>
+                                            <textarea 
+                                                className="form-control" 
+                                                style={{ fontSize: '0.75rem', padding: '10px', height: '60px', resize: 'none' }}
+                                                value={preferences.whatsappSignature}
+                                                onChange={(e) => handlePreferenceChange('whatsappSignature', e.target.value)}
+                                                placeholder={`*Regards,*\n${currentUser?.name || currentUser?.fullName || ''}\nBharat Properties\nEmail: ${currentUser?.email || ''}\nPh: ${currentUser?.phone || currentUser?.mobile || ''}`}
+                                            ></textarea>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="section-label" style={{ fontSize: '0.6rem' }}>SMS Signature (Short)</label>
+                                        <div style={{ marginTop: '4px' }}>
+                                            <textarea 
+                                                className="form-control" 
+                                                style={{ fontSize: '0.75rem', padding: '10px', height: '40px', resize: 'none' }}
+                                                value={preferences.smsSignature}
+                                                onChange={(e) => handlePreferenceChange('smsSignature', e.target.value)}
+                                                placeholder={`- Bharat Properties, Ph: ${currentUser?.phone || currentUser?.mobile || ''}`}
+                                            ></textarea>
                                         </div>
                                     </div>
                                 </div>

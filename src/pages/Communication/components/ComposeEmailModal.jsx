@@ -4,6 +4,7 @@ import { emailAPI } from '../../../utils/api';
 import { emailTemplates } from '../../../constants/templates';
 import { getInitials } from '../../../utils/helpers';
 import toast from 'react-hot-toast';
+import { useUserContext } from '../../../context/UserContext';
 
 const styles = {
     overlay: {
@@ -124,6 +125,23 @@ const ComposeEmailModal = ({
     const [selectedTemplate, setSelectedTemplate] = useState('');
     const [toEmail, setToEmail] = useState(initialTo);
     const editorRef = useRef(null);
+    const { currentUser } = useUserContext();
+
+    // Helper to compile template
+    const compileTemplate = (content) => {
+        if (!content) return '';
+        let compiled = content;
+        
+        // Sender's signature
+        const signature = currentUser?.preferences?.emailSignature || `<strong>${currentUser?.name || 'Sender'}</strong>`;
+        compiled = compiled.replace(/\{\{Sender's signature\}\}/g, signature);
+        
+        // Sender's first name
+        const firstName = currentUser?.name?.split(' ')[0] || 'Sender';
+        compiled = compiled.replace(/\{\{Sender's first name\}\}/g, firstName);
+
+        return compiled;
+    };
 
     // Synchronize states when modal opens
     useEffect(() => {
@@ -136,9 +154,10 @@ const ComposeEmailModal = ({
                 const tmpl = emailTemplates.find(t => t.id === parseInt(initialTemplateId));
                 if (tmpl) {
                     setSubject(tmpl.subject);
-                    setBody(tmpl.content);
+                    const compiledContent = compileTemplate(tmpl.content);
+                    setBody(compiledContent);
                     if (editorRef.current) {
-                        editorRef.current.innerHTML = tmpl.content;
+                        editorRef.current.innerHTML = compiledContent;
                     }
                 }
             }
@@ -312,9 +331,10 @@ const ComposeEmailModal = ({
                                             const tmpl = emailTemplates.find(t => t.id === parseInt(templateId));
                                             if (tmpl) {
                                                 setSubject(tmpl.subject);
-                                                setBody(tmpl.content);
+                                                const compiledContent = compileTemplate(tmpl.content);
+                                                setBody(compiledContent);
                                                 if (editorRef.current) {
-                                                    editorRef.current.innerHTML = tmpl.content;
+                                                    editorRef.current.innerHTML = compiledContent;
                                                 }
                                             }
                                         }

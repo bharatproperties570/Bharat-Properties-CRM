@@ -116,7 +116,9 @@ const UserSchema = new mongoose.Schema({
             start: { type: String, default: '09:00' },
             end: { type: String, default: '18:30' }
         },
-        emailSignature: { type: String, default: '' }
+        emailSignature: { type: String, default: '' },
+        whatsappSignature: { type: String, default: '' },
+        smsSignature: { type: String, default: '' }
     },
     security: {
         twoFactorEnabled: { type: Boolean, default: false }

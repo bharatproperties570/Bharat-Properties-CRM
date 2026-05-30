@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTriggers } from '../context/TriggersContext';
+import { usePropertyConfig } from '../context/PropertyConfigContext';
 import smsService from '../services/smsService';
 import whatsappService from '../services/whatsappService';
 import { systemSettingsAPI } from '../utils/api';
@@ -17,6 +18,7 @@ const SendMessageModal = ({
     initialChannel = 'SMS'
 }) => {
     const { fireEvent } = useTriggers();
+    const { getLookupValue } = usePropertyConfig();
     const { currentUser } = useUserContext();
     const [channel, setChannel] = useState('SMS'); // SMS, WHATSAPP, RCS
     const [recipients, setRecipients] = useState([]);
@@ -211,15 +213,77 @@ const SendMessageModal = ({
         const components = [];
         const recipient = recipients[0] || {};
 
-        const propertyListDefault = properties.map((p, i) => `${i + 1}️⃣ ${p.unitNo || 'Unit'} - ${p.location || p.city || 'Sector'}`).join('\n');
-        const propertyListDetailed = properties.map((p, i) => `${i + 1}️⃣ 📍 ${p.location || p.city}\n📏 Size: ${p.size}\n💰 Price: ₹${p.price}`).join('\n');
+        // Helper to retrieve flat or nested inventory fields
+        const getPropVal = (key) => {
+            if (properties.length === 0) return '';
+            const p = properties[0];
+            const val = p[key] !== undefined ? p[key] : (p.inventoryId ? p.inventoryId[key] : undefined);
+            return val !== undefined ? val : '';
+        };
+
+        // Helper to resolve lookups to human-readable labels
+        const resolveLookup = (val, type) => {
+            if (!val) return '';
+            if (typeof val !== 'object' && !/^[0-9a-fA-F]{24}$/.test(String(val))) return String(val);
+            if (typeof val === 'object') {
+                const label = val.lookup_value || val.name || val.label || val.fullName;
+                if (label && typeof label !== 'object' && !/^[0-9a-fA-F]{24}$/.test(String(label))) return String(label);
+                val = val._id || val.id || val;
+            }
+            const resolved = getLookupValue(type, val);
+            if (!resolved || typeof resolved === 'object' || /^[0-9a-fA-F]{24}$/.test(String(resolved))) return '';
+            return String(resolved);
+        };
+
+        const categoryRaw = getPropVal('category') || getPropVal('propertyType');
+        const categoryResolved = resolveLookup(categoryRaw, 'Category');
+
+        const subCategoryRaw = getPropVal('subCategory');
+        const subCategoryResolved = resolveLookup(subCategoryRaw, 'SubCategory');
+
+        const builtupTypeRaw = getPropVal('builtupType');
+        const builtupTypeResolved = resolveLookup(builtupTypeRaw, 'BuiltupType');
+
+        const sizeTypeRaw = getPropVal('sizeType') || getPropVal('sizeConfig');
+        const sizeTypeResolved = resolveLookup(sizeTypeRaw, 'PropertyType') || resolveLookup(sizeTypeRaw, 'Size');
+
+        const directionRaw = getPropVal('direction');
+        const directionResolved = resolveLookup(directionRaw, 'Direction');
+
+        const facingRaw = getPropVal('facing');
+        const facingResolved = resolveLookup(facingRaw, 'Facing');
+
+        const roadWidthRaw = getPropVal('roadWidth');
+        const roadWidthResolved = resolveLookup(roadWidthRaw, 'Road Width');
+
+        const sizeRaw = getPropVal('size');
+        const sizeVal = typeof sizeRaw === 'object' ? (sizeRaw.value ? `${sizeRaw.value} ${sizeRaw.unit || 'Sq.Yd.'}` : '') : sizeRaw;
+
+        const priceVal = getPropVal('price');
+        const projectNameVal = getPropVal('projectName') || getPropVal('unitNo') || 'Premium Listing';
+
+        const locationRaw = getPropVal('location') || getPropVal('city') || getPropVal('sector');
+        const locationResolved = resolveLookup(locationRaw, 'Location') || resolveLookup(locationRaw, 'City') || resolveLookup(locationRaw, 'Locality') || locationRaw;
+
+        const propertyListDefault = properties.map((p, i) => {
+            const propVal = (key) => p[key] !== undefined ? p[key] : (p.inventoryId ? p.inventoryId[key] : undefined);
+            const loc = propVal('location') || propVal('city') || propVal('sector');
+            const resolvedLoc = resolveLookup(loc, 'Location') || resolveLookup(loc, 'City') || resolveLookup(loc, 'Locality') || loc || 'Sector';
+            return `${i + 1}️⃣ ${propVal('unitNo') || 'Unit'} - ${resolvedLoc}`;
+        }).join('\n');
+
+        const propertyListDetailed = properties.map((p, i) => {
+            const propVal = (key) => p[key] !== undefined ? p[key] : (p.inventoryId ? p.inventoryId[key] : undefined);
+            const loc = propVal('location') || propVal('city') || propVal('sector');
+            const resolvedLoc = resolveLookup(loc, 'Location') || resolveLookup(loc, 'City') || resolveLookup(loc, 'Locality') || loc || 'Sector';
+            const szRaw = propVal('size');
+            const szVal = typeof szRaw === 'object' ? (szRaw.value ? `${szRaw.value} ${szRaw.unit || 'Sq.Yd.'}` : '') : szRaw;
+            return `${i + 1}️⃣ 📍 ${resolvedLoc}\n📏 Size: ${szVal}\n💰 Price: ₹${propVal('price') || ''}`;
+        }).join('\n');
 
         const agentName = recipient.assignedTo?.name || recipient.owner || recipient.agentName || currentUser?.name || 'Our Representative';
         const agentMobile = recipient.assignment?.assignedTo?.mobile || recipient.assignedTo?.mobile || recipient.ownerMobile || recipient.agentMobile || currentUser?.mobile || currentUser?.phone || '';
         const agentDetails = agentMobile ? `${agentName} (📞 ${agentMobile})` : agentName;
-
-        const safePropLoc = properties.length > 0 ? (properties[0].inventoryId?.address?.locality || properties[0].inventoryId?.address?.area || properties[0].inventoryId?.address?.location || properties[0].location || properties[0].city) : null;
-        const safePropProj = properties.length > 0 ? (properties[0].inventoryId?.projectName || properties[0].projectName || properties[0].unitNo) : 'Property';
 
         const unifiedContext = {
             // Contact/Lead Exact Fields
@@ -244,21 +308,26 @@ const SendMessageModal = ({
             'ownerEmail': recipient.assignedTo?.email || currentUser?.email || '',
 
             // Project/Inventory Exact Fields
-            'projectName': safePropProj,
-            'unitNo': properties.length > 0 ? properties[0].unitNo : '',
-            'block': properties.length > 0 ? properties[0].block : '',
-            'unitType': properties.length > 0 ? properties[0].unitType : '',
-            'category': properties.length > 0 ? (properties[0].category?.name || properties[0].category) : '',
-            'subCategory': properties.length > 0 ? (properties[0].subCategory?.name || properties[0].subCategory) : '',
-            'price': properties.length > 0 ? properties[0].price : 'N/A',
-            'size': properties.length > 0 ? (properties[0].sizeConfig || properties[0].size) : 'N/A',
-            'location': properties.length > 0 ? safePropLoc : recipient.location || 'our project',
+            'projectName': projectNameVal,
+            'unitNo': getPropVal('unitNo'),
+            'block': getPropVal('block'),
+            'unitType': getPropVal('unitType'),
+            'category': categoryResolved,
+            'subCategory': subCategoryResolved,
+            'builtupType': builtupTypeResolved,
+            'sizeType': sizeTypeResolved,
+            'direction': directionResolved,
+            'facing': facingResolved,
+            'roadWidth': roadWidthResolved,
+            'price': priceVal || 'N/A',
+            'size': sizeVal || 'N/A',
+            'location': locationResolved || recipient.location || 'our project',
             
             // Computed / Summary Helpers
             'propertyList': propertyListDefault,
             'property_list_default': propertyListDefault,
             'property_list_detailed': propertyListDetailed,
-            'requirementSummary': (recipient.requirement || recipient.requirementType) ? `Looking for ${recipient.requirement || recipient.requirementType} in ${safePropLoc || recipient.location || 'our area'} budget ${recipient.budgetMin || recipient.budget || ''}` : 'Your property requirement',
+            'requirementSummary': (recipient.requirement || recipient.requirementType) ? `Looking for ${recipient.requirement || recipient.requirementType} in ${locationResolved || recipient.location || 'our area'} budget ${recipient.budgetMin || recipient.budget || ''}` : 'Your property requirement',
             'propertiesCount': properties.length || 0,
             
             // Fallbacks for older numeric mapping
