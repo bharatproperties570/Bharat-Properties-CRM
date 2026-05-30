@@ -3,9 +3,22 @@ import Lookup from "../models/Lookup.js";
 
 
 export const getLookups = async (req, res) => {
-    const { lookup_type, parent_lookup_id } = req.query;
+    const { lookup_type, parent_lookup_id, ids } = req.query;
     try {
         
+        // 🚀 ENTERPRISE: Batch fetch by IDs (used by live resolution cache in frontend)
+        if (ids && ids.trim()) {
+            const idArray = ids.split(',').map(id => id.trim()).filter(id => mongoose.Types.ObjectId.isValid(id));
+            if (idArray.length === 0) {
+                return res.json({ status: "success", data: [] });
+            }
+            const lookupsByIds = await Lookup.find({
+                _id: { $in: idArray.map(id => new mongoose.Types.ObjectId(id)) }
+            }).lean();
+            console.log(`[LOOKUP_FETCH] Batch ID fetch: ${idArray.length} requested, ${lookupsByIds.length} found`);
+            return res.json({ status: "success", data: lookupsByIds });
+        }
+
         // 🚀 SENIOR OPTIMIZATION: Prevent "Massive Dump" (1900+ records) if type is missing or malformed
         if (!lookup_type || lookup_type === 'undefined' || lookup_type === 'null') {
             console.warn(`[LOOKUP_FETCH] Blocked unfiltered request (type: ${lookup_type}) to prevent server overload.`);
@@ -49,6 +62,7 @@ export const getLookups = async (req, res) => {
         res.status(500).json({ status: "error", message: error.message });
     }
 };
+
 
 /**
  * @desc    Create a new lookup

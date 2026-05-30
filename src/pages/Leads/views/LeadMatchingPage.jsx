@@ -17,7 +17,7 @@ import { useUserContext } from '../../../context/UserContext';
 
 const LeadMatchingPage = ({ onNavigate, leadId }) => {
     const { addActivity } = useActivities();
-    const { getLookupValue } = usePropertyConfig();
+    const { getLookupValue, lookups, projects, sizes } = usePropertyConfig();
     const [lead, setLead] = useState(null);
     const [inventoryItems, setInventoryItems] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -169,24 +169,75 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
     const resolveLookup = useCallback((val, type) => {
         if (!val) return null;
         
-        // Case 1: val is already a resolved string or number
-        if (typeof val !== 'object' && !/^[0-9a-fA-F]{24}$/.test(String(val))) return String(val);
-
-        // Case 2: val is an object (could be populated)
+        let idVal = val;
+        // Case 1: val is an object (could be populated)
         if (typeof val === 'object') {
             const label = val.lookup_value || val.name || val.label || val.fullName;
             if (label && typeof label !== 'object' && !/^[0-9a-fA-F]{24}$/.test(String(label))) return String(label);
             
             // If label is missing or an ID, try to get the ID from the object
-            val = val._id || val.id || val;
+            idVal = val._id || val.id || val;
+        }
+
+        const idStr = String(idVal).trim();
+        
+        // Case 2: If it's already a resolved string (not a 24-character ObjectID)
+        if (!/^[0-9a-fA-F]{24}$/.test(idStr)) {
+            return idStr;
         }
         
-        // Case 3: Try resolving the ID (string or from object above)
-        const resolved = getLookupValue(type, val);
-        if (!resolved || typeof resolved === 'object' || /^[0-9a-fA-F]{24}$/.test(String(resolved))) return null;
+        // Case 3: Try resolving using getLookupValue
+        const resolved = getLookupValue(type, idStr);
+        if (resolved && typeof resolved !== 'object' && !/^[0-9a-fA-F]{24}$/.test(String(resolved))) {
+            return String(resolved);
+        }
+
+        // Case 4: Bulletproof Direct State Fallback Scanner
+        if (lookups) {
+            // A. Search specific type (case-insensitive, normalized)
+            const normType = String(type || '').toLowerCase().replace(/\s+/g, '');
+            const typeKey = Object.keys(lookups).find(k => k.toLowerCase().replace(/\s+/g, '') === normType);
+            const lookupList = typeKey ? lookups[typeKey] : null;
+            if (Array.isArray(lookupList)) {
+                const found = lookupList.find(l => String(l._id || l.id) === idStr);
+                if (found) {
+                    const foundVal = found.lookup_value || found.name || found.label;
+                    if (foundVal && !/^[0-9a-fA-F]{24}$/.test(String(foundVal))) return String(foundVal);
+                }
+            }
+
+            // B. Scan all lookups in all categories for this ID
+            for (const cat in lookups) {
+                if (Array.isArray(lookups[cat])) {
+                    const found = lookups[cat].find(l => String(l._id || l.id) === idStr);
+                    if (found) {
+                        const foundVal = found.lookup_value || found.name || found.label;
+                        if (foundVal && !/^[0-9a-fA-F]{24}$/.test(String(foundVal))) return String(foundVal);
+                    }
+                }
+            }
+        }
+
+        // C. Scan sizes state
+        if (sizes && Array.isArray(sizes)) {
+            const foundSize = sizes.find(s => String(s._id || s.id) === idStr);
+            if (foundSize) {
+                const foundVal = foundSize.name || foundSize.lookup_value;
+                if (foundVal && !/^[0-9a-fA-F]{24}$/.test(String(foundVal))) return String(foundVal);
+            }
+        }
+
+        // D. Scan projects state
+        if (projects && Array.isArray(projects)) {
+            const foundProj = projects.find(p => String(p._id || p.id) === idStr);
+            if (foundProj) {
+                const foundVal = foundProj.name || foundProj.projectName || foundProj.title;
+                if (foundVal && !/^[0-9a-fA-F]{24}$/.test(String(foundVal))) return String(foundVal);
+            }
+        }
         
-        return String(resolved);
-    }, [getLookupValue]);
+        return null;
+    }, [getLookupValue, lookups, projects, sizes]);
 
     // 3. Centralized Logic moved to Server-Side
     const matchedItems = useMemo(() => {
@@ -545,14 +596,83 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             const pFirst = selectedDeals.length > 0 ? selectedDeals[0] : {};
             const inv = pFirst.inventoryId || {};
 
+            // ━━ ENTERPRISE: Live Lookup Resolution Cache ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            // Scans inventory for any remaining unresolved ObjectIds and fetches their
+            // lookup_value directly from the backend API in a single batched request.
+            // This guarantees resolution regardless of PropertyConfigContext load state.
+            const liveResolutionCache = new Map();
+            try {
+                const objectIdPattern = /^[0-9a-fA-F]{24}$/;
+                const lookupFields = ['facing', 'direction', 'roadWidth', 'builtupType', 'orientation', 'sizeConfig', 'sizeType', 'category', 'subCategory', 'unitType'];
+                const unresolvedIds = new Set();
+
+                for (const field of lookupFields) {
+                    const val = inv[field];
+                    if (val && typeof val === 'string' && objectIdPattern.test(val)) {
+                        unresolvedIds.add(val);
+                    } else if (val && typeof val === 'object') {
+                        const idStr = String(val._id || val);
+                        if (objectIdPattern.test(idStr)) unresolvedIds.add(idStr);
+                    }
+                    // Also check the top-level deal for same fields
+                    const dealVal = pFirst[field];
+                    if (dealVal && typeof dealVal === 'string' && objectIdPattern.test(dealVal)) {
+                        unresolvedIds.add(dealVal);
+                    }
+                }
+
+                if (unresolvedIds.size > 0) {
+                    console.log('[LiveResolver] Fetching', unresolvedIds.size, 'unresolved lookup IDs from backend...');
+                    const idArray = Array.from(unresolvedIds);
+                    // Batch-fetch from backend by IDs
+                    const res = await api.get(`/lookups?ids=${idArray.join(',')}`);
+                    const data = res?.data;
+                    const fetchedLookups = Array.isArray(data) ? data : (data?.data || []);
+                    fetchedLookups.forEach(l => {
+                        if (l._id && l.lookup_value) {
+                            liveResolutionCache.set(String(l._id), l.lookup_value);
+                            console.log(`[LiveResolver] Resolved: ${l._id} → "${l.lookup_value}" (${l.lookup_type})`);
+                        }
+                    });
+                }
+            } catch (liveErr) {
+                console.warn('[LiveResolver] Live resolution fetch failed (non-critical):', liveErr.message);
+            }
+
+            // Enhanced resolveLookup that also checks liveResolutionCache first
+            const resolveLive = (val) => {
+                if (!val) return null;
+                let idStr = typeof val === 'object' ? String(val._id || val) : String(val).trim();
+                // Already human-readable string
+                if (!/^[0-9a-fA-F]{24}$/.test(idStr)) return idStr;
+                // Check live cache first (most authoritative)
+                if (liveResolutionCache.has(idStr)) return liveResolutionCache.get(idStr);
+                // Fallback to PropertyConfigContext lookupMap
+                return resolveLookup(val, null);
+            };
+
             // Helper to retrieve flat or nested inventory fields with strict fallback handling
+            // Checks backend-enriched _label fields first (avoids ObjectId leakage in WhatsApp vars)
             const getPropVal = (key) => {
                 if (selectedDeals.length === 0) return '';
                 const p = selectedDeals[0];
+                // First priority: backend-enriched label field (e.g. facing_label, roadWidth_label)
+                const labelKey = `${key}_label`;
+                if (p.inventoryId && typeof p.inventoryId === 'object' && p.inventoryId[labelKey] !== undefined && p.inventoryId[labelKey] !== null && p.inventoryId[labelKey] !== '') {
+                    return p.inventoryId[labelKey];
+                }
                 let val = p[key];
+                if (val === null || val === undefined || val === '') {
+                    if (p.unitSpecification && typeof p.unitSpecification === 'object') {
+                        val = p.unitSpecification[key];
+                    }
+                }
                 if (val === null || val === undefined || val === '') {
                     if (p.inventoryId && typeof p.inventoryId === 'object') {
                         val = p.inventoryId[key];
+                        if ((val === null || val === undefined || val === '') && p.inventoryId.unitSpecification && typeof p.inventoryId.unitSpecification === 'object') {
+                            val = p.inventoryId.unitSpecification[key];
+                        }
                     }
                 }
                 return val !== undefined && val !== null ? val : '';
@@ -622,19 +742,22 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                 'projectName': safePropProj,
                 'unitNo': getPropVal('unitNo'),
                 'block': getPropVal('block'),
-                'unitType': safeLookup(getPropVal('unitType'), 'UnitType'),
-                'category': safeLookup(getPropVal('category') || getPropVal('propertyType'), 'Category'),
-                'subCategory': safeLookup(getPropVal('subCategory'), 'SubCategory'),
+                'unitType': resolveLive(getPropVal('unitType')) || safeLookup(getPropVal('unitType'), 'UnitType'),
+                'category': resolveLive(getPropVal('category') || getPropVal('propertyType')) || safeLookup(getPropVal('category') || getPropVal('propertyType'), 'Category'),
+                'subCategory': resolveLive(getPropVal('subCategory')) || safeLookup(getPropVal('subCategory'), 'SubCategory'),
                 'price': getPropVal('price') || 'N/A',
                 'size': typeof getPropVal('size') === 'object' ? (getPropVal('size').value ? `${getPropVal('size').value} ${getPropVal('size').unit}` : 'N/A') : getPropVal('size') || 'N/A',
                 'location': safePropLoc,
                 
-                // Advanced/Missing Inventory Fields
-                'builtupType': safeLookup(getPropVal('builtupType'), 'BuiltupType'),
-                'sizeType': safeLookup(getPropVal('sizeLabel') || getPropVal('sizeConfig') || getPropVal('sizeType'), 'Size'),
-                'direction': safeLookup(getPropVal('direction'), 'Direction'),
-                'facing': safeLookup(getPropVal('facing'), 'Facing'),
-                'roadWidth': safeLookup(getPropVal('roadWidth'), 'RoadWidth'),
+                // Advanced Inventory Fields — 3-tier resolution:
+                // 1. resolveLive (batch API fetch, most authoritative)
+                // 2. getPropVal (backend pre-enriched label string)
+                // 3. safeLookup (PropertyConfigContext cache fallback)
+                'builtupType': resolveLive(getPropVal('builtupType')) || safeLookup(getPropVal('builtupType'), 'BuiltupType'),
+                'sizeType': resolveLive(getPropVal('sizeLabel') || getPropVal('sizeConfig') || getPropVal('sizeType')) || getPropVal('sizeLabel') || getPropVal('sizeConfig'),
+                'direction': resolveLive(getPropVal('direction')) || safeLookup(getPropVal('direction'), 'Direction'),
+                'facing': resolveLive(getPropVal('facing')) || safeLookup(getPropVal('facing'), 'Facing'),
+                'roadWidth': resolveLive(getPropVal('roadWidth')) || safeLookup(getPropVal('roadWidth'), 'RoadWidth'),
                 
                 // Helper structures
                 'propertyList': propertyListDefault,
@@ -644,14 +767,35 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                 'customer_name': lead.firstName || lead.name?.split(' ')[0] || 'customer'
             };
 
-            // 3. Resolve variables in template
-            const resolvedBody = rawBody.replace(/{{([^}]+)}}/g, (match, vIdx) => {
+            // 3. Resolve variables in template and collect parameters for WhatsApp API
+            const templateComponents = [];
+            let resolvedBody = rawBody.replace(/{{([^}]+)}}/g, (match, vIdx) => {
                 const cleanKey = vIdx.trim();
+                
+                // Index-based mapping fallback
+                if (/^\d+$/.test(cleanKey)) {
+                    const defaultRegistry = {
+                        '1': 'customer_name',
+                        '2': 'property_list_default',
+                        '3': 'assignedTo'
+                    };
+                    const mappedField = defaultRegistry[String(cleanKey)];
+                    const val = unifiedContext[mappedField] !== undefined ? unifiedContext[mappedField] : match;
+                    templateComponents.push(String(val));
+                    return String(val);
+                }
+
                 if (unifiedContext[cleanKey] !== undefined) {
-                    return unifiedContext[cleanKey];
+                    templateComponents.push(String(unifiedContext[cleanKey]));
+                    return String(unifiedContext[cleanKey]);
                 }
                 return match;
+
             });
+
+            // 🛡️ SAFETY FILTER: Strip any surviving raw MongoDB ObjectIds (24-char hex)
+            // These are IDs that couldn't be resolved — replace with empty string to prevent leakage.
+            resolvedBody = resolvedBody.replace(/\b[0-9a-fA-F]{24}\b/g, '');
 
             // 4. Dispatch using WhatsApp Service
             const targetPhone = lead.mobile || lead.phone;
@@ -671,6 +815,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                     mobile: targetPhone,
                     message: resolvedBody,
                     templateId: template.name,
+                    templateComponents: templateComponents,
                     type: 'text'
                 });
                 if (response && response.success) {
@@ -683,11 +828,75 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             if (apiSuccess) {
                 toast.success(`Portfolio shared successfully via WhatsApp API to ${lead.name}!`, { id: loadToast });
             } else {
-                // Fallback direct redirection to WhatsApp App/Web client
+                // ━━ ENTERPRISE FALLBACK: Smart Multi-Layer WhatsApp Dispatch ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                // Problem: WhatsApp Desktop App does NOT support pre-filled text via URL redirect.
+                // The `https://api.whatsapp.com/send?text=...` URL only works in WhatsApp Web (browser).
+                // When a user clicks 'Open in App', the text parameter is LOST by the desktop app.
+                //
+                // Solution: 
+                //   1. Always copy the fully resolved message to clipboard first
+                //   2. Try native whatsapp:// protocol (works better on Mac/Windows desktop)
+                //   3. Fallback to api.whatsapp.com (for mobile + WhatsApp Web users)
+                //   4. Show a persistent toast with instructions for desktop users
+
+                // Step 1: Copy to Clipboard (works regardless of which app opens)
+                try {
+                    await navigator.clipboard.writeText(resolvedBody);
+                } catch (clipErr) {
+                    console.warn('[Clipboard] Could not copy:', clipErr.message);
+                }
+
                 const encodedMsg = encodeURIComponent(resolvedBody);
-                const waUrl = `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodedMsg}`;
-                window.open(waUrl, '_blank');
-                toast.success(`Redirected to WhatsApp App to send message to ${lead.name}!`, { id: loadToast });
+
+                // Step 2: Detect if we should try native protocol (Mac/Windows desktop)
+                const isDesktopLikelyInstalled = /Win|Mac/.test(navigator.platform || navigator.userAgentData?.platform || '');
+
+                if (isDesktopLikelyInstalled) {
+                    // Try native whatsapp:// protocol first (desktop app handles this natively)
+                    const nativeUrl = `whatsapp://send?phone=${formattedPhone}&text=${encodedMsg}`;
+                    const webUrl = `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodedMsg}`;
+                    
+                    // Open native protocol. If desktop app is installed it will open directly.
+                    window.location.href = nativeUrl;
+                    
+                    // Fallback: after 2.5 seconds, if native didn't work, open web
+                    setTimeout(() => {
+                        window.open(webUrl, '_blank');
+                    }, 2500);
+                } else {
+                    // Mobile / Linux: Use web URL directly
+                    const webUrl = `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodedMsg}`;
+                    window.open(webUrl, '_blank');
+                }
+
+                // Step 3: Show a persistent toast with clear instructions for desktop users
+                toast(
+                    (t) => (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxWidth: '340px' }}>
+                            <div style={{ fontWeight: 700, color: '#065f46', fontSize: '0.9rem' }}>
+                                ✅ Message Copied to Clipboard!
+                            </div>
+                            <div style={{ fontSize: '0.8rem', color: '#374151', lineHeight: '1.4' }}>
+                                WhatsApp Desktop App doesn't support pre-filled text via URL.<br/>
+                                <strong>Simply paste (Ctrl+V / ⌘V)</strong> in the WhatsApp message box after the app opens.
+                            </div>
+                            <button
+                                onClick={() => {
+                                    navigator.clipboard.writeText(resolvedBody);
+                                    toast.dismiss(t.id);
+                                }}
+                                style={{
+                                    marginTop: '4px', padding: '6px 14px', borderRadius: '6px',
+                                    background: '#059669', color: '#fff', border: 'none',
+                                    fontWeight: 600, cursor: 'pointer', fontSize: '0.8rem'
+                                }}
+                            >
+                                📋 Copy Again
+                            </button>
+                        </div>
+                    ),
+                    { id: loadToast, duration: 8000, icon: '📲' }
+                );
             }
 
             // Log activity regardless of channel chosen

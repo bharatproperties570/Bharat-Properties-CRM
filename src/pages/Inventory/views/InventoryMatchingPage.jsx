@@ -12,7 +12,7 @@ import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 
 const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
     const { addActivity } = useActivities();
-    const { getLookupValue } = usePropertyConfig();
+    const { getLookupValue, lookups, projects, sizes } = usePropertyConfig();
     const [inventory, setInventory] = useState(null);
     const [leads, setLeads] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -95,19 +95,76 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
     // 🧠 SENIOR PROFESSIONAL: Robust Lookup Resolver for Matching
     const resolveLookup = useCallback((val, type) => {
         if (!val) return null;
+        
+        let idVal = val;
+        // Case 1: val is an object (could be populated)
         if (typeof val === 'object') {
-            const label = val.lookup_value || val.name || val.label;
-            // If label is present and not an ID, return it
-            if (label && !/^[0-9a-fA-F]{24}$/.test(String(label))) return label;
-            // If label itself is an ID or missing, try resolving the ID
-            val = val._id || val.id || val;
+            const label = val.lookup_value || val.name || val.label || val.fullName;
+            if (label && typeof label !== 'object' && !/^[0-9a-fA-F]{24}$/.test(String(label))) return String(label);
+            
+            // If label is missing or an ID, try to get the ID from the object
+            idVal = val._id || val.id || val;
+        }
+
+        const idStr = String(idVal).trim();
+        
+        // Case 2: If it's already a resolved string (not a 24-character ObjectID)
+        if (!/^[0-9a-fA-F]{24}$/.test(idStr)) {
+            return idStr;
         }
         
-        const resolved = getLookupValue(type, val);
-        // NEVER return a raw 24-char hex string as a label
-        if (!resolved || /^[0-9a-fA-F]{24}$/.test(String(resolved))) return null;
-        return resolved;
-    }, [getLookupValue]);
+        // Case 3: Try resolving using getLookupValue
+        const resolved = getLookupValue(type, idStr);
+        if (resolved && typeof resolved !== 'object' && !/^[0-9a-fA-F]{24}$/.test(String(resolved))) {
+            return String(resolved);
+        }
+
+        // Case 4: Bulletproof Direct State Fallback Scanner
+        if (lookups) {
+            // A. Search specific type (case-insensitive, normalized)
+            const normType = String(type || '').toLowerCase().replace(/\s+/g, '');
+            const typeKey = Object.keys(lookups).find(k => k.toLowerCase().replace(/\s+/g, '') === normType);
+            const lookupList = typeKey ? lookups[typeKey] : null;
+            if (Array.isArray(lookupList)) {
+                const found = lookupList.find(l => String(l._id || l.id) === idStr);
+                if (found) {
+                    const foundVal = found.lookup_value || found.name || found.label;
+                    if (foundVal && !/^[0-9a-fA-F]{24}$/.test(String(foundVal))) return String(foundVal);
+                }
+            }
+
+            // B. Scan all lookups in all categories for this ID
+            for (const cat in lookups) {
+                if (Array.isArray(lookups[cat])) {
+                    const found = lookups[cat].find(l => String(l._id || l.id) === idStr);
+                    if (found) {
+                        const foundVal = found.lookup_value || found.name || found.label;
+                        if (foundVal && !/^[0-9a-fA-F]{24}$/.test(String(foundVal))) return String(foundVal);
+                    }
+                }
+            }
+        }
+
+        // C. Scan sizes state
+        if (sizes && Array.isArray(sizes)) {
+            const foundSize = sizes.find(s => String(s._id || s.id) === idStr);
+            if (foundSize) {
+                const foundVal = foundSize.name || foundSize.lookup_value;
+                if (foundVal && !/^[0-9a-fA-F]{24}$/.test(String(foundVal))) return String(foundVal);
+            }
+        }
+
+        // D. Scan projects state
+        if (projects && Array.isArray(projects)) {
+            const foundProj = projects.find(p => String(p._id || p.id) === idStr);
+            if (foundProj) {
+                const foundVal = foundProj.name || foundProj.projectName || foundProj.title;
+                if (foundVal && !/^[0-9a-fA-F]{24}$/.test(String(foundVal))) return String(foundVal);
+            }
+        }
+        
+        return null;
+    }, [getLookupValue, lookups, projects, sizes]);
 
     const matchedLeads = useMemo(() => {
         if (!leads) return [];

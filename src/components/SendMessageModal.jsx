@@ -18,7 +18,7 @@ const SendMessageModal = ({
     initialChannel = 'SMS'
 }) => {
     const { fireEvent } = useTriggers();
-    const { getLookupValue } = usePropertyConfig();
+    const { getLookupValue, lookups, projects, sizes } = usePropertyConfig();
     const { currentUser } = useUserContext();
     const [channel, setChannel] = useState('SMS'); // SMS, WHATSAPP, RCS
     const [recipients, setRecipients] = useState([]);
@@ -213,14 +213,28 @@ const SendMessageModal = ({
         const components = [];
         const recipient = recipients[0] || {};
 
-        // Helper to retrieve flat or nested inventory fields with strict fallback handling
+        // Helper to retrieve flat or nested inventory fields
+        // Checks backend-enriched _label fields first (prevents ObjectId leakage in WhatsApp variables)
         const getPropVal = (key) => {
             if (properties.length === 0) return '';
             const p = properties[0];
+            // First priority: backend-enriched label field (e.g. facing_label, roadWidth_label)
+            const labelKey = `${key}_label`;
+            if (p.inventoryId && typeof p.inventoryId === 'object' && p.inventoryId[labelKey] !== undefined && p.inventoryId[labelKey] !== null && p.inventoryId[labelKey] !== '') {
+                return p.inventoryId[labelKey];
+            }
             let val = p[key];
+            if (val === null || val === undefined || val === '') {
+                if (p.unitSpecification && typeof p.unitSpecification === 'object') {
+                    val = p.unitSpecification[key];
+                }
+            }
             if (val === null || val === undefined || val === '') {
                 if (p.inventoryId && typeof p.inventoryId === 'object') {
                     val = p.inventoryId[key];
+                    if ((val === null || val === undefined || val === '') && p.inventoryId.unitSpecification && typeof p.inventoryId.unitSpecification === 'object') {
+                        val = p.inventoryId.unitSpecification[key];
+                    }
                 }
             }
             return val !== undefined && val !== null ? val : '';
@@ -229,15 +243,65 @@ const SendMessageModal = ({
         // Helper to resolve lookups to human-readable labels
         const resolveLookup = (val, type) => {
             if (!val) return '';
-            if (typeof val !== 'object' && !/^[0-9a-fA-F]{24}$/.test(String(val))) return String(val);
+            
+            let idVal = val;
             if (typeof val === 'object') {
                 const label = val.lookup_value || val.name || val.label || val.fullName;
                 if (label && typeof label !== 'object' && !/^[0-9a-fA-F]{24}$/.test(String(label))) return String(label);
-                val = val._id || val.id || val;
+                idVal = val._id || val.id || val;
             }
-            const resolved = getLookupValue(type, val);
-            if (!resolved || typeof resolved === 'object' || /^[0-9a-fA-F]{24}$/.test(String(resolved))) return '';
-            return String(resolved);
+
+            const idStr = String(idVal).trim();
+            if (!/^[0-9a-fA-F]{24}$/.test(idStr)) {
+                return idStr;
+            }
+
+            const resolved = getLookupValue(type, idStr);
+            if (resolved && typeof resolved !== 'object' && !/^[0-9a-fA-F]{24}$/.test(String(resolved))) {
+                return String(resolved);
+            }
+
+            // Fallback direct scanners
+            if (lookups) {
+                const normType = String(type || '').toLowerCase().replace(/\s+/g, '');
+                const typeKey = Object.keys(lookups).find(k => k.toLowerCase().replace(/\s+/g, '') === normType);
+                const lookupList = typeKey ? lookups[typeKey] : null;
+                if (Array.isArray(lookupList)) {
+                    const found = lookupList.find(l => String(l._id || l.id) === idStr);
+                    if (found) {
+                        const foundVal = found.lookup_value || found.name || found.label;
+                        if (foundVal && !/^[0-9a-fA-F]{24}$/.test(String(foundVal))) return String(foundVal);
+                    }
+                }
+
+                for (const cat in lookups) {
+                    if (Array.isArray(lookups[cat])) {
+                        const found = lookups[cat].find(l => String(l._id || l.id) === idStr);
+                        if (found) {
+                            const foundVal = found.lookup_value || found.name || found.label;
+                            if (foundVal && !/^[0-9a-fA-F]{24}$/.test(String(foundVal))) return String(foundVal);
+                        }
+                    }
+                }
+            }
+
+            if (sizes && Array.isArray(sizes)) {
+                const foundSize = sizes.find(s => String(s._id || s.id) === idStr);
+                if (foundSize) {
+                    const foundVal = foundSize.name || foundSize.lookup_value;
+                    if (foundVal && !/^[0-9a-fA-F]{24}$/.test(String(foundVal))) return String(foundVal);
+                }
+            }
+
+            if (projects && Array.isArray(projects)) {
+                const foundProj = projects.find(p => String(p._id || p.id) === idStr);
+                if (foundProj) {
+                    const foundVal = foundProj.name || foundProj.projectName || foundProj.title;
+                    if (foundVal && !/^[0-9a-fA-F]{24}$/.test(String(foundVal))) return String(foundVal);
+                }
+            }
+
+            return '';
         };
 
         const categoryRaw = getPropVal('category') || getPropVal('propertyType');
@@ -247,19 +311,30 @@ const SendMessageModal = ({
         const subCategoryResolved = resolveLookup(subCategoryRaw, 'SubCategory');
 
         const builtupTypeRaw = getPropVal('builtupType');
-        const builtupTypeResolved = resolveLookup(builtupTypeRaw, 'BuiltupType');
+        // Backend pre-resolves ObjectIds to strings; resolveLookup is a client-side fallback
+        const builtupTypeResolved = builtupTypeRaw && !/^[0-9a-fA-F]{24}$/.test(String(builtupTypeRaw))
+            ? builtupTypeRaw // Already a human-readable string from backend
+            : resolveLookup(builtupTypeRaw, 'BuiltupType');
 
         const sizeLabelRaw = getPropVal('sizeLabel') || getPropVal('sizeConfig');
-        const sizeLabelResolved = resolveLookup(sizeLabelRaw, 'Size') || getPropVal('size');
+        const sizeLabelResolved = (sizeLabelRaw && !/^[0-9a-fA-F]{24}$/.test(String(sizeLabelRaw)))
+            ? sizeLabelRaw
+            : (resolveLookup(sizeLabelRaw, 'Size') || getPropVal('size'));
 
         const directionRaw = getPropVal('direction');
-        const directionResolved = resolveLookup(directionRaw, 'Direction');
+        const directionResolved = directionRaw && !/^[0-9a-fA-F]{24}$/.test(String(directionRaw))
+            ? directionRaw
+            : resolveLookup(directionRaw, 'Direction');
 
         const facingRaw = getPropVal('facing');
-        const facingResolved = resolveLookup(facingRaw, 'Facing');
+        const facingResolved = facingRaw && !/^[0-9a-fA-F]{24}$/.test(String(facingRaw))
+            ? facingRaw
+            : resolveLookup(facingRaw, 'Facing');
 
         const roadWidthRaw = getPropVal('roadWidth');
-        const roadWidthResolved = resolveLookup(roadWidthRaw, 'RoadWidth'); // Aligned with DB 'RoadWidth' lookup_type!
+        const roadWidthResolved = roadWidthRaw && !/^[0-9a-fA-F]{24}$/.test(String(roadWidthRaw))
+            ? roadWidthRaw
+            : resolveLookup(roadWidthRaw, 'RoadWidth');
 
         const sizeRaw = getPropVal('size');
         const sizeVal = typeof sizeRaw === 'object' ? (sizeRaw.value ? `${sizeRaw.value} ${sizeRaw.unit || 'Sq.Yd.'}` : '') : sizeRaw;
@@ -328,7 +403,7 @@ const SendMessageModal = ({
             'projectName': projectNameVal,
             'unitNo': getPropVal('unitNo'),
             'block': getPropVal('block'),
-            'unitType': getPropVal('unitType'),
+            'unitType': resolveLookup(getPropVal('unitType'), 'UnitType'),
             'category': categoryResolved,
             'subCategory': subCategoryResolved,
             'builtupType': builtupTypeResolved,
@@ -439,6 +514,10 @@ const SendMessageModal = ({
                 resolvedBody = resolvedBody.replace(/{{Name}}/g, recipient.name || 'valued customer');
                 resolvedBody = resolvedBody.replace(/{{FirstName}}/g, recipient.firstName || recipient.name?.split(' ')[0] || 'valued customer');
                 resolvedBody = resolvedBody.replace(/{{Phone}}/g, recipient.phone || 'your phone');
+
+                // 🛡️ SAFETY FILTER: Strip any surviving raw MongoDB ObjectIds (24-char hex)
+                // Prevents database IDs from leaking into WhatsApp messages.
+                resolvedBody = resolvedBody.replace(/\b[0-9a-fA-F]{24}\b/g, '');
 
                 setWhatsappComponents(components);
                 setMessageBody(resolvedBody);
@@ -931,14 +1010,49 @@ const SendMessageModal = ({
 
                             {channel === 'WHATSAPP' && !showSchedule && (
                                 <button
-                                    onClick={() => {
+                                    id="whatsapp-send-via-app-btn"
+                                    onClick={async () => {
                                         if (recipients.length === 0) return;
                                         let phone = recipients[0].phone || recipients[0].mobile || '';
                                         phone = phone.replace(/\D/g, '');
                                         if (phone.length === 10) phone = '91' + phone;
                                         
-                                        const url = `https://wa.me/${phone}?text=${encodeURIComponent(messageBody)}`;
-                                        window.open(url, '_blank');
+                                        // ━━ ENTERPRISE: Same smart dispatch as Portfolio send ━━
+                                        // Step 1: Copy to clipboard FIRST (desktop users will need to paste)
+                                        try {
+                                            await navigator.clipboard.writeText(messageBody);
+                                        } catch (e) {
+                                            console.warn('Clipboard copy failed:', e.message);
+                                        }
+
+                                        const encodedMsg = encodeURIComponent(messageBody);
+                                        const isDesktop = /Win|Mac/.test(navigator.platform || navigator.userAgentData?.platform || '');
+
+                                        if (isDesktop) {
+                                            // Step 2a: Try native whatsapp:// protocol for desktop app
+                                            window.location.href = `whatsapp://send?phone=${phone}&text=${encodedMsg}`;
+                                            // Step 2b: Fallback to web after 2.5s if native didn't open
+                                            setTimeout(() => {
+                                                window.open(`https://api.whatsapp.com/send?phone=${phone}&text=${encodedMsg}`, '_blank');
+                                            }, 2500);
+                                        } else {
+                                            window.open(`https://api.whatsapp.com/send?phone=${phone}&text=${encodedMsg}`, '_blank');
+                                        }
+
+                                        // Step 3: Inform user to paste in desktop app
+                                        import('react-hot-toast').then(({ default: toastLib }) => {
+                                            toastLib(
+                                                (t) => (
+                                                    <div style={{ maxWidth: '300px' }}>
+                                                        <div style={{ fontWeight: 700, marginBottom: '4px' }}>✅ Message Copied!</div>
+                                                        <div style={{ fontSize: '0.8rem', color: '#374151' }}>
+                                                            Desktop app opens — <strong>paste (⌘V / Ctrl+V)</strong> in the message box.
+                                                        </div>
+                                                    </div>
+                                                ),
+                                                { duration: 7000, icon: '📲' }
+                                            );
+                                        });
                                         onClose();
                                     }}
                                     style={{

@@ -108,8 +108,13 @@ export const matchDeals = async (req, res) => {
         const bFlex = parseFloat(budgetFlexibility) / 100;
         const sFlex = parseFloat(sizeFlexibility) / 100;
 
-        // ─── 0. Pre-fetch all lookups for high-speed resolution ───────────────────
-        const lookupTypes = ['Category', 'Intent', 'SubCategory', 'Status', 'PropertyType', 'UnitType', 'Locality', 'Area', 'Location', 'Size', 'City', 'State', 'Requirement'];
+        // ─── 0. Pre-fetch ALL lookups for high-speed resolution (including inventory-specific types) ───
+        const lookupTypes = [
+            'Category', 'Intent', 'SubCategory', 'Status', 'PropertyType', 'UnitType',
+            'Locality', 'Area', 'Location', 'Size', 'City', 'State', 'Requirement',
+            // Inventory-specific lookup types (critical for WhatsApp variable resolution)
+            'Facing', 'Direction', 'RoadWidth', 'BuiltupType', 'Orientation'
+        ];
         const allLookups = await Lookup.find({ 
             lookup_type: { $in: lookupTypes } 
         }).lean();
@@ -135,6 +140,56 @@ export const matchDeals = async (req, res) => {
             if (resolved) return resolved;
             if (!/^[0-9a-fA-F]{24}$/.test(idStr)) return idStr;
             return "Unknown";
+        };
+
+        /**
+         * ENTERPRISE FIX: Resolve a raw ObjectId (or string) to its human-readable lookup_value.
+         * Returns the original value if it's already a non-ObjectId string.
+         * Returns null if unresolvable.
+         */
+        const resolveToLabel = (val) => {
+            if (!val) return null;
+            if (typeof val === 'object' && val.lookup_value) return val.lookup_value;
+            const idStr = String(val._id || val).trim();
+            if (!/^[0-9a-fA-F]{24}$/.test(idStr)) return idStr; // already a string
+            return lookupIdMap.get(idStr) || null; // resolve from prefetched map
+        };
+
+        /**
+         * ENTERPRISE FIX: Enrich a populated inventoryId object — replace all ObjectId
+         * lookup references with their human-readable string values so that the frontend
+         * can use them directly in template variables without needing client-side lookups.
+         */
+        const enrichInventoryLookups = (inv) => {
+            if (!inv || typeof inv !== 'object') return inv;
+            const enriched = { ...inv };
+            // Core inventory lookup fields → enrich in place
+            const lookupFields = ['facing', 'direction', 'roadWidth', 'builtupType', 'orientation',
+                                  'category', 'subCategory', 'unitType', 'sizeConfig', 'sizeType'];
+            for (const field of lookupFields) {
+                if (enriched[field] !== undefined && enriched[field] !== null) {
+                    const resolved = resolveToLabel(enriched[field]);
+                    if (resolved) enriched[`${field}_label`] = resolved;
+                    // Also overwrite if it was an ObjectId (raw ID → label)
+                    const raw = enriched[field];
+                    const rawStr = typeof raw === 'object' ? String(raw._id || raw) : String(raw);
+                    if (/^[0-9a-fA-F]{24}$/.test(rawStr) && resolved) {
+                        enriched[field] = resolved; // Replace ObjectId with human-readable string
+                    }
+                }
+            }
+            // Enrich address sub-fields
+            if (enriched.address) {
+                const addr = { ...enriched.address };
+                ['city', 'state', 'locality', 'location', 'area'].forEach(f => {
+                    if (addr[f]) {
+                        const resolved = resolveToLabel(addr[f]);
+                        if (resolved) addr[f] = resolved;
+                    }
+                });
+                enriched.address = addr;
+            }
+            return enriched;
         };
 
         // ─── 1. Fetch Lead ────────────────────────────────────────────────────────
@@ -396,8 +451,12 @@ export const matchDeals = async (req, res) => {
                 const decayedScore = score * decayFactor;
                 if (decayedScore < 5) return null;
 
+                // Enrich inventoryId with resolved lookup strings (prevents ObjectId leakage in WhatsApp variables)
+                const enrichedInventory = enrichInventoryLookups(deal.inventoryId);
+
                 return {
                     ...deal,
+                    inventoryId: enrichedInventory,
                     score: Math.min(Math.round(decayedScore), 100),
                     rawScore: Math.min(Math.round(score), 100),
                     isPinned: lead.pinnedMatches?.some(id => String(id) === String(deal.inventoryId?._id || deal.inventoryId || deal._id)),
