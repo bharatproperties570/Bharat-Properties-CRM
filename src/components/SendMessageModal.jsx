@@ -3,9 +3,9 @@ import { useTriggers } from '../context/TriggersContext';
 import smsService from '../services/smsService';
 import whatsappService from '../services/whatsappService';
 import { systemSettingsAPI } from '../utils/api';
-import { sendCampaignWithRetry } from '../utils/communicationHelper';
-import { toast } from 'react-hot-toast';
-
+import { whatsappTemplates as whatsappTemplatesConst, smsTemplates as smsTemplatesConst, rcsTemplates as rcsTemplatesConst } from '../constants/templates';
+import { renderValue } from '../utils/renderUtils';
+import { useUserContext } from '../context/UserContext';
 const SendMessageModal = ({ 
     isOpen, 
     onClose, 
@@ -17,6 +17,7 @@ const SendMessageModal = ({
     initialChannel = 'SMS'
 }) => {
     const { fireEvent } = useTriggers();
+    const { currentUser } = useUserContext();
     const [channel, setChannel] = useState('SMS'); // SMS, WHATSAPP, RCS
     const [recipients, setRecipients] = useState([]);
     const [properties, setProperties] = useState([]);
@@ -66,8 +67,7 @@ const SendMessageModal = ({
             loadVariableRegistry();
             setWhatsappComponents([]);
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isOpen]);
+    }, [isOpen, initialChannel, initialTemplateId, initialRecipients, initialProperties, initialProperty]);
 
     useEffect(() => {
         if (initialProperty) {
@@ -120,16 +120,15 @@ const SendMessageModal = ({
         setIsLoadingSms(true);
         try {
             const res = await smsService.getTemplates();
-            if (!res.data || res.data.length === 0) {
-                setSmsTemplates([
-                    { _id: 'mock_sms_1', name: 'Welcome Message', body: 'Hi {{Name}}, welcome to Bharat Properties! Let us know if you need any help.' },
-                    { _id: 'mock_sms_2', name: 'Follow-up', body: 'Hi {{Name}}, just following up regarding your property inquiry. Please call us back.' }
-                ]);
+            const templates = Array.isArray(res) ? res : (res && Array.isArray(res.data) ? res.data : []);
+            if (templates && templates.length > 0) {
+                setSmsTemplates(templates);
             } else {
-                setSmsTemplates(res.data);
+                setSmsTemplates(smsTemplatesConst);
             }
         } catch (err) {
             console.error('Failed to load SMS templates', err);
+            setSmsTemplates(smsTemplatesConst);
         } finally {
             setIsLoadingSms(false);
         }
@@ -139,16 +138,15 @@ const SendMessageModal = ({
         setIsLoadingWhatsApp(true);
         try {
             const res = await whatsappService.getTemplates();
-            if (!res.templates || res.templates.length === 0) {
-                setWhatsappTemplates([
-                    { id: 'mock_wa_1', name: 'property_offer', language: 'en_US', body: 'Hello {{Name}}, we have an exclusive offer on property. Reply YES to know more.' },
-                    { id: 'mock_wa_2', name: 'meeting_reminder', language: 'en_US', body: 'Hi {{Name}}, a gentle reminder for your site visit today.' }
-                ]);
+            const templates = Array.isArray(res) ? res : (res && Array.isArray(res.templates) ? res.templates : []);
+            if (templates && templates.length > 0) {
+                setWhatsappTemplates(templates);
             } else {
-                setWhatsappTemplates(res.templates);
+                setWhatsappTemplates(whatsappTemplatesConst);
             }
         } catch (err) {
             console.error('Failed to load WhatsApp templates', err);
+            setWhatsappTemplates(whatsappTemplatesConst);
         } finally {
             setIsLoadingWhatsApp(false);
         }
@@ -216,66 +214,115 @@ const SendMessageModal = ({
         const propertyListDefault = properties.map((p, i) => `${i + 1}️⃣ ${p.unitNo || 'Unit'} - ${p.location || p.city || 'Sector'}`).join('\n');
         const propertyListDetailed = properties.map((p, i) => `${i + 1}️⃣ 📍 ${p.location || p.city}\n📏 Size: ${p.size}\n💰 Price: ₹${p.price}`).join('\n');
 
-        const agentName = recipient.assignedTo?.name || recipient.owner || recipient.agentName || 'Our Representative';
-        const agentMobile = recipient.assignment?.assignedTo?.mobile || recipient.assignedTo?.mobile || recipient.ownerMobile || recipient.agentMobile || '';
+        const agentName = recipient.assignedTo?.name || recipient.owner || recipient.agentName || currentUser?.name || 'Our Representative';
+        const agentMobile = recipient.assignment?.assignedTo?.mobile || recipient.assignedTo?.mobile || recipient.ownerMobile || recipient.agentMobile || currentUser?.mobile || currentUser?.phone || '';
         const agentDetails = agentMobile ? `${agentName} (📞 ${agentMobile})` : agentName;
 
-        const fieldMap = {
+        const safePropLoc = properties.length > 0 ? (properties[0].inventoryId?.address?.locality || properties[0].inventoryId?.address?.area || properties[0].inventoryId?.address?.location || properties[0].location || properties[0].city) : null;
+        const safePropProj = properties.length > 0 ? (properties[0].inventoryId?.projectName || properties[0].projectName || properties[0].unitNo) : 'Property';
+
+        const unifiedContext = {
+            // Contact/Lead Exact Fields
             'name': recipient.name,
-            'customer_name': recipient.name,
-            'firstName': recipient.firstName || recipient.name?.split(' ')[0],
-            'mobile': recipient.phone || recipient.mobile,
-            'email': recipient.email,
-            'source': recipient.source,
-            'status': recipient.status || recipient.stage,
+            'firstName': recipient.firstName || recipient.name?.split(' ')[0] || 'customer',
+            'surname': recipient.surname || '',
+            'mobile': recipient.phone || recipient.mobile || '',
+            'email': recipient.email || '',
+            'source': recipient.source || '',
+            'status': recipient.status || recipient.stage || '',
+            'requirement': recipient.requirement || recipient.requirementType || 'property',
+            'budgetMin': recipient.budgetMin || recipient.budget || '',
+            'budgetMax': recipient.budgetMax || '',
+            'areaMin': recipient.areaMin || '',
+            'areaMax': recipient.areaMax || '',
+            'locCity': recipient.locCity || recipient.location || '',
+            'locArea': recipient.locArea || '',
+            
+            // System Details
             'assignedTo': agentDetails,
-            'leadId': recipient.id || recipient._id,
-            'propertyName': properties.length > 0 ? (properties[0].unitNo || properties[0].projectName) : 'Property',
-            'unitNumber': properties.length > 0 ? properties[0].unitNo : '',
-            'projectName': properties.length > 0 ? properties[0].projectName : '',
+            'ownerMobile': agentMobile,
+            'ownerEmail': recipient.assignedTo?.email || currentUser?.email || '',
+
+            // Project/Inventory Exact Fields
+            'projectName': safePropProj,
+            'unitNo': properties.length > 0 ? properties[0].unitNo : '',
             'block': properties.length > 0 ? properties[0].block : '',
             'unitType': properties.length > 0 ? properties[0].unitType : '',
             'category': properties.length > 0 ? (properties[0].category?.name || properties[0].category) : '',
             'subCategory': properties.length > 0 ? (properties[0].subCategory?.name || properties[0].subCategory) : '',
-            'price': properties.length > 0 ? properties[0].price : '',
-            'size': properties.length > 0 ? properties[0].size : '',
-            'location': properties.length > 0 ? (properties[0].location || properties[0].city) : recipient.location,
-            'budget': recipient.budgetPreference || recipient.budget,
-            'requirementType': recipient.requirementType || recipient.bhk,
+            'price': properties.length > 0 ? properties[0].price : 'N/A',
+            'size': properties.length > 0 ? (properties[0].sizeConfig || properties[0].size) : 'N/A',
+            'location': properties.length > 0 ? safePropLoc : recipient.location || 'our project',
+            
+            // Computed / Summary Helpers
             'propertyList': propertyListDefault,
             'property_list_default': propertyListDefault,
             'property_list_detailed': propertyListDetailed,
-            'matchListDefault': propertyListDefault,
-            'matchListDetailed': propertyListDetailed
+            'requirementSummary': (recipient.requirement || recipient.requirementType) ? `Looking for ${recipient.requirement || recipient.requirementType} in ${safePropLoc || recipient.location || 'our area'} budget ${recipient.budgetMin || recipient.budget || ''}` : 'Your property requirement',
+            'propertiesCount': properties.length || 0,
+            
+            // Fallbacks for older numeric mapping
+            'customer_name': recipient.firstName || recipient.name?.split(' ')[0] || 'customer'
         };
 
         const resolveVars = (text) => {
             if (!text) return text;
-            return text.replace(/{{(\d+)}}/g, (match, vIdx) => {
-                const defaultRegistry = {
-                    '1': 'customer_name',
-                    '2': 'property_list_default',
-                    '3': 'assignedTo'
+            return text.replace(/{{([^}]+)}}/g, (match, vIdx) => {
+                if (/^\d+$/.test(vIdx)) {
+                    const defaultRegistry = {
+                        '1': 'customer_name',
+                        '2': 'property_list_default',
+                        '3': 'assignedTo'
+                    };
+                    const mappedField = variableRegistry[vIdx] || variableRegistry[String(vIdx)] || defaultRegistry[String(vIdx)];
+                    const val = unifiedContext[mappedField] !== undefined ? renderValue(unifiedContext[mappedField], '') : match;
+                    components.push({ type: 'text', text: val });
+                    return val;
+                }
+                
+                // Fallbacks for specific hardcoded strings expected in RCS templates
+                const legacyHardcoded = {
+                    'MatchCount': 'several',
+                    'OldPrice': 'N/A',
+                    'NewPrice': 'N/A',
+                    'Savings': 'N/A',
+                    'Deadline': 'tomorrow',
+                    'Amount': 'the due amount',
+                    'DueDate': 'the due date',
+                    'PaymentType': 'payment',
+                    'PaymentMethods': 'Bank Transfer / UPI',
+                    'MatchPercentage': '95',
+                    'MatchReasons': '- Matches your budget\n- Preferred location\n- Right size',
+                    'CompetingBuyers': '2',
+                    'Slot1': 'Tomorrow 10 AM',
+                    'Slot2': 'Tomorrow 2 PM',
+                    'Slot3': 'Day after 11 AM',
+                    'PositiveFeedback': 'Location, Amenities',
+                    'Concerns': 'Price negotiation',
+                    'NextSteps': 'I will share a revised offer',
+                    'DocumentList': '- Aadhaar Card\n- PAN Card\n- Cancelled Cheque'
                 };
-                const mappedField = variableRegistry[vIdx] || variableRegistry[String(vIdx)] || defaultRegistry[String(vIdx)];
-                const val = fieldMap[mappedField] !== undefined ? String(fieldMap[mappedField]) : match;
-                components.push({ type: 'text', text: val });
-                return val;
+                
+                if (legacyHardcoded[vIdx] !== undefined) {
+                    const val = renderValue(legacyHardcoded[vIdx], '');
+                    components.push({ type: 'text', text: val });
+                    return val;
+                }
+                
+                if (unifiedContext[vIdx] !== undefined) {
+                    const val = renderValue(unifiedContext[vIdx], '');
+                    components.push({ type: 'text', text: val });
+                    return val;
+                }
+
+                return match;
             });
         };
 
         if (channel === 'SMS') {
-            const template = smsTemplates.find(t => t._id === templateId);
+            const template = smsTemplates.find(t => t._id === templateId || String(t.id) === String(templateId));
             if (template) {
-                resolvedBody = template.body || '';
-                resolvedBody = resolvedBody.replace(/{{Name}}/g, recipient.name || 'valued customer');
-                resolvedBody = resolvedBody.replace(/{{FirstName}}/g, recipient.firstName || recipient.name?.split(' ')[0] || 'valued customer');
-                resolvedBody = resolvedBody.replace(/{{Phone}}/g, recipient.phone || 'your phone');
-                resolvedBody = resolvedBody.replace(/{{(\d+)}}/g, (match, vIdx) => {
-                    const mappedField = variableRegistry[vIdx] || variableRegistry[String(vIdx)];
-                    const smsFieldMap = { 'name': recipient.name, 'firstName': recipient.firstName, 'mobile': recipient.phone };
-                    return smsFieldMap[mappedField] || match;
-                });
+                resolvedBody = resolveVars(template.body || '');
                 setMessageBody(resolvedBody);
             }
         } else if (channel === 'WHATSAPP') {
@@ -305,6 +352,14 @@ const SendMessageModal = ({
                 setWhatsappComponents(components);
                 setMessageBody(resolvedBody);
                 setIsTemplateModified(false);
+            }
+        } else if (channel === 'RCS') {
+            const template = rcsTemplatesConst.find(t => String(t.id) === String(templateId));
+            if (template) {
+                setRcsTitle(template.name || '');
+                resolvedBody = resolveVars(template.body || '');
+                setMessageBody(resolvedBody);
+                setRcsActions(template.buttons || []);
             }
         }
     }, [templateId, channel, whatsappTemplates, smsTemplates, recipients, variableRegistry, initialProperty]);
@@ -352,49 +407,44 @@ const SendMessageModal = ({
 
         try {
             let res;
-if (channel === 'WHATSAPP') {
-    // Build payload for the helper
-    const waPayload = {
-        channel: 'WHATSAPP',
-        recipients,
-        content: {
-            body: messageBody,
-            templateId,
-            rcs: { title: rcsTitle, actions: rcsActions },
-            mediaUrl: attachment?.url,
-            filename: attachment?.name,
-            type: attachment?.type || 'text'
-        },
-        schedule: isScheduled && showSchedule ? { date: scheduleDate, time: scheduleTime } : null
-    };
-    // Use the resilient helper which returns { success, error }
-    res = await sendCampaignWithRetry('WHATSAPP', waPayload);
-} else {
-    // SMS and other channels continue using existing service
-    res = await smsService.sendMessage(data);
-}
+            if (channel === 'WHATSAPP') {
+                res = await whatsappService.sendMessage({
+                    mobile: recipients[0]?.phone || recipients[0]?.mobile,
+                    message: messageBody,
+                    templateId,
+                    // 🚀 SENIOR PROFESSIONAL: Best effort delivery. 
+                    // Even if modified, we send the resolved components. 
+                    // Meta will reject if the body doesn't match the template pattern, 
+                    // and our backend will fallback to a plain text message anyway.
+                    templateComponents: templateId ? whatsappComponents.map(c => c.text) : [],
+                    language: templateLanguage,
+                    mediaUrl: attachment?.url,
+                    filename: attachment?.name,
+                    type: attachment?.type || 'text'
+                });
+            } else {
+                res = await smsService.sendMessage(data);
+            }
 
-if (res && res.success) {
-    // If the parent provided an onSend callback, tell it we succeeded
-    if (onSend) onSend(data, res);
+            if (res && res.success) {
+                // If the parent provided an onSend callback, tell it we succeeded
+                if (onSend) onSend(data, res);
 
-    // Fire Triggers
-    fireEvent('message_sent', data, { entityType: 'communication' });
+                // Fire Triggers
+                fireEvent('message_sent', data, { entityType: 'communication' });
 
-    // Dispatch Global Sync Event
-    window.dispatchEvent(new CustomEvent('activity-completed', {
-        detail: { 
-            entityId: recipients[0]?.id || recipients[0]?._id,
-            type: channel
-        }
-    }));
+                // Dispatch Global Sync Event
+                window.dispatchEvent(new CustomEvent('activity-completed', {
+                    detail: { 
+                        entityId: recipients[0]?.id || recipients[0]?._id,
+                        type: channel
+                    }
+                }));
 
-    onClose();
-} else {
-    // Show toast error and close modal; user can check pending queue later
-    toast.error(`❌ ${channel} delivery failed: ${res?.error || 'Unknown error'}. Message queued for retry.`);
-    onClose();
-}
+                onClose();
+            } else {
+                throw new Error(res?.error || "Failed to send message: Success flag false");
+            }
         } catch (error) {
             console.error(`${channel} Sending Error:`, error);
             const errorMsg = error.response?.data?.error || error.response?.data?.message || error.message || "Unknown error";
@@ -597,9 +647,9 @@ if (res && res.success) {
                                 <div style={{ border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
                                     {/* Toolbar (Variables only) */}
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '8px 12px', borderBottom: '1px solid #f1f5f9', backgroundColor: '#f8fafc' }}>
-                                        <button type="button" style={toolbarBtnStyle} onClick={() => insertText('{{Name}}')} title="Insert Name"><i className="fas fa-user-tag" style={{ marginRight: '4px' }}></i> Name</button>
-                                        <button type="button" style={toolbarBtnStyle} onClick={() => insertText('{{Phone}}')} title="Insert Phone"><i className="fas fa-phone" style={{ marginRight: '4px' }}></i> Phone</button>
-                                        <button type="button" style={toolbarBtnStyle} onClick={() => insertText('{{Link}}')} title="Insert Link"><i className="fas fa-link" style={{ marginRight: '4px' }}></i> Link</button>
+                                        <button style={toolbarBtnStyle} onClick={() => insertText('{{Name}}')} title="Insert Name"><i className="fas fa-user-tag" style={{ marginRight: '4px' }}></i> Name</button>
+                                        <button style={toolbarBtnStyle} onClick={() => insertText('{{Phone}}')} title="Insert Phone"><i className="fas fa-phone" style={{ marginRight: '4px' }}></i> Phone</button>
+                                        <button style={toolbarBtnStyle} onClick={() => insertText('{{Link}}')} title="Insert Link"><i className="fas fa-link" style={{ marginRight: '4px' }}></i> Link</button>
                                     </div>
                                     <textarea
                                         ref={textAreaRef}
@@ -650,12 +700,12 @@ if (res && res.success) {
                                     <div style={{ border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
                                         {/* Full Toolbar */}
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '8px 12px', borderBottom: '1px solid #f1f5f9', backgroundColor: '#f8fafc' }}>
-                                            <button type="button" style={toolbarBtnStyle} onClick={() => wrapSelection('*')} title="Bold"><i className="fas fa-bold"></i></button>
-                                            <button type="button" style={toolbarBtnStyle} onClick={() => wrapSelection('_')} title="Italic"><i className="fas fa-italic"></i></button>
-                                            <button type="button" style={toolbarBtnStyle} onClick={() => wrapSelection('~')} title="Strikethrough"><i className="fas fa-strikethrough"></i></button>
+                                            <button style={toolbarBtnStyle} onClick={() => wrapSelection('*')} title="Bold"><i className="fas fa-bold"></i></button>
+                                            <button style={toolbarBtnStyle} onClick={() => wrapSelection('_')} title="Italic"><i className="fas fa-italic"></i></button>
+                                            <button style={toolbarBtnStyle} onClick={() => wrapSelection('~')} title="Strikethrough"><i className="fas fa-strikethrough"></i></button>
                                             <div style={{ width: '1px', height: '18px', backgroundColor: '#e2e8f0', margin: '0 6px' }}></div>
-                                            <button type="button" style={toolbarBtnStyle} onClick={() => insertText('{{Name}}')} title="Insert Name"><i className="fas fa-user-tag" style={{ marginRight: '4px' }}></i> Name</button>
-                                            <button type="button" style={toolbarBtnStyle} onClick={() => insertText('{{Link}}')} title="Insert Link"><i className="fas fa-link" style={{ marginRight: '4px' }}></i> Link</button>
+                                            <button style={toolbarBtnStyle} onClick={() => insertText('{{Name}}')} title="Insert Name"><i className="fas fa-user-tag" style={{ marginRight: '4px' }}></i> Name</button>
+                                            <button style={toolbarBtnStyle} onClick={() => insertText('{{Link}}')} title="Insert Link"><i className="fas fa-link" style={{ marginRight: '4px' }}></i> Link</button>
                                         </div>
                                         <textarea
                                             ref={textAreaRef}
@@ -680,6 +730,20 @@ if (res && res.success) {
                         {channel === 'RCS' && (
                             <div className="animate-fade-in">
                                 <div style={{ marginBottom: '20px' }}>
+                                    <label style={labelStyle}>Select Template</label>
+                                    <select
+                                        value={templateId}
+                                        onChange={handleTemplateChange}
+                                        style={inputStyle}
+                                    >
+                                        <option value="">-- Choose an RCS Template --</option>
+                                        {rcsTemplatesConst.map(t => (
+                                            <option key={t.id} value={t.id}>{t.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div style={{ marginBottom: '20px' }}>
                                     <label style={labelStyle}>Card Title</label>
                                     <input
                                         style={inputStyle}
@@ -693,8 +757,8 @@ if (res && res.success) {
                                     <label style={labelStyle}>Description / Body</label>
                                     <div style={{ border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '8px 12px', borderBottom: '1px solid #f1f5f9', backgroundColor: '#f8fafc' }}>
-                                            <button type="button" style={toolbarBtnStyle} onClick={() => insertText('{{Name}}')} title="Insert Name"><i className="fas fa-user-tag" style={{ marginRight: '4px' }}></i> Name</button>
-                                            <button type="button" style={toolbarBtnStyle} onClick={() => insertText('{{Link}}')} title="Insert Link"><i className="fas fa-link" style={{ marginRight: '4px' }}></i> Link</button>
+                                            <button style={toolbarBtnStyle} onClick={() => insertText('{{Name}}')} title="Insert Name"><i className="fas fa-user-tag" style={{ marginRight: '4px' }}></i> Name</button>
+                                            <button style={toolbarBtnStyle} onClick={() => insertText('{{Link}}')} title="Insert Link"><i className="fas fa-link" style={{ marginRight: '4px' }}></i> Link</button>
                                         </div>
                                         <textarea
                                             ref={textAreaRef}
@@ -725,7 +789,7 @@ if (res && res.success) {
                                         {rcsActions.map((action, idx) => (
                                             <div key={idx} style={{ display: 'flex', gap: '8px' }}>
                                                 <input style={{ ...inputStyle, flex: 1 }} placeholder="Button Label" value={action.label} readOnly />
-                                                <button type="button" onClick={() => setRcsActions(rcsActions.filter((_, i) => i !== idx))} style={{ ...toolbarBtnStyle, color: '#ef4444' }}><i className="fas fa-trash"></i></button>
+                                                <button onClick={() => setRcsActions(rcsActions.filter((_, i) => i !== idx))} style={{ ...toolbarBtnStyle, color: '#ef4444' }}><i className="fas fa-trash"></i></button>
                                             </div>
                                         ))}
                                         {rcsActions.length < 3 && (
@@ -759,7 +823,7 @@ if (res && res.success) {
                         )}
 
                         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                            <button type="button" onClick={onClose} style={{ padding: '12px 24px', borderRadius: '10px', border: '1px solid #cbd5e1', background: '#fff', color: '#64748b', fontWeight: 700, cursor: 'pointer', fontSize: '0.9rem' }}>Cancel</button>
+                            <button onClick={onClose} style={{ padding: '12px 24px', borderRadius: '10px', border: '1px solid #cbd5e1', background: '#fff', color: '#64748b', fontWeight: 700, cursor: 'pointer', fontSize: '0.9rem' }}>Cancel</button>
 
                             <div style={{ flex: 1 }}></div>
 
@@ -774,6 +838,28 @@ if (res && res.success) {
                                 <i className="far fa-clock"></i> {showSchedule ? 'Hide Schedule' : 'Schedule'}
                             </button>
 
+                            {channel === 'WHATSAPP' && !showSchedule && (
+                                <button
+                                    onClick={() => {
+                                        if (recipients.length === 0) return;
+                                        let phone = recipients[0].phone || recipients[0].mobile || '';
+                                        phone = phone.replace(/\D/g, '');
+                                        if (phone.length === 10) phone = '91' + phone;
+                                        
+                                        const url = `https://wa.me/${phone}?text=${encodeURIComponent(messageBody)}`;
+                                        window.open(url, '_blank');
+                                        onClose();
+                                    }}
+                                    style={{
+                                        padding: '12px 24px', borderRadius: '10px', border: '1px solid #10b981',
+                                        background: '#ecfdf5', color: '#10b981', fontWeight: 700, cursor: 'pointer',
+                                        fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '8px'
+                                    }}
+                                >
+                                    <i className="fab fa-whatsapp"></i> Send via App
+                                </button>
+                            )}
+
                             <button
                                 onClick={() => handleSend(showSchedule)}
                                 style={{
@@ -786,39 +872,6 @@ if (res && res.success) {
                                 <i className="fas fa-paper-plane"></i> {showSchedule ? 'Schedule Campaign' : 'Send Now'}
                             </button>
                         </div>
-                        {channel === 'WHATSAPP' && (
-                            <div style={{ marginTop: '16px', display: 'flex', justifyContent: 'flex-end' }}>
-                                <button
-                                    onClick={() => {
-                                        if (recipients.length === 0) {
-                                            toast.error("Please select at least one recipient");
-                                            return;
-                                        }
-                                        const phone = recipients[0].mobile || recipients[0].phone;
-                                        if (!phone) {
-                                            toast.error("First recipient does not have a valid phone number");
-                                            return;
-                                        }
-                                        if (recipients.length > 1) {
-                                            toast.success("Opening WhatsApp App for the first contact only. Browser popups restrict multiple tabs.");
-                                        }
-                                        const cleanPhone = phone.replace(/\D/g, '').slice(-10);
-                                        const text = encodeURIComponent(messageBody);
-                                        window.open(`https://wa.me/91${cleanPhone}?text=${text}`, '_blank');
-                                    }}
-                                    style={{
-                                        padding: '10px 24px', borderRadius: '8px', border: '1px solid #16a34a',
-                                        background: '#f0fdf4', color: '#16a34a', fontWeight: 700, cursor: 'pointer',
-                                        fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '8px',
-                                        transition: 'all 0.2s'
-                                    }}
-                                    onMouseEnter={(e) => { e.currentTarget.style.background = '#16a34a'; e.currentTarget.style.color = '#fff'; }}
-                                    onMouseLeave={(e) => { e.currentTarget.style.background = '#f0fdf4'; e.currentTarget.style.color = '#16a34a'; }}
-                                >
-                                    <i className="fab fa-whatsapp"></i> Send via WhatsApp App (Fallback)
-                                </button>
-                            </div>
-                        )}
                     </div>
 
                 </div>

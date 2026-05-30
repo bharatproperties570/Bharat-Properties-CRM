@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
+import VariableTextarea from '../../../components/VariableTextarea';
 
 const FeedbackTemplatePage = () => {
     const { masterFields, updateMasterFields } = usePropertyConfig();
@@ -22,23 +23,7 @@ const FeedbackTemplatePage = () => {
         updateMasterFields('responseTemplates', updatedTemplates);
     };
 
-    const insertPlaceholder = (placeholder) => {
-        const textarea = document.getElementById('template-editor-area');
-        if (!textarea) return;
 
-        const start = textarea.selectionStart;
-        const end = textarea.selectionEnd;
-        const before = currentTemplateContent.substring(0, start);
-        const after = currentTemplateContent.substring(end);
-        const newValue = before + placeholder + after;
-
-        handleSaveTemplate(newValue);
-
-        setTimeout(() => {
-            textarea.focus();
-            textarea.setSelectionRange(start + placeholder.length, start + placeholder.length);
-        }, 0);
-    };
 
     return (
         <div style={{ flex: 1, padding: '32px 40px', background: '#fff', overflowY: 'auto' }}>
@@ -112,60 +97,18 @@ const FeedbackTemplatePage = () => {
                             <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 700, color: '#1e293b', marginBottom: '12px' }}>
                                 Template for <span style={{ color: 'var(--primary-color)' }}>{selectedOutcome}</span> ({activeChannel.toUpperCase()})
                             </label>
-                            <textarea
-                                id="template-editor-area"
+                            <VariableTextarea
+                                minHeight={activeChannel === 'email' ? '300px' : '120px'}
                                 value={currentTemplateContent}
                                 onChange={(e) => handleSaveTemplate(e.target.value)}
-                                style={{
-                                    width: '100%',
-                                    minHeight: activeChannel === 'email' ? '300px' : '120px',
-                                    padding: '16px',
-                                    borderRadius: '12px',
-                                    border: '1px solid #cbd5e1',
-                                    fontSize: '0.95rem',
-                                    color: '#334155',
-                                    lineHeight: '1.6',
-                                    outline: 'none',
-                                    background: '#f8fafc',
-                                    resize: 'vertical'
-                                }}
-                                placeholder={`Enter ${activeChannel} message here...`}
+                                placeholder={`Type your ${activeChannel} message here... (type {{ to insert a variable)`}
+                                style={{ background: '#f8fafc', color: '#334155', lineHeight: '1.6' }}
                             />
-                        </div>
-
-                        <div style={{ marginBottom: '32px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                                <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 800, textTransform: 'uppercase' }}>Available Placeholders</span>
-                                <div style={{ height: '1px', flex: 1, background: '#f1f5f9' }}></div>
-                            </div>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                                {['{owner}', '{unit}', '{time}', '{reason}'].map(p => (
-                                    <button
-                                        key={p}
-                                        onClick={() => insertPlaceholder(p)}
-                                        style={{
-                                            padding: '6px 14px',
-                                            borderRadius: '6px',
-                                            border: '1px solid #e2e8f0',
-                                            background: '#fff',
-                                            color: '#475569',
-                                            fontSize: '0.75rem',
-                                            fontWeight: 700,
-                                            cursor: 'pointer',
-                                            transition: 'all 0.2s'
-                                        }}
-                                        onMouseEnter={(e) => { e.target.style.background = '#f8fafc', e.target.style.borderColor = '#cbd5e1' }}
-                                        onMouseLeave={(e) => { e.target.style.background = '#fff', e.target.style.borderColor = '#e2e8f0' }}
-                                    >
-                                        {p}
-                                    </button>
-                                ))}
-                            </div>
                         </div>
 
                         <div style={{ fontSize: '0.75rem', color: '#94a3b8', background: '#f8fafc', padding: '12px', borderRadius: '8px', borderLeft: '4px solid #3b82f6' }}>
                             <i className="fas fa-info-circle" style={{ marginRight: '8px', color: '#3b82f6' }}></i>
-                            Changes are saved automatically to the master configuration. This template will be triggered based on your <strong>Automation Settings</strong>.
+                            Tip: Type <strong>{'{{'}</strong> anywhere in the message to pick a variable from the smart autocomplete list. Changes are saved automatically.
                         </div>
                     </div>
                 </div>

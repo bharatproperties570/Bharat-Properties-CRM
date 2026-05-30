@@ -16,7 +16,7 @@ export const emailTemplates = [
         visibility: 'Owned by everyone',
         tags: ['Leads', 'Priority'],
         subject: '🔥 Exclusive Selection: Top property matches for you!',
-        content: `Dear {{First name}},<br><br>Based on our latest market analysis, we have identified these <strong>Top Property Matches</strong> that perfectly align with your requirements.<br><br>{{PropertyList}}<br><br>These properties are currently seeing high interest. Would you like to schedule a priority visit this weekend?<br><br>Best regards,<br><div style="margin-top: 20px; border-top: 1px solid #e2e8f0; padding-top: 15px;"><strong>{{Sender's signature}}</strong><br><span style="color: #64748b; font-size: 0.9rem;">Bharat Properties | Premium Real Estate Solutions</span><br><span style="color: #64748b; font-size: 0.85rem;">Ph: +91-XXXXX-XXXXX | Web: www.bharatproperties.com</span></div>`,
+        content: `Dear {{First name}},<br><br>Based on our latest market analysis, we have identified these <strong>Top Property Matches</strong> that perfectly align with your requirements.<br><br>{{propertyList}}<br><br>These properties are currently seeing high interest. Would you like to schedule a priority visit this weekend?<br><br>Best regards,<br><div style="margin-top: 20px; border-top: 1px solid #e2e8f0; padding-top: 15px;"><strong>{{Sender's signature}}</strong><br><span style="color: #64748b; font-size: 0.9rem;">Bharat Properties | Premium Real Estate Solutions</span><br><span style="color: #64748b; font-size: 0.85rem;">Ph: +91-XXXXX-XXXXX | Web: www.bharatproperties.com</span></div>`,
         shared: true
     },
     {
@@ -25,8 +25,8 @@ export const emailTemplates = [
         author: 'Bharat Properties',
         visibility: 'Owned by everyone',
         tags: ['Site Visit'],
-        subject: '✅ Confirmed: Your Property Visit for {{PropertyList}}',
-        content: `Hello {{First name}},<br><br>Your site visit has been successfully scheduled. Here are the details:<br><br>📍 <strong>Location:</strong> {{PropertyList}}<br>📅 <strong>Date & Time:</strong> [Insert Selection]<br>👤 <strong>Assigned Executive:</strong> {{Sender's first name}}<br><br>We recommend arriving 5 minutes early. If you need a pickup or directions, please reply to this email or call us directly.<br><br>Looking forward to showing you your potential future home!<br><br>Best regards,<br><div style="margin-top: 20px; border-top: 1px solid #e2e8f0; padding-top: 15px;"><strong>{{Sender's signature}}</strong><br><span style="color: #64748b; font-size: 0.9rem;">Bharat Properties | Premium Real Estate Solutions</span><br><span style="color: #64748b; font-size: 0.85rem;">Ph: +91-XXXXX-XXXXX | Web: www.bharatproperties.com</span></div>`,
+        subject: '✅ Confirmed: Your Property Visit for {{propertyList}}',
+        content: `Hello {{First name}},<br><br>Your site visit has been successfully scheduled. Here are the details:<br><br>📍 <strong>Location:</strong> {{propertyList}}<br>📅 <strong>Date & Time:</strong> [Insert Selection]<br>👤 <strong>Assigned Executive:</strong> {{Sender's first name}}<br><br>We recommend arriving 5 minutes early. If you need a pickup or directions, please reply to this email or call us directly.<br><br>Looking forward to showing you your potential future home!<br><br>Best regards,<br><div style="margin-top: 20px; border-top: 1px solid #e2e8f0; padding-top: 15px;"><strong>{{Sender's signature}}</strong><br><span style="color: #64748b; font-size: 0.9rem;">Bharat Properties | Premium Real Estate Solutions</span><br><span style="color: #64748b; font-size: 0.85rem;">Ph: +91-XXXXX-XXXXX | Web: www.bharatproperties.com</span></div>`,
         shared: true
     },
     {
@@ -35,8 +35,8 @@ export const emailTemplates = [
         author: 'Bharat Properties',
         visibility: 'Owned by everyone',
         tags: ['Follow-up'],
-        subject: '🏠 Thoughts on your recent visit? | Next steps for {{PropertyList}}',
-        content: `Dear {{First name}},<br><br>It was a pleasure meeting you during our visit to <strong>{{PropertyList}}</strong> today. We would love to hear your thoughts on the property.<br><br>Did the unit meet your expectations, or would you like to explore other options in a similar range?<br><br><strong>Next Steps:</strong> We can initiate the negotiation process if you liked this unit, or I can share 2-3 alternative listings by tomorrow morning.<br><br>Waiting for your feedback.<br><br>Best regards,<br><div style="margin-top: 20px; border-top: 1px solid #e2e8f0; padding-top: 15px;"><strong>{{Sender's signature}}</strong><br><span style="color: #64748b; font-size: 0.9rem;">Bharat Properties | Premium Real Estate Solutions</span><br><span style="color: #64748b; font-size: 0.85rem;">Ph: +91-XXXXX-XXXXX | Web: www.bharatproperties.com</span></div>`,
+        subject: '🏠 Thoughts on your recent visit? | Next steps for {{propertyList}}',
+        content: `Dear {{First name}},<br><br>It was a pleasure meeting you during our visit to <strong>{{propertyList}}</strong> today. We would love to hear your thoughts on the property.<br><br>Did the unit meet your expectations, or would you like to explore other options in a similar range?<br><br><strong>Next Steps:</strong> We can initiate the negotiation process if you liked this unit, or I can share 2-3 alternative listings by tomorrow morning.<br><br>Waiting for your feedback.<br><br>Best regards,<br><div style="margin-top: 20px; border-top: 1px solid #e2e8f0; padding-top: 15px;"><strong>{{Sender's signature}}</strong><br><span style="color: #64748b; font-size: 0.9rem;">Bharat Properties | Premium Real Estate Solutions</span><br><span style="color: #64748b; font-size: 0.85rem;">Ph: +91-XXXXX-XXXXX | Web: www.bharatproperties.com</span></div>`,
         shared: true
     },
     {
@@ -156,13 +156,13 @@ export const whatsappTemplates = [
     {
         id: 1,
         name: 'Property Presentation',
-        content: `Hi {{ContactName}}! 🏠
+        content: `Hi {{firstName}}! 🏠
 
-I found a *{{PropertyType}}* that matches your requirement perfectly!
+I found a *{{category}}* that matches your requirement perfectly!
 
-📍 *Location:* {{Location}}
-📏 *Size:* {{Size}}
-💰 *Price:* ₹{{Price}}
+📍 *Location:* {{location}}
+📏 *Size:* {{size}}
+💰 *Price:* ₹{{price}}
 ✨ *Highlights:* {{Highlights}}
 
 🔗 View Details: {{PropertyLink}}
@@ -170,19 +170,19 @@ I found a *{{PropertyType}}* that matches your requirement perfectly!
 This property is getting high interest. Would you like to schedule a visit this weekend?
 
 Best regards,
-*{{AgentName}}*
+*{{assignedTo}}*
 Bharat Properties
-📞 {{AgentPhone}}`,
+📞 {{ownerMobile}}`,
         tags: ['Property', 'Lead Nurturing']
     },
     {
         id: 2,
         name: 'Property Portfolio',
-        content: `Hi {{ContactName}},
+        content: `Hi {{firstName}},
 
-As discussed, I've curated a portfolio of *{{PropertiesCount}} premium properties* specifically matching your requirements. 🏠💼
+As discussed, I've curated a portfolio of *{{propertiesCount}} premium properties* specifically matching your requirements. 🏠💼
 
-{{PropertyList}}
+{{propertyList}}
 
 I'd love to discuss these further and schedule visits for your top choices.
 
@@ -191,9 +191,9 @@ I'd love to discuss these further and schedule visits for your top choices.
 Looking forward to your feedback!
 
 Best regards,
-*{{AgentName}}*
+*{{assignedTo}}*
 Bharat Properties
-📞 {{AgentPhone}}`,
+📞 {{ownerMobile}}`,
         tags: ['Property', 'Portfolio']
     },
     {
@@ -201,13 +201,13 @@ Bharat Properties
         name: 'Exclusive Deal Alert',
         content: `🔥 *EXCLUSIVE OPPORTUNITY* 🔥
 
-Hi {{ContactName}},
+Hi {{firstName}},
 
-A *{{PropertyType}}* just became available in *{{Location}}* that perfectly matches your requirements!
+A *{{category}}* just became available in *{{location}}* that perfectly matches your requirements!
 
 💎 *Key Details:*
-📏 Size: {{Size}}
-💰 Price: ₹{{Price}}
+📏 Size: {{size}}
+💰 Price: ₹{{price}}
 🎯 Match Score: {{MatchPercentage}}%
 
 ⚡ *Why this is perfect for you:*
@@ -218,17 +218,17 @@ This won't last long - {{CompetingBuyers}} other buyers are already interested!
 *Can we schedule a viewing today or tomorrow?*
 
 Best regards,
-*{{AgentName}}*
+*{{assignedTo}}*
 Bharat Properties
-📞 {{AgentPhone}}`,
+📞 {{ownerMobile}}`,
         tags: ['Deal', 'Urgent']
     },
     {
         id: 4,
         name: 'Site Visit Invitation',
-        content: `Hi {{ContactName}}! 👋
+        content: `Hi {{firstName}}! 👋
 
-Great news! The *{{PropertyType}}* in *{{Location}}* is available for viewing.
+Great news! The *{{category}}* in *{{location}}* is available for viewing.
 
 📅 *Suggested Visit Slots:*
 • {{Slot1}}
@@ -242,20 +242,20 @@ I'll personally accompany you and share insider details about the property and n
 Just reply with the number (1, 2, or 3) and I'll confirm immediately!
 
 See you soon,
-*{{AgentName}}*
+*{{assignedTo}}*
 Bharat Properties
-📞 {{AgentPhone}}`,
+📞 {{ownerMobile}}`,
         tags: ['Site Visit', 'Action']
     },
     {
         id: 5,
         name: 'Quick Inquiry Response',
-        content: `Hi {{ContactName}}! 😊
+        content: `Hi {{firstName}}! 😊
 
-Thank you for your inquiry about *{{PropertyType}}* in *{{Location}}*!
+Thank you for your inquiry about *{{category}}* in *{{location}}*!
 
 I've received your requirements:
-{{RequirementSummary}}
+{{requirementSummary}}
 
 ✅ *Good news!* We have {{MatchCount}} properties that match your criteria.
 
@@ -267,17 +267,17 @@ I'm preparing a curated list for you. Meanwhile, could you confirm:
 I'll get back to you within 30 minutes with the best options!
 
 Best regards,
-*{{AgentName}}*
+*{{assignedTo}}*
 Bharat Properties
-📞 {{AgentPhone}}`,
+📞 {{ownerMobile}}`,
         tags: ['Inquiry', 'Response']
     },
     {
         id: 6,
         name: 'Follow-up After Site Visit',
-        content: `Hi {{ContactName}},
+        content: `Hi {{firstName}},
 
-Thank you for visiting *{{PropertyName}}* with me today! 🏠
+Thank you for visiting *{{projectName}}* with me today! 🏠
 
 I hope you liked what you saw. Here's a quick summary:
 
@@ -290,17 +290,17 @@ I hope you liked what you saw. Here's a quick summary:
 Feel free to call me anytime if you have questions.
 
 Best regards,
-*{{AgentName}}*
+*{{assignedTo}}*
 Bharat Properties
-📞 {{AgentPhone}}`,
+📞 {{ownerMobile}}`,
         tags: ['Follow-up', 'Site Visit']
     },
     {
         id: 7,
         name: 'Welcome Message',
-        content: `Welcome to Bharat Properties, {{ContactName}}! 🎉
+        content: `Welcome to Bharat Properties, {{firstName}}! 🎉
 
-I'm *{{AgentName}}*, your dedicated property consultant.
+I'm *{{assignedTo}}*, your dedicated property consultant.
 
 🏆 *What I'll help you with:*
 ✓ Find properties matching your exact needs
@@ -309,16 +309,16 @@ I'm *{{AgentName}}*, your dedicated property consultant.
 ✓ Handle all documentation
 
 📱 *How to reach me:*
-• WhatsApp: {{AgentPhone}} (Fastest!)
-• Call: {{AgentPhone}}
-• Email: {{AgentEmail}}
+• WhatsApp: {{ownerMobile}} (Fastest!)
+• Call: {{ownerMobile}}
+• Email: {{ownerEmail}}
 
 *What type of property are you looking for?*
 
 Let's find your dream property together!
 
 Best regards,
-*{{AgentName}}*
+*{{assignedTo}}*
 Bharat Properties`,
         tags: ['Welcome', 'Onboarding']
     },
@@ -327,9 +327,9 @@ Bharat Properties`,
         name: 'Price Drop Alert',
         content: `🔔 *PRICE DROP ALERT!* 🔔
 
-Hi {{ContactName}},
+Hi {{firstName}},
 
-Remember the *{{PropertyType}}* in *{{Location}}* you were interested in?
+Remember the *{{category}}* in *{{location}}* you were interested in?
 
 *Great news!* The price has been reduced:
 
@@ -342,17 +342,17 @@ This is a limited-time opportunity. The owner needs to close quickly.
 *Interested? Let's schedule a visit ASAP!*
 
 Best regards,
-*{{AgentName}}*
+*{{assignedTo}}*
 Bharat Properties
-📞 {{AgentPhone}}`,
+📞 {{ownerMobile}}`,
         tags: ['Price Drop', 'Urgent']
     },
     {
         id: 9,
         name: 'Document Request',
-        content: `Hi {{ContactName}},
+        content: `Hi {{firstName}},
 
-To proceed with your *{{PropertyType}}* booking in *{{Location}}*, we need the following documents:
+To proceed with your *{{category}}* booking in *{{location}}*, we need the following documents:
 
 📄 *Required Documents:*
 {{DocumentList}}
@@ -365,17 +365,17 @@ Simply click photos and send them via WhatsApp to this number.
 Let me know if you need any clarification!
 
 Best regards,
-*{{AgentName}}*
+*{{assignedTo}}*
 Bharat Properties
-📞 {{AgentPhone}}`,
+📞 {{ownerMobile}}`,
         tags: ['Documentation', 'Transaction']
     },
     {
         id: 10,
         name: 'Payment Reminder',
-        content: `Hi {{ContactName}},
+        content: `Hi {{firstName}},
 
-This is a friendly reminder about your upcoming payment for *{{PropertyName}}*.
+This is a friendly reminder about your upcoming payment for *{{projectName}}*.
 
 💰 *Payment Details:*
 Amount: ₹{{Amount}}
@@ -388,9 +388,9 @@ Payment Type: {{PaymentType}}
 Please confirm once done. Let me know if you need any assistance!
 
 Best regards,
-*{{AgentName}}*
+*{{assignedTo}}*
 Bharat Properties
-📞 {{AgentPhone}}`,
+📞 {{ownerMobile}}`,
         tags: ['Payment', 'Reminder']
     },
     {
@@ -450,18 +450,20 @@ Bharat Properties
     {
         id: 11,
         name: 'property_match_alert',
-        content: `Hi {{1}}! 🏠
-
-We found an exclusive property match that aligns perfectly with your requirements:
-
-{{2}}
-
-Would you like to schedule a priority site visit or receive more details?
-
-Best regards,
-{{3}}
-Bharat Properties`,
+        content: `Hi {{1}}! 🏠\n\nWe found an exclusive property match that aligns perfectly with your requirements:\n\n{{2}}\n\nWould you like to schedule a priority site visit or receive more details?\n\nBest regards,\n{{3}}\nBharat Properties`,
         tags: ['Property', 'Match Alert']
+    },
+    {
+        id: 'rmc_single_match',
+        name: 'Requirement Match (Single)',
+        content: `Hello {{firstName}}! 🏢\n\nBased on your requirement, we have found an excellent property match for you:\n\n📍 *Project:* {{projectName}}\n🗺️ *Location:* {{location}}\n📐 *Size:* {{size}}\n💰 *Price:* ₹{{price}}\n\nAre you available for a quick site visit this week?\n\nBest regards,\n*{{assignedTo}}*\nBharat Properties\n📞 {{ownerMobile}}`,
+        tags: ['Match Center', 'Single Property']
+    },
+    {
+        id: 'rmc_portfolio_match',
+        name: 'Requirement Match (Portfolio)',
+        content: `Hello {{firstName}}! 🏢\n\nBased on your exact requirement, we have handpicked *{{propertiesCount}} premium properties* for you to review:\n\n{{propertyList}}\n\nLet me know which of these options you would like to explore further or visit.\n\nBest regards,\n*{{assignedTo}}*\nBharat Properties\n📞 {{ownerMobile}}`,
+        tags: ['Match Center', 'Portfolio']
     }
 ];
 

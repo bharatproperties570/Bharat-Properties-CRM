@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { whatsappTemplates, smsTemplates, rcsTemplates } from '../../../constants/templates';
+import { systemSettingsAPI } from '../../../utils/api';
 import Swal from 'sweetalert2';
 import { toast } from 'react-hot-toast';
 import { Sparkles, ShieldCheck, MessageSquare, Clock, Globe, Settings, Database, History, Ban } from 'lucide-react';
 import smsService from '../../../services/smsService';
-import whatsappService from '../../../services/whatsappService';
-import api, { systemSettingsAPI } from '../../../utils/api';
+import VariableTextarea from '../../../components/VariableTextarea';
 
 
 // --- Sub-Components ---
@@ -126,13 +126,11 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
 
             <div>
                 <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '8px' }}>Body Message <span style={{ color: '#ef4444' }}>*</span></label>
-                <textarea
-                    style={{ width: '100%', minHeight: '120px', padding: '12px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.95rem', resize: 'vertical' }}
-                    placeholder="Hello {{1}}, welcome to Bharat Properties! Our team will contact you regarding {{2}} soon."
+                <VariableTextarea
+                    placeholder="Hello {{firstName}}, welcome to Bharat Properties! Our team will contact you regarding {{projectName}} soon."
                     value={templateData.body}
                     onChange={e => setTemplateData({ ...templateData, body: e.target.value })}
                 />
-                <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '4px' }}>Use numbers in double curly brackets like {"{{1}}"} as variables.</div>
             </div>
 
             <div>
@@ -174,8 +172,8 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
 
             <div>
                 <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '8px' }}>RCS Body Text <span style={{ color: '#ef4444' }}>*</span></label>
-                <textarea
-                    style={{ width: '100%', minHeight: '100px', padding: '12px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.95rem', resize: 'vertical' }}
+                <VariableTextarea
+                    minHeight="100px"
                     placeholder="Enter your rich message content..."
                     value={templateData.body}
                     onChange={e => setTemplateData({ ...templateData, body: e.target.value })}
@@ -271,8 +269,8 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             <div>
                 <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#64748b', display: 'block', marginBottom: '8px' }}>Message Body <span style={{ color: '#ef4444' }}>*</span></label>
-                <textarea
-                    style={{ width: '100%', minHeight: '180px', padding: '16px', border: '1px solid #e2e8f0', borderRadius: '12px', fontSize: '1rem', resize: 'vertical', lineHeight: '1.5' }}
+                <VariableTextarea
+                    minHeight="180px"
                     placeholder="Enter your SMS content here..."
                     value={templateData.body}
                     onChange={e => setTemplateData({ ...templateData, body: e.target.value })}
@@ -719,16 +717,46 @@ const VariableRegistryTab = () => {
 
 const MessagingSettingsPage = () => {
     const [subTab, setSubTab] = useState('templates');
-    const [templateType, setTemplateType] = useState('whatsapp'); // Default to whatsapp
+    const [templateType, setTemplateType] = useState('whatsapp');
     const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
     const [editingTemplate, setEditingTemplate] = useState(null);
+    const [isSyncing, setIsSyncing] = useState(false);
 
-    // Initialize state with mock data
+    // Initialize from hardcoded defaults; DB overrides on mount
     const [allTemplates, setAllTemplates] = useState({
         whatsapp: whatsappTemplates,
         sms: smsTemplates,
         rcs: rcsTemplates
     });
+
+    // ── Load persisted WhatsApp + RCS templates from DB ──
+    const loadPersistedTemplates = async () => {
+        try {
+            const [waRes, rcsRes] = await Promise.all([
+                systemSettingsAPI.getByKey('crm_whatsapp_templates'),
+                systemSettingsAPI.getByKey('crm_rcs_templates'),
+            ]);
+            setAllTemplates(prev => ({
+                ...prev,
+                whatsapp: (waRes?.data?.value?.length  ? waRes.data.value  : prev.whatsapp),
+                rcs:      (rcsRes?.data?.value?.length ? rcsRes.data.value : prev.rcs),
+            }));
+        } catch (err) {
+            console.warn('Could not load persisted templates, using defaults:', err.message);
+        }
+    };
+
+    // ── Persist WhatsApp / RCS to DB ──
+    const persistTemplates = async (type, templateList) => {
+        const keyMap = { whatsapp: 'crm_whatsapp_templates', rcs: 'crm_rcs_templates' };
+        const key = keyMap[type];
+        if (!key) return; // SMS uses its own smsService
+        try {
+            await systemSettingsAPI.upsert(key, { value: templateList });
+        } catch (err) {
+            console.error(`Failed to persist ${type} templates:`, err.message);
+        }
+    };
 
     const handleDelete = (templateId) => {
         Swal.fire({
@@ -750,10 +778,9 @@ const MessagingSettingsPage = () => {
                         toast.error('Failed to delete template: ' + err.message);
                     }
                 } else {
-                    setAllTemplates(prev => ({
-                        ...prev,
-                        [templateType]: prev[templateType].filter(t => t.id !== templateId)
-                    }));
+                    const updatedList = allTemplates[templateType].filter(t => t.id !== templateId);
+                    setAllTemplates(prev => ({ ...prev, [templateType]: updatedList }));
+                    await persistTemplates(templateType, updatedList);
                     toast.success('Template deleted successfully');
                 }
             }
@@ -761,38 +788,47 @@ const MessagingSettingsPage = () => {
     };
 
     const handleEdit = (template) => {
-        // Normalize field names for the modal
-        const normalizedTemplate = {
+        setEditingTemplate({
             ...template,
-            body: template.body || template.content || '', // WhatsApp uses 'content', modal uses 'body'
-        };
-        setEditingTemplate(normalizedTemplate);
+            body: template.body || template.content || '',
+        });
         setIsTemplateModalOpen(true);
     };
 
     const handleSaveTemplate = async (data) => {
+        setIsSyncing(true);
         try {
             if (templateType === 'sms') {
                 await smsService.saveTemplate(data.id ? { ...data, _id: data.id } : data);
                 loadSmsTemplates();
             } else {
-                // For WhatsApp templates, map 'body' back to 'content'
-                const savedData = templateType === 'whatsapp'
-                    ? { ...data, content: data.body, body: undefined }
-                    : data;
+                // Keep body + content in sync for compatibility
+                const savedData = {
+                    ...data,
+                    body:    data.body    || data.content || '',
+                    content: data.content || data.body    || '',
+                };
 
+                let updatedList;
                 setAllTemplates(prev => {
                     const currentList = prev[templateType];
                     if (data.id) {
-                        return { ...prev, [templateType]: currentList.map(t => t.id === data.id ? savedData : t) };
+                        updatedList = currentList.map(t => t.id === data.id ? savedData : t);
                     } else {
-                        return { ...prev, [templateType]: [...currentList, { ...savedData, id: Date.now() }] };
+                        updatedList = [...currentList, { ...savedData, id: `local_${Date.now()}` }];
                     }
+                    return { ...prev, [templateType]: updatedList };
                 });
+
+                // Small delay to allow state to settle before reading
+                await new Promise(r => setTimeout(r, 50));
+                await persistTemplates(templateType, updatedList || allTemplates[templateType]);
             }
-            toast.success(data.id ? 'Template updated' : 'Template created');
+            toast.success(data.id ? 'Template updated & saved ✓' : 'Template created & saved ✓');
         } catch (err) {
             toast.error('Failed to save template: ' + err.message);
+        } finally {
+            setIsSyncing(false);
         }
     };
 
@@ -808,28 +844,9 @@ const MessagingSettingsPage = () => {
         }
     };
 
-    const loadWhatsAppTemplates = async () => {
-        try {
-            const res = await whatsappService.getTemplates();
-            if (res && res.templates) {
-                setAllTemplates(prev => ({
-                    ...prev,
-                    whatsapp: res.templates.map(t => ({ 
-                        ...t, 
-                        id: t.id || t.name, 
-                        tags: t.tags || ['Meta'],
-                        content: t.components?.find(c => c.type === 'BODY')?.text || '' 
-                    }))
-                }));
-            }
-        } catch (err) {
-            console.error('Failed to load WhatsApp templates', err);
-        }
-    };
-
     useEffect(() => {
         loadSmsTemplates();
-        loadWhatsAppTemplates();
+        loadPersistedTemplates();
     }, []);
 
     const tabs = [
@@ -881,7 +898,14 @@ const MessagingSettingsPage = () => {
                         </div>
                         <button className="btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff' }}>Filter tags <i className="fas fa-chevron-down"></i></button>
                     </div>
-                    <button className="btn-primary" onClick={() => { setEditingTemplate(null); setIsTemplateModalOpen(true); }}>Add template</button>
+                    <button className="btn-primary" onClick={() => { setEditingTemplate(null); setIsTemplateModalOpen(true); }}>
+                        <i className="fas fa-plus" style={{ marginRight: '6px' }}></i>Add template
+                    </button>
+                    {isSyncing && (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', color: '#6366f1', fontWeight: 600 }}>
+                            <i className="fas fa-circle-notch fa-spin"></i> Saving…
+                        </span>
+                    )}
                 </div>
 
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
