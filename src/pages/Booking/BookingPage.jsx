@@ -296,21 +296,22 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                             .sig-box { border-top: 1px solid #94a3b8; padding-top: 10px; text-align: center; font-weight: 600; }
                             .footer { margin-top: 30px; text-align: center; font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px; }
                             @media print {
-                                @page { margin: 10mm; }
-                                body { padding: 0 !important; font-size: 11px !important; line-height: 1.2 !important; }
-                                .header { margin-bottom: 8px !important; padding-bottom: 5px !important; }
-                                .company-name { font-size: 18px !important; margin-bottom: 2px !important; }
-                                .doc-title { font-size: 14px !important; margin-top: 4px !important; }
-                                .grid-2 { gap: 10px !important; margin-bottom: 10px !important; }
-                                .box { padding: 8px 12px !important; margin-bottom: 10px !important; }
-                                .box-title { margin-bottom: 5px !important; padding-bottom: 3px !important; font-size: 12px !important; }
-                                .row { margin-bottom: 2px !important; padding-bottom: 2px !important; }
-                                .signature-section { margin-top: 30px !important; }
-                                .witness-section { margin-top: 20px !important; padding-top: 10px !important; gap: 20px !important; }
-                                .footer { margin-top: 10px !important; padding-top: 5px !important; font-size: 10px !important; }
-                                div[style*="margin-bottom: 20px"] { margin-bottom: 8px !important; }
-                                div[style*="margin-top: 60px"] { margin-top: 30px !important; }
-                                div[style*="padding: 15px"] { padding: 8px !important; margin-bottom: 8px !important; }
+                                @page { margin: 5mm; }
+                                body { padding: 0 !important; font-size: 10px !important; line-height: 1.1 !important; }
+                                .header { margin-bottom: 5px !important; padding-bottom: 2px !important; }
+                                .company-name { font-size: 16px !important; margin-bottom: 1px !important; }
+                                .doc-title { font-size: 12px !important; margin-top: 2px !important; }
+                                .grid-2 { gap: 8px !important; margin-bottom: 6px !important; }
+                                .box { padding: 5px 8px !important; margin-bottom: 6px !important; }
+                                .box-title { margin-bottom: 3px !important; padding-bottom: 2px !important; font-size: 10px !important; }
+                                .row { margin-bottom: 1px !important; padding-bottom: 1px !important; }
+                                .signature-section { margin-top: 20px !important; }
+                                .witness-section { margin-top: 15px !important; padding-top: 5px !important; gap: 15px !important; }
+                                .footer { margin-top: 5px !important; padding-top: 3px !important; font-size: 9px !important; }
+                                div[style*="margin-bottom: 20px"] { margin-bottom: 5px !important; }
+                                div[style*="margin-top: 60px"] { margin-top: 20px !important; }
+                                div[style*="padding: 15px"] { padding: 5px !important; margin-bottom: 5px !important; }
+                                .terms-text { font-size: 9px !important; line-height: 1.1 !important; margin-bottom: 10px !important; }
                             }
                         </style>
                     </head>
@@ -330,16 +331,16 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                             <div class="box">
                                 <div class="box-title">Buyer Details (First Party)</div>
                                 <div class="row"><span class="label">Name:</span> <span class="val">${buyerFullName}</span></div>
-                                ${buyerFatherName ? `<div class="row"><span class="label">Father's Name:</span> <span class="val">${buyerFatherName}</span></div>` : ''}
+                                <div class="row"><span class="label">Father's Name:</span> <span class="val">${buyerFatherName || '___________________________'}</span></div>
                                 <div class="row"><span class="label">Mobile:</span> <span class="val">${buyerMobile}</span></div>
-                                ${buyerAddress ? `<div class="row"><span class="label">Address:</span> <span class="val">${buyerAddress}</span></div>` : ''}
+                                <div class="row"><span class="label">Address:</span> <span class="val" style="font-weight: normal; font-size: 11px; line-height: 1.2;">${buyerAddress || '___________________________'}</span></div>
                             </div>
                             <div class="box">
                                 <div class="box-title">Seller Details (Second Party)</div>
                                 <div class="row"><span class="label">Name:</span> <span class="val">${sellerFullName}</span></div>
-                                ${sellerFatherName ? `<div class="row"><span class="label">Father's Name:</span> <span class="val">${sellerFatherName}</span></div>` : ''}
+                                <div class="row"><span class="label">Father's Name:</span> <span class="val">${sellerFatherName || '___________________________'}</span></div>
                                 <div class="row"><span class="label">Mobile:</span> <span class="val">${sellerMobile}</span></div>
-                                ${sellerAddress ? `<div class="row"><span class="label">Address:</span> <span class="val">${sellerAddress}</span></div>` : ''}
+                                <div class="row"><span class="label">Address:</span> <span class="val" style="font-weight: normal; font-size: 11px; line-height: 1.2;">${sellerAddress || '___________________________'}</span></div>
                             </div>
                         </div>
 
@@ -396,7 +397,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                             </div>
                         </div>
 
-                        <div style="font-size: 13px; color: #475569; margin-bottom: 20px; text-align: justify;">
+                        <div class="terms-text" style="font-size: 13px; color: #475569; margin-bottom: 20px; text-align: justify;">
                             <strong>Terms & Conditions:</strong><br/>
                             1. This is a preliminary short agreement acknowledging the token amount received against the property mentioned above.<br/>
                             2. A detailed and registered Agreement to Sell will be executed upon receipt of the mutually agreed milestone payment.<br/>
