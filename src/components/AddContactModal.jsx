@@ -521,6 +521,8 @@ const AddContactModal = ({
             location: getId(initialData.personalAddress?.location),
             tehsil: getId(initialData.personalAddress?.tehsil),
             postOffice: getId(initialData.personalAddress?.postOffice),
+            pincode: getId(initialData.personalAddress?.pincode),
+            pinCode: getId(initialData.personalAddress?.pinCode || initialData.personalAddress?.pincode),
           },
           correspondenceAddress: {
             ...prev.correspondenceAddress,
@@ -531,12 +533,15 @@ const AddContactModal = ({
             location: getId(initialData.correspondenceAddress?.location),
             tehsil: getId(initialData.correspondenceAddress?.tehsil),
             postOffice: getId(initialData.correspondenceAddress?.postOffice),
+            pincode: getId(initialData.correspondenceAddress?.pincode),
+            pinCode: getId(initialData.correspondenceAddress?.pinCode || initialData.correspondenceAddress?.pincode),
           },
           // Ensure array fields exist
           phones: initialData.phones?.length ? initialData.phones : prev.phones,
           emails: initialData.emails?.length ? initialData.emails : prev.emails,
           educations: initialData.educations?.length ? initialData.educations.map(e => ({
             ...e,
+            education: getId(e.education),
             degree: getId(e.degree)
           })) : prev.educations,
           loans: initialData.loans?.length ? initialData.loans.map(l => ({

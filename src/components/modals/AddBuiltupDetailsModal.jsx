@@ -11,7 +11,7 @@ export default function AddBuiltupDetailsModal({
     entityData,
     onSave
 }) {
-    const { propertyConfig, getLookupId, getLookupValue, projects, projectMasterFields } = usePropertyConfig();
+    const { propertyConfig, getLookupId, getLookupValue } = usePropertyConfig();
 
     const [loading, setLoading] = useState(false);
     const [subCategory, setSubCategory] = useState('');
@@ -24,9 +24,6 @@ export default function AddBuiltupDetailsModal({
     const [furnishedItems, setFurnishedItems] = useState([]);
     const [currentFurnishedItem, setCurrentFurnishedItem] = useState('');
     const [heroImage, setHeroImage] = useState('');
-    const [projectImages, setProjectImages] = useState([]);
-    const [builtupVideoUrl, setBuiltupVideoUrl] = useState('');
-    const [overallVideoUploading, setOverallVideoUploading] = useState(false);
 
     // Fetch details and initialize state
     useEffect(() => {
@@ -37,7 +34,6 @@ export default function AddBuiltupDetailsModal({
             
             setSubCategory(subCatVal);
             setBuiltupType(bTypeVal);
-            setBuiltupVideoUrl(entityData.builtupVideoUrl || '');
             
             const initialDetails = (entityData.builtupDetails && entityData.builtupDetails.length > 0)
                 ? entityData.builtupDetails.map(row => ({
@@ -46,10 +42,9 @@ export default function AddBuiltupDetailsModal({
                     length: row.length || '',
                     width: row.width || '',
                     totalArea: row.totalArea || '',
-                    imageUrl: row.imageUrl || '',
-                    videoUrl: row.videoUrl || ''
+                    imageUrl: row.imageUrl || ''
                 }))
-                : [{ floor: 'Ground Floor', cluster: '', length: '', width: '', totalArea: '', imageUrl: '', videoUrl: '' }];
+                : [{ floor: 'Ground Floor', cluster: '', length: '', width: '', totalArea: '', imageUrl: '' }];
             setBuiltupDetails(initialDetails);
             
             if (entityData.occupationDate) {
@@ -69,42 +64,6 @@ export default function AddBuiltupDetailsModal({
             setFurnishedItems(items);
         }
     }, [isOpen, entityData, getLookupValue]);
-
-    // Fetch project details for live gallery/plans dropdown
-    useEffect(() => {
-        const fetchProjectImages = async () => {
-            let projId = entityData?.projectId?._id || 
-                           (typeof entityData?.projectId === 'string' ? entityData?.projectId : null) ||
-                           entityData?.inventoryId?.projectId?._id ||
-                           (typeof entityData?.inventoryId?.projectId === 'string' ? entityData?.inventoryId.projectId : null);
-            
-            // Fallback: search in projects list by name if no projId found
-            if (!projId && entityData?.projectName && Array.isArray(projects)) {
-                const matchedProj = projects.find(p => p.name?.toLowerCase() === entityData.projectName.toLowerCase());
-                if (matchedProj) {
-                    projId = matchedProj._id || matchedProj.id;
-                }
-            }
-
-            if (!projId) {
-                setProjectImages([]);
-                return;
-            }
-            try {
-                const response = await api.get(`/projects/${projId}`);
-                if (response.data && response.data.success && response.data.data) {
-                    setProjectImages(response.data.data.projectImages || []);
-                }
-            } catch (err) {
-                console.error("Error fetching project details in AddBuiltupDetailsModal:", err);
-                setProjectImages([]);
-            }
-        };
-
-        if (isOpen && entityData) {
-            fetchProjectImages();
-        }
-    }, [isOpen, entityData, projects]);
 
     const toggleHeroImage = (imageUrl) => {
         if (heroImage === imageUrl) {
@@ -162,12 +121,12 @@ export default function AddBuiltupDetailsModal({
 
     // Handlers for Builtup details
     const handleAddBuiltupRow = () => {
-        setBuiltupDetails(prev => [...prev, { floor: 'Ground Floor', cluster: '', length: '', width: '', totalArea: '', imageUrl: '', videoUrl: '' }]);
+        setBuiltupDetails(prev => [...prev, { floor: 'Ground Floor', cluster: '', length: '', width: '', totalArea: '', imageUrl: '' }]);
     };
 
     const handleRemoveBuiltupRow = (index) => {
         if (builtupDetails.length === 1) {
-            setBuiltupDetails([{ floor: 'Ground Floor', cluster: '', length: '', width: '', totalArea: '', imageUrl: '', videoUrl: '' }]);
+            setBuiltupDetails([{ floor: 'Ground Floor', cluster: '', length: '', width: '', totalArea: '', imageUrl: '' }]);
         } else {
             setBuiltupDetails(prev => prev.filter((_, idx) => idx !== index));
         }
@@ -188,80 +147,6 @@ export default function AddBuiltupDetailsModal({
         });
     };
 
-    // Handler for row-wise video upload
-    const handleVideoUpload = async (index, file) => {
-        if (!file) return;
-
-        // Set row state to uploading
-        setBuiltupDetails(prev => {
-            const updated = [...prev];
-            updated[index] = { ...updated[index], videoUploading: true };
-            return updated;
-        });
-
-        try {
-            const formData = new FormData();
-            formData.append('file', file);
-
-            const res = await api.post('/upload', formData);
-
-            if (res.data && res.data.success) {
-                const uploadedUrl = res.data.url;
-                setBuiltupDetails(prev => {
-                    const updated = [...prev];
-                    updated[index] = {
-                        ...updated[index],
-                        videoUrl: uploadedUrl,
-                        videoUploading: false
-                    };
-                    return updated;
-                });
-                toast.success(`Video walkthrough for row #${index + 1} uploaded successfully!`);
-            } else {
-                throw new Error('Upload failed');
-            }
-        } catch (error) {
-            console.error('[AddBuiltupDetailsModal] Row video upload error:', error);
-            setBuiltupDetails(prev => {
-                const updated = [...prev];
-                updated[index] = { ...updated[index], videoUploading: false };
-                return updated;
-            });
-            toast.error('Failed to upload video. Please try again.');
-        }
-    };
-
-    const handleAddVideoUrlPrompt = (index) => {
-        const url = window.prompt("Enter walkthrough video URL (e.g. YouTube, Google Drive, or MP4 link):");
-        if (url !== null) {
-            updateBuiltupRow(index, 'videoUrl', url.trim());
-        }
-    };
-
-    const handleOverallVideoUpload = async (file) => {
-        if (!file) return;
-        setOverallVideoUploading(true);
-
-        try {
-            const formData = new FormData();
-            formData.append('file', file);
-
-            const res = await api.post('/upload', formData);
-
-            if (res.data && res.data.success) {
-                setBuiltupVideoUrl(res.data.url);
-                toast.success('Overall property walkthrough video uploaded successfully!');
-            } else {
-                throw new Error('Upload failed');
-            }
-        } catch (error) {
-            console.error('[AddBuiltupDetailsModal] Overall video upload error:', error);
-            toast.error('Failed to upload walkthrough video. Please try again.');
-        } finally {
-            setOverallVideoUploading(false);
-        }
-    };
-
     // Handler for row-wise image upload
     const handleImageUpload = async (index, file) => {
         if (!file) return;
@@ -277,7 +162,9 @@ export default function AddBuiltupDetailsModal({
             const formData = new FormData();
             formData.append('file', file);
 
-            const res = await api.post('/upload', formData);
+            const res = await api.post('/upload', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
 
             if (res.data && res.data.success) {
                 const uploadedUrl = res.data.url;
@@ -344,15 +231,13 @@ export default function AddBuiltupDetailsModal({
                 possessionStatus: possessionStatus,
                 furnishType: furnishType,
                 furnishedItems: furnishType === 'Unfurnished' ? '' : furnishedItems.join(', '),
-                builtupVideoUrl: builtupVideoUrl || '',
                 builtupDetails: builtupDetails.map(row => ({
                     floor: row.floor,
                     cluster: row.cluster,
                     length: row.length === '' ? null : Number(row.length),
                     width: row.width === '' ? null : Number(row.width),
                     totalArea: row.totalArea === '' ? null : Number(row.totalArea),
-                    imageUrl: row.imageUrl || '',
-                    videoUrl: row.videoUrl || ''
+                    imageUrl: row.imageUrl || ''
                 }))
             };
 
@@ -485,74 +370,22 @@ export default function AddBuiltupDetailsModal({
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                             {builtupDetails.map((row, idx) => (
-                                <div key={idx} style={{ background: '#f8fafc', padding: '12px 16px', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'grid', gridTemplateColumns: '1fr 1fr 0.6fr 0.6fr 0.8fr 1.5fr 1.5fr 36px', gap: '10px', alignItems: 'center' }}>
+                                <div key={idx} style={{ background: '#f8fafc', padding: '12px 16px', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'grid', gridTemplateColumns: '1.2fr 1.2fr 0.8fr 0.8fr 1.2fr 1.8fr 40px', gap: '12px', alignItems: 'center' }}>
                                     <div>
-                                        <select 
-                                            style={selectStyle} 
-                                            value={row.floor} 
-                                            onChange={e => updateBuiltupRow(idx, 'floor', e.target.value)}
-                                        >
-                                            <option value="">Select Floor</option>
-                                            {projectMasterFields?.floors && projectMasterFields.floors.length > 0 ? (
-                                                projectMasterFields.floors.map((floorName, floorIdx) => (
-                                                    <option key={floorIdx} value={floorName}>
-                                                        {floorName}
-                                                    </option>
-                                                ))
-                                            ) : (
-                                                <>
-                                                    <option value="Ground Floor">Ground Floor</option>
-                                                    <option value="First Floor">First Floor</option>
-                                                    <option value="Second Floor">Second Floor</option>
-                                                    <option value="Third Floor">Third Floor</option>
-                                                    <option value="Other">Other</option>
-                                                </>
-                                            )}
+                                        <select style={selectStyle} value={row.floor} onChange={e => updateBuiltupRow(idx, 'floor', e.target.value)}>
+                                            <option>Ground Floor</option>
+                                            <option>First Floor</option>
+                                            <option>Second Floor</option>
+                                            <option>Third Floor</option>
+                                            <option>Other</option>
                                         </select>
                                     </div>
                                     <div>
-                                        <select 
-                                            style={selectStyle} 
-                                            value={row.cluster} 
-                                            onChange={e => {
-                                                const selectedValue = e.target.value;
-                                                updateBuiltupRow(idx, 'cluster', selectedValue);
-                                                
-                                                // Find matching image to auto-populate imageUrl
-                                                const matchedImage = projectImages.find((img, imgIdx) => {
-                                                    const imgTitle = img.title || `${img.category || 'Plan'} ${imgIdx + 1}`;
-                                                    return imgTitle === selectedValue || img.category === selectedValue;
-                                                });
-                                                if (matchedImage && matchedImage.url) {
-                                                    updateBuiltupRow(idx, 'imageUrl', matchedImage.url);
-                                                    setHeroImage(prev => prev ? prev : matchedImage.url);
-                                                }
-                                            }}
-                                        >
+                                        <select style={selectStyle} value={row.cluster} onChange={e => updateBuiltupRow(idx, 'cluster', e.target.value)}>
                                             <option value="">Select Plan</option>
-                                            {/* Render configured layout types from Settings > Project > Images */}
-                                            {projectMasterFields?.images && projectMasterFields.images.length > 0 && (
-                                                <optgroup label="Configured Layout Types (Settings)">
-                                                    {projectMasterFields.images.map((imgName, imgIdx) => (
-                                                        <option key={`cfg-${imgIdx}`} value={imgName}>
-                                                            {imgName}
-                                                        </option>
-                                                    ))}
-                                                </optgroup>
-                                            )}
-                                            {/* Render uploaded project media gallery images */}
-                                            {projectImages && projectImages.length > 0 && (
-                                                <optgroup label="Project Gallery Images">
-                                                    {projectImages.map((img, imgIdx) => {
-                                                        const displayName = img.title || `${img.category || 'Plan'} ${imgIdx + 1}`;
-                                                        return (
-                                                            <option key={`media-${imgIdx}`} value={displayName}>
-                                                                {displayName}
-                                                            </option>
-                                                        );
-                                                    })}
-                                                </optgroup>
-                                            )}
+                                            <option>Type A</option>
+                                            <option>Type B</option>
+                                            <option>Type C</option>
                                         </select>
                                     </div>
                                     <div>
@@ -638,77 +471,6 @@ export default function AddBuiltupDetailsModal({
                                         )}
                                     </div>
 
-                                    {/* Video Column */}
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        {row.videoUrl ? (
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'relative' }}>
-                                                <a href={row.videoUrl} target="_blank" rel="noreferrer" title="Click to view walkthrough video" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '38px', height: '38px', borderRadius: '6px', background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#16a34a' }}>
-                                                    <i className="fas fa-video" style={{ fontSize: '0.9rem' }}></i>
-                                                </a>
-                                                <button 
-                                                    type="button" 
-                                                    onClick={() => updateBuiltupRow(idx, 'videoUrl', '')} 
-                                                    style={{ border: 'none', background: '#fee2e2', color: '#ef4444', borderRadius: '6px', width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
-                                                    title="Remove video"
-                                                >
-                                                    <i className="fas fa-trash-alt" style={{ fontSize: '0.75rem' }}></i>
-                                                </button>
-                                            </div>
-                                        ) : row.videoUploading ? (
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem', color: '#2563eb' }}>
-                                                <i className="fas fa-spinner fa-spin"></i> Uploading...
-                                            </div>
-                                        ) : (
-                                            <div style={{ display: 'flex', gap: '6px' }}>
-                                                <label 
-                                                    htmlFor={`video-input-${idx}`}
-                                                    style={{ 
-                                                        display: 'inline-flex', 
-                                                        alignItems: 'center', 
-                                                        gap: '6px', 
-                                                        padding: '8px 10px', 
-                                                        background: '#fff', 
-                                                        border: '1px dashed #cbd5e1', 
-                                                        borderRadius: '6px', 
-                                                        fontSize: '0.75rem', 
-                                                        fontWeight: 600, 
-                                                        color: '#64748b', 
-                                                        cursor: 'pointer',
-                                                        transition: 'all 0.2s'
-                                                    }}
-                                                    title="Upload Video Walkthrough"
-                                                >
-                                                    <i className="fas fa-file-video"></i> Upload
-                                                </label>
-                                                <input 
-                                                    id={`video-input-${idx}`}
-                                                    type="file" 
-                                                    accept="video/*" 
-                                                    onChange={e => handleVideoUpload(idx, e.target.files[0])} 
-                                                    style={{ display: 'none' }} 
-                                                />
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleAddVideoUrlPrompt(idx)}
-                                                    style={{ 
-                                                        padding: '8px 10px', 
-                                                        background: '#f8fafc', 
-                                                        border: '1px solid #cbd5e1', 
-                                                        borderRadius: '6px', 
-                                                        color: '#64748b', 
-                                                        cursor: 'pointer',
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center'
-                                                    }}
-                                                    title="Add Video Link"
-                                                >
-                                                    <i className="fas fa-link" style={{ fontSize: '0.75rem' }}></i>
-                                                </button>
-                                            </div>
-                                        )}
-                                    </div>
-
                                     <button 
                                         type="button" 
                                         onClick={() => handleRemoveBuiltupRow(idx)} 
@@ -739,8 +501,8 @@ export default function AddBuiltupDetailsModal({
                         </div>
                     </div>
 
-                    {/* Possession Status, Occupation Date, Age of Construction, Walkthrough Video */}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
+                    {/* Possession Status, Occupation Date, Age of Construction */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
                         <div>
                             <label style={labelStyle}>Possession Status</label>
                             <select style={selectStyle} value={possessionStatus} onChange={e => setPossessionStatus(e.target.value)}>
@@ -756,81 +518,6 @@ export default function AddBuiltupDetailsModal({
                         <div>
                             <label style={labelStyle}>Age of Construction</label>
                             <input type="text" style={inputStyle} placeholder="e.g. 5 Years" value={ageOfConstruction} onChange={e => setAgeOfConstruction(e.target.value)} />
-                        </div>
-                        <div>
-                            <label style={labelStyle}>Walkthrough Video</label>
-                            {builtupVideoUrl ? (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '8px 12px', minHeight: '42px', boxSizing: 'border-box' }}>
-                                    <a href={builtupVideoUrl} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '6px', textDecoration: 'none', color: '#16a34a', fontWeight: 600, fontSize: '0.8rem' }}>
-                                        <i className="fas fa-video"></i> View Video
-                                    </a>
-                                    <button 
-                                        type="button" 
-                                        onClick={() => setBuiltupVideoUrl('')} 
-                                        style={{ marginLeft: 'auto', border: 'none', background: '#fee2e2', color: '#ef4444', borderRadius: '6px', width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
-                                        title="Remove Video"
-                                    >
-                                        <i className="fas fa-trash-alt" style={{ fontSize: '0.75rem' }}></i>
-                                    </button>
-                                </div>
-                            ) : overallVideoUploading ? (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#2563eb', fontSize: '0.8rem', minHeight: '42px' }}>
-                                    <i className="fas fa-spinner fa-spin"></i> Uploading...
-                                </div>
-                            ) : (
-                                <div style={{ display: 'flex', gap: '8px' }}>
-                                    <label 
-                                        htmlFor="overall-video-upload"
-                                        style={{ 
-                                            flex: 1,
-                                            display: 'inline-flex', 
-                                            alignItems: 'center', 
-                                            justifyContent: 'center',
-                                            gap: '6px', 
-                                            padding: '10px 12px', 
-                                            background: '#fff', 
-                                            border: '1px dashed #cbd5e1', 
-                                            borderRadius: '8px', 
-                                            fontSize: '0.75rem', 
-                                            fontWeight: 600, 
-                                            color: '#64748b', 
-                                            cursor: 'pointer',
-                                            transition: 'all 0.2s',
-                                            boxSizing: 'border-box'
-                                        }}
-                                    >
-                                        <i className="fas fa-cloud-upload-alt"></i> Upload
-                                    </label>
-                                    <input 
-                                        id="overall-video-upload"
-                                        type="file" 
-                                        accept="video/*" 
-                                        onChange={e => handleOverallVideoUpload(e.target.files[0])} 
-                                        style={{ display: 'none' }} 
-                                    />
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            const url = window.prompt("Enter walkthrough video URL (e.g. YouTube or Drive link):");
-                                            if (url !== null) setBuiltupVideoUrl(url.trim());
-                                        }}
-                                        style={{ 
-                                            padding: '10px 12px', 
-                                            background: '#f8fafc', 
-                                            border: '1px solid #cbd5e1', 
-                                            borderRadius: '8px', 
-                                            color: '#64748b', 
-                                            cursor: 'pointer',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center'
-                                        }}
-                                        title="Add Video Link"
-                                    >
-                                        <i className="fas fa-link"></i>
-                                    </button>
-                                </div>
-                            )}
                         </div>
                     </div>
 

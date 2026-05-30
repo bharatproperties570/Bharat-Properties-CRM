@@ -248,11 +248,21 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
                 {/* Modals Rendered at Root of Layout */}
                 <AddContactModal
                     isOpen={showAddContactModal}
-                    onClose={() => setShowAddContactModal(false)}
+                    onClose={() => {
+                        setShowAddContactModal(false);
+                        setEditingContact(null);
+                    }}
                     initialData={editingContact}
                     mode={editingContact ? "edit" : "add"}
                     entityType={modalEntityType}
-                    onAdd={() => setShowAddContactModal(false)}
+                    onAdd={() => {
+                        setShowAddContactModal(false);
+                        setEditingContact(null);
+                    }}
+                    onEdit={() => {
+                        setShowAddContactModal(false);
+                        setEditingContact(null);
+                    }}
                 />
 
                 <AddLeadModal
