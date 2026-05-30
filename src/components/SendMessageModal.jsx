@@ -213,12 +213,17 @@ const SendMessageModal = ({
         const components = [];
         const recipient = recipients[0] || {};
 
-        // Helper to retrieve flat or nested inventory fields
+        // Helper to retrieve flat or nested inventory fields with strict fallback handling
         const getPropVal = (key) => {
             if (properties.length === 0) return '';
             const p = properties[0];
-            const val = p[key] !== undefined ? p[key] : (p.inventoryId ? p.inventoryId[key] : undefined);
-            return val !== undefined ? val : '';
+            let val = p[key];
+            if (val === null || val === undefined || val === '') {
+                if (p.inventoryId && typeof p.inventoryId === 'object') {
+                    val = p.inventoryId[key];
+                }
+            }
+            return val !== undefined && val !== null ? val : '';
         };
 
         // Helper to resolve lookups to human-readable labels
@@ -244,8 +249,8 @@ const SendMessageModal = ({
         const builtupTypeRaw = getPropVal('builtupType');
         const builtupTypeResolved = resolveLookup(builtupTypeRaw, 'BuiltupType');
 
-        const sizeTypeRaw = getPropVal('sizeType') || getPropVal('sizeConfig');
-        const sizeTypeResolved = resolveLookup(sizeTypeRaw, 'PropertyType') || resolveLookup(sizeTypeRaw, 'Size');
+        const sizeLabelRaw = getPropVal('sizeLabel') || getPropVal('sizeConfig');
+        const sizeLabelResolved = resolveLookup(sizeLabelRaw, 'Size') || getPropVal('size');
 
         const directionRaw = getPropVal('direction');
         const directionResolved = resolveLookup(directionRaw, 'Direction');
@@ -254,7 +259,7 @@ const SendMessageModal = ({
         const facingResolved = resolveLookup(facingRaw, 'Facing');
 
         const roadWidthRaw = getPropVal('roadWidth');
-        const roadWidthResolved = resolveLookup(roadWidthRaw, 'Road Width');
+        const roadWidthResolved = resolveLookup(roadWidthRaw, 'RoadWidth'); // Aligned with DB 'RoadWidth' lookup_type!
 
         const sizeRaw = getPropVal('size');
         const sizeVal = typeof sizeRaw === 'object' ? (sizeRaw.value ? `${sizeRaw.value} ${sizeRaw.unit || 'Sq.Yd.'}` : '') : sizeRaw;
@@ -266,14 +271,26 @@ const SendMessageModal = ({
         const locationResolved = resolveLookup(locationRaw, 'Location') || resolveLookup(locationRaw, 'City') || resolveLookup(locationRaw, 'Locality') || locationRaw;
 
         const propertyListDefault = properties.map((p, i) => {
-            const propVal = (key) => p[key] !== undefined ? p[key] : (p.inventoryId ? p.inventoryId[key] : undefined);
+            const propVal = (key) => {
+                let v = p[key];
+                if (v === null || v === undefined || v === '') {
+                    if (p.inventoryId && typeof p.inventoryId === 'object') v = p.inventoryId[key];
+                }
+                return v !== undefined && v !== null ? v : '';
+            };
             const loc = propVal('location') || propVal('city') || propVal('sector');
             const resolvedLoc = resolveLookup(loc, 'Location') || resolveLookup(loc, 'City') || resolveLookup(loc, 'Locality') || loc || 'Sector';
             return `${i + 1}️⃣ ${propVal('unitNo') || 'Unit'} - ${resolvedLoc}`;
         }).join('\n');
 
         const propertyListDetailed = properties.map((p, i) => {
-            const propVal = (key) => p[key] !== undefined ? p[key] : (p.inventoryId ? p.inventoryId[key] : undefined);
+            const propVal = (key) => {
+                let v = p[key];
+                if (v === null || v === undefined || v === '') {
+                    if (p.inventoryId && typeof p.inventoryId === 'object') v = p.inventoryId[key];
+                }
+                return v !== undefined && v !== null ? v : '';
+            };
             const loc = propVal('location') || propVal('city') || propVal('sector');
             const resolvedLoc = resolveLookup(loc, 'Location') || resolveLookup(loc, 'City') || resolveLookup(loc, 'Locality') || loc || 'Sector';
             const szRaw = propVal('size');
@@ -315,7 +332,8 @@ const SendMessageModal = ({
             'category': categoryResolved,
             'subCategory': subCategoryResolved,
             'builtupType': builtupTypeResolved,
-            'sizeType': sizeTypeResolved,
+            'sizeType': sizeLabelResolved, // sizeType maps directly to the resolved size label as requested by the user
+            'sizeLabel': sizeLabelResolved,
             'direction': directionResolved,
             'facing': facingResolved,
             'roadWidth': roadWidthResolved,
