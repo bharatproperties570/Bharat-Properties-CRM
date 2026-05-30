@@ -338,7 +338,11 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                             </div>
                             <div class="row">
                                 <span class="label">Earnest Money (Bayana):</span> 
-                                <span class="val">${formatCurrency(booking.financials.tokenAmount || 0)} ${booking.financials.bookingDate ? `(Bayana Date: ${new Date(booking.financials.bookingDate).toLocaleDateString('en-IN')})` : ''}</span>
+                                <span class="val">${formatCurrency(booking.financials.tokenAmount || 0)} ${booking.financials.bookingDate ? `(Bayana Date: ${new Date(booking.financials.bookingDate).toLocaleDateString('en-IN')})` : ''} (Mode: ${booking.financials.paymentMode || '___________'})</span>
+                            </div>
+                            <div class="row">
+                                <span class="label">Agreement Amount to be Paid:</span> 
+                                <span class="val">${formatCurrency(booking.financials.agreementAmount || 0)} ${booking.financials.agreementDate ? `(Agreement Date: ${new Date(booking.financials.agreementDate).toLocaleDateString('en-IN')})` : ''}</span>
                             </div>
                             <div class="row">
                                 <span class="label">Part Payment Amount:</span> 
@@ -356,7 +360,14 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                             1. This is a preliminary short agreement acknowledging the token amount received against the property mentioned above.<br/>
                             2. A detailed and registered Agreement to Sell will be executed upon receipt of the mutually agreed milestone payment.<br/>
                             3. In case of cancellation by the buyer, the token amount shall be forfeited as per standard market practice, unless agreed otherwise in writing.<br/>
-                            4. Bharat Properties acts solely as a facilitator/broker in this transaction.
+                            4. Bharat Properties acts solely as a facilitator/broker in this transaction.<br/>
+                            5. The Seller shall handover all original papers and documents of the said property along with vacant possession to the Purchaser at the time of final payment and execution of the sale deed.<br/>
+                            6. All expenses on the execution of the sale deed, transfer permission, stamp duty, registration fees, and transfer fees shall be borne by the Purchaser.<br/>
+                            7. The Seller shall be responsible for clearing all previous dues, taxes, and liabilities of the said property up to the date of execution of the sale deed.
+                        </div>
+
+                        <div style="text-align: center; margin-bottom: 30px; font-size: 14px; color: #475569;">
+                            This Receipt/Agreement is executed at <strong>Kurukshetra</strong> on this <strong>${new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</strong>.
                         </div>
 
                         <div class="signature-section">
