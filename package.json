@@ -14,7 +14,7 @@
   "dependencies": {
     "@expo/metro-runtime": "^55.0.11",
     "@googlemaps/markerclusterer": "^2.6.2",
-    "@tanstack/react-query": "^5.100.11",
+    "@tanstack/react-query": "^5.100.14",
     "apexcharts": "^5.3.6",
     "axios": "^1.13.2",
     "clsx": "^2.1.0",
