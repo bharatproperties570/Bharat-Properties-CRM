@@ -6,8 +6,10 @@ import BookingFilterPanel from '../../components/BookingFilterPanel';
 import BookingAnalytics from './BookingAnalytics';
 import { api } from '../../utils/api';
 import ClosingFormModal from '../../components/ClosingFormModal';
+import { usePropertyConfig } from '../../context/PropertyConfigContext';
 
 const BookingPage = ({ onNavigate, initialContextId }) => {
+    const { getLookupValue } = usePropertyConfig();
     // View State: 'deals' | 'ledger' | 'analytics'
     const [currentView, setCurrentView] = useState('deals');
 
@@ -206,7 +208,10 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
 
             const getContactFullName = (c) => {
                 if (!c) return '___________________________';
-                const titleVal = c.title ? (typeof c.title === 'object' ? c.title.lookup_value : c.title) : '';
+                let titleVal = c.title ? (typeof c.title === 'object' ? c.title.lookup_value : c.title) : '';
+                if (typeof titleVal === 'string' && /^[0-9a-fA-F]{24}$/.test(titleVal)) {
+                    titleVal = getLookupValue(titleVal) || titleVal;
+                }
                 const first = c.name || '';
                 const last = c.surname || '';
                 return `${titleVal ? titleVal + ' ' : ''}${first} ${last}`.trim() || '___________________________';
@@ -217,6 +222,9 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                 const resolveVal = (field) => {
                     if (!field) return '';
                     if (typeof field === 'object') return field.lookup_value || field.name || '';
+                    if (typeof field === 'string' && /^[0-9a-fA-F]{24}$/.test(field)) {
+                        return getLookupValue(field) || field;
+                    }
                     return field;
                 };
                 const parts = [
@@ -250,7 +258,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                 unit: booking.property?.unit || '___________________________',
                 location: booking.property?.location || '___________________________',
                 block: booking.property?.block || '___________________________',
-                sizeLabel: booking.property?.sizeLabel || '___________________________'
+                sizeLabel: booking.property?.sizeLabel ? (typeof booking.property.sizeLabel === 'string' && /^[0-9a-fA-F]{24}$/.test(booking.property.sizeLabel) ? getLookupValue(booking.property.sizeLabel) || booking.property.sizeLabel : booking.property.sizeLabel) : '___________________________'
             };
 
             const totalValue = booking.financials?.dealValue || 0;
