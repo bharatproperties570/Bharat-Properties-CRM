@@ -268,19 +268,29 @@ const SendMessageModal = ({
         const resolveVars = (text) => {
             if (!text) return text;
             return text.replace(/{{([^}]+)}}/g, (match, vIdx) => {
-                if (/^\d+$/.test(vIdx)) {
+                const cleanKey = vIdx.trim();
+                
+                // 1. DLT Index-based mapping
+                if (/^\d+$/.test(cleanKey)) {
                     const defaultRegistry = {
                         '1': 'customer_name',
                         '2': 'property_list_default',
                         '3': 'assignedTo'
                     };
-                    const mappedField = variableRegistry[vIdx] || variableRegistry[String(vIdx)] || defaultRegistry[String(vIdx)];
+                    const mappedField = variableRegistry[cleanKey] || variableRegistry[String(cleanKey)] || defaultRegistry[String(cleanKey)];
                     const val = unifiedContext[mappedField] !== undefined ? renderValue(unifiedContext[mappedField], '') : match;
                     components.push({ type: 'text', text: val });
                     return val;
                 }
                 
-                // Fallbacks for specific hardcoded strings expected in RCS templates
+                // 2. Standardized Named Variables (e.g. {{firstName}}, {{location}})
+                if (unifiedContext[cleanKey] !== undefined) {
+                    const val = renderValue(unifiedContext[cleanKey], '');
+                    components.push({ type: 'text', text: val });
+                    return val;
+                }
+                
+                // 3. Fallbacks for specific legacy/hardcoded strings
                 const legacyHardcoded = {
                     'MatchCount': 'several',
                     'OldPrice': 'N/A',
@@ -303,14 +313,8 @@ const SendMessageModal = ({
                     'DocumentList': '- Aadhaar Card\n- PAN Card\n- Cancelled Cheque'
                 };
                 
-                if (legacyHardcoded[vIdx] !== undefined) {
-                    const val = renderValue(legacyHardcoded[vIdx], '');
-                    components.push({ type: 'text', text: val });
-                    return val;
-                }
-                
-                if (unifiedContext[vIdx] !== undefined) {
-                    const val = renderValue(unifiedContext[vIdx], '');
+                if (legacyHardcoded[cleanKey] !== undefined) {
+                    const val = renderValue(legacyHardcoded[cleanKey], '');
                     components.push({ type: 'text', text: val });
                     return val;
                 }
