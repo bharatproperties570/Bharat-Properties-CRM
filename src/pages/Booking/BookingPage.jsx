@@ -108,7 +108,8 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                         project: b.property?.projectName || b.property?.projectId?.name || b.project?.name || 'N/A',
                         unit: b.property?.unitNo || b.property?.unitNumber || 'N/A',
                         location: b.property?.location || b.project?.location || 'N/A',
-                        block: b.property?.block || 'N/A'
+                        block: b.property?.block || 'N/A',
+                        sizeLabel: b.property?.sizeLabel || (b.property?.sizeConfig && typeof b.property.sizeConfig === 'object' ? b.property.sizeConfig.lookup_value : b.property?.sizeConfig) || (b.property?.size ? `${b.property.size} ${b.property.sizeUnit || 'Sq.Yd.'}` : 'N/A')
                     },
                     financials: {
                         dealValue: b.totalDealAmount || 0,
@@ -117,6 +118,10 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                         agreementAmount: b.agreementAmount || 0,
                         agreementDate: b.agreementDate,
                         finalPaymentDate: b.finalPaymentDate,
+                        tokenAmount: b.tokenAmount || 0,
+                        bookingDate: b.bookingDate,
+                        partPaymentAmount: b.partPaymentAmount || 0,
+                        partPaymentDate: b.partPaymentDate,
                         commissionTotal: b.totalCommissionAmount || (parseFloat(b.sellerBrokerageAmount || 0) + parseFloat(b.buyerBrokerageAmount || 0)),
                         sellerBrokerageAmount: b.sellerBrokerageAmount || 0,
                         buyerBrokerageAmount: b.buyerBrokerageAmount || 0,
@@ -196,16 +201,56 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
 
         const printWindow = window.open('', '_blank', 'width=900,height=800');
         if (printWindow) {
-            const buyerName = booking.customer?.buyer?.name || '___________________________';
-            const buyerPhone = booking.customer?.buyer?.mobile || '___________________________';
-            const sellerName = booking.customer?.seller?.name || '___________________________';
-            const sellerPhone = booking.customer?.seller?.mobile || '___________________________';
-            
+            const buyerRaw = booking.customer?.buyer?.raw || {};
+            const sellerRaw = booking.customer?.seller?.raw || {};
+
+            const getContactFullName = (c) => {
+                if (!c) return '___________________________';
+                const titleVal = c.title ? (typeof c.title === 'object' ? c.title.lookup_value : c.title) : '';
+                const first = c.name || '';
+                const last = c.surname || '';
+                return `${titleVal ? titleVal + ' ' : ''}${first} ${last}`.trim() || '___________________________';
+            };
+
+            const formatAddress = (addr) => {
+                if (!addr) return '';
+                const resolveVal = (field) => {
+                    if (!field) return '';
+                    if (typeof field === 'object') return field.lookup_value || field.name || '';
+                    return field;
+                };
+                const parts = [
+                    addr.hNo ? `H.No. ${addr.hNo}` : '',
+                    addr.street ? `Street: ${addr.street}` : '',
+                    resolveVal(addr.location) || resolveVal(addr.area) || '',
+                    resolveVal(addr.tehsil) ? `Tehsil: ${resolveVal(addr.tehsil)}` : '',
+                    resolveVal(addr.postOffice) ? `P.O.: ${resolveVal(addr.postOffice)}` : '',
+                    resolveVal(addr.city) || '',
+                    resolveVal(addr.state) || '',
+                    resolveVal(addr.pincode) ? `Pincode: ${resolveVal(addr.pincode)}` : '',
+                    resolveVal(addr.country) || ''
+                ].filter(Boolean);
+                return parts.join(', ') || '';
+            };
+
+            const buyerFullName = getContactFullName(buyerRaw);
+            const buyerMobile = booking.customer?.buyer?.mobile || buyerRaw.phones?.[0]?.number || '___________________________';
+            const buyerEmail = buyerRaw.emails?.[0]?.address || '___________________________';
+            const buyerFatherName = buyerRaw.fatherName || '';
+            const buyerAddress = formatAddress(buyerRaw.personalAddress) || '';
+
+            const sellerFullName = getContactFullName(sellerRaw);
+            const sellerMobile = booking.customer?.seller?.mobile || sellerRaw.phones?.[0]?.number || '___________________________';
+            const sellerEmail = sellerRaw.emails?.[0]?.address || '___________________________';
+            const sellerFatherName = sellerRaw.fatherName || '';
+            const sellerAddress = formatAddress(sellerRaw.personalAddress) || '';
+
             const propertyDetails = {
                 project: booking.property?.project || '___________________________',
                 unit: booking.property?.unit || '___________________________',
                 location: booking.property?.location || '___________________________',
-                block: booking.property?.block || '___________________________'
+                block: booking.property?.block || '___________________________',
+                sizeLabel: booking.property?.sizeLabel || '___________________________'
             };
 
             const totalValue = booking.financials?.dealValue || 0;
@@ -218,12 +263,6 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                         <style>
                             body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 40px; line-height: 1.5; color: #334155; }
                             .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #6366f1; padding-bottom: 20px; }
-                            .title { font-size: 22px; font-weight: bold; color: #1e293b; text-transform: uppercase; letter-spacing: 1px; }
-                            .party-info { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-bottom: 30px; background: #f8fafc; padding: 20px; borderRadius: 12px; }
-                            .party-box h4 { margin: 0 0 10px 0; color: #6366f1; text-transform: uppercase; font-size: 0.8rem; letter-spacing: 1px; }
-                            .party-name { font-size: 1.1rem; font-weight: 700; color: #0f172a; }
-                            body { font-family: 'Helvetica', 'Arial', sans-serif; margin: 40px; color: #1e293b; line-height: 1.6; }
-                            .header { text-align: center; border-bottom: 3px solid #334155; padding-bottom: 20px; margin-bottom: 30px; }
                             .company-name { font-size: 28px; font-weight: 900; color: #0f172a; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 2px; }
                             .doc-title { font-size: 20px; font-weight: 600; color: #64748b; margin-top: 15px; }
                             .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-bottom: 30px; }
@@ -232,7 +271,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                             .row { display: flex; justify-content: space-between; margin-bottom: 8px; border-bottom: 1px dotted #e2e8f0; padding-bottom: 4px; }
                             .label { font-weight: 600; color: #475569; }
                             .val { font-weight: 700; color: #0f172a; }
-                            .signature-section { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 60px; }
+                            .signature-section { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 40px; }
                             .sig-box { border-top: 1px solid #94a3b8; padding-top: 10px; text-align: center; font-weight: 600; }
                             .footer { margin-top: 50px; text-align: center; font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 20px; }
                         </style>
@@ -252,13 +291,19 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                         <div class="grid-2">
                             <div class="box">
                                 <div class="box-title">Buyer Details (First Party)</div>
-                                <div class="row"><span class="label">Name:</span> <span class="val">${buyerName}</span></div>
-                                <div class="row"><span class="label">Contact:</span> <span class="val">${buyerPhone}</span></div>
+                                <div class="row"><span class="label">Name:</span> <span class="val">${buyerFullName}</span></div>
+                                ${buyerFatherName ? `<div class="row"><span class="label">Father's Name:</span> <span class="val">${buyerFatherName}</span></div>` : ''}
+                                <div class="row"><span class="label">Mobile:</span> <span class="val">${buyerMobile}</span></div>
+                                <div class="row"><span class="label">Email:</span> <span class="val">${buyerEmail}</span></div>
+                                ${buyerAddress ? `<div class="row"><span class="label">Address:</span> <span class="val">${buyerAddress}</span></div>` : ''}
                             </div>
                             <div class="box">
                                 <div class="box-title">Seller Details (Second Party)</div>
-                                <div class="row"><span class="label">Name:</span> <span class="val">${sellerName}</span></div>
-                                <div class="row"><span class="label">Contact:</span> <span class="val">${sellerPhone}</span></div>
+                                <div class="row"><span class="label">Name:</span> <span class="val">${sellerFullName}</span></div>
+                                ${sellerFatherName ? `<div class="row"><span class="label">Father's Name:</span> <span class="val">${sellerFatherName}</span></div>` : ''}
+                                <div class="row"><span class="label">Mobile:</span> <span class="val">${sellerMobile}</span></div>
+                                <div class="row"><span class="label">Email:</span> <span class="val">${sellerEmail}</span></div>
+                                ${sellerAddress ? `<div class="row"><span class="label">Address:</span> <span class="val">${sellerAddress}</span></div>` : ''}
                             </div>
                         </div>
 
@@ -268,22 +313,34 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                                 <div>
                                     <div class="row"><span class="label">Project/Society:</span> <span class="val">${propertyDetails.project}</span></div>
                                     <div class="row"><span class="label">Unit No:</span> <span class="val">${propertyDetails.unit}</span></div>
+                                    <div class="row"><span class="label">Block/Tower:</span> <span class="val">${propertyDetails.block}</span></div>
                                 </div>
                                 <div>
                                     <div class="row"><span class="label">Location:</span> <span class="val">${propertyDetails.location}</span></div>
-                                    <div class="row"><span class="label">Block/Tower:</span> <span class="val">${propertyDetails.block}</span></div>
+                                    <div class="row"><span class="label">Size Label:</span> <span class="val">${propertyDetails.sizeLabel}</span></div>
                                 </div>
                             </div>
                         </div>
 
                         <div class="box" style="margin-bottom: 30px; background: #fffbeb; border-color: #fcd34d;">
                             <div class="box-title" style="color: #b45309; border-bottom-color: #fde68a;">Financial Summary</div>
-                            <div class="row"><span class="label">Total Consideration Value:</span> <span class="val" style="font-size: 16px; color: #b45309;">${formatCurrency(totalValue)}</span></div>
-                            <div class="row"><span class="label">Booking/Token Amount Paid:</span> <span class="val">${formatCurrency(booking.financials.totalPaidAmount || 0)}</span></div>
-                            <div class="row"><span class="label">Balance Amount Due:</span> <span class="val">${formatCurrency(booking.financials.totalBalanceAmount || 0)}</span></div>
-                            ${booking.financials.finalPaymentDate ? `<div class="row"><span class="label">Final Payment Due Date:</span> <span class="val">${new Date(booking.financials.finalPaymentDate).toLocaleDateString('en-IN')}</span></div>` : ''}
-                        </div>
-
+                            <div class="row">
+                                <span class="label">Total Consideration Value:</span> 
+                                <span class="val" style="font-size: 16px; color: #b45309;">${formatCurrency(totalValue)} ${booking.financials.bookingDate ? `(Booking Date: ${new Date(booking.financials.bookingDate).toLocaleDateString('en-IN')})` : ''}</span>
+                            </div>
+                            <div class="row">
+                                <span class="label">Earnest Money (Bayana):</span> 
+                                <span class="val">${formatCurrency(booking.financials.tokenAmount || 0)} ${booking.financials.bookingDate ? `(Bayana Date: ${new Date(booking.financials.bookingDate).toLocaleDateString('en-IN')})` : ''}</span>
+                            </div>
+                            <div class="row">
+                                <span class="label">Part Payment Amount:</span> 
+                                <span class="val">${formatCurrency(booking.financials.partPaymentAmount || 0)} ${booking.financials.partPaymentDate ? `(Date: ${new Date(booking.financials.partPaymentDate).toLocaleDateString('en-IN')})` : ''}</span>
+                            </div>
+                            <div class="row">
+                                <span class="label">Rest (Balance) Payment Due:</span> 
+                                <span class="val" style="color: #ef4444;">${formatCurrency(booking.financials.totalBalanceAmount || 0)}</span>
+                            </div>
+                            ${booking.financials.finalPaymentDate ? `<div class="row"><span class="label">Full & Final Payment Due Date:</span> <span class="val">${new Date(booking.financials.finalPaymentDate).toLocaleDateString('en-IN')}</span></div>` : ''}
                         </div>
 
                         <div style="font-size: 13px; color: #475569; margin-bottom: 40px; text-align: justify;">
@@ -299,7 +356,20 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                             <div class="sig-box">Signature of Second Party (Seller)</div>
                         </div>
 
-                        <div class="footer">
+                        <div class="witness-section" style="display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 45px; border-top: 1px dashed #cbd5e1; padding-top: 20px;">
+                            <div>
+                                <strong style="font-size: 13px; color: #475569;">Witness No. 1:</strong>
+                                <div style="margin-top: 10px; border-bottom: 1px dotted #94a3b8; height: 20px;">Name: </div>
+                                <div style="margin-top: 10px; border-bottom: 1px dotted #94a3b8; height: 20px;">Signature: </div>
+                            </div>
+                            <div>
+                                <strong style="font-size: 13px; color: #475569;">Witness No. 2:</strong>
+                                <div style="margin-top: 10px; border-bottom: 1px dotted #94a3b8; height: 20px;">Name: </div>
+                                <div style="margin-top: 10px; border-bottom: 1px dotted #94a3b8; height: 20px;">Signature: </div>
+                            </div>
+                        </div>
+
+                        <div class="footer" style="margin-top: 40px;">
                             Generated by Bharat Properties Enterprise CRM on ${new Date().toLocaleString('en-IN')}<br/>
                             This is a system generated document.
                         </div>
