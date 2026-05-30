@@ -545,6 +545,19 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             const pFirst = selectedDeals.length > 0 ? selectedDeals[0] : {};
             const inv = pFirst.inventoryId || {};
 
+            // Helper to retrieve flat or nested inventory fields with strict fallback handling
+            const getPropVal = (key) => {
+                if (selectedDeals.length === 0) return '';
+                const p = selectedDeals[0];
+                let val = p[key];
+                if (val === null || val === undefined || val === '') {
+                    if (p.inventoryId && typeof p.inventoryId === 'object') {
+                        val = p.inventoryId[key];
+                    }
+                }
+                return val !== undefined && val !== null ? val : '';
+            };
+
             // Helper to resolve lookup values with fallback to original string
             const safeLookup = (val, type) => {
                 if (!val) return '';
@@ -552,16 +565,39 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                 return resolved || val.lookup_value || val.name || val;
             };
 
-            const propertyListDefault = selectedDeals.map((p, i) => `${i + 1}️⃣ ${p.unitNo || 'Unit'} - ${safeLookup(p.inventoryId?.address?.locality || p.location, 'Locality')}`).join('\n');
-            const propertyListDetailed = selectedDeals.map((p, i) => `${i + 1}️⃣ 📍 ${safeLookup(p.inventoryId?.address?.locality || p.location, 'Locality')}\n📏 Size: ${p.size || p.sizeConfig}\n💰 Price: ₹${p.price}`).join('\n');
+            const propertyListDefault = selectedDeals.map((p, i) => {
+                const propVal = (key) => {
+                    let v = p[key];
+                    if (v === null || v === undefined || v === '') {
+                        if (p.inventoryId && typeof p.inventoryId === 'object') v = p.inventoryId[key];
+                    }
+                    return v !== undefined && v !== null ? v : '';
+                };
+                const loc = propVal('location') || propVal('city') || propVal('sector');
+                return `${i + 1}️⃣ ${propVal('unitNo') || 'Unit'} - ${safeLookup(loc, 'Locality') || safeLookup(loc, 'Location') || loc}`;
+            }).join('\n');
+
+            const propertyListDetailed = selectedDeals.map((p, i) => {
+                const propVal = (key) => {
+                    let v = p[key];
+                    if (v === null || v === undefined || v === '') {
+                        if (p.inventoryId && typeof p.inventoryId === 'object') v = p.inventoryId[key];
+                    }
+                    return v !== undefined && v !== null ? v : '';
+                };
+                const loc = propVal('location') || propVal('city') || propVal('sector');
+                const szRaw = propVal('sizeLabel') || propVal('sizeConfig') || propVal('size');
+                const szVal = typeof szRaw === 'object' ? (szRaw.value ? `${szRaw.value} ${szRaw.unit || 'Sq.Yd.'}` : '') : (safeLookup(szRaw, 'Size') || szRaw);
+                return `${i + 1}️⃣ 📍 ${safeLookup(loc, 'Locality') || safeLookup(loc, 'Location') || loc}\n📏 Size: ${szVal}\n💰 Price: ₹${propVal('price') || ''}`;
+            }).join('\n');
 
             const agentName = lead.assignedTo?.name || lead.owner || lead.agentName || currentUser?.name || 'Our Representative';
             const agentMobile = lead.assignment?.assignedTo?.mobile || lead.assignedTo?.mobile || lead.ownerMobile || lead.agentMobile || currentUser?.mobile || currentUser?.phone || '';
             const agentDetails = agentMobile ? `${agentName} (📞 ${agentMobile})` : agentName;
 
-            const rawPropLoc = pFirst.inventoryId?.address?.locality || pFirst.inventoryId?.address?.area || pFirst.inventoryId?.address?.location || pFirst.location || pFirst.city;
-            const safePropLoc = safeLookup(rawPropLoc, 'Locality');
-            const safePropProj = safeLookup(pFirst.inventoryId?.projectName || pFirst.projectName || pFirst.unitNo, 'Project');
+            const rawPropLoc = getPropVal('location') || getPropVal('city') || getPropVal('sector');
+            const safePropLoc = safeLookup(rawPropLoc, 'Location') || safeLookup(rawPropLoc, 'City') || safeLookup(rawPropLoc, 'Locality') || rawPropLoc;
+            const safePropProj = getPropVal('projectName') || getPropVal('unitNo') || 'Premium Listing';
 
             const unifiedContext = {
                 'name': lead.name,
@@ -584,21 +620,21 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                 
                 // Project/Inventory Exact Fields (safely handling nested inventory items)
                 'projectName': safePropProj,
-                'unitNo': pFirst.unitNo || '',
-                'block': pFirst.block || '',
-                'unitType': safeLookup(pFirst.unitType || inv.unitType, 'UnitType'),
-                'category': safeLookup(pFirst.category || inv.category, 'Category'),
-                'subCategory': safeLookup(pFirst.subCategory || inv.subCategory, 'SubCategory'),
-                'price': pFirst.price || inv.price || 'N/A',
-                'size': pFirst.size || pFirst.sizeConfig || inv.size || 'N/A',
+                'unitNo': getPropVal('unitNo'),
+                'block': getPropVal('block'),
+                'unitType': safeLookup(getPropVal('unitType'), 'UnitType'),
+                'category': safeLookup(getPropVal('category') || getPropVal('propertyType'), 'Category'),
+                'subCategory': safeLookup(getPropVal('subCategory'), 'SubCategory'),
+                'price': getPropVal('price') || 'N/A',
+                'size': typeof getPropVal('size') === 'object' ? (getPropVal('size').value ? `${getPropVal('size').value} ${getPropVal('size').unit}` : 'N/A') : getPropVal('size') || 'N/A',
                 'location': safePropLoc,
                 
                 // Advanced/Missing Inventory Fields
-                'builtupType': safeLookup(pFirst.builtupType || inv.builtupType, 'BuiltupType'),
-                'sizeType': safeLookup(pFirst.sizeType || inv.sizeType, 'SizeType'),
-                'direction': safeLookup(pFirst.direction || inv.direction, 'Direction'),
-                'facing': safeLookup(pFirst.facing || inv.facing, 'Facing'),
-                'roadWidth': pFirst.roadWidth || inv.roadWidth || 'N/A',
+                'builtupType': safeLookup(getPropVal('builtupType'), 'BuiltupType'),
+                'sizeType': safeLookup(getPropVal('sizeLabel') || getPropVal('sizeConfig') || getPropVal('sizeType'), 'Size'),
+                'direction': safeLookup(getPropVal('direction'), 'Direction'),
+                'facing': safeLookup(getPropVal('facing'), 'Facing'),
+                'roadWidth': safeLookup(getPropVal('roadWidth'), 'RoadWidth'),
                 
                 // Helper structures
                 'propertyList': propertyListDefault,
