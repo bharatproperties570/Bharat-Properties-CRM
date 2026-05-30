@@ -305,7 +305,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                                 .box { padding: 5px 8px !important; margin-bottom: 6px !important; }
                                 .box-title { margin-bottom: 3px !important; padding-bottom: 2px !important; font-size: 10px !important; }
                                 .row { margin-bottom: 1px !important; padding-bottom: 1px !important; }
-                                .signature-section { margin-top: 20px !important; }
+                                .signature-section { margin-top: 45px !important; }
                                 .witness-section { margin-top: 15px !important; padding-top: 5px !important; gap: 15px !important; }
                                 .footer { margin-top: 5px !important; padding-top: 3px !important; font-size: 9px !important; }
                                 div[style*="margin-bottom: 20px"] { margin-bottom: 5px !important; }
@@ -414,7 +414,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                             This Receipt/Agreement is executed at <strong>Kurukshetra</strong> on this <strong>${new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</strong>.
                         </div>
 
-                        <div class="signature-section" style="margin-top: 60px;">
+                        <div class="signature-section" style="margin-top: 65px;">
                             <div class="sig-box">Signature of First Party (Buyer)</div>
                             <div class="sig-box">Signature of Second Party (Seller)</div>
                         </div>
