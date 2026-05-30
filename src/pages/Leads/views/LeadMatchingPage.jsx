@@ -601,28 +601,47 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                 throw new Error('Customer does not have a valid mobile number configured.');
             }
 
-            const response = await whatsappService.sendMessage({
-                mobile: targetPhone,
-                message: resolvedBody,
-                templateId: template.name,
-                type: 'text'
-            });
-
-            if (response && response.success) {
-                toast.success(`Portfolio shared successfully via WhatsApp to ${lead.name}!`, { id: loadToast });
-                selectedDeals.forEach(item => logActivity('Portfolio Dispatched', item));
-
-                // Dispatch event to refresh timeline/activities stream
-                window.dispatchEvent(new CustomEvent('activity-completed', {
-                    detail: { entityId: lead._id, type: 'WHATSAPP' }
-                }));
-            } else {
-                throw new Error(response?.error || 'Direct dispatch API returned success flag false.');
+            // Standardize mobile number structure (ensure prefix)
+            let formattedPhone = targetPhone.replace(/\D/g, '');
+            if (formattedPhone.length === 10) {
+                formattedPhone = '91' + formattedPhone;
             }
+
+            let apiSuccess = false;
+            try {
+                const response = await whatsappService.sendMessage({
+                    mobile: targetPhone,
+                    message: resolvedBody,
+                    templateId: template.name,
+                    type: 'text'
+                });
+                if (response && response.success) {
+                    apiSuccess = true;
+                }
+            } catch (apiErr) {
+                console.warn('API send failed, falling back to WhatsApp App Redirect:', apiErr.message);
+            }
+
+            if (apiSuccess) {
+                toast.success(`Portfolio shared successfully via WhatsApp API to ${lead.name}!`, { id: loadToast });
+            } else {
+                // Fallback direct redirection to WhatsApp App/Web client
+                const encodedMsg = encodeURIComponent(resolvedBody);
+                const waUrl = `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodedMsg}`;
+                window.open(waUrl, '_blank');
+                toast.success(`Redirected to WhatsApp App to send message to ${lead.name}!`, { id: loadToast });
+            }
+
+            // Log activity regardless of channel chosen
+            selectedDeals.forEach(item => logActivity('Portfolio Dispatched', item));
+            window.dispatchEvent(new CustomEvent('activity-completed', {
+                detail: { entityId: lead._id, type: 'WHATSAPP' }
+            }));
+
         } catch (error) {
             console.error('[PORTFOLIO_DISPATCH_FAILED]', error);
             const msg = error.response?.data?.message || error.message || 'Unknown error occurred.';
-            toast.error(`Direct Dispatch Failed: ${msg}`, { id: loadToast });
+            toast.error(`Dispatch Failed: ${msg}`, { id: loadToast });
         } finally {
             setIsSendingPortfolio(false);
         }
