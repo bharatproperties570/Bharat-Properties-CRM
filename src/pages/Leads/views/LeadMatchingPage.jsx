@@ -542,15 +542,26 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             const rawBody = bodyComp?.text || template.body || template.content || template.text || '';
 
             // 2. Set Up Unified Dynamic Context
-            const propertyListDefault = selectedDeals.map((p, i) => `${i + 1}️⃣ ${p.unitNo || 'Unit'} - ${p.location || p.city || 'Sector'}`).join('\n');
-            const propertyListDetailed = selectedDeals.map((p, i) => `${i + 1}️⃣ 📍 ${p.location || p.city}\n📏 Size: ${p.size}\n💰 Price: ₹${p.price}`).join('\n');
+            const pFirst = selectedDeals.length > 0 ? selectedDeals[0] : {};
+            const inv = pFirst.inventoryId || {};
+
+            // Helper to resolve lookup values with fallback to original string
+            const safeLookup = (val, type) => {
+                if (!val) return '';
+                const resolved = resolveLookup(val, type);
+                return resolved || val.lookup_value || val.name || val;
+            };
+
+            const propertyListDefault = selectedDeals.map((p, i) => `${i + 1}️⃣ ${p.unitNo || 'Unit'} - ${safeLookup(p.inventoryId?.address?.locality || p.location, 'Locality')}`).join('\n');
+            const propertyListDetailed = selectedDeals.map((p, i) => `${i + 1}️⃣ 📍 ${safeLookup(p.inventoryId?.address?.locality || p.location, 'Locality')}\n📏 Size: ${p.size || p.sizeConfig}\n💰 Price: ₹${p.price}`).join('\n');
 
             const agentName = lead.assignedTo?.name || lead.owner || lead.agentName || currentUser?.name || 'Our Representative';
             const agentMobile = lead.assignment?.assignedTo?.mobile || lead.assignedTo?.mobile || lead.ownerMobile || lead.agentMobile || currentUser?.mobile || currentUser?.phone || '';
             const agentDetails = agentMobile ? `${agentName} (📞 ${agentMobile})` : agentName;
 
-            const safePropLoc = selectedDeals.length > 0 ? (selectedDeals[0].inventoryId?.address?.locality || selectedDeals[0].inventoryId?.address?.area || selectedDeals[0].inventoryId?.address?.location || selectedDeals[0].location || selectedDeals[0].city) : null;
-            const safePropProj = selectedDeals.length > 0 ? (selectedDeals[0].inventoryId?.projectName || selectedDeals[0].projectName || selectedDeals[0].unitNo) : 'Property';
+            const rawPropLoc = pFirst.inventoryId?.address?.locality || pFirst.inventoryId?.address?.area || pFirst.inventoryId?.address?.location || pFirst.location || pFirst.city;
+            const safePropLoc = safeLookup(rawPropLoc, 'Locality');
+            const safePropProj = safeLookup(pFirst.inventoryId?.projectName || pFirst.projectName || pFirst.unitNo, 'Project');
 
             const unifiedContext = {
                 'name': lead.name,
@@ -570,15 +581,26 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                 'assignedTo': agentDetails,
                 'ownerMobile': agentMobile,
                 'ownerEmail': lead.assignedTo?.email || currentUser?.email || '',
+                
+                // Project/Inventory Exact Fields (safely handling nested inventory items)
                 'projectName': safePropProj,
-                'unitNo': selectedDeals.length > 0 ? selectedDeals[0].unitNo : '',
-                'block': selectedDeals.length > 0 ? selectedDeals[0].block : '',
-                'unitType': selectedDeals.length > 0 ? selectedDeals[0].unitType : '',
-                'category': selectedDeals.length > 0 ? (selectedDeals[0].category?.name || selectedDeals[0].category) : '',
-                'subCategory': selectedDeals.length > 0 ? (selectedDeals[0].subCategory?.name || selectedDeals[0].subCategory) : '',
-                'price': selectedDeals.length > 0 ? selectedDeals[0].price : 'N/A',
-                'size': selectedDeals.length > 0 ? (selectedDeals[0].sizeConfig || selectedDeals[0].size) : 'N/A',
-                'location': selectedDeals.length > 0 ? safePropLoc : lead.location || 'our project',
+                'unitNo': pFirst.unitNo || '',
+                'block': pFirst.block || '',
+                'unitType': safeLookup(pFirst.unitType || inv.unitType, 'UnitType'),
+                'category': safeLookup(pFirst.category || inv.category, 'Category'),
+                'subCategory': safeLookup(pFirst.subCategory || inv.subCategory, 'SubCategory'),
+                'price': pFirst.price || inv.price || 'N/A',
+                'size': pFirst.size || pFirst.sizeConfig || inv.size || 'N/A',
+                'location': safePropLoc,
+                
+                // Advanced/Missing Inventory Fields
+                'builtupType': safeLookup(pFirst.builtupType || inv.builtupType, 'BuiltupType'),
+                'sizeType': safeLookup(pFirst.sizeType || inv.sizeType, 'SizeType'),
+                'direction': safeLookup(pFirst.direction || inv.direction, 'Direction'),
+                'facing': safeLookup(pFirst.facing || inv.facing, 'Facing'),
+                'roadWidth': pFirst.roadWidth || inv.roadWidth || 'N/A',
+                
+                // Helper structures
                 'propertyList': propertyListDefault,
                 'property_list_default': propertyListDefault,
                 'property_list_detailed': propertyListDetailed,
