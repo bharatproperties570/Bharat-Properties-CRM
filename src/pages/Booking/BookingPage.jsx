@@ -296,17 +296,21 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                             .sig-box { border-top: 1px solid #94a3b8; padding-top: 10px; text-align: center; font-weight: 600; }
                             .footer { margin-top: 30px; text-align: center; font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px; }
                             @media print {
-                                body { padding: 0 !important; font-size: 12px !important; line-height: 1.3 !important; }
-                                .header { margin-bottom: 15px !important; padding-bottom: 10px !important; }
-                                .company-name { font-size: 20px !important; margin-bottom: 2px !important; }
-                                .doc-title { font-size: 16px !important; margin-top: 5px !important; }
-                                .grid-2 { gap: 15px !important; margin-bottom: 15px !important; }
-                                .box { padding: 12px !important; margin-bottom: 15px !important; }
-                                .box-title { margin-bottom: 8px !important; padding-bottom: 4px !important; }
-                                .row { margin-bottom: 4px !important; padding-bottom: 2px !important; }
-                                .signature-section { margin-top: 40px !important; }
-                                .witness-section { margin-top: 30px !important; padding-top: 15px !important; }
-                                .footer { margin-top: 20px !important; padding-top: 10px !important; }
+                                @page { margin: 10mm; }
+                                body { padding: 0 !important; font-size: 11px !important; line-height: 1.2 !important; }
+                                .header { margin-bottom: 8px !important; padding-bottom: 5px !important; }
+                                .company-name { font-size: 18px !important; margin-bottom: 2px !important; }
+                                .doc-title { font-size: 14px !important; margin-top: 4px !important; }
+                                .grid-2 { gap: 10px !important; margin-bottom: 10px !important; }
+                                .box { padding: 8px 12px !important; margin-bottom: 10px !important; }
+                                .box-title { margin-bottom: 5px !important; padding-bottom: 3px !important; font-size: 12px !important; }
+                                .row { margin-bottom: 2px !important; padding-bottom: 2px !important; }
+                                .signature-section { margin-top: 30px !important; }
+                                .witness-section { margin-top: 20px !important; padding-top: 10px !important; gap: 20px !important; }
+                                .footer { margin-top: 10px !important; padding-top: 5px !important; font-size: 10px !important; }
+                                div[style*="margin-bottom: 20px"] { margin-bottom: 8px !important; }
+                                div[style*="margin-top: 60px"] { margin-top: 30px !important; }
+                                div[style*="padding: 15px"] { padding: 8px !important; margin-bottom: 8px !important; }
                             }
                         </style>
                     </head>
@@ -328,7 +332,6 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                                 <div class="row"><span class="label">Name:</span> <span class="val">${buyerFullName}</span></div>
                                 ${buyerFatherName ? `<div class="row"><span class="label">Father's Name:</span> <span class="val">${buyerFatherName}</span></div>` : ''}
                                 <div class="row"><span class="label">Mobile:</span> <span class="val">${buyerMobile}</span></div>
-                                <div class="row"><span class="label">Email:</span> <span class="val">${buyerEmail}</span></div>
                                 ${buyerAddress ? `<div class="row"><span class="label">Address:</span> <span class="val">${buyerAddress}</span></div>` : ''}
                             </div>
                             <div class="box">
@@ -336,7 +339,6 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                                 <div class="row"><span class="label">Name:</span> <span class="val">${sellerFullName}</span></div>
                                 ${sellerFatherName ? `<div class="row"><span class="label">Father's Name:</span> <span class="val">${sellerFatherName}</span></div>` : ''}
                                 <div class="row"><span class="label">Mobile:</span> <span class="val">${sellerMobile}</span></div>
-                                <div class="row"><span class="label">Email:</span> <span class="val">${sellerEmail}</span></div>
                                 ${sellerAddress ? `<div class="row"><span class="label">Address:</span> <span class="val">${sellerAddress}</span></div>` : ''}
                             </div>
                         </div>
