@@ -282,19 +282,32 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                     <head>
                         <title>Short Agreement - ${booking.id}</title>
                         <style>
-                            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 40px; line-height: 1.5; color: #334155; }
-                            .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #6366f1; padding-bottom: 20px; }
-                            .company-name { font-size: 28px; font-weight: 900; color: #0f172a; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 2px; }
-                            .doc-title { font-size: 20px; font-weight: 600; color: #64748b; margin-top: 15px; }
-                            .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-bottom: 30px; }
-                            .box { border: 1px solid #cbd5e1; padding: 20px; border-radius: 8px; background: #f8fafc; }
-                            .box-title { font-size: 14px; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 12px; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; }
-                            .row { display: flex; justify-content: space-between; margin-bottom: 8px; border-bottom: 1px dotted #e2e8f0; padding-bottom: 4px; }
+                            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; line-height: 1.4; color: #334155; }
+                            .header { text-align: center; margin-bottom: 20px; border-bottom: 2px solid #6366f1; padding-bottom: 15px; }
+                            .company-name { font-size: 24px; font-weight: 900; color: #0f172a; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 2px; }
+                            .doc-title { font-size: 18px; font-weight: 600; color: #64748b; margin-top: 10px; }
+                            .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+                            .box { border: 1px solid #cbd5e1; padding: 15px; border-radius: 8px; background: #f8fafc; }
+                            .box-title { font-size: 13px; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; }
+                            .row { display: flex; justify-content: space-between; margin-bottom: 6px; border-bottom: 1px dotted #e2e8f0; padding-bottom: 3px; }
                             .label { font-weight: 600; color: #475569; }
                             .val { font-weight: 700; color: #0f172a; }
                             .signature-section { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 40px; }
                             .sig-box { border-top: 1px solid #94a3b8; padding-top: 10px; text-align: center; font-weight: 600; }
-                            .footer { margin-top: 50px; text-align: center; font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 20px; }
+                            .footer { margin-top: 30px; text-align: center; font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px; }
+                            @media print {
+                                body { padding: 0 !important; font-size: 12px !important; line-height: 1.3 !important; }
+                                .header { margin-bottom: 15px !important; padding-bottom: 10px !important; }
+                                .company-name { font-size: 20px !important; margin-bottom: 2px !important; }
+                                .doc-title { font-size: 16px !important; margin-top: 5px !important; }
+                                .grid-2 { gap: 15px !important; margin-bottom: 15px !important; }
+                                .box { padding: 12px !important; margin-bottom: 15px !important; }
+                                .box-title { margin-bottom: 8px !important; padding-bottom: 4px !important; }
+                                .row { margin-bottom: 4px !important; padding-bottom: 2px !important; }
+                                .signature-section { margin-top: 40px !important; }
+                                .witness-section { margin-top: 30px !important; padding-top: 15px !important; }
+                                .footer { margin-top: 20px !important; padding-top: 10px !important; }
+                            }
                         </style>
                     </head>
                     <body>
@@ -328,7 +341,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                             </div>
                         </div>
 
-                        <div class="box" style="margin-bottom: 30px;">
+                        <div class="box" style="margin-bottom: 20px;">
                             <div class="box-title">Property Details</div>
                             <div class="grid-2" style="margin-bottom: 0;">
                                 <div>
@@ -346,14 +359,14 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                             </div>
                         </div>
 
-                        <div class="box" style="margin-bottom: 30px; background: #f0fdf4; border-color: #86efac;">
+                        <div class="box" style="margin-bottom: 20px; background: #f0fdf4; border-color: #86efac;">
                             <div class="box-title" style="color: #166534; border-bottom-color: #bbf7d0;">Token / Advance Payment Receipt</div>
                             <div style="font-size: 15px; line-height: 1.8; color: #166534; text-align: justify;">
                                 Received a sum of <strong>${tokenAnko}</strong>/- (<strong>${tokenWords}</strong>) by <strong>${tokenMode}</strong> (Cheque/RTGS/Transaction No: ____________) on dated <strong>${tokenDate}</strong> as an advance Payment against the sale of my above said property.
                             </div>
                         </div>
 
-                        <div class="box" style="margin-bottom: 30px; border-color: #cbd5e1; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+                        <div class="box" style="margin-bottom: 20px; border-color: #cbd5e1; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
                             <div class="box-title" style="color: #0f172a; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; margin-bottom: 15px; font-size: 15px;">Financial Summary</div>
                             
                             <div style="background: #fdfae8; padding: 15px; border-radius: 6px; margin-bottom: 15px; border: 1px solid #fde68a; display: flex; justify-content: space-between; align-items: center;">
@@ -381,7 +394,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                             </div>
                         </div>
 
-                        <div style="font-size: 13px; color: #475569; margin-bottom: 40px; text-align: justify;">
+                        <div style="font-size: 13px; color: #475569; margin-bottom: 20px; text-align: justify;">
                             <strong>Terms & Conditions:</strong><br/>
                             1. This is a preliminary short agreement acknowledging the token amount received against the property mentioned above.<br/>
                             2. A detailed and registered Agreement to Sell will be executed upon receipt of the mutually agreed milestone payment.<br/>
@@ -394,16 +407,16 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                             9. The Seller shall be responsible for clearing all previous dues, taxes, and liabilities of the said property up to the date of execution of the sale deed.
                         </div>
 
-                        <div style="text-align: center; margin-bottom: 30px; font-size: 14px; color: #475569;">
+                        <div style="text-align: center; margin-bottom: 20px; font-size: 14px; color: #475569;">
                             This Receipt/Agreement is executed at <strong>Kurukshetra</strong> on this <strong>${new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</strong>.
                         </div>
 
-                        <div class="signature-section" style="margin-top: 80px;">
+                        <div class="signature-section" style="margin-top: 60px;">
                             <div class="sig-box">Signature of First Party (Buyer)</div>
                             <div class="sig-box">Signature of Second Party (Seller)</div>
                         </div>
 
-                        <div class="witness-section" style="display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 45px; border-top: 1px dashed #cbd5e1; padding-top: 20px;">
+                        <div class="witness-section" style="display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 30px; border-top: 1px dashed #cbd5e1; padding-top: 15px;">
                             <div>
                                 <strong style="font-size: 13px; color: #475569;">Witness No. 1:</strong>
                                 <div style="margin-top: 10px; border-bottom: 1px dotted #94a3b8; height: 20px;">Name: </div>
@@ -416,7 +429,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                             </div>
                         </div>
 
-                        <div class="footer" style="margin-top: 40px;">
+                        <div class="footer" style="margin-top: 25px;">
                             Generated by Bharat Properties Enterprise CRM on ${new Date().toLocaleString('en-IN')}<br/>
                             This is a system generated document.
                         </div>
