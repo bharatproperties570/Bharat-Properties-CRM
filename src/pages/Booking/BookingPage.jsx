@@ -114,7 +114,8 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                         sizeLabel: b.property?.sizeLabel || (b.property?.sizeConfig && typeof b.property.sizeConfig === 'object' ? b.property.sizeConfig.lookup_value : b.property?.sizeConfig) || (b.property?.size ? `${b.property.size} ${b.property.sizeUnit || 'Sq.Yd.'}` : 'N/A'),
                         category: b.property?.category || 'N/A',
                         subCategory: b.property?.subCategory || 'N/A',
-                        unitType: b.property?.unitType || 'N/A'
+                        unitType: b.property?.unitType || 'N/A',
+                        builtupType: b.property?.builtupType || b.property?.builtupDetails || 'N/A'
                     },
                     financials: {
                         dealValue: b.totalDealAmount || 0,
@@ -264,10 +265,16 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                 sizeLabel: booking.property?.sizeLabel ? (typeof booking.property.sizeLabel === 'string' && /^[0-9a-fA-F]{24}$/.test(booking.property.sizeLabel) ? getLookupValue(null, booking.property.sizeLabel) || booking.property.sizeLabel : booking.property.sizeLabel) : '___________________________',
                 category: booking.property?.category ? (typeof booking.property.category === 'string' && /^[0-9a-fA-F]{24}$/.test(booking.property.category) ? getLookupValue(null, booking.property.category) || booking.property.category : booking.property.category) : '___________________________',
                 subCategory: booking.property?.subCategory ? (typeof booking.property.subCategory === 'string' && /^[0-9a-fA-F]{24}$/.test(booking.property.subCategory) ? getLookupValue(null, booking.property.subCategory) || booking.property.subCategory : booking.property.subCategory) : '___________________________',
-                unitType: booking.property?.unitType ? (typeof booking.property.unitType === 'string' && /^[0-9a-fA-F]{24}$/.test(booking.property.unitType) ? getLookupValue(null, booking.property.unitType) || booking.property.unitType : booking.property.unitType) : '___________________________'
+                unitType: booking.property?.unitType ? (typeof booking.property.unitType === 'string' && /^[0-9a-fA-F]{24}$/.test(booking.property.unitType) ? getLookupValue(null, booking.property.unitType) || booking.property.unitType : booking.property.unitType) : '___________________________',
+                builtupDetails: booking.property?.builtupType ? (typeof booking.property.builtupType === 'string' && /^[0-9a-fA-F]{24}$/.test(booking.property.builtupType) ? getLookupValue(null, booking.property.builtupType) || booking.property.builtupType : booking.property.builtupType) : '___________________________'
             };
 
             const totalValue = booking.financials?.dealValue || 0;
+            const tokenVal = booking.financials?.tokenAmount || 0;
+            const tokenWords = tokenVal > 0 ? `${numberToIndianWords(tokenVal)} Only` : '_________________________';
+            const tokenAnko = tokenVal > 0 ? formatCurrency(tokenVal) : '____________';
+            const tokenMode = booking.financials?.paymentMode || '_______________';
+            const tokenDate = booking.financials?.bookingDate ? new Date(booking.financials.bookingDate).toLocaleDateString('en-IN') : '______________';
 
             if (docType === 'Short Agreement') {
                 printWindow.document.write(`
@@ -333,9 +340,16 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                                 <div>
                                     <div class="row"><span class="label">Category:</span> <span class="val">${propertyDetails.category}</span></div>
                                     <div class="row"><span class="label">Sub Category:</span> <span class="val">${propertyDetails.subCategory}</span></div>
-                                    <div class="row"><span class="label">Location:</span> <span class="val">${propertyDetails.location}</span></div>
+                                    <div class="row"><span class="label">Builtup Details:</span> <span class="val">${propertyDetails.builtupDetails}</span></div>
                                     <div class="row"><span class="label">Size Label:</span> <span class="val">${propertyDetails.sizeLabel}</span></div>
                                 </div>
+                            </div>
+                        </div>
+
+                        <div class="box" style="margin-bottom: 30px; background: #f0fdf4; border-color: #86efac;">
+                            <div class="box-title" style="color: #166534; border-bottom-color: #bbf7d0;">Token / Advance Payment Receipt</div>
+                            <div style="font-size: 15px; line-height: 1.8; color: #166534; text-align: justify;">
+                                Received a sum of <strong>${tokenAnko}</strong>/- (<strong>${tokenWords}</strong>) by <strong>${tokenMode}</strong> on dated <strong>${tokenDate}</strong> as an advance Payment against the sale of my above said property.
                             </div>
                         </div>
 
@@ -344,18 +358,6 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                             <div class="row">
                                 <span class="label">Total Consideration Value:</span> 
                                 <span class="val" style="font-size: 16px; color: #b45309;">${formatCurrency(totalValue)} ${booking.financials.bookingDate ? `(Booking Date: ${new Date(booking.financials.bookingDate).toLocaleDateString('en-IN')})` : ''}</span>
-                            </div>
-                            <div class="row">
-                                <span class="label">Earnest Money (Bayana):</span> 
-                                <span class="val">${formatCurrency(booking.financials.tokenAmount || 0)}</span>
-                            </div>
-                            <div class="row">
-                                <span class="label">Bayana Date:</span> 
-                                <span class="val">${booking.financials.bookingDate ? new Date(booking.financials.bookingDate).toLocaleDateString('en-IN') : '___________________'}</span>
-                            </div>
-                            <div class="row">
-                                <span class="label">Mode of Payment (Cheque/Cash/Trans No.):</span> 
-                                <span class="val">${booking.financials.paymentMode || '___________________'}</span>
                             </div>
                             <div class="row">
                                 <span class="label">Agreement Amount to be Paid:</span> 
