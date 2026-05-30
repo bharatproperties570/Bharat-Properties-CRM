@@ -273,7 +273,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
             const tokenVal = booking.financials?.tokenAmount || 0;
             const tokenWords = tokenVal > 0 ? `${numberToIndianWords(tokenVal)} Only` : '_________________________';
             const tokenAnko = tokenVal > 0 ? formatCurrency(tokenVal) : '____________';
-            const tokenMode = booking.financials?.paymentMode || '_______________';
+            const tokenMode = booking.financials?.paymentMode || 'Cheque/RTGS/Transaction/Cash';
             const tokenDate = booking.financials?.bookingDate ? new Date(booking.financials.bookingDate).toLocaleDateString('en-IN') : '______________';
 
             if (docType === 'Short Agreement') {
@@ -365,7 +365,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                         <div class="box" style="margin-bottom: 20px; background: #f0fdf4; border-color: #86efac;">
                             <div class="box-title" style="color: #166534; border-bottom-color: #bbf7d0;">Token / Advance Payment Receipt</div>
                             <div style="font-size: 15px; line-height: 1.8; color: #166534; text-align: justify;">
-                                Received a sum of <strong>${tokenAnko}</strong>/- (<strong>${tokenWords}</strong>) by <strong>${tokenMode}</strong> (Cheque/RTGS/Transaction No: ____________) on dated <strong>${tokenDate}</strong> as an advance Payment against the sale of my above said property.
+                                Received a sum of <strong>${tokenAnko}</strong>/- (<strong>${tokenWords}</strong>) by <strong>${tokenMode}</strong> on dated <strong>${tokenDate}</strong> as an advance Payment against the sale of my above said property.
                             </div>
                         </div>
 
