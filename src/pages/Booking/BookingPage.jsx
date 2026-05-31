@@ -333,14 +333,14 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                                 <div class="row"><span class="label">Name:</span> <span class="val">${sellerFullName}</span></div>
                                 <div class="row"><span class="label">Father's Name:</span> <span class="val">${sellerFatherName || '___________________________'}</span></div>
                                 <div class="row"><span class="label">Mobile:</span> <span class="val">${sellerMobile}</span></div>
-                                <div class="row"><span class="label">Address:</span> <span class="val" style="font-weight: normal; font-size: 11px; line-height: 1.2;">${sellerAddress || '___________________________'}</span></div>
+                                <div class="row"><span class="label">Address:</span> <span class="val" style="font-weight: normal; font-size: 13px; line-height: 1.3;">${sellerAddress || '___________________________'}</span></div>
                             </div>
                             <div class="box">
                                 <div class="box-title">Buyer Details (Second Party)</div>
                                 <div class="row"><span class="label">Name:</span> <span class="val">${buyerFullName}</span></div>
                                 <div class="row"><span class="label">Father's Name:</span> <span class="val">${buyerFatherName || '___________________________'}</span></div>
                                 <div class="row"><span class="label">Mobile:</span> <span class="val">${buyerMobile}</span></div>
-                                <div class="row"><span class="label">Address:</span> <span class="val" style="font-weight: normal; font-size: 11px; line-height: 1.2;">${buyerAddress || '___________________________'}</span></div>
+                                <div class="row"><span class="label">Address:</span> <span class="val" style="font-weight: normal; font-size: 13px; line-height: 1.3;">${buyerAddress || '___________________________'}</span></div>
                             </div>
                         </div>
 
