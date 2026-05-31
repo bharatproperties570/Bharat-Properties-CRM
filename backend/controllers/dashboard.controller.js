@@ -415,14 +415,16 @@ export const getDashboardStats = async (req, res) => {
             title: task.subject || 'Follow-up Task',
             time: formatTimeHelper(task.dueDate, task.dueTime),
             target: task.participants?.[0]?.name || task.relatedTo?.[0]?.name || 'Valued Client',
-            type: task.type || 'Task'
+            type: task.type || 'Task',
+            status: task.status || 'Pending'
         }));
 
         const liveSiteVisits = rawSiteVisits.map(visit => ({
             _id: visit._id?.toString(),
             target: visit.subject || 'Site Visit Details',
             time: formatTimeHelper(visit.dueDate, visit.dueTime),
-            client: visit.participants?.[0]?.name || visit.relatedTo?.[0]?.name || 'Valued Client'
+            client: visit.participants?.[0]?.name || visit.relatedTo?.[0]?.name || 'Valued Client',
+            status: visit.status || 'Pending'
         }));
 
 
