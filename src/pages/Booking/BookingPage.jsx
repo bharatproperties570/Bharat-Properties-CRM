@@ -374,21 +374,33 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                             
                             <div style="background: #fdfae8; padding: 15px; border-radius: 6px; margin-bottom: 15px; border: 1px solid #fde68a; display: flex; justify-content: space-between; align-items: center;">
                                 <span style="font-weight: 700; color: #92400e; font-size: 16px;">Total Consideration (Sale) Value:</span> 
-                                <span style="font-size: 20px; font-weight: 900; color: #b45309;">${formatCurrency(totalValue)}</span>
+                                <div style="text-align: right;">
+                                    <span style="font-size: 20px; font-weight: 900; color: #b45309;">${formatCurrency(totalValue)}/-</span>
+                                    <div style="font-size: 10px; color: #d97706; font-weight: 600; margin-top: 2px;">(${numberToIndianWords(totalValue)} Only)</div>
+                                </div>
                             </div>
 
                             <div style="display: grid; grid-template-columns: 1fr; gap: 8px;">
-                                <div class="row" style="background: #f8fafc; padding: 10px 15px; border-radius: 4px; border-left: 4px solid #3b82f6; border-bottom: none;">
+                                <div class="row" style="background: #f8fafc; padding: 10px 15px; border-radius: 4px; border-left: 4px solid #3b82f6; border-bottom: none; align-items: center;">
                                     <span class="label" style="color: #1e293b;">Agreement Amount to be Paid <span style="font-size: 13px; color: #64748b; font-weight: normal;">(Including Token Amount)</span>:</span> 
-                                    <span class="val">${formatCurrency(booking.financials.agreementAmount || 0)} <span style="font-size: 13px; color: #64748b; font-weight: 500; margin-left: 8px;">${booking.financials.agreementDate ? `(Due: ${new Date(booking.financials.agreementDate).toLocaleDateString('en-IN')})` : ''}</span></span>
+                                    <div style="text-align: right;">
+                                        <span class="val">${formatCurrency(booking.financials.agreementAmount || 0)}/- <span style="font-size: 13px; color: #64748b; font-weight: 500; margin-left: 8px;">${booking.financials.agreementDate ? `(Due: ${new Date(booking.financials.agreementDate).toLocaleDateString('en-IN')})` : ''}</span></span>
+                                        <div style="font-size: 9px; color: #64748b; margin-top: 2px;">(${numberToIndianWords(booking.financials.agreementAmount || 0)} Only)</div>
+                                    </div>
                                 </div>
-                                <div class="row" style="background: #f8fafc; padding: 10px 15px; border-radius: 4px; border-left: 4px solid #f59e0b; border-bottom: none;">
+                                <div class="row" style="background: #f8fafc; padding: 10px 15px; border-radius: 4px; border-left: 4px solid #f59e0b; border-bottom: none; align-items: center;">
                                     <span class="label" style="color: #1e293b;">Part Payment Amount:</span> 
-                                    <span class="val">${formatCurrency(booking.financials.partPaymentAmount || 0)} <span style="font-size: 13px; color: #64748b; font-weight: 500; margin-left: 8px;">${booking.financials.partPaymentDate ? `(Due: ${new Date(booking.financials.partPaymentDate).toLocaleDateString('en-IN')})` : ''}</span></span>
+                                    <div style="text-align: right;">
+                                        <span class="val">${formatCurrency(booking.financials.partPaymentAmount || 0)}/- <span style="font-size: 13px; color: #64748b; font-weight: 500; margin-left: 8px;">${booking.financials.partPaymentDate ? `(Due: ${new Date(booking.financials.partPaymentDate).toLocaleDateString('en-IN')})` : ''}</span></span>
+                                        ${(booking.financials.partPaymentAmount || 0) > 0 ? `<div style="font-size: 9px; color: #64748b; margin-top: 2px;">(${numberToIndianWords(booking.financials.partPaymentAmount || 0)} Only)</div>` : ''}
+                                    </div>
                                 </div>
-                                <div class="row" style="background: #fef2f2; padding: 12px 15px; border-radius: 4px; border-left: 4px solid #ef4444; border-bottom: none;">
+                                <div class="row" style="background: #fef2f2; padding: 12px 15px; border-radius: 4px; border-left: 4px solid #ef4444; border-bottom: none; align-items: center;">
                                     <span class="label" style="color: #991b1b; font-size: 15px;">Rest (Balance) Payment Due:</span> 
-                                    <span class="val" style="color: #dc2626; font-size: 16px;">${formatCurrency(booking.financials.totalBalanceAmount || 0)}</span>
+                                    <div style="text-align: right;">
+                                        <span class="val" style="color: #dc2626; font-size: 16px;">${formatCurrency(booking.financials.totalBalanceAmount || 0)}/-</span>
+                                        <div style="font-size: 10px; color: #b91c1c; font-weight: 600; margin-top: 2px;">(${numberToIndianWords(booking.financials.totalBalanceAmount || 0)} Only)</div>
+                                    </div>
                                 </div>
                                 ${booking.financials.finalPaymentDate ? `
                                 <div class="row" style="padding: 4px 15px; border-bottom: none; justify-content: flex-end; margin-top: -4px;">
