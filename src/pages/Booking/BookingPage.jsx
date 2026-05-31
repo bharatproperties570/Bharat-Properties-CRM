@@ -479,7 +479,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
 
                         <div class="section-heading">FIRST PARTY (SELLER/VENDOR):</div>
                         <div class="text-justify">
-                            <span class="bold">Sh. ${sellerName}</span>, son of Sh. _________________, resident of ${booking.customer?.seller?.address || '___________________________'}, 
+                            <span class="bold">Sh. ${sellerFullName}</span>, son of Sh. _________________, resident of ${booking.customer?.seller?.address || '___________________________'}, 
                             <span class="highlight">PAN: ${booking.customer?.seller?.pan || '___________'} | Aadhaar No.: ${booking.customer?.seller?.aadhaar || '___________'}</span>, 
                             hereinafter referred to as the <span class="bold">"FIRST PARTY"</span> or <span class="bold">"SELLER"</span>, who is the owner and vendor of the plot described herein, and is represented by/in association with Sh. Praveen Kumar, son of Sh. Jai Bhagwan, resident of House No. 32, Sonkra Road, Taraori, District Karnal. 
                             <span class="highlight">The First Party's legal heirs, successors, and permitted assigns shall also be bound by this Agreement.</span>
@@ -487,7 +487,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
 
                         <div class="section-heading">SECOND PARTY (PURCHASER/BUYER):</div>
                         <div class="text-justify">
-                            <span class="bold">Sh. ${buyerName}</span>, son of Sh. _________________, resident of ${booking.customer?.buyer?.address || '___________________________'}, 
+                            <span class="bold">Sh. ${buyerFullName}</span>, son of Sh. _________________, resident of ${booking.customer?.buyer?.address || '___________________________'}, 
                             <span class="highlight">PAN: ${booking.customer?.buyer?.pan || '___________'} | Aadhaar No.: ${booking.customer?.buyer?.aadhaar || '___________'}</span>, 
                             hereinafter referred to as the <span class="bold">"SECOND PARTY"</span> or <span class="bold">"PURCHASER"</span>. 
                             <span class="highlight">The Second Party's legal heirs, successors, and permitted assigns shall also be bound by this Agreement.</span>
@@ -573,11 +573,11 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                         <div style="display: flex; justify-content: space-between; margin-bottom: 80px;">
                             <div style="text-align: left;">
                                 <span class="bold">Signature of First Party</span><br/><br/><br/><br/>
-                                (${sellerName})
+                                (${sellerFullName})
                             </div>
                             <div style="text-align: right;">
                                 <span class="bold">Signature of Second Party</span><br/><br/><br/><br/>
-                                (${buyerName})
+                                (${buyerFullName})
                             </div>
                         </div>
 
@@ -615,8 +615,8 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                         </div>
                         <div style="margin-bottom: 30px;">
                             <strong>To,</strong><br/>
-                            <strong>${buyerName}</strong><br/>
-                            Ph: ${buyerPhone}
+                            <strong>${buyerFullName}</strong><br/>
+                            Ph: ${buyerMobile}
                         </div>
                         <div style="text-align: center; font-weight: bold; font-size: 18px; margin-bottom: 30px; text-decoration: underline;">
                             PAYMENT DEMAND LETTER
@@ -673,8 +673,8 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                         <div style="display: flex; justify-content: space-between; margin-bottom: 40px;">
                             <div>
                                 <strong>Billed To:</strong><br/>
-                                ${buyerName} (Buyer)<br/>
-                                ${sellerName} (Seller)<br/>
+                                ${buyerFullName} (Buyer)<br/>
+                                ${sellerFullName} (Seller)<br/>
                                 Ref Property: ${propertyDetails.unit}, ${propertyDetails.project}
                             </div>
                         </div>
