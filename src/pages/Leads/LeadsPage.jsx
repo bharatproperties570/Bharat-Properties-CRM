@@ -804,24 +804,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                         >
                                             <i className="fas fa-user-check"></i> Convert
                                         </button>
-                                        <button
-                                            className="action-btn"
-                                            style={{ background: '#fff7ed', color: '#9a3412', borderColor: '#fed7aa' }}
-                                            title="Auto Distribute"
-                                            onClick={() => {
-                                                const selectedLeads = getSelectedLeads();
-                                                let count = 0;
-                                                selectedLeads.forEach(lead => {
-                                                    const res = executeDistribution('leads', lead, { users: [], teams: [] });
-                                                    if (res.success) count++;
-                                                });
-                                                showToast(`Distributed ${count} leads using active rules.`);
-                                                setSelectedIds([]);
-                                                setRefreshTrigger(prev => prev + 1);
-                                            }}
-                                        >
-                                            <i className="fas fa-random"></i> Distribute
-                                        </button>
+
                                     </>
                                 )}
 
