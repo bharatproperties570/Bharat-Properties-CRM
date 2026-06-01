@@ -1,9 +1,10 @@
 import { memo } from 'react';
 import Chart from 'react-apexcharts';
+import PipelineVelocityFunnel from './PipelineVelocityFunnel';
 
 const LeadAcquisitionPanel = ({ charts, metrics, formatters }) => {
     const { leadTrendChart, sourceChart } = charts;
-    const { perf, mtdVisits } = metrics;
+    const { perf, mtdVisits, leads } = metrics;
     const { fmtNum, fmtCr } = formatters;
 
     return (
@@ -42,13 +43,21 @@ const LeadAcquisitionPanel = ({ charts, metrics, formatters }) => {
                     ))}
                 </div>
 
-                <div style={{ height: '260px', marginTop: '10px' }}>
-                    <Chart 
-                        options={leadTrendChart.options}
-                        series={leadTrendChart.series}
-                        type="area"
-                        height="100%"
-                    />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginTop: '10px' }}>
+                    <div style={{ height: '280px', display: 'flex', flexDirection: 'column' }}>
+                        <h3 style={{ fontSize: '0.8rem', fontWeight: 800, color: '#94a3b8', marginBottom: '8px', letterSpacing: '0.05em' }}>LEAD VOLUME TREND</h3>
+                        <div style={{ flex: 1, background: 'rgba(15, 23, 42, 0.4)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.03)', padding: '16px 0 0 0' }}>
+                            <Chart 
+                                options={leadTrendChart.options}
+                                series={leadTrendChart.series}
+                                type="area"
+                                height="100%"
+                            />
+                        </div>
+                    </div>
+                    <div style={{ height: '280px' }}>
+                        <PipelineVelocityFunnel leads={leads} formatters={formatters} />
+                    </div>
                 </div>
             </div>
 

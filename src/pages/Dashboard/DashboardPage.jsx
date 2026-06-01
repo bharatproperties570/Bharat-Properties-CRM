@@ -196,7 +196,7 @@ const DashboardPage = ({ onNavigate }) => {
                     <RevenuePanel charts={charts} metrics={metrics} formatters={formatters} />
                 </div>
 
-                <DashboardSidebar metrics={metrics} onNavigate={onNavigate} />
+                <DashboardSidebar metrics={metrics} users={users} onNavigate={onNavigate} />
             </div>
         </section>
     );

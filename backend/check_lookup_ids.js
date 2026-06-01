@@ -17,12 +17,8 @@ async function checkBuiltupLookups() {
             isActive: Boolean
         }));
 
-        const buildupLookups = await Lookup.find({ lookup_type: 'BuiltupType' }).lean();
-        
-        console.log('--- BUILTUP LOOKUPS IN DATABASE ---');
-        buildupLookups.forEach(l => {
-            console.log(`ID: ${l._id} | Value: "${l.lookup_value}" | Type: ${l.lookup_type}`);
-        });
+        const lookupTypes = await Lookup.distinct('lookup_type');
+        console.log('--- ALL LOOKUP TYPES IN DATABASE ---', lookupTypes);
         
         process.exit(0);
     } catch (error) {

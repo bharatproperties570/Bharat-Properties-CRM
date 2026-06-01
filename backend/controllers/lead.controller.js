@@ -941,6 +941,14 @@ export const updateLead = async (req, res, next) => {
         const updateData = { ...req.body };
         await resolveAllReferenceFields(updateData);
 
+        // 🛡️ SENIOR FIX: Prevent frontend from overwriting audit trails & computed fields 
+        // This causes "Cast to embedded failed" if frontend passes back hydrated _id strings
+        delete updateData.stageHistory;
+        delete updateData.interactionCounts;
+        delete updateData.activities;
+        delete updateData.activity;
+        delete updateData.lastAct;
+
         // ━━ Security: Enforce visibility for updates ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         const visibilityFilter = await getVisibilityFilter(req.user);
         const existing = await Lead.findOne({ _id: req.params.id, ...visibilityFilter })

@@ -1132,10 +1132,24 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                 onAssign={async (assignmentDetails) => {
                     if (!selectedLeadsForAssign.length) return;
                     try {
-                        console.log("[Assignment Audit] Starting assignment for", selectedLeadsForAssign.length, "leads");
+                        if (assignmentDetails.strategy === 'auto') {
+                            toast.loading(`Auto-Distributing ${selectedLeadsForAssign.length} lead(s)...`);
+                            let count = 0;
+                            selectedLeadsForAssign.forEach(lead => {
+                                const res = executeDistribution('leads', lead, { users: [], teams: [] });
+                                if (res.success) count++;
+                            });
+                            toast.success(`Distributed ${count} leads using active rules.`);
+                            setRefreshTrigger(prev => prev + 1);
+                            setIsAssignModalOpen(false);
+                            setSelectedIds([]);
+                            return;
+                        }
+                        
+                        console.log("[Assignment Audit] Starting manual assignment for", selectedLeadsForAssign.length, "leads");
                         console.log("[Assignment Audit] Details:", assignmentDetails);
                         
-                        toast.loading(`Assigning ${selectedLeadsForAssign.length} lead(s)...`);
+                        const toastId = toast.loading(`Assigning ${selectedLeadsForAssign.length} lead(s)...`);
                         const promises = selectedLeadsForAssign.map(lead => {
                             console.log(`[Assignment Audit] Assigning lead ${lead._id} to ${assignmentDetails.assignedTo}`);
                             return api.put(`leads/${lead._id}`, {
@@ -1144,6 +1158,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                 assignment: {
                                     assignedTo: assignmentDetails.assignedTo,
                                     team: assignmentDetails.team ? [assignmentDetails.team] : undefined,
+                                    ...(assignmentDetails.visibility && { visibleTo: assignmentDetails.visibility }),
                                     reason: assignmentDetails.reason || 'Manual Reassignment',
                                     notes: assignmentDetails.notes,
                                     method: 'Manual'
@@ -1158,14 +1173,14 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                         const responses = await Promise.all(promises);
                         console.log("[Assignment Audit] All requests completed successfully", responses.length);
                         
-                        toast.success(`${selectedLeadsForAssign.length} lead(s) assigned successfully`);
+                        toast.success(`${selectedLeadsForAssign.length} lead(s) assigned successfully`, { id: toastId });
                         setRefreshTrigger(prev => prev + 1);
                         setIsAssignModalOpen(false);
                         setSelectedIds([]);
                     } catch (error) {
                         console.error("[Assignment Audit] Error assigning leads:", error);
                         console.error("[Assignment Audit] API Error details:", error.response?.data || error.message);
-                        toast.error(error.response?.data?.message || "Failed to assign leads");
+                        toast.error(error.response?.data?.message || "Failed to assign leads", { id: typeof toastId !== 'undefined' ? toastId : undefined });
                     }
                 }}
             />

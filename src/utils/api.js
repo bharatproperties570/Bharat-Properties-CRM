@@ -3,6 +3,13 @@ import axios from 'axios';
 
 // 🛡️ Senior Implementation: Environment Variable Safety
 export const getEnvVar = (name) => {
+    // Priority 0: Vite (import.meta.env)
+    try {
+        if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[name] !== undefined) {
+            return import.meta.env[name];
+        }
+    } catch (e) {}
+
     // Priority 1: process.env (Node/Expo/React Native)
     try {
         if (typeof process !== 'undefined' && process && process.env) {
@@ -46,10 +53,21 @@ const isProd = (typeof process !== 'undefined' && process.env && process.env.NOD
 // ✅ STABLE: Direct backend URL — no Vercel proxy hop
 const STABLE_TUNNEL_URL = 'https://api.bharatproperties.co/api';
 
-const rawViteApiUrl = getEnvVar('VITE_API_URL');
-const rawProdApiUrl = getEnvVar('VITE_API_URL_PROD');
-const VITE_API_URL = typeof rawViteApiUrl === 'string' ? rawViteApiUrl : '';
-const VITE_API_URL_PROD = typeof rawProdApiUrl === 'string' ? rawProdApiUrl : '';
+// 🛡️ Vite Static Replacement (Vite requires literal references)
+let VITE_API_URL = '';
+let VITE_API_URL_PROD = '';
+try {
+    if (typeof import.meta !== 'undefined' && import.meta.env) {
+        VITE_API_URL = import.meta.env.VITE_API_URL || '';
+        VITE_API_URL_PROD = import.meta.env.VITE_API_URL_PROD || '';
+    }
+} catch (e) {}
+
+// Fallbacks using dynamic resolution
+const rawViteApiUrl = getEnvVar('VITE_API_URL') || VITE_API_URL;
+const rawProdApiUrl = getEnvVar('VITE_API_URL_PROD') || VITE_API_URL_PROD;
+const FINAL_VITE_API_URL = typeof rawViteApiUrl === 'string' ? rawViteApiUrl : '';
+const FINAL_VITE_API_URL_PROD = typeof rawProdApiUrl === 'string' ? rawProdApiUrl : '';
 
 // Detect if running on production host
 let hostProdOverride = false;
@@ -64,7 +82,7 @@ const finalProd = isProd || hostProdOverride;
 // 2. Production: STABLE_TUNNEL_URL directly (skip Vercel proxy — saves 1 hop)
 const tempApiUrl = finalProd
     ? STABLE_TUNNEL_URL           // Always direct to backend in production
-    : (VITE_API_URL || STABLE_TUNNEL_URL);
+    : (FINAL_VITE_API_URL || STABLE_TUNNEL_URL);
 
 export const API_BASE_URL = typeof tempApiUrl === 'string' ? tempApiUrl : String(tempApiUrl || '');
 export const BASE_BACKEND_URL = API_BASE_URL.replace(/\/api$/, '');

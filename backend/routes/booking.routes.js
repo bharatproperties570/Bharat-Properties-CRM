@@ -14,6 +14,7 @@ import {
     deletePaymentReceipt,
     editPayment
 } from "../controllers/booking.controller.js";
+import { generateDocument } from "../controllers/document.controller.js";
 import { authenticate } from "../src/middlewares/auth.middleware.js";
 
 const router = express.Router();
@@ -23,6 +24,9 @@ router.use(authenticate);
 
 // ─── Dashboard Aggregate (must be before /:id routes) ─────────────────────
 router.get("/dashboard/stats", getDashboardStats);
+
+// ─── Documents ────────────────────────────────────────────────────────────
+router.get("/:id/document", generateDocument);
 
 // ─── Core CRUD ────────────────────────────────────────────────────────────
 router.get("/", getBookings);

@@ -1,36 +1,33 @@
 import mongoose from 'mongoose';
-import Inventory from './models/Inventory.js';
-import Contact from './models/Contact.js';
-import Lookup from './models/Lookup.js';
 import dotenv from 'dotenv';
+dotenv.config({ path: './.env' });
 
-dotenv.config();
-
-const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/bharat-properties-crm';
-
-async function checkData() {
+async function run() {
     try {
-        await mongoose.connect(mongoUri);
-        console.log('Connected to MongoDB');
-        
-        const item = await Inventory.findOne({ owners: { $exists: true, $not: { $size: 0 } } })
-            .populate('owners')
-            .lean();
-            
-        if (!item) {
-            console.log('No inventory item with owners found.');
-        } else {
-            console.log('Found inventory item:', item._id);
-            console.log('Owners:', item.owners?.length);
-            if (item.owners?.[0]) {
-                console.log('Owner 0 Address:', JSON.stringify(item.owners[0].personalAddress, null, 2));
-            }
+        await mongoose.connect(process.env.MONGODB_URI);
+        const Lookup = mongoose.connection.collection('lookups');
+
+        const ids = [
+            '6995e15f74ec320348f2319c', // category
+            '69d5f061f6f81d802814426c', // subCategory
+            '69a96e313a56674b285e010a', // unitType
+            '69fed1b2674afbaf480d7929', // sizeConfig
+            '69acf2ed9fb33e32af777e1d', // status
+            '69d1077b3dc8a3ece367c8cd', // facing
+            '69956b4275e0967fae08d182', // direction
+            '699beeb0ee5159cfdb8f3ed2', // roadWidth
+            '69999d8331d19e8a9538ee1e'  // builtupType
+        ];
+
+        for (const id of ids) {
+            const l = await Lookup.findOne({ _id: new mongoose.Types.ObjectId(id) });
+            console.log(`${id}: type="${l?.lookup_type}", value="${l?.lookup_value}"`);
         }
-        
-        process.exit(0);
+
+        await mongoose.disconnect();
     } catch (err) {
         console.error(err);
-        process.exit(1);
     }
 }
-checkData();
+
+run();

@@ -12,7 +12,7 @@ const AssignContactModal = ({ isOpen, onClose, selectedContacts = [], onAssign, 
     const [formData, setFormData] = useState({
         assignedTo: '',
         assignmentType: 'Primary Owner', // Primary Owner, Secondary Owner, Support
-        strategy: 'assign_all', // assign_all, distribute_evenly
+        strategy: 'manual', // assign_all, distribute_evenly
         reason: '',
         notes: '',
         notifyUser: true,
@@ -27,13 +27,14 @@ const AssignContactModal = ({ isOpen, onClose, selectedContacts = [], onAssign, 
             setFormData({
                 assignedTo: '',
                 assignmentType: 'Primary Owner',
-                strategy: 'assign_all',
+                strategy: 'manual',
                 reason: '',
                 notes: '',
                 notifyUser: true,
                 sendEmail: false,
                 sendWhatsApp: false,
-                transferHistory: true
+                transferHistory: true,
+                visibility: ''
             });
             setSelectedTeam('');
         }
@@ -65,7 +66,7 @@ const AssignContactModal = ({ isOpen, onClose, selectedContacts = [], onAssign, 
     };
 
     const handleAssign = () => {
-        if (!formData.assignedTo) return; // Validation
+        if (formData.strategy === 'manual' && !formData.assignedTo) return; // Validation
 
         // Enterprise Payload Construction
         const assignmentDetails = {
@@ -193,7 +194,33 @@ const AssignContactModal = ({ isOpen, onClose, selectedContacts = [], onAssign, 
                         )}
                     </div>
 
-                    {/* Team Selection */}
+                                        {/* Strategy Selection */}
+                    <div style={{ marginBottom: '20px' }}>
+                        <label style={labelStyle}>Assignment Method <span style={{ color: '#ef4444' }}>*</span></label>
+                        <div style={{ display: 'flex', gap: '16px', background: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.9rem', color: '#1e293b' }}>
+                                <input
+                                    type="radio" name="strategy" value="manual"
+                                    checked={formData.strategy === 'manual'} onChange={(e) => setFormData(prev => ({...prev, strategy: e.target.value}))}
+                                    style={{ accentColor: 'var(--primary-color)', width: '16px', height: '16px' }}
+                                />
+                                <span style={{ fontWeight: 600 }}>Manual Assignment</span>
+                            </label>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.9rem', color: '#1e293b' }}>
+                                <input
+                                    type="radio" name="strategy" value="auto"
+                                    checked={formData.strategy === 'auto'} onChange={(e) => setFormData(prev => ({...prev, strategy: e.target.value}))}
+                                    style={{ accentColor: 'var(--primary-color)', width: '16px', height: '16px' }}
+                                />
+                                <span style={{ fontWeight: 600 }}>Auto-Distribute (Rules)</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    {formData.strategy === 'manual' && (
+                        <>
+                            {/* Team Selection */}
+
                     <div style={{ marginBottom: '20px' }}>
                         <label style={labelStyle}>Select Team (Optional)</label>
                         <select
@@ -207,6 +234,17 @@ const AssignContactModal = ({ isOpen, onClose, selectedContacts = [], onAssign, 
                                     {team.name}
                                 </option>
                             ))}
+                        </select>
+                    </div>
+
+                    {/* Visibility */}
+                    <div style={{ marginBottom: '20px' }}>
+                        <label style={labelStyle}>Visibility (Data Scoping)</label>
+                        <select name="visibility" value={formData.visibility || ''} onChange={handleChange} style={inputStyle}>
+                            <option value="">Leave Unchanged</option>
+                            <option value="Everyone">Everyone (Public)</option>
+                            <option value="Team">Team (Regional Isolated)</option>
+                            <option value="Private">Private (Assigned User Only)</option>
                         </select>
                     </div>
 
@@ -244,29 +282,7 @@ const AssignContactModal = ({ isOpen, onClose, selectedContacts = [], onAssign, 
                         </div>
                     </div>
 
-                    {/* 3. Strategy (Bulk Only) */}
-                    {isBulk && (
-                        <div style={{ marginBottom: '20px', padding: '16px', border: '1px dashed #cbd5e1', borderRadius: '8px' }}>
-                            <label style={labelStyle}>Assignment Strategy</label>
-                            <div style={{ display: 'flex', gap: '16px' }}>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.9rem' }}>
-                                    <input
-                                        type="radio" name="strategy" value="assign_all"
-                                        checked={formData.strategy === 'assign_all'} onChange={handleChange}
-                                        style={{ accentColor: 'var(--primary-color)' }}
-                                    />
-                                    Assign all to selected user
-                                </label>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', color: '#94a3b8', cursor: 'not-allowed' }} title="Coming soon">
-                                    <input
-                                        type="radio" name="strategy" value="distribute_evenly"
-                                        checked={formData.strategy === 'distribute_evenly'} onChange={handleChange}
-                                        disabled
-                                    />
-                                    Distribute evenly
-                                </label>
-                            </div>
-                        </div>
+                                            </>
                     )}
 
                     {/* 4. Reason (Optional) */}
@@ -357,13 +373,13 @@ const AssignContactModal = ({ isOpen, onClose, selectedContacts = [], onAssign, 
                     </button>
                     <button
                         onClick={handleAssign}
-                        disabled={!formData.assignedTo}
+                        disabled={formData.strategy === 'manual' && !formData.assignedTo}
                         style={{
                             padding: '10px 24px', borderRadius: '8px', border: 'none',
-                            background: formData.assignedTo ? 'var(--primary-color)' : '#94a3b8',
-                            color: '#fff', fontWeight: 600, cursor: formData.assignedTo ? 'pointer' : 'not-allowed',
+                            background: (formData.strategy === 'auto' || formData.assignedTo) ? 'var(--primary-color)' : '#94a3b8',
+                            color: '#fff', fontWeight: 600, cursor: (formData.strategy === 'auto' || formData.assignedTo) ? 'pointer' : 'not-allowed',
                             fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '8px',
-                            boxShadow: formData.assignedTo ? '0 4px 6px -1px rgba(59, 130, 246, 0.4)' : 'none',
+                            boxShadow: (formData.strategy === 'auto' || formData.assignedTo) ? '0 4px 6px -1px rgba(59, 130, 246, 0.4)' : 'none',
                             transition: 'all 0.2s'
                         }}
                     >

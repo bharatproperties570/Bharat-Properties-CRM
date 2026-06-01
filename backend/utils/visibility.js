@@ -55,15 +55,9 @@ export const getVisibilityFilter = async (user) => {
     };
 
     const everyoneFilter = {
-        $and: [
-            { 
-                $or: [
-                    { visibleTo: 'Everyone' },
-                    { visibleTo: { $exists: false } },
-                    { visibleTo: null },
-                    { 'assignment.visibleTo': 'Everyone' }
-                ]
-            }
+        $or: [
+            { visibleTo: 'Everyone' },
+            { 'assignment.visibleTo': 'Everyone' }
         ]
     };
 
@@ -73,24 +67,31 @@ export const getVisibilityFilter = async (user) => {
         const deptTeams = await TeamModel.find({ department: user.department, isActive: true }).select('_id');
         const deptTeamIds = deptTeams.map(t => t._id);
 
-        everyoneFilter.$and.push({
-            $or: [
-                { teams: { $in: deptTeamIds } },
-                { team: { $in: deptTeamIds } },
-                { 'assignment.team': { $in: deptTeamIds } },
-                { team: { $exists: false } },
-                { team: null },
-                { teams: { $size: 0 } }
-            ]
-        });
-
         finalFilter = {
             $or: [
                 ...baseFilter.$or,
                 { department: user.department },
-                { teams: { $in: deptTeamIds } },
-                { team: { $in: deptTeamIds } },
-                { 'assignment.team': { $in: deptTeamIds } },
+                {
+                    $and: [
+                        { 
+                            $or: [
+                                { visibleTo: { $in: ['Team', 'Everyone'] } },
+                                { 'assignment.visibleTo': { $in: ['Team', 'Everyone'] } },
+                                { visibleTo: { $exists: false } },
+                                { visibleTo: null },
+                                { 'assignment.visibleTo': { $exists: false } },
+                                { 'assignment.visibleTo': null }
+                            ]
+                        },
+                        {
+                            $or: [
+                                { teams: { $in: deptTeamIds } },
+                                { team: { $in: deptTeamIds } },
+                                { 'assignment.team': { $in: deptTeamIds } }
+                            ]
+                        }
+                    ]
+                },
                 everyoneFilter
             ]
         };
@@ -105,7 +106,9 @@ export const getVisibilityFilter = async (user) => {
                                 { visibleTo: { $in: ['Team', 'Everyone'] } },
                                 { 'assignment.visibleTo': { $in: ['Team', 'Everyone'] } },
                                 { visibleTo: { $exists: false } },
-                                { visibleTo: null }
+                                { visibleTo: null },
+                                { 'assignment.visibleTo': { $exists: false } },
+                                { 'assignment.visibleTo': null }
                             ]
                         },
                         {
@@ -117,28 +120,14 @@ export const getVisibilityFilter = async (user) => {
                         }
                     ]
                 },
-                {
-                    $and: [
-                        { 
-                            $or: [
-                                { visibleTo: 'Everyone' },
-                                { visibleTo: { $exists: false } },
-                                { visibleTo: null }
-                            ]
-                        },
-                        { $or: [{ team: null }, { teams: { $size: 0 } }, { team: { $exists: false } }] }
-                    ]
-                }
+                everyoneFilter
             ]
         };
     } else {
         finalFilter = {
             $or: [
                 ...baseFilter.$or,
-                { visibleTo: 'Everyone' },
-                { visibleTo: { $exists: false } },
-                { visibleTo: null },
-                { 'assignment.visibleTo': 'Everyone' }
+                everyoneFilter
             ]
         };
     }

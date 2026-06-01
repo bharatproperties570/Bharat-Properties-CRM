@@ -1,7 +1,9 @@
 import { memo } from 'react';
 import { renderValue } from '../../../utils/renderUtils';
+import SLAWidget from './SLAWidget';
+import TeamLeaderboardWidget from './TeamLeaderboardWidget';
 
-const DashboardSidebar = ({ metrics, onNavigate }) => {
+const DashboardSidebar = ({ metrics, users, onNavigate }) => {
     const { agenda, allAlerts, availability } = metrics;
 
     const activityColor = (type) => {
@@ -103,6 +105,10 @@ const DashboardSidebar = ({ metrics, onNavigate }) => {
                     <div style={{ width: '10%', background: '#6366f1' }}></div>
                 </div>
             </div>
+
+            {/* NEW ENTERPRISE WIDGETS */}
+            <SLAWidget metrics={metrics} />
+            <TeamLeaderboardWidget users={users || []} metrics={metrics} />
         </div>
     );
 };
