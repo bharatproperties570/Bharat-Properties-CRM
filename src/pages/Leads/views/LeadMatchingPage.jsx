@@ -48,6 +48,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
         size: 25
     });
     const [showOtherCities, setShowOtherCities] = useState(false);
+    const [refreshCount, setRefreshCount] = useState(0);
 
     useEffect(() => {
         const savedWeights = localStorage.getItem(`match_weights_${leadId}`);
@@ -125,7 +126,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
         }, 600); // 600ms debounce for sliders
 
         return () => clearTimeout(timer);
-    }, [leadId, budgetFlexibility, sizeFlexibility, weights, showOtherCities]);
+    }, [leadId, budgetFlexibility, sizeFlexibility, weights, showOtherCities, refreshCount]);
 
     // Profile Completeness State (Phase 1)
     const [isQuickFillOpen, setIsQuickFillOpen] = useState(false);
@@ -538,7 +539,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                 setLead(prev => ({ ...prev, ...payload }));
                 setAiFindings(null);
                 toast.success('AI Insights applied to profile! Re-matching...');
-                setBudgetFlexibility(prev => prev + 0.0001); // Trigger re-match
+                setRefreshCount(prev => prev + 1);
             }
         } catch (e) {
             console.error('[AI_APPLY_ERROR]', e);
@@ -1193,7 +1194,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                         </div>
 
                         <button
-                            onClick={() => setIsQuickFillOpen(!isQuickFillOpen)}
+                            onClick={() => setShowQuickFill(true)}
                             style={{ width: '100%', padding: '10px', borderRadius: '12px', border: '1.5px dashed #3b82f6', background: '#eff6ff', color: '#2563eb', fontWeight: 800, fontSize: '0.75rem', cursor: 'pointer', transition: 'all 0.2s' }}
                             onMouseOver={(e) => { e.currentTarget.style.background = '#dbeafe'; }}
                             onMouseOut={(e) => { e.currentTarget.style.background = '#eff6ff'; }}
@@ -1728,7 +1729,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             <ComposeEmailModal isOpen={isMailOpen} onClose={() => setIsMailOpen(false)} recipients={[lead]} initialSubject={mailSubject} initialBody={mailBody} autoAttachments={mailAttachments} />
             <SendMessageModal isOpen={isMessageOpen} onClose={() => setIsMessageOpen(false)} initialRecipients={recipients} initialTemplateId={initialTemplateId} initialChannel={initialChannel} initialProperties={selectedProperties} onSend={() => setIsMessageOpen(false)} />
             <CreateActivityModal isOpen={isActivityOpen} onClose={() => setIsActivityOpen(false)} initialData={activityInitialData} onSave={() => setIsActivityOpen(false)} />
-            {showQuickFill && <QuickFillModal isOpen={showQuickFill} onClose={() => setShowQuickFill(false)} lead={lead} onUpdate={(u) => setLead(u)} getLookupValue={getLookupValue} />}
+            {showQuickFill && <QuickFillModal isOpen={showQuickFill} onClose={() => setShowQuickFill(false)} lead={lead} onUpdate={(u) => { setLead(u); setRefreshCount(prev => prev + 1); }} getLookupValue={getLookupValue} />}
             <AlgorithmSettingsModal isOpen={isWeightsOpen} onClose={() => setIsWeightsOpen(false)} weights={weights} onSave={(newWeights) => { setWeights(newWeights); setIsWeightsOpen(false); }} />
              {/* AI Findings Modal */}
             {aiFindings && (
