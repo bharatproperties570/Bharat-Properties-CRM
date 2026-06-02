@@ -17,7 +17,7 @@ import { useUserContext } from '../../../context/UserContext';
 
 const LeadMatchingPage = ({ onNavigate, leadId }) => {
     const { addActivity } = useActivities();
-    const { getLookupValue, lookups, projects, sizes } = usePropertyConfig();
+    const { getLookupValue, lookups, projects, sizes, propertyConfig, leadMasterFields, getLookupId } = usePropertyConfig();
     const [lead, setLead] = useState(null);
     const [inventoryItems, setInventoryItems] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -1729,7 +1729,19 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             <ComposeEmailModal isOpen={isMailOpen} onClose={() => setIsMailOpen(false)} recipients={[lead]} initialSubject={mailSubject} initialBody={mailBody} autoAttachments={mailAttachments} />
             <SendMessageModal isOpen={isMessageOpen} onClose={() => setIsMessageOpen(false)} initialRecipients={recipients} initialTemplateId={initialTemplateId} initialChannel={initialChannel} initialProperties={selectedProperties} onSend={() => setIsMessageOpen(false)} />
             <CreateActivityModal isOpen={isActivityOpen} onClose={() => setIsActivityOpen(false)} initialData={activityInitialData} onSave={() => setIsActivityOpen(false)} />
-            {showQuickFill && <QuickFillModal isOpen={showQuickFill} onClose={() => setShowQuickFill(false)} lead={lead} onUpdate={(u) => { setLead(u); setRefreshCount(prev => prev + 1); }} getLookupValue={getLookupValue} />}
+            {showQuickFill && (
+                <QuickFillModal 
+                    isOpen={showQuickFill} 
+                    onClose={() => setShowQuickFill(false)} 
+                    lead={lead} 
+                    onUpdate={(u) => { setLead(u); setRefreshCount(prev => prev + 1); }} 
+                    getLookupValue={getLookupValue} 
+                    getLookupId={getLookupId}
+                    propertyConfig={propertyConfig}
+                    leadMasterFields={leadMasterFields}
+                    lookups={lookups}
+                />
+            )}
             <AlgorithmSettingsModal isOpen={isWeightsOpen} onClose={() => setIsWeightsOpen(false)} weights={weights} onSave={(newWeights) => { setWeights(newWeights); setIsWeightsOpen(false); }} />
              {/* AI Findings Modal */}
             {aiFindings && (
