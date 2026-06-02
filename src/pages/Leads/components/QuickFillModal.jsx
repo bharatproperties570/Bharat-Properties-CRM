@@ -12,7 +12,8 @@ const QuickFillModal = ({ isOpen, onClose, lead, onUpdate, getLookupValue }) => 
         areaMin: 0,
         areaMax: 0,
         sector: '',
-        locArea: ''
+        locArea: '',
+        locCity: ''
     });
     const [loading, setLoading] = useState(false);
     const [lookups, setLookups] = useState({
@@ -32,7 +33,8 @@ const QuickFillModal = ({ isOpen, onClose, lead, onUpdate, getLookupValue }) => 
                 areaMin: lead.areaMin || 0,
                 areaMax: lead.areaMax || 0,
                 sector: lead.sector || '',
-                locArea: lead.locArea || ''
+                locArea: lead.locArea || '',
+                locCity: lead.locCity || ''
             });
         }
     }, [lead, isOpen]);
@@ -44,9 +46,9 @@ const QuickFillModal = ({ isOpen, onClose, lead, onUpdate, getLookupValue }) => 
                 if (res.data?.success) {
                     const all = res.data.data;
                     setLookups({
-                        requirements: all.filter(l => l.parent_lookup_id === 'requirement'),
-                        propertyTypes: all.filter(l => l.parent_lookup_id === 'property_type'),
-                        locations: all.filter(l => l.parent_lookup_id === 'location')
+                        requirements: all.filter(l => l.lookup_type === 'Requirement'),
+                        propertyTypes: all.filter(l => l.lookup_type === 'PropertyType'),
+                        locations: all.filter(l => l.lookup_type === 'Location')
                     });
                 }
             } catch (err) {
@@ -162,13 +164,47 @@ const QuickFillModal = ({ isOpen, onClose, lead, onUpdate, getLookupValue }) => 
                     </div>
                 </div>
 
-                <div style={inputGroupStyle}>
-                    <label style={labelStyle}>Location / Area Name</label>
-                    <input 
-                        type="text" style={inputStyle} value={formData.locArea}
-                        placeholder="e.g. Sector 45, Gurgaon"
-                        onChange={(e) => setFormData({...formData, locArea: e.target.value})}
-                    />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                    <div style={inputGroupStyle}>
+                        <label style={labelStyle}>Primary Location (Lookup)</label>
+                        <select 
+                            style={inputStyle} 
+                            value={formData.location}
+                            onChange={(e) => setFormData({...formData, location: e.target.value})}
+                        >
+                            <option value="">Select Location...</option>
+                            {lookups.locations.map(l => <option key={l._id} value={l._id}>{l.lookup_value}</option>)}
+                        </select>
+                    </div>
+
+                    <div style={inputGroupStyle}>
+                        <label style={labelStyle}>Area/Sector</label>
+                        <input 
+                            type="text" style={inputStyle} value={formData.sector}
+                            placeholder="e.g. Sector 45"
+                            onChange={(e) => setFormData({...formData, sector: e.target.value})}
+                        />
+                    </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                    <div style={inputGroupStyle}>
+                        <label style={labelStyle}>Locality / Area Name</label>
+                        <input 
+                            type="text" style={inputStyle} value={formData.locArea}
+                            placeholder="e.g. Near Main Market"
+                            onChange={(e) => setFormData({...formData, locArea: e.target.value})}
+                        />
+                    </div>
+
+                    <div style={inputGroupStyle}>
+                        <label style={labelStyle}>City</label>
+                        <input 
+                            type="text" style={inputStyle} value={formData.locCity}
+                            placeholder="e.g. Gurgaon"
+                            onChange={(e) => setFormData({...formData, locCity: e.target.value})}
+                        />
+                    </div>
                 </div>
 
                 <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
