@@ -56,12 +56,12 @@ export const getDashboardStats = async (req, res) => {
         }
 
         const CATEGORY_MAPPING = {
-            'INCOMING': ['Incoming', 'New', 'Inbound', 'Incoming', 'Open', 'Lead', 'Unassigned', 'Lead Created', 'Lead Received', 'Inquiry', 'Project Inquiry'],
+            'INCOMING': ['Incoming', 'New', 'Inbound', 'Open', 'Lead', 'Unassigned', 'Lead Created', 'Lead Received', 'Inquiry', 'Project Inquiry'],
             'PROSPECT': ['Prospect', 'Qualified', 'Warm', 'Interested', 'Follow-up', 'Engaged', 'Nurturing', 'Contacted', 'Contacted-Low Interest', 'Call Scheduled'],
             'OPPORTUNITY': ['Opportunity', 'Hot', 'Quote', 'Proposal', 'Presentation', 'Site Visit', 'Site Visit Scheduled', 'Site Visit Done'],
             'NEGOTIATION': ['Negotiation', 'Negotiating', 'Booked', 'Under Review', 'Contract', 'Reserved', 'Booking Done', 'Token Received'],
             'WON': ['Closed Won', 'Sold', 'Won', 'Deal Closed', 'Closed'],
-            'LOST': ['Closed Lost', 'Stalled', 'Dead', 'Lost', 'Cancelled', 'Invalid', 'Rejection', 'Not Interested', 'Wrong Number']
+            'LOST': ['Closed Lost', 'Dead', 'Lost', 'Cancelled', 'Invalid', 'Rejection', 'Not Interested', 'Wrong Number']
         };
 
         const reverseMapping = {};

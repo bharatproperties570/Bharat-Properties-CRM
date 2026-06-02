@@ -3,6 +3,7 @@ import app from "./app.js";
 import connectDB from "./config/db.js";
 import NurtureBot from "./services/NurtureBot.js";
 import { initMatchingScheduler } from "./services/matchingScheduler.js";
+import AgingCronService from "./services/AgingCronService.js";
 
 // 🧠 SENIOR ARCHITECTURE: Initialize background workers
 import "./src/workers/marketingWorker.js";
@@ -14,6 +15,9 @@ const PORT = process.env.PORT || 5000;
 connectDB().then(() => {
     app.listen(PORT, () => {
         console.log(`🚀 CRM Backend running on port ${PORT}`);
+        
+        // Initialize Auto-Aging Engine
+        AgingCronService.init();
         
         // --- 🤖 UNIVERSAL CRON FALLBACK (NurtureBot) ---
         // Runs every hour to advance leads through the Nurture Flow automatically.

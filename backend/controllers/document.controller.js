@@ -130,14 +130,14 @@ function generateShortAgreementHtml(booking, lookupsMap) {
                 .company-name { font-size: 24px; font-weight: 900; color: #0f172a; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 2px; }
                 .doc-title { font-size: 18px; font-weight: 600; color: #64748b; margin-top: 10px; }
                 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
-                .box { border: 1px solid #cbd5e1; padding: 15px; border-radius: 8px; background: #f8fafc; }
-                .box-title { font-size: 13px; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; }
-                .row { display: flex; justify-content: space-between; margin-bottom: 6px; border-bottom: 1px dotted #e2e8f0; padding-bottom: 3px; }
-                .label { font-weight: 600; color: #475569; }
-                .val { font-weight: 700; color: #0f172a; }
+                .box { padding: 10px 0; margin-bottom: 10px; }
+                .box-title { font-size: 14px; font-weight: 700; color: #000; text-transform: uppercase; margin-bottom: 10px; text-decoration: underline; }
+                .row { display: flex; justify-content: space-between; margin-bottom: 6px; }
+                .label { font-weight: 600; color: #000; }
+                .val { font-weight: 700; color: #000; }
                 .signature-section { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 40px; }
-                .sig-box { border-top: 1px solid #94a3b8; padding-top: 10px; text-align: center; font-weight: 600; }
-                .footer { margin-top: 30px; text-align: center; font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px; }
+                .sig-box { border-top: 1px solid #000; padding-top: 10px; text-align: center; font-weight: 600; color: #000; }
+                .footer { margin-top: 30px; text-align: center; font-size: 12px; color: #666; border-top: 1px solid #ccc; padding-top: 15px; }
             </style>
         </head>
         <body>
@@ -187,35 +187,35 @@ function generateShortAgreementHtml(booking, lookupsMap) {
                 </div>
             </div>
 
-            <div class="box" style="margin-bottom: 20px; background: #f0fdf4; border-color: #86efac;">
-                <div class="box-title" style="color: #166534; border-bottom-color: #bbf7d0;">Token / Advance Payment Receipt</div>
-                <div style="font-size: 15px; line-height: 1.8; color: #166534; text-align: justify;">
+            <div class="box" style="margin-bottom: 20px;">
+                <div class="box-title">Token / Advance Payment Receipt</div>
+                <div style="font-size: 15px; line-height: 1.8; color: #000; text-align: justify;">
                     Received a sum of <strong>${vars.tokenAnko}</strong>/- (<strong>${vars.tokenWords}</strong>) by <strong>${vars.tokenMode} ___________________</strong> on dated <strong>${vars.tokenDate}</strong> as an advance Payment against the sale of my above said property.
                 </div>
             </div>
 
-            <div class="box" style="margin-bottom: 20px; border-color: #cbd5e1; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-                <div class="box-title" style="color: #0f172a; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; margin-bottom: 15px; font-size: 15px;">Financial Summary</div>
+            <div class="box" style="margin-bottom: 20px;">
+                <div class="box-title">Financial Summary</div>
                 
-                <div style="background: #fdfae8; padding: 15px; border-radius: 6px; margin-bottom: 15px; border: 1px solid #fde68a; display: flex; justify-content: space-between; align-items: center;">
-                    <span style="font-weight: 700; color: #92400e; font-size: 16px;">Total Consideration (Sale) Value:</span> 
+                <div style="padding: 10px 0; margin-bottom: 10px; border-bottom: 1px dotted #000; display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-weight: 700; color: #000; font-size: 15px;">Total Consideration (Sale) Value:</span> 
                     <div style="text-align: right;">
-                        <span style="font-size: 20px; font-weight: 900; color: #b45309;">${formatCurrency(vars.totalValue)}/-</span>
-                        <div style="font-size: 10px; color: #d97706; font-weight: 600; margin-top: 2px;">(${numberToIndianWords(vars.totalValue)} Only)</div>
+                        <span style="font-size: 18px; font-weight: 900; color: #000;">${formatCurrency(vars.totalValue)}/-</span>
+                        <div style="font-size: 11px; color: #000; font-weight: 600; margin-top: 2px;">(${numberToIndianWords(vars.totalValue)} Only)</div>
                     </div>
                 </div>
 
                 <div style="display: grid; grid-template-columns: 1fr; gap: 8px;">
-                    <div class="row" style="background: #f8fafc; padding: 10px 15px; border-radius: 4px; border-left: 4px solid #3b82f6; border-bottom: none; align-items: center;">
-                        <span class="label" style="color: #1e293b;">Agreement Amount to be Paid <span style="font-size: 13px; color: #64748b; font-weight: normal;">(Including Token Amount)</span>:</span> 
+                    <div class="row" style="padding: 5px 0; align-items: center;">
+                        <span class="label">Agreement Amount to be Paid <span style="font-size: 13px; font-weight: normal;">(Including Token Amount)</span>:</span> 
                         <div style="text-align: right;">
-                            <span class="val">${formatCurrency(booking.agreementAmount || 0)}/- <span style="font-size: 13px; color: #64748b; font-weight: 500; margin-left: 8px;">${booking.agreementDate ? "(Due: " + new Date(booking.agreementDate).toLocaleDateString('en-IN') + ")" : ""}</span></span>
+                            <span class="val">${formatCurrency(booking.agreementAmount || 0)}/- <span style="font-size: 13px; font-weight: 500; margin-left: 8px;">${booking.agreementDate ? "(Due: " + new Date(booking.agreementDate).toLocaleDateString('en-IN') + ")" : ""}</span></span>
                         </div>
                     </div>
-                    <div class="row" style="background: #fef2f2; padding: 12px 15px; border-radius: 4px; border-left: 4px solid #ef4444; border-bottom: none; align-items: center;">
-                        <span class="label" style="color: #991b1b; font-size: 15px;">Rest (Balance) Payment Due:</span> 
+                    <div class="row" style="padding: 5px 0; align-items: center;">
+                        <span class="label">Rest (Balance) Payment Due:</span> 
                         <div style="text-align: right;">
-                            <span class="val" style="color: #dc2626; font-size: 16px;">${formatCurrency(booking.totalBalanceAmount || 0)}/-</span>
+                            <span class="val">${formatCurrency(booking.totalBalanceAmount || 0)}/-</span>
                         </div>
                     </div>
                 </div>
@@ -280,17 +280,13 @@ function generateSaleAgreementHtml(booking, lookupsMap) {
             <div class="section-heading">FIRST PARTY (SELLER/VENDOR):</div>
             <div class="text-justify">
                 <span class="bold">Sh. ${vars.sellerFullName}</span>, son of Sh. ${vars.sellerFatherName || '_________________'}, resident of ${vars.sellerAddress}, 
-                <span class="highlight">PAN: ${booking.customer?.seller?.pan || '___________'} | Aadhaar No.: ${booking.customer?.seller?.aadhaar || '___________'}</span>, 
                 hereinafter referred to as the <span class="bold">"FIRST PARTY"</span> or <span class="bold">"SELLER"</span>, who is the owner and vendor of the plot described herein.
-                <span class="highlight">The First Party's legal heirs, successors, and permitted assigns shall also be bound by this Agreement.</span>
             </div>
 
             <div class="section-heading">SECOND PARTY (PURCHASER/BUYER):</div>
             <div class="text-justify">
                 <span class="bold">Sh. ${vars.buyerFullName}</span>, son of Sh. ${vars.buyerFatherName || '_________________'}, resident of ${vars.buyerAddress}, 
-                <span class="highlight">PAN: ${booking.customer?.buyer?.pan || '___________'} | Aadhaar No.: ${booking.customer?.buyer?.aadhaar || '___________'}</span>, 
                 hereinafter referred to as the <span class="bold">"SECOND PARTY"</span> or <span class="bold">"PURCHASER"</span>. 
-                <span class="highlight">The Second Party's legal heirs, successors, and permitted assigns shall also be bound by this Agreement.</span>
             </div>
 
             <div class="section-heading">WHEREAS:</div>
@@ -305,7 +301,6 @@ function generateSaleAgreementHtml(booking, lookupsMap) {
             
             <div class="text-justify">
                 <span class="bold">1. Title & Encumbrances:</span> The above-mentioned Plot No. ${vars.propertyDetails.unit}, measuring ________, situated in ${vars.propertyDetails.project}, ${vars.propertyDetails.location}, is presently free and clear of all encumbrances, charges, liens, and liabilities. 
-                <span class="highlight">The First Party further confirms that the said plot is free from any benami claim, court attachment, or government acquisition proceeding, and that the First Party holds clear and marketable title with full authority to sell.</span>
             </div>
 
             <div class="text-justify">
@@ -313,15 +308,11 @@ function generateSaleAgreementHtml(booking, lookupsMap) {
             </div>
 
             <div class="text-justify">
-                <span class="highlight">3. Tax Deduction at Source (TDS): Since the total sale deed consideration amount may exceed Rs. 50,00,000/-, the Second Party (Purchaser) is required to deduct 1% TDS from the total sale deed consideration amount at the time of each payment, and deposit the same with the Government within the prescribed timeline using the applicable online forms. The Second Party shall provide the TDS certificate to the First Party after such deposit. Both parties shall provide their respective PAN details, which are mandatory for this purpose. If the First Party fails to provide PAN, TDS shall be deducted at a higher rate as applicable under law.</span>
+                <span class="bold">3. Payment of Balance Amount & Execution of Sale Deed:</span> The First Party shall receive the balance sale consideration from the Second Party within <span class="bold">${booking.finalPaymentDate ? new Date(booking.finalPaymentDate).toLocaleDateString('en-IN', {day: '2-digit', month: '2-digit', year: 'numeric'}) : '________________'}</span>. Upon receipt of the balance amount, the First Party shall simultaneously hand over all documents relating to the said plot to the Second Party and shall get the said plot registered in the office of the Sub-Registrar/Tehsil office.
             </div>
 
             <div class="text-justify">
-                <span class="bold">4. Payment of Balance Amount & Execution of Sale Deed:</span> The First Party shall receive the balance sale consideration from the Second Party within <span class="bold">${booking.finalPaymentDate ? new Date(booking.finalPaymentDate).toLocaleDateString('en-IN', {day: '2-digit', month: '2-digit', year: 'numeric'}) : '________________'}</span>. Upon receipt of the balance amount, the First Party shall simultaneously hand over all documents relating to the said plot to the Second Party and shall get the said plot registered in the office of the Sub-Registrar/Tehsil office. <span class="highlight">The Sale Deed shall be executed on non-judicial stamp paper of appropriate value and presented for registration within four months of execution. It is agreed that this Agreement to Sell does not transfer ownership of the said plot; title shall pass only upon execution and registration of the formal Sale Deed.</span>
-            </div>
-
-            <div class="text-justify">
-                <span class="bold">5. Brokerage/Commission:</span> This sale transaction has been facilitated by <span class="bold">Bharat Properties, Kurukshetra</span>. Both parties, i.e., the Buyer and Seller, shall be bound to pay commission at the rate of <span class="bold">1% (one percent)</span> of the total sale value to Bharat Properties.
+                <span class="bold">4. Brokerage/Commission:</span> This sale transaction has been facilitated by <span class="bold">Bharat Properties, Kurukshetra</span>. Both parties, i.e., the Buyer and Seller, shall be bound to pay commission at the rate of <span class="bold">1% (one percent)</span> of the total sale value to Bharat Properties.
             </div>
 
             <div class="text-justify">

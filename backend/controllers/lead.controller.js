@@ -428,14 +428,14 @@ export const getLeads = async (req, res, next) => {
 
         // ─── PERFORMANCE FIX: Pre-resolve Lookup IDs for Stats to avoid $lookup in aggregate ───
         const stageBuckets = {
-            fresh: ['Incoming', 'Open', 'Prospect', 'New'],
-            hot: ['Qualified', 'Opportunity', 'Negotiation', 'Booked', 'Closed Won', 'Follow Up'],
-            incoming: ['Incoming', 'Open', 'New'],
-            prospect: ['Prospect', 'Qualified'],
+            fresh: ['Incoming', 'Prospect'],
+            hot: ['Opportunity', 'Negotiation', 'Closed Won'],
+            incoming: ['Incoming'],
+            prospect: ['Prospect'],
             opportunity: ['Opportunity'],
-            negotiation: ['Negotiation', 'Booked'],
-            won: ['Closed Won'],
-            lost: ['Closed Lost', 'Stalled']
+            negotiation: ['Negotiation'],
+            won: ['Closed Won', 'Won'],
+            lost: ['Closed Lost', 'Lost']
         };
 
         const allTargetStages = [...new Set(Object.values(stageBuckets).flat())];
@@ -811,6 +811,11 @@ export const addLead = async (req, res, next) => {
 
         // 1. Resolve references first so that manual 'team' selection (singular) is moved into 'teams' array
         await resolveAllReferenceFields(data);
+        
+        // 🛡️ [SENIOR ROBUSTNESS] Default stage to 'Incoming' and status to 'New' if missing
+        if (!data.stage) data.stage = await resolveLookup('Stage', 'Incoming');
+        if (!data.status) data.status = await resolveLookup('Status', 'New');
+        
         console.log("[DEBUG] Data after resolution:", JSON.stringify(data, null, 2));
 
         // 2. 🔒 Enterprise Isolation: Auto-tag with creator's department and teams ONLY IF MISSING
@@ -963,10 +968,10 @@ export const updateLead = async (req, res, next) => {
             // 1. Stage History
             if (updateData.stage) {
                 // Resolve current stage to a string label
-                let currentStageStr = 'New';
+                let currentStageStr = 'Incoming';
                 if (existing.stage) {
                     const existingLookup = await Lookup.findById(existing.stage).select('lookup_value').lean();
-                    currentStageStr = existingLookup?.lookup_value || 'New';
+                    currentStageStr = existingLookup?.lookup_value || 'Incoming';
                 }
                 const newLookup = await Lookup.findById(updateData.stage).select('lookup_value').lean();
                 const newStageStr = newLookup?.lookup_value || String(updateData.stage);
@@ -1398,8 +1403,8 @@ export const importLeads = async (req, res, next) => {
                 // Resolve Lookups
                 leadEntry.requirement = await resolveLookup('Requirement', item.requirement || 'Buy', false);
                 leadEntry.source = await resolveLookup('Source', item.source || 'Direct', false);
-                leadEntry.status = await resolveLookup('Status', item.status || 'Active', false);
-                leadEntry.stage = await resolveLookup('Stage', item.stage || 'New', false);
+                leadEntry.status = await resolveLookup('Status', item.status || 'New', false);
+                leadEntry.stage = await resolveLookup('Stage', item.stage || 'Incoming', false);
                 leadEntry.location = await resolveLookup('Location', item.location || leadEntry.locArea, false);
                 leadEntry.budget = await resolveLookup('Budget', item.budget, false);
                 leadEntry.owner = await resolveUser(item.owner);

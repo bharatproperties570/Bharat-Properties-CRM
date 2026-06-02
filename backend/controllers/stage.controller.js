@@ -35,6 +35,22 @@ const resolveStageId = async (stageName) => {
 };
 
 /**
+ * Resolve a status string to Lookup ObjectId (for Lead model compatibility).
+ */
+const resolveStatusId = async (statusName) => {
+    if (!statusName) return null;
+    if (mongoose.Types.ObjectId.isValid(statusName)) return statusName;
+    let lookup = await Lookup.findOne({
+        lookup_type: 'Status',
+        lookup_value: { $regex: new RegExp(`^${statusName}$`, 'i') }
+    });
+    if (!lookup) {
+        lookup = await Lookup.create({ lookup_type: 'Status', lookup_value: statusName });
+    }
+    return lookup._id;
+};
+
+/**
  * Get the string value of a stage, whether it's a Lookup ref or a plain string.
  */
 const resolveStageValue = async (stageField) => {
@@ -109,57 +125,81 @@ export const updateLeadStage = async (req, res) => {
         if (!newStage) return res.status(400).json({ success: false, error: 'stage is required' });
         if (!mongoose.Types.ObjectId.isValid(id)) return res.status(400).json({ success: false, error: 'Invalid lead ID' });
 
-        const lead = await Lead.findById(id).select('stage stageHistory stageChangedAt').lean();
+        const lead = await Lead.findById(id).select('stage status stageHistory stageChangedAt').lean();
         if (!lead) return res.status(404).json({ success: false, error: 'Lead not found' });
 
+        // Handle terminal states properly
+        let targetStage = newStage;
+        let targetStatus = null;
+        
+        const terminalStatuses = ['Won', 'Lost', 'Unqualified'];
+        // If the newStage is actually a terminal status, the real pipeline stage is "Closed".
+        if (terminalStatuses.includes(newStage)) {
+            targetStage = 'Closed';
+            targetStatus = newStage;
+        }
+
         // Resolve the incoming stage string to a Lookup ObjectId
-        const stageId = await resolveStageId(newStage);
+        const stageId = await resolveStageId(targetStage);
+        
+        // Resolve status ID if we mapped to a terminal status
+        let statusId = undefined;
+        if (targetStatus) {
+            statusId = await resolveStatusId(targetStatus);
+        }
 
         // Get current stage string (for history label)
         const currentStageValue = await resolveStageValue(lead.stage);
 
         // Write stage history before applying the update
-        await writeStageHistory(Lead, id, newStage, {
+        await writeStageHistory(Lead, id, targetStage, {
             triggeredBy: triggeredBy || 'activity',
             activityType,
             outcome,
             activityId,
-            reason,
+            reason: reason || (targetStatus ? `Moved to terminal status: ${targetStatus}` : null),
             userId
         });
+        
+        // Build the update query
+        const updateSet = {
+            stage: stageId,
+            stageChangedAt: new Date(),
+            lastActivityAt: outcome ? new Date() : undefined
+        };
+        
+        if (statusId) {
+            updateSet.status = statusId;
+        }
 
         // Update the stage itself + stageChangedAt
         const updated = await Lead.findByIdAndUpdate(
             id,
-            {
-                $set: {
-                    stage: stageId,
-                    stageChangedAt: new Date(),
-                    lastActivityAt: outcome ? new Date() : undefined
-                }
-            },
+            { $set: updateSet },
             { new: true }
         ).populate([
             { path: 'stage', select: 'lookup_value' },
+            { path: 'status', select: 'lookup_value' },
             { path: 'stageHistory.activityId' }
         ]);
 
-        if (currentStageValue !== newStage) {
+        if (currentStageValue !== targetStage) {
             await AuditLog.logEntityUpdate(
                 'stage_changed',
                 'lead',
                 id,
                 `${lead.firstName || ''} ${lead.lastName || ''}`,
                 userId,
-                { before: currentStageValue, after: newStage },
-                `Lead stage shifted from ${currentStageValue} to ${newStage}${reason ? ' - ' + reason : ''}`
+                { before: currentStageValue, after: targetStage },
+                `Lead stage shifted from ${currentStageValue} to ${targetStage}${reason ? ' - ' + reason : ''}`
             );
         }
 
         res.json({
             success: true,
             previousStage: currentStageValue,
-            stage: newStage,
+            stage: targetStage,
+            status: targetStatus,
             stageChangedAt: updated.stageChangedAt,
             stageHistoryCount: updated.stageHistory?.length || 0,
             lead: updated
@@ -189,18 +229,20 @@ export const syncDealStage = async (req, res) => {
 
         // Stage priority for conflict resolution (high index = higher stage)
         const STAGE_PRIORITY = {
-            'New': 0, 'Prospect': 1, 'Qualified': 2, 'Open': 2,
-            'Opportunity': 3, 'Quote': 3, 'Negotiation': 4,
-            'Stalled': 3.5, // Stalled = sideways from Negotiation
-            'Booked': 5, 'Closed Won': 6, 'Closed': 6, 'Closed Lost': 1
+            'Closed': -1, // Active stages should win over Closed in multi-lead scenarios
+            'Incoming': 0, 
+            'Prospect': 1, 
+            'Opportunity': 2, 
+            'Negotiation': 3
         };
 
-        // Map from Lead stage names → Deal stage names
+        // Map from Lead stage names (5-stage) → Deal stage names (4-stage)
         const LEAD_TO_DEAL_STAGE = {
-            'New': 'Open', 'Prospect': 'Open', 'Qualified': 'Open',
-            'Opportunity': 'Quote', 'Negotiation': 'Negotiation',
-            'Stalled': 'Stalled', 'Booked': 'Booked',
-            'Closed Won': 'Booked', 'Closed Lost': 'Open'
+            'Incoming': 'Open', 
+            'Prospect': 'Open', 
+            'Opportunity': 'Quote',
+            'Negotiation': 'Negotiation', 
+            'Closed': 'Closed'
         };
 
         let computedDealStage = explicitStage || deal.stage || 'Open';
@@ -686,8 +728,8 @@ export const getLeadScores = async (req, res) => {
 
         // Fallback weights if multipliers are missing (scaled to 100)
         const STAGE_WEIGHTS = {
-            'Open': 10, 'Quote': 30, 'Negotiation': 65, 'Booked': 85,
-            'Closed': 100, 'Stalled': 15, 'Dormant': 0
+            'Incoming': 10, 'Prospect': 20, 'Opportunity': 40, 'Negotiation': 65,
+            'Closed Won': 100, 'Closed Lost': 0
         };
 
         // Professional Fix: Helper to find purpose config robustly
@@ -867,10 +909,10 @@ export const getDealScores = async (req, res) => {
         // --- SENIOR PROFESSIONAL DEFAULTS (Sync with PropertyConfigContext) ---
         const DEFAULT_RULES = {
             stageWeights: {
-                open: { label: 'Open', points: 20 },
-                quote: { label: 'Quote', points: 40 },
+                incoming: { label: 'Incoming', points: 10 },
+                prospect: { label: 'Prospect', points: 20 },
+                opportunity: { label: 'Opportunity', points: 40 },
                 negotiation: { label: 'Negotiation', points: 60 },
-                booked: { label: 'Booked', points: 80 },
                 closed: { label: 'Closed', points: 100 }
             },
             activityRecency: {

@@ -214,7 +214,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
             }
             printWindow.document.write('<div style="font-family:sans-serif; text-align:center; padding: 50px;"><h2>Generating Document... Please wait.</h2></div>');
             
-            const res = await api.get(`/bookings/${booking.id}/document?type=${encodeURIComponent(docType)}`);
+            const res = await api.get(`/bookings/${booking._id}/document?type=${encodeURIComponent(docType)}`);
             
             printWindow.document.open();
             printWindow.document.write(res.data);

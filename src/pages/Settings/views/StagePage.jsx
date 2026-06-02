@@ -194,7 +194,7 @@ const AddRuleModal = ({ activityMasterFields, onSave, onClose }) => {
                     <div>
                         <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#374151', marginBottom: '6px', textTransform: 'uppercase' }}>Maps To Stage</label>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                            {STAGE_LABELS.map(s => (
+                            {STAGE_LABELS.filter(s => s.toLowerCase() !== 'closed').concat(['Won', 'Lost', 'Unqualified']).map(s => (
                                 <button key={s} onClick={() => setStage(s)} style={{
                                     padding: '6px 14px', borderRadius: '20px', border: '2px solid',
                                     borderColor: stage === s ? (STAGE_PIPELINE.find(x => x.label === s)?.color || '#6366f1') : '#e5e7eb',
@@ -514,7 +514,7 @@ const StagePage = () => {
                                                         onBlur={() => setEditingStageCell(null)}
                                                         style={{ padding: '4px 8px', border: '1px solid #6366f1', borderRadius: '6px', fontSize: '12px' }}
                                                     >
-                                                        {STAGE_LABELS.map(s => <option key={s} value={s}>{s}</option>)}
+                                                        {STAGE_LABELS.filter(s => s.toLowerCase() !== 'closed').concat(['Won', 'Lost', 'Unqualified']).map(s => <option key={s} value={s}>{s}</option>)}
                                                     </select>
                                                 ) : (
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }} onClick={() => setEditingStageCell(key)}>

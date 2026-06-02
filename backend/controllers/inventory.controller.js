@@ -2642,8 +2642,19 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                     updates.team = rowTeam;
                     updates.visibleTo = rowVisibleTo;
 
-                    if (Object.keys(updates).length > 0) {
-                        await Inventory.findByIdAndUpdate(inventory._id, { $set: updates });
+                    const mongoUpdate = {};
+                    const setOps = { ...updates };
+                    delete setOps.$push;
+                    
+                    if (Object.keys(setOps).length > 0) {
+                        mongoUpdate.$set = setOps;
+                    }
+                    if (updates.$push) {
+                        mongoUpdate.$push = updates.$push;
+                    }
+
+                    if (Object.keys(mongoUpdate).length > 0) {
+                        await Inventory.findByIdAndUpdate(inventory._id, mongoUpdate);
                     }
                 }
 

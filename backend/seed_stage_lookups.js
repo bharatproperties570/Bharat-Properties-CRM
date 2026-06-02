@@ -2,8 +2,8 @@
  * Seed Stage Lookups + Assign Default Stage to All Leads
  *
  * Run after seed_stage_history.js if stage=undefined was found.
- * 1. Creates all Stage lookup entries (New, Prospect, Qualified, Opportunity, Negotiation, Booked, Closed Won, Closed Lost, Stalled)
- * 2. Assigns 'New' stage to all leads missing a stage
+ * 1. Creates all Stage lookup entries (Incoming, Prospect, Closed Won, Closed Won, Closed Won, Booked, Closed Won, Closed Lost, Stalled)
+ * 2. Assigns 'Incoming' stage to all leads missing a stage
  *
  * Usage: node seed_stage_lookups.js
  */
@@ -35,15 +35,12 @@ const Lead = mongoose.models.Lead || mongoose.model('Lead', leadSchema);
 console.log('\n📋 STEP 1: Seeding Stage lookup values...');
 
 const STAGES = [
-    { lookup_value: 'New', order: 1, metadata: { color: '#94a3b8', probability: 5 } },
+    { lookup_value: 'Incoming', order: 1, metadata: { color: '#94a3b8', probability: 5 } },
     { lookup_value: 'Prospect', order: 2, metadata: { color: '#3b82f6', probability: 10 } },
-    { lookup_value: 'Qualified', order: 3, metadata: { color: '#8b5cf6', probability: 25 } },
-    { lookup_value: 'Opportunity', order: 4, metadata: { color: '#f59e0b', probability: 40 } },
-    { lookup_value: 'Negotiation', order: 5, metadata: { color: '#f97316', probability: 65 } },
-    { lookup_value: 'Booked', order: 6, metadata: { color: '#10b981', probability: 85 } },
-    { lookup_value: 'Closed Won', order: 7, metadata: { color: '#22c55e', probability: 100 } },
-    { lookup_value: 'Closed Lost', order: 8, metadata: { color: '#ef4444', probability: 0 } },
-    { lookup_value: 'Stalled', order: 9, metadata: { color: '#78716c', probability: 20 } },
+    { lookup_value: 'Opportunity', order: 3, metadata: { color: '#f59e0b', probability: 40 } },
+    { lookup_value: 'Negotiation', order: 4, metadata: { color: '#f97316', probability: 65 } },
+    { lookup_value: 'Closed Won', order: 5, metadata: { color: '#22c55e', probability: 100 } },
+    { lookup_value: 'Closed Lost', order: 6, metadata: { color: '#ef4444', probability: 0 } }
 ];
 
 const stageMap = {}; // stage label → ObjectId
@@ -69,24 +66,24 @@ const leadsWithoutStage = await Lead.find({
 
 console.log(`  Found ${leadsWithoutStage.length} leads without stage`);
 
-const newStageId = stageMap['New'];
+const newStageId = stageMap['Incoming'];
 let assigned = 0;
 
 for (const lead of leadsWithoutStage) {
-    // Update stageHistory entry label if it was set to 'New' by previous script
+    // Update stageHistory entry label if it was set to 'Incoming' by previous script
     const updateOps = {
         $set: { stage: newStageId, stageChangedAt: new Date() }
     };
 
     // Fix the first history entry label if already seeded
-    if (lead.stageHistory?.length > 0 && lead.stageHistory[0].stage === 'New') {
+    if (lead.stageHistory?.length > 0 && lead.stageHistory[0].stage === 'Incoming') {
         // Already correct label, just ensure the stage ref is set
     }
 
     await Lead.findByIdAndUpdate(lead._id, updateOps);
     assigned++;
 }
-console.log(`  ✅ Assigned 'New' stage to ${assigned} leads`);
+console.log(`  ✅ Assigned 'Incoming' stage to ${assigned} leads`);
 
 // ─── Step 3: Verify density ──────────────────────────────────────────────────
 console.log('\n📋 STEP 3: Verifying density aggregation...');

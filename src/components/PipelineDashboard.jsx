@@ -42,23 +42,22 @@ function PipelineDashboard({ entityType = 'lead', refreshTrigger }) {
     let stats;
     if (entityType === 'deal') {
         stats = {
-            incoming: getCount(['Open']),
-            prospect: getCount(['Quote']),
-            opportunity: 0,
+            open: getCount(['Open']),
+            quote: getCount(['Quote']),
             negotiation: getCount(['Negotiation']),
-            won: getCount(['Closed Won', 'Booked', 'Closed']),
-            lost: getCount(['Closed Lost', 'Cancelled']),
-            unqualified: getCount(['Stalled'])
+            won: getCount(['Closed Won', 'Won']),
+            lost: getCount(['Closed Lost', 'Lost', 'Cancelled', 'Unqualified'])
         };
+        stats.unqualified = 0; // Simplified for deals
     } else {
         stats = {
-            incoming: getCount(['New']),
-            prospect: getCount(['Prospect', 'Qualified']),
+            incoming: getCount(['Incoming']),
+            prospect: getCount(['Prospect']),
             opportunity: getCount(['Opportunity']),
-            negotiation: getCount(['Negotiation', 'Booked']),
-            won: getCount(['Closed Won']),
-            lost: getCount(['Closed Lost']),
-            unqualified: getCount(['Stalled'])
+            negotiation: getCount(['Negotiation']),
+            won: getCount(['Closed Won', 'Won', 'Closed']),
+            lost: getCount(['Closed Lost', 'Lost']),
+            unqualified: getCount(['Unqualified'])
         };
     }
 
@@ -79,16 +78,20 @@ function PipelineDashboard({ entityType = 'lead', refreshTrigger }) {
 
     return (
         <div className="pipeline-dashboard" id="pipelineDashboard">
-            <PipelineItem label={entityType === 'deal' ? "OPEN" : "INCOMING"} value={stats.incoming} percent={getPercent(stats.incoming)} />
-            {entityType === 'lead' ? (
+            {entityType === 'deal' ? (
                 <>
-                    <PipelineItem label="PROSPECT" value={stats.prospect} percent={getPercent(stats.prospect)} />
-                    <PipelineItem label="OPPORTUNITY" value={stats.opportunity} percent={getPercent(stats.opportunity)} />
+                    <PipelineItem label="OPEN" value={stats.open} percent={getPercent(stats.open)} />
+                    <PipelineItem label="QUOTE" value={stats.quote} percent={getPercent(stats.quote)} />
+                    <PipelineItem label="NEGOTIATION" value={stats.negotiation} percent={getPercent(stats.negotiation)} />
                 </>
             ) : (
-                <PipelineItem label="QUOTE" value={stats.prospect} percent={getPercent(stats.prospect)} />
+                <>
+                    <PipelineItem label="INCOMING" value={stats.incoming} percent={getPercent(stats.incoming)} />
+                    <PipelineItem label="PROSPECT" value={stats.prospect} percent={getPercent(stats.prospect)} />
+                    <PipelineItem label="OPPORTUNITY" value={stats.opportunity} percent={getPercent(stats.opportunity)} />
+                    <PipelineItem label="NEGOTIATION" value={stats.negotiation} percent={getPercent(stats.negotiation)} />
+                </>
             )}
-            <PipelineItem label="NEGOTIATION" value={stats.negotiation} percent={getPercent(stats.negotiation)} />
 
             {/* Closed Stage with Dynamic Logic */}
             <ClosedPipelineItem

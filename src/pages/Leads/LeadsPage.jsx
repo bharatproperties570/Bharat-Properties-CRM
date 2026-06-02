@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import PipelineDashboard from '../../components/PipelineDashboard';
 import Swal from 'sweetalert2';
 import { api, enrichmentAPI } from '../../utils/api';
@@ -7,6 +7,7 @@ import toast from 'react-hot-toast';
 import SendMessageModal from '../../components/SendMessageModal';
 import ManageTagsModal from '../../components/ManageTagsModal';
 import AssignContactModal from '../../components/AssignContactModal';
+import { getBadgeColor } from '../../utils/colorUtils';
 // CallModal removed - using global context
 import ComposeEmailModal from '../Communication/components/ComposeEmailModal';
 import AddLeadModal from '../../components/AddLeadModal';
@@ -29,7 +30,6 @@ import ActiveFiltersChips from '../../components/ActiveFiltersChips';
 import { parseBudget, parseSizeSqYard } from '../../utils/matchingLogic';
 import { useUserContext } from '../../context/UserContext';
 import { renderValue } from '../../utils/renderUtils';
-import { useCallback } from 'react';
 
 import { usePermissions, PermissionGate } from '../../hooks/usePermissions';
 import PremiumSearchBar from '../../components/PremiumSearchBar';
@@ -325,7 +325,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                         lastActivityDate: lead.lastActivityAt || lead.updatedAt,
                         activities: lead.activities || [],
                         stage: lead.stage,
-                        stageLabel: resolveLeadLookup(lead.stage, 'Stage') || "New",
+                        stageLabel: resolveLeadLookup(lead.stage, 'Stage') || "Incoming",
                         status: lead.status,
                         statusLabel: resolveLeadLookup(lead.status, 'Status') || "New",
                         statusFallback: (typeof lead.status === 'object' && lead.status) ? lead.status : { label: "New", class: "new" },
@@ -1638,25 +1638,25 @@ const LeadItem = React.memo(function LeadItem({
                     <span
                         className={`status-badge ${(String(renderValue(getLookupValue('Status', lead.status), null) || (typeof lead.statusFallback === 'object' ? lead.statusFallback.class : 'new') || 'new')).toLowerCase()}`}
                     >
-                        {renderValue(lead.statusLabel) || renderValue(typeof lead.statusFallback === 'object' ? lead.statusFallback.label : lead.statusFallback)}
+                        {renderValue(lead.statusLabel) || renderValue(typeof lead.statusFallback === 'object' ? lead.statusFallback.label : lead.statusFallback) || 'New'}
                     </span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                         {(() => {
                             const stageName = String(liveBackendScore?.stage || renderValue(getLookupValue('Stage', lead.stage), null) || 'Incoming Lead');
-                            const stageInfo = STAGE_PIPELINE.find(s => s.label.toLowerCase() === stageName.toLowerCase()) || { color: '#94a3b8', icon: 'fa-circle', label: stageName };
+                            const c = getBadgeColor(stageName);
                             return (
                                 <span style={{
                                     display: 'inline-flex', alignItems: 'center', gap: '4px',
-                                    background: stageInfo.color + '18',
-                                    color: stageInfo.color,
-                                    border: `1px solid ${stageInfo.color}40`,
+                                    background: c.bg,
+                                    color: c.text,
+                                    border: `1px solid ${c.border}`,
                                     borderRadius: '5px',
                                     padding: '1px 6px',
                                     fontSize: '0.55rem',
                                     fontWeight: 800,
                                 }}>
-                                    <i className={`fas ${stageInfo.icon}`} style={{ fontSize: '0.5rem' }}></i>
-                                    📍 {stageInfo.label.toUpperCase()}
+                                    <i className="fas fa-circle" style={{ fontSize: '0.5rem', opacity: 0.7 }}></i>
+                                    {stageName.toUpperCase()}
                                 </span>
                             );
                         })()}
@@ -1666,10 +1666,10 @@ const LeadItem = React.memo(function LeadItem({
                                 background: '#f1f5f9',
                                 color: '#475569',
                                 border: '1px solid #e2e8f0',
-                                borderRadius: '5px',
-                                padding: '1px 6px',
+                                borderRadius: '4px',
+                                padding: '1px 5px',
                                 fontSize: '0.55rem',
-                                fontWeight: 800,
+                                fontWeight: 700,
                             }}>
                                 <i className="fas fa-bullhorn" style={{ fontSize: '0.5rem', opacity: 0.7 }}></i>
                                 {String(lead.sourceLabel || renderValue(getLookupValue('Source', lead.source), null) || lead.source || "DIRECT").toUpperCase()}
@@ -1948,24 +1948,24 @@ const LeadCard = React.memo(function LeadCard({
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                 <div className="flex items-center gap-2">
                     <span className={`status-badge ${(String(renderValue(getLookupValue('Status', lead.status), null) || (typeof lead.statusFallback === 'object' ? lead.statusFallback.class : 'new') || 'new')).toLowerCase()}`}>
-                        {renderValue(getLookupValue('Status', lead.status), null) || (typeof lead.statusFallback === 'object' ? lead.statusFallback.label : lead.statusFallback)}
+                        {renderValue(getLookupValue('Status', lead.status), null) || (typeof lead.statusFallback === 'object' ? lead.statusFallback.label : lead.statusFallback) || 'New'}
                     </span>
                     {(() => {
-                        const stageName = String(liveBackendScore?.stage || renderValue(getLookupValue('Stage', lead.stage), null) || 'New');
-                        const stageInfo = STAGE_PIPELINE.find(s => s.label.toLowerCase() === stageName.toLowerCase()) || { color: '#94a3b8', icon: 'fa-circle', label: stageName };
+                        const stageName = String(liveBackendScore?.stage || renderValue(getLookupValue('Stage', lead.stage), null) || 'Incoming');
+                        const c = getBadgeColor(stageName);
                         return (
                             <span style={{
                                 display: 'inline-flex', alignItems: 'center', gap: '4px',
-                                background: stageInfo.color + '18',
-                                color: stageInfo.color,
-                                border: `1px solid ${stageInfo.color}40`,
+                                background: c.bg,
+                                color: c.text,
+                                border: `1px solid ${c.border}`,
                                 borderRadius: '5px',
                                 padding: '2px 7px',
                                 fontSize: '0.6rem',
                                 fontWeight: 800,
                             }}>
-                                <i className={`fas ${stageInfo.icon}`} style={{ fontSize: '0.5rem' }}></i>
-                                {stageInfo.label.toUpperCase()}
+                                <i className="fas fa-circle" style={{ fontSize: '0.5rem', opacity: 0.7 }}></i>
+                                {stageName.toUpperCase()}
                             </span>
                         );
                     })()}

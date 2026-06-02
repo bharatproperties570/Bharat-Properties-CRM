@@ -25,11 +25,11 @@ import {
  */
 
 const MAIN_STAGES = [
-    { id: 'incoming', label: 'Incoming', subStages: ['New'], icon: Info, color: '#6366f1' },
-    { id: 'prospect', label: 'Prospect', subStages: ['Prospect', 'Qualified'], icon: Users, color: '#8b5cf6' },
-    { id: 'opportunity', label: 'Opportunity', subStages: ['Opportunity'], icon: TrendingUp, color: '#f59e0b' },
-    { id: 'negotiations', label: 'Negotiations', subStages: ['Negotiation', 'Booking', 'Booked'], icon: Home, color: '#f97316' },
-    { id: 'closed', label: 'Closed', subStages: ['Closed Won', 'Won', 'Closed Lost', 'Lost', 'Unqualified', 'Stalled'], icon: CheckCircle, color: '#10b981' }
+    { id: 'incoming', label: 'Incoming', subStages: ['incoming', 'new'], icon: Info, color: '#6366f1' },
+    { id: 'prospect', label: 'Prospect', subStages: ['prospect', 'qualified'], icon: Users, color: '#8b5cf6' },
+    { id: 'opportunity', label: 'Opportunity', subStages: ['opportunity'], icon: TrendingUp, color: '#f59e0b' },
+    { id: 'negotiation', label: 'Negotiation', subStages: ['negotiation', 'negotiations', 'booking', 'booked'], icon: Home, color: '#f97316' },
+    { id: 'closed', label: 'Closed', subStages: ['closed', 'closed won', 'won', 'closed lost', 'lost', 'unqualified'], icon: CheckCircle, color: '#10b981' }
 ];
 
 const EnterprisePipeline = ({ contact, activities = [] }) => {

@@ -15,15 +15,49 @@
 
 // ─── STAGE PIPELINE ───────────────────────────────────────────────────────────
 export const STAGE_PIPELINE = [
-    { id: 'open', label: 'Open', color: '#3b82f6', icon: 'fa-folder-open', probability: 10 },
-    { id: 'quote', label: 'Quote', color: '#8b5cf6', icon: 'fa-file-invoice', probability: 30 },
-    { id: 'negotiation', label: 'Negotiation', color: '#f97316', icon: 'fa-comments-dollar', probability: 65 },
-    { id: 'booked', label: 'Booked', color: '#10b981', icon: 'fa-calendar-check', probability: 85 },
-    { id: 'closed', label: 'Closed', color: '#059669', icon: 'fa-lock', probability: 100 },
-    { id: 'stalled', label: 'Stalled', color: '#78716c', icon: 'fa-pause-circle', probability: 15 },
-    { id: 'dormant', label: 'Dormant', color: '#64748b', icon: 'fa-moon', probability: 0 },
+    {
+        id: 'incoming',
+        label: 'Incoming',
+        subStages: ['Incoming', 'New', 'Inbound'],
+        isTerminal: false,
+        bucket: 'fresh',
+        probability: 10
+    },
+    {
+        id: 'prospect',
+        label: 'Prospect',
+        subStages: ['Prospect', 'Qualified', 'Warm'],
+        isTerminal: false,
+        bucket: 'prospect',
+        probability: 20
+    },
+    {
+        id: 'opportunity',
+        label: 'Opportunity',
+        subStages: ['Opportunity', 'Hot', 'Quote'],
+        isTerminal: false,
+        bucket: 'opportunity',
+        probability: 40
+    },
+    {
+        id: 'negotiation',
+        label: 'Negotiation',
+        subStages: ['Negotiation', 'Booked', 'Under Review'],
+        isTerminal: false,
+        bucket: 'negotiation',
+        probability: 65
+    },
+    {
+        id: 'closed',
+        label: 'Closed',
+        subStages: ['Closed Won', 'Closed Lost', 'Won', 'Lost'],
+        isTerminal: true,
+        bucket: 'lost', // Base bucket, specialized by subStage
+        probability: 0
+    }
 ];
 
+export const STAGE_ORDER = STAGE_PIPELINE.map(s => s.id);
 export const STAGE_LABELS = STAGE_PIPELINE.map(s => s.label);
 
 // ─── IMPROVEMENT 2: PROBABILITY CALIBRATION ───────────────────────────────────
@@ -42,24 +76,22 @@ export const getStageProbability = (stageName) => {
  * Prevents false regressions (e.g., a re-intro call moving Negotiation → Prospect).
  */
 export const STAGE_STABILITY_CONFIG = {
-    Quote: { minActivities: 1, minDays: 0, label: 'Quote requires 1 activity before downgrade' },
+    Opportunity: { minActivities: 1, minDays: 0, label: 'Opportunity requires 1 activity before downgrade' },
     Negotiation: { minActivities: 1, minDays: 0, label: 'Negotiation requires 1 activity before downgrade' },
-    Booked: { minActivities: 2, minDays: 1, label: 'Booked requires 2 activities + 1 day before downgrade' },
     Closed: { minActivities: 999, minDays: 999, label: 'Closed deals cannot be downgraded automatically' },
 };
 
 // Stage priority order (higher index = more advanced stage)
-// 'Stalled' sits between Negotiation and Booked — it is a sideways/terminal state.
-// 'Closed Lost' is the lowest terminal. Moving FROM Stalled TO active stages is recovery (always allowed).
-const STAGE_ORDER = ['Dormant', 'Open', 'Quote', 'Negotiation', 'Stalled', 'Booked', 'Closed'];
+// 'Closed Lost' is the lowest terminal.
+// We use the exported STAGE_ORDER.
 
 /** Returns true for terminal/sideways states that cannot be further downgraded. */
 export const isTerminalStage = (stageName) =>
-    stageName === 'Stalled' || stageName === 'Closed' || stageName === 'Dormant';
+    stageName === 'Closed';
 
 const getStageRank = (stageName) => {
-    const idx = STAGE_ORDER.indexOf(stageName);
-    return idx === -1 ? 1 : idx; // default to 'New' rank (1) if unknown
+    const idx = STAGE_ORDER.indexOf(stageName?.toLowerCase());
+    return idx === -1 ? 1 : idx; // default to 1 if unknown
 };
 
 /**

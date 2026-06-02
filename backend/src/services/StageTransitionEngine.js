@@ -129,7 +129,7 @@ export const DEFAULT_STAGE_RULES = [
         purpose: 'Introduction / First Contact',
         outcome: 'Not Interested',
         reason: 'Busy/No Time',
-        newStage: 'Dormant',
+        newStage: 'Closed',
         requiredForms: [],
         priority: 11,
         active: true
@@ -140,7 +140,7 @@ export const DEFAULT_STAGE_RULES = [
         purpose: 'Introduction / First Contact',
         outcome: 'Not Interested',
         reason: 'Not Looking',
-        newStage: 'Dormant',
+        newStage: 'Closed',
         requiredForms: [],
         priority: 11,
         active: true
@@ -153,7 +153,7 @@ export const DEFAULT_STAGE_RULES = [
         purpose: 'Follow Up',
         outcome: 'Connected',
         reason: 'Interested',
-        newStage: 'Qualified',
+        newStage: 'Prospect',
         requiredForms: ['Requirement Form'],
         priority: 15,
         active: true
@@ -164,7 +164,7 @@ export const DEFAULT_STAGE_RULES = [
         purpose: 'Follow Up',
         outcome: 'Connected',
         reason: 'Very Interested',
-        newStage: 'Qualified',
+        newStage: 'Prospect',
         requiredForms: ['Requirement Form'],
         priority: 15,
         active: true
@@ -175,7 +175,7 @@ export const DEFAULT_STAGE_RULES = [
         purpose: 'Follow Up',
         outcome: 'Connected',
         reason: 'Meeting Confirmed',
-        newStage: 'Qualified',
+        newStage: 'Prospect',
         requiredForms: ['Requirement Form'],
         priority: 15,
         active: true
@@ -208,7 +208,7 @@ export const DEFAULT_STAGE_RULES = [
         purpose: 'Follow Up',
         outcome: 'Not Interested',
         reason: 'Budget Issue',
-        newStage: 'Dormant',
+        newStage: 'Closed',
         requiredForms: [],
         priority: 16,
         active: true
@@ -219,7 +219,7 @@ export const DEFAULT_STAGE_RULES = [
         purpose: 'Follow Up',
         outcome: 'Not Interested',
         reason: 'Bought Elsewhere',
-        newStage: 'Dormant',
+        newStage: 'Closed',
         requiredForms: [],
         priority: 16,
         active: true
@@ -230,7 +230,7 @@ export const DEFAULT_STAGE_RULES = [
         purpose: 'Follow Up',
         outcome: 'Not Interested',
         reason: '*',
-        newStage: 'Dormant',
+        newStage: 'Closed',
         requiredForms: [],
         priority: 15,
         active: true
@@ -246,7 +246,7 @@ export const DEFAULT_STAGE_RULES = [
         purpose: '*', // Meetings should trigger stage changes regardless of specific agenda label
         outcome: 'Meeting Done',
         reason: 'Interested',
-        newStage: 'Qualified',
+        newStage: 'Prospect',
         requiredForms: ['Requirement Form', 'Meetings Form'],
         priority: 20,
         active: true
@@ -301,7 +301,7 @@ export const DEFAULT_STAGE_RULES = [
         purpose: 'Product Presentation',
         outcome: 'Not Interested',
         reason: '*',
-        newStage: 'Dormant',
+        newStage: 'Closed',
         requiredForms: [],
         priority: 20,
         active: true
@@ -312,7 +312,7 @@ export const DEFAULT_STAGE_RULES = [
         purpose: 'Negotiation Meeting',
         outcome: 'Deal Agreed',
         reason: '*',
-        newStage: 'Booked',
+        newStage: 'Negotiation',
         requiredForms: ['Quotation Form', 'Offer Form'],
         priority: 30,
         active: true
@@ -334,7 +334,7 @@ export const DEFAULT_STAGE_RULES = [
         purpose: 'Negotiation Meeting',
         outcome: 'On Hold',
         reason: '*',
-        newStage: 'Stalled',
+        newStage: 'Opportunity',
         requiredForms: [],
         priority: 30,
         active: true
@@ -345,7 +345,7 @@ export const DEFAULT_STAGE_RULES = [
         purpose: 'Negotiation Meeting',
         outcome: 'Not Interested',
         reason: 'Price High',
-        newStage: 'Dormant',
+        newStage: 'Closed',
         requiredForms: [],
         priority: 31,
         active: true
@@ -416,7 +416,7 @@ export const DEFAULT_STAGE_RULES = [
         purpose: 'Property Tour',
         outcome: 'Not Interested',
         reason: 'Price High',
-        newStage: 'Dormant',
+        newStage: 'Closed',
         requiredForms: [],
         priority: 26,
         active: true
@@ -427,7 +427,7 @@ export const DEFAULT_STAGE_RULES = [
         purpose: 'Property Tour',
         outcome: 'Not Interested',
         reason: 'Location Mismatch',
-        newStage: 'Dormant',
+        newStage: 'Closed',
         requiredForms: [],
         priority: 26,
         active: true
@@ -438,7 +438,7 @@ export const DEFAULT_STAGE_RULES = [
         purpose: 'Property Tour',
         outcome: 'Not Interested',
         reason: 'Budget Mismatch',
-        newStage: 'Dormant',
+        newStage: 'Closed',
         requiredForms: [],
         priority: 26,
         active: true
@@ -523,7 +523,7 @@ export const DEFAULT_STAGE_RULES = [
         purpose: '*',
         outcome: 'Booking Done',
         reason: '*',
-        newStage: 'Booked',
+        newStage: 'Negotiation',
         requiredForms: ['Quotation Form', 'Offer Form'],
         priority: 50,
         active: true,
@@ -535,7 +535,7 @@ export const DEFAULT_STAGE_RULES = [
         purpose: '*',
         outcome: 'Deal Closed',
         reason: '*',
-        newStage: 'Closed Won',
+        newStage: 'Closed',
         requiredForms: ['Offer Form'],
         priority: 50,
         active: true,
@@ -547,7 +547,7 @@ export const DEFAULT_STAGE_RULES = [
         purpose: '*',
         outcome: 'Lost to Competitor',
         reason: '*',
-        newStage: 'Closed Lost',
+        newStage: 'Closed',
         requiredForms: [],
         priority: 50,
         active: true,
@@ -559,7 +559,7 @@ export const DEFAULT_STAGE_RULES = [
         purpose: '*',
         outcome: 'Not Interested',
         reason: '*',
-        newStage: 'Dormant',
+        newStage: 'Closed',
         requiredForms: [],
         priority: 9, // Lowest among specific Not Interested rules, but acts as catch-all
         active: true,
@@ -739,7 +739,10 @@ export const executeTransition = async (leadId, newStageName, options = {}) => {
         stageFormData = {}
     } = options;
 
-    const lead = await Lead.findById(leadId).populate('stage', 'lookup_value').lean();
+    const lead = await Lead.findById(leadId)
+        .populate('stage', 'lookup_value')
+        .populate('status', 'lookup_value')
+        .lean();
     if (!lead) throw new Error(`StageTransitionEngine: Lead ${leadId} not found`);
 
     const prevStageName = lead.stage?.lookup_value || lead.stage || 'Unknown';
@@ -749,33 +752,69 @@ export const executeTransition = async (leadId, newStageName, options = {}) => {
         return { success: true, prevStage: prevStageName, newStage: newStageName, skipped: true };
     }
 
+    // Handle terminal states properly for Mobile/Backend auto-triggers
+    let targetStageName = newStageName;
+    let targetStatusName = null;
+    const terminalStatuses = ['Won', 'Lost', 'Unqualified'];
+    
+    const currentStatusName = lead.status?.lookup_value || '';
+
+    if (terminalStatuses.includes(newStageName)) {
+        targetStageName = 'Closed';
+        targetStatusName = newStageName;
+    } else if (targetStageName.toLowerCase() === 'prospect') {
+        // Auto-promote status to 'Contacted' if it is 'New', 'Dormant', 'Stalled', or missing
+        if (!currentStatusName || ['new', 'dormant', 'stalled'].includes(currentStatusName.toLowerCase())) {
+            targetStatusName = 'Contacted';
+        }
+    } else if (['opportunity', 'negotiation'].includes(targetStageName.toLowerCase())) {
+        // Auto-promote status to 'Working' if it is 'New', 'contacted', 'dormant', 'stalled', or missing
+        if (!currentStatusName || ['new', 'contacted', 'dormant', 'stalled'].includes(currentStatusName.toLowerCase())) {
+            targetStatusName = 'Working';
+        }
+    }
+
     // Resolve the new stage lookup ObjectId
     let newStageId = null;
     const stageLookup = await Lookup.findOne({
         lookup_type: { $regex: /^stage$/i },
-        lookup_value: { $regex: new RegExp(`^${escapeRegExp(newStageName)}$`, 'i') }
+        lookup_value: { $regex: new RegExp(`^${escapeRegExp(targetStageName)}$`, 'i') }
     });
     if (stageLookup) newStageId = stageLookup._id;
+    
+    // Resolve the new status lookup ObjectId if applicable
+    let newStatusId = null;
+    if (targetStatusName) {
+        const statusLookup = await Lookup.findOne({
+            lookup_type: { $regex: /^status$/i },
+            lookup_value: { $regex: new RegExp(`^${escapeRegExp(targetStatusName)}$`, 'i') }
+        });
+        if (statusLookup) newStatusId = statusLookup._id;
+    }
 
     // Build stage history entry
     const now = new Date();
     const historyEntry = {
-        stage: newStageName,
+        stage: targetStageName,
         enteredAt: now,
         triggeredBy,
         activityId: activityId || undefined,
         activityType: activityType || undefined,
         outcome: outcome || undefined,
-        reason: reason || undefined,
+        reason: reason || (targetStatusName ? `Moved to terminal status: ${targetStatusName}` : undefined),
         triggeredByUser: triggeredByUser || undefined
     };
 
     // Merge stageFormData fields into lead update
     const updatePayload = {
-        stage: newStageId || newStageName,
+        stage: newStageId || targetStageName,
         stageChangedAt: now,
         $push: { stageHistory: historyEntry }
     };
+    
+    if (newStatusId) {
+        updatePayload.status = newStatusId;
+    }
 
     // Apply any stageFormData fields (e.g., budget, location, timeline filled in form)
     const ALLOWED_STAGE_FORM_FIELDS = [

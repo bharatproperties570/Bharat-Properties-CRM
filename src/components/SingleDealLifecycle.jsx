@@ -18,10 +18,10 @@ import {
  */
 
 const STAGES = [
-    { id: 'Open', label: 'Open', subStages: ['Open', 'New'], icon: RadioIcon, color: '#6366f1' },
-    { id: 'Quote', label: 'Quote', subStages: ['Quote'], icon: FileText, color: '#8b5cf6' },
-    { id: 'Negotiation', label: 'Negotiation', subStages: ['Negotiation'], icon: TrendingUp, color: '#f59e0b' },
-    { id: 'Closed', label: 'Closed', subStages: ['Booked', 'Closed', 'Won', 'Lost', 'Unqualified', 'Closed Won', 'Closed Lost'], icon: CheckCircle, color: '#10b981' }
+    { id: 'Open', label: 'Open', subStages: ['open', 'incoming', 'new'], icon: RadioIcon, color: '#94a3b8' },
+    { id: 'Quote', label: 'Quote', subStages: ['quote'], icon: FileText, color: '#3b82f6' },
+    { id: 'Negotiation', label: 'Negotiation', subStages: ['negotiation'], icon: TrendingUp, color: '#f59e0b' },
+    { id: 'Closed', label: 'Closed', subStages: ['closed', 'won', 'lost', 'unqualified'], icon: CheckCircle, color: '#10b981' }
 ];
 
 function RadioIcon({ size, color }) {
@@ -346,33 +346,10 @@ const SingleDealLifecycle = ({ deal, activities = [], onStageChange }) => {
                             )}
                         </div>
 
-                         <div style={{ marginTop: 'auto', paddingTop: '20px' }}>
-                            {selectedStage.status === 'future' ? (
-                                <button 
-                                    onClick={async () => {
-                                        if (onStageChange) {
-                                            setIsUpdating(true);
-                                            await onStageChange(selectedStage.id);
-                                            setIsUpdating(false);
-                                            setSelectedStage(null);
-                                        }
-                                    }}
-                                    disabled={isUpdating}
-                                    style={{ 
-                                        width: '100%', padding: '16px', 
-                                        background: isUpdating ? '#94a3b8' : '#4f46e5', 
-                                        color: '#fff', border: 'none', borderRadius: '16px', 
-                                        fontWeight: 950, fontSize: '0.9rem', cursor: isUpdating ? 'not-allowed' : 'pointer',
-                                        boxShadow: '0 10px 30px rgba(79, 70, 229, 0.2)'
-                                    }}
-                                >
-                                    {isUpdating ? 'UPDATING STAGE...' : `PROMOTE TO ${selectedStage.label.toUpperCase()}`}
-                                </button>
-                            ) : (
-                                <button onClick={() => setSelectedStage(null)} style={{ width: '100%', padding: '16px', background: '#f1f5f9', color: '#1e293b', border: 'none', borderRadius: '16px', fontWeight: 950, fontSize: '0.9rem', cursor: 'pointer' }}>
-                                    CLOSE ACTIVITY LEDGER
-                                </button>
-                            )}
+                        <div style={{ marginTop: 'auto', paddingTop: '20px' }}>
+                            <button onClick={() => setSelectedStage(null)} style={{ width: '100%', padding: '16px', background: '#f1f5f9', color: '#1e293b', border: 'none', borderRadius: '16px', fontWeight: 950, fontSize: '0.9rem', cursor: 'pointer' }}>
+                                CLOSE ACTIVITY LEDGER
+                            </button>
                         </div>
                     </div>
                 </>

@@ -32,14 +32,19 @@ import { AutoSizer } from 'react-virtualized-auto-sizer';
 
 // Helper: colored stage chip for deals
 const DealStageChip = ({ stage }) => {
-    // Map legacy deal stages to STAGE_PIPELINE
-    const STAGE_MAP = {
-        'Open': 'New', 'Quote': 'Opportunity', 'Negotiation': 'Negotiation',
-        'Booked': 'Booked', 'Closed': 'Closed Won', 'Closed Won': 'Closed Won',
-        'Closed Lost': 'Closed Lost', 'Stalled': 'Stalled',
+    const DEAL_STAGES = {
+        'Open': { color: '#3b82f6', prob: 20 },
+        'Quote': { color: '#8b5cf6', prob: 40 },
+        'Negotiation': { color: '#f59e0b', prob: 70 },
+        'Closed Won': { color: '#10b981', prob: 100 },
+        'Closed Lost': { color: '#ef4444', prob: 0 },
+        'Closed': { color: '#64748b', prob: 100 },
+        'Cancelled': { color: '#64748b', prob: 0 },
+        'Stalled': { color: '#f43f5e', prob: 20 },
+        'Booked': { color: '#10b981', prob: 90 },
     };
-    const mappedStage = STAGE_MAP[stage] || stage || 'New';
-    const info = STAGE_PIPELINE.find(s => s.label === mappedStage) || STAGE_PIPELINE[0];
+    
+    const info = DEAL_STAGES[stage] || DEAL_STAGES['Open'];
     return (
         <span style={{
             display: 'inline-flex', alignItems: 'center', gap: '5px',
@@ -50,7 +55,7 @@ const DealStageChip = ({ stage }) => {
         }}>
             <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: info.color, flexShrink: 0 }} />
             {stage || 'Open'}
-            <span style={{ fontSize: '0.6rem', opacity: 0.7 }}>{getStageProbability(mappedStage)}%</span>
+            <span style={{ fontSize: '0.6rem', opacity: 0.7 }}>{info.prob}%</span>
         </span>
     );
 };
@@ -1330,7 +1335,7 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
     };
 
     return (
-        <div className={`list-item deals-list-grid ${isNonActionable ? 'non-actionable-row' : ''}`} style={{ ...style, padding: '10px 1.5rem', borderBottom: '1px solid var(--border-color)', transition: 'background 0.2s ease', background: rowBackground, opacity: isNonActionable ? 0.8 : 1, pointerEvents: isNonActionable ? 'none' : 'auto', display: 'grid', alignItems: 'center' }}>
+        <div className={`list-item deals-list-grid ${isNonActionable ? 'non-actionable-row' : ''}`} style={{ ...style, padding: '10px 1.5rem', borderBottom: '1px solid var(--border-color)', transition: 'background 0.2s ease', background: rowBackground, opacity: isNonActionable ? 0.8 : 1, pointerEvents: 'auto', display: 'grid', alignItems: 'center' }}>
             <div>
                 <input
                     type="checkbox"
