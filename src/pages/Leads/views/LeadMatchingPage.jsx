@@ -585,9 +585,10 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             // Identify Target Template based on Visit Status
             // Rule: If lead has completed a Site Visit with 'interested' outcome, use Portfolio template.
             // Otherwise, ALWAYS use Details template (regardless of single vs multiple deals selected).
-            const isVisited = lead.timeline?.some(t => 
-                t.activityType === 'Site Visit' && 
-                t.outcome && t.outcome.toLowerCase().includes('interested')
+            const activitiesArray = Array.isArray(lead.timeline) ? lead.timeline : (Array.isArray(lead.activities) ? lead.activities : []);
+            const isVisited = activitiesArray.some(t => 
+                (t.activityType === 'Site Visit' || t.type === 'Site Visit') && 
+                (t.outcome || t.result || t.status || '').toLowerCase().includes('interested')
             );
             
             const templateKey = isVisited ? 'Requirement Match (Portfolio)' : 'Requirement Match (Details)';
