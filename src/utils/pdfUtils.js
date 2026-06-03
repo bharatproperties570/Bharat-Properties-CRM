@@ -1,5 +1,5 @@
 import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 import { renderValue } from './renderUtils';
 
 export const generateDealsPDF = (deals, leadName = 'Valued Client') => {
@@ -53,7 +53,7 @@ export const generateDealsPDF = (deals, leadName = 'Valued Client') => {
         tableRows.push(rowData);
     });
 
-    doc.autoTable({
+    autoTable(doc, {
         head: [tableColumn],
         body: tableRows,
         startY: 50,
