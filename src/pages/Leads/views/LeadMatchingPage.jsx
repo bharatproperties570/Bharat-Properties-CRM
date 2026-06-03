@@ -711,7 +711,9 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                 return `${i + 1}️⃣ 📍 ${safeLookup(loc, 'Locality') || safeLookup(loc, 'Location') || loc}\n📏 Size: ${szVal}\n💰 Price: ${prcVal}`;
             }).join('\n');
 
-            const agentName = lead.assignedTo?.name || lead.owner || lead.agentName || currentUser?.name || 'Our Representative';
+            const rawOwner = lead.owner;
+            const ownerName = typeof rawOwner === 'object' && rawOwner !== null ? (rawOwner.fullName || rawOwner.name) : rawOwner;
+            const agentName = lead.assignment?.assignedTo?.fullName || lead.assignment?.assignedTo?.name || lead.assignedTo?.fullName || lead.assignedTo?.name || ownerName || lead.agentName || currentUser?.fullName || currentUser?.name || 'Our Representative';
             const agentMobile = lead.assignment?.assignedTo?.mobile || lead.assignedTo?.mobile || lead.ownerMobile || lead.agentMobile || currentUser?.mobile || currentUser?.phone || '';
             const agentDetails = agentName;
 
