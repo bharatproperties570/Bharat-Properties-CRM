@@ -149,6 +149,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
     const [initialChannel, setInitialChannel] = useState('SMS');
     const [selectedProperties, setSelectedProperties] = useState([]);
     const [isSendingPortfolio, setIsSendingPortfolio] = useState(false);
+    const [hidePrice, setHidePrice] = useState(false);
     const { currentUser } = useUserContext();
 
     // 2. Pre-parse Lead Context (Simplified for display only)
@@ -705,7 +706,9 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                 const loc = getPropVal('location', p) || getPropVal('city', p) || getPropVal('sector', p);
                 const szRaw = getPropVal('sizeLabel', p) || getPropVal('sizeConfig', p) || getPropVal('size', p);
                 const szVal = typeof szRaw === 'object' ? (szRaw.value ? `${szRaw.value} ${szRaw.unit || 'Sq.Yd.'}` : '') : (safeLookup(szRaw, 'Size') || szRaw);
-                return `${i + 1}️⃣ 📍 ${safeLookup(loc, 'Locality') || safeLookup(loc, 'Location') || loc}\n📏 Size: ${szVal}\n💰 Price: ₹${getPropVal('price', p) || ''}`;
+                const rawPrc = getPropVal('price', p);
+                const prcVal = hidePrice ? 'Price on Call' : (rawPrc ? `₹${rawPrc}` : 'Price on Call');
+                return `${i + 1}️⃣ 📍 ${safeLookup(loc, 'Locality') || safeLookup(loc, 'Location') || loc}\n📏 Size: ${szVal}\n💰 Price: ${prcVal}`;
             }).join('\n');
 
             const agentName = lead.assignedTo?.name || lead.owner || lead.agentName || currentUser?.name || 'Our Representative';
@@ -752,7 +755,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                     'unitType': resolveLive(getPropVal('unitType', p)) || safeLookup(getPropVal('unitType', p), 'UnitType'),
                     'category': resolveLive(getPropVal('category', p) || getPropVal('propertyType', p)) || safeLookup(getPropVal('category', p) || getPropVal('propertyType', p), 'Category'),
                     'subCategory': resolveLive(getPropVal('subCategory', p)) || safeLookup(getPropVal('subCategory', p), 'SubCategory'),
-                    'price': getPropVal('price', p) || 'N/A',
+                    'price': hidePrice ? 'Price on Call' : (getPropVal('price', p) ? `₹${getPropVal('price', p)}` : 'Price on Call'),
                     'size': finalSize,
                     'location': safePropLoc,
                     'builtupType': resolveLive(getPropVal('builtupType', p)) || safeLookup(getPropVal('builtupType', p), 'BuiltupType'),
@@ -1006,11 +1009,15 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                         </div>
                     </div>
                 </div>
-                <div style={{ display: 'flex', gap: '12px' }}>
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                     <div style={{ padding: '8px 16px', background: '#ecfdf5', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '8px', border: '1px solid #b9f6ca' }}>
                         <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981' }}></div>
                         <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#166534' }}>Strict AI Engine Active</span>
                     </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', color: '#475569', cursor: 'pointer', fontWeight: 600 }}>
+                        <input type="checkbox" checked={hidePrice} onChange={(e) => setHidePrice(e.target.checked)} style={{ accentColor: '#6366f1', width: '16px', height: '16px', cursor: 'pointer' }} />
+                        Hide Price
+                    </label>
                     <button 
                         onClick={handleSendPortfolio}
                         className="btn-secondary"
@@ -1719,13 +1726,17 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                         className="btn-primary" 
                         onClick={() => {
                             const selectedDeals = matchedItems.filter(item => selectedItems.includes(item.id || item.unitNo));
-                            generateDealsPDF(selectedDeals, lead?.name);
+                            generateDealsPDF(selectedDeals, lead?.name, hidePrice);
                             toast.success(`Portfolio PDF generated with ${selectedDeals.length} properties.`);
                         }}
                         style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#ec4899', borderColor: '#ec4899' }}
                     >
                         <i className="fas fa-file-pdf"></i> Download PDF
                     </button>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', color: '#fff', cursor: 'pointer', fontWeight: 600 }}>
+                        <input type="checkbox" checked={hidePrice} onChange={(e) => setHidePrice(e.target.checked)} style={{ accentColor: '#6366f1', width: '16px', height: '16px', cursor: 'pointer' }} />
+                        Hide Price
+                    </label>
                     <button 
                         className="btn-primary" 
                         onClick={handleSendPortfolio} 
