@@ -1570,9 +1570,19 @@ export const matchLeads = async (req, res) => {
             .filter(l => ["Lost", "Closed", "Rejected"].includes(l.lookup_value))
             .map(l => l._id.toString());
 
-        const leads = await Lead.find({ 
-            status: { $nin: excludedStatusIds } 
-        }).lean();
+        const { getVisibilityFilter } = await import("../utils/visibility.js");
+        const visibilityFilter = await getVisibilityFilter(req.user);
+        
+        let query = { ...visibilityFilter };
+        const statusFilter = { status: { $nin: excludedStatusIds } };
+        
+        if (Object.keys(query).length > 0) {
+            query = { $and: [{...query}, statusFilter] };
+        } else {
+            query = statusFilter;
+        }
+
+        const leads = await Lead.find(query).lean();
 
         console.log(`[MATCH_DEBUG] Found ${leads.length} active leads to evaluate`);
 
