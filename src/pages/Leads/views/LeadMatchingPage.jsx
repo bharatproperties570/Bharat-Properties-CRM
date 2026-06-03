@@ -662,9 +662,11 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
 
             // Helper to retrieve flat or nested inventory fields with strict fallback handling
             // Checks backend-enriched _label fields first (avoids ObjectId leakage in WhatsApp vars)
-            const getPropVal = (key) => {
-                if (selectedDeals.length === 0) return '';
-                const p = selectedDeals[0];
+            // Helper to retrieve flat or nested inventory fields with strict fallback handling
+            // Checks backend-enriched _label fields first (avoids ObjectId leakage in WhatsApp vars)
+            const getPropVal = (key, p) => {
+                if (!p) p = selectedDeals[0];
+                if (!p) return '';
                 // First priority: backend-enriched label field (e.g. facing_label, roadWidth_label)
                 const labelKey = `${key}_label`;
                 if (p.inventoryId && typeof p.inventoryId === 'object' && p.inventoryId[labelKey] !== undefined && p.inventoryId[labelKey] !== null && p.inventoryId[labelKey] !== '') {
@@ -695,38 +697,20 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             };
 
             const propertyListDefault = selectedDeals.map((p, i) => {
-                const propVal = (key) => {
-                    let v = p[key];
-                    if (v === null || v === undefined || v === '') {
-                        if (p.inventoryId && typeof p.inventoryId === 'object') v = p.inventoryId[key];
-                    }
-                    return v !== undefined && v !== null ? v : '';
-                };
-                const loc = propVal('location') || propVal('city') || propVal('sector');
-                return `${i + 1}️⃣ ${propVal('unitNo') || 'Unit'} - ${safeLookup(loc, 'Locality') || safeLookup(loc, 'Location') || loc}`;
+                const loc = getPropVal('location', p) || getPropVal('city', p) || getPropVal('sector', p);
+                return `${i + 1}️⃣ ${getPropVal('unitNo', p) || 'Unit'} - ${safeLookup(loc, 'Locality') || safeLookup(loc, 'Location') || loc}`;
             }).join('\n');
 
             const propertyListDetailed = selectedDeals.map((p, i) => {
-                const propVal = (key) => {
-                    let v = p[key];
-                    if (v === null || v === undefined || v === '') {
-                        if (p.inventoryId && typeof p.inventoryId === 'object') v = p.inventoryId[key];
-                    }
-                    return v !== undefined && v !== null ? v : '';
-                };
-                const loc = propVal('location') || propVal('city') || propVal('sector');
-                const szRaw = propVal('sizeLabel') || propVal('sizeConfig') || propVal('size');
+                const loc = getPropVal('location', p) || getPropVal('city', p) || getPropVal('sector', p);
+                const szRaw = getPropVal('sizeLabel', p) || getPropVal('sizeConfig', p) || getPropVal('size', p);
                 const szVal = typeof szRaw === 'object' ? (szRaw.value ? `${szRaw.value} ${szRaw.unit || 'Sq.Yd.'}` : '') : (safeLookup(szRaw, 'Size') || szRaw);
-                return `${i + 1}️⃣ 📍 ${safeLookup(loc, 'Locality') || safeLookup(loc, 'Location') || loc}\n📏 Size: ${szVal}\n💰 Price: ₹${propVal('price') || ''}`;
+                return `${i + 1}️⃣ 📍 ${safeLookup(loc, 'Locality') || safeLookup(loc, 'Location') || loc}\n📏 Size: ${szVal}\n💰 Price: ₹${getPropVal('price', p) || ''}`;
             }).join('\n');
 
             const agentName = lead.assignedTo?.name || lead.owner || lead.agentName || currentUser?.name || 'Our Representative';
             const agentMobile = lead.assignment?.assignedTo?.mobile || lead.assignedTo?.mobile || lead.ownerMobile || lead.agentMobile || currentUser?.mobile || currentUser?.phone || '';
-            const agentDetails = agentMobile ? `${agentName} (📞 ${agentMobile})` : agentName;
-
-            const rawPropLoc = getPropVal('location') || getPropVal('city') || getPropVal('sector');
-            const safePropLoc = safeLookup(rawPropLoc, 'Location') || safeLookup(rawPropLoc, 'City') || safeLookup(rawPropLoc, 'Locality') || rawPropLoc;
-            const safePropProj = getPropVal('projectName') || getPropVal('unitNo') || 'Premium Listing';
+            const agentDetails = agentName;
 
             const unifiedContext = {
                 'name': lead.name,
@@ -746,29 +730,6 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                 'assignedTo': agentDetails,
                 'ownerMobile': agentMobile,
                 'ownerEmail': lead.assignedTo?.email || currentUser?.email || '',
-                
-                // Project/Inventory Exact Fields (safely handling nested inventory items)
-                'projectName': safePropProj,
-                'unitNo': getPropVal('unitNo'),
-                'block': getPropVal('block'),
-                'unitType': resolveLive(getPropVal('unitType')) || safeLookup(getPropVal('unitType'), 'UnitType'),
-                'category': resolveLive(getPropVal('category') || getPropVal('propertyType')) || safeLookup(getPropVal('category') || getPropVal('propertyType'), 'Category'),
-                'subCategory': resolveLive(getPropVal('subCategory')) || safeLookup(getPropVal('subCategory'), 'SubCategory'),
-                'price': getPropVal('price') || 'N/A',
-                'size': typeof getPropVal('size') === 'object' ? (getPropVal('size').value ? `${getPropVal('size').value} ${getPropVal('size').unit}` : 'N/A') : getPropVal('size') || 'N/A',
-                'location': safePropLoc,
-                
-                // Advanced Inventory Fields — 3-tier resolution:
-                // 1. resolveLive (batch API fetch, most authoritative)
-                // 2. getPropVal (backend pre-enriched label string)
-                // 3. safeLookup (PropertyConfigContext cache fallback)
-                'builtupType': resolveLive(getPropVal('builtupType')) || safeLookup(getPropVal('builtupType'), 'BuiltupType'),
-                'sizeType': resolveLive(safeLookup(getPropVal('sizeLabel') || getPropVal('sizeConfig'), 'Size') || getPropVal('sizeType')) || safeLookup(getPropVal('sizeLabel') || getPropVal('sizeConfig'), 'Size'),
-                'direction': resolveLive(getPropVal('direction')) || safeLookup(getPropVal('direction'), 'Direction'),
-                'facing': resolveLive(getPropVal('facing')) || safeLookup(getPropVal('facing'), 'Facing'),
-                'roadWidth': resolveLive(getPropVal('roadWidth')) || safeLookup(getPropVal('roadWidth'), 'RoadWidth'),
-                
-                // Helper structures
                 'propertyList': propertyListDefault,
                 'property_list_default': propertyListDefault,
                 'property_list_detailed': propertyListDetailed,
@@ -776,9 +737,61 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                 'customer_name': lead.firstName || lead.name?.split(' ')[0] || 'customer'
             };
 
+            selectedDeals.forEach((p, idx) => {
+                const rawPropLoc = getPropVal('location', p) || getPropVal('city', p) || getPropVal('sector', p);
+                const safePropLoc = safeLookup(rawPropLoc, 'Location') || safeLookup(rawPropLoc, 'City') || safeLookup(rawPropLoc, 'Locality') || rawPropLoc;
+                const safePropProj = getPropVal('projectName', p) || getPropVal('unitNo', p) || 'Premium Listing';
+                
+                const szRaw = getPropVal('sizeLabel', p) || getPropVal('sizeConfig', p) || getPropVal('size', p);
+                const finalSize = typeof szRaw === 'object' ? (szRaw.value ? `${szRaw.value} ${szRaw.unit || 'Sq.Yd.'}` : 'N/A') : (safeLookup(szRaw, 'Size') || szRaw || 'N/A');
+
+                const dealCtx = {
+                    'projectName': safePropProj,
+                    'unitNo': getPropVal('unitNo', p),
+                    'block': getPropVal('block', p),
+                    'unitType': resolveLive(getPropVal('unitType', p)) || safeLookup(getPropVal('unitType', p), 'UnitType'),
+                    'category': resolveLive(getPropVal('category', p) || getPropVal('propertyType', p)) || safeLookup(getPropVal('category', p) || getPropVal('propertyType', p), 'Category'),
+                    'subCategory': resolveLive(getPropVal('subCategory', p)) || safeLookup(getPropVal('subCategory', p), 'SubCategory'),
+                    'price': getPropVal('price', p) || 'N/A',
+                    'size': finalSize,
+                    'location': safePropLoc,
+                    'builtupType': resolveLive(getPropVal('builtupType', p)) || safeLookup(getPropVal('builtupType', p), 'BuiltupType'),
+                    'sizeType': resolveLive(safeLookup(getPropVal('sizeLabel', p) || getPropVal('sizeConfig', p), 'Size') || getPropVal('sizeType', p)) || safeLookup(getPropVal('sizeLabel', p) || getPropVal('sizeConfig', p), 'Size'),
+                    'direction': resolveLive(getPropVal('direction', p)) || safeLookup(getPropVal('direction', p), 'Direction'),
+                    'facing': resolveLive(getPropVal('facing', p)) || safeLookup(getPropVal('facing', p), 'Facing'),
+                    'roadWidth': resolveLive(getPropVal('roadWidth', p)) || safeLookup(getPropVal('roadWidth', p), 'RoadWidth')
+                };
+
+                if (idx === 0) {
+                    Object.assign(unifiedContext, dealCtx);
+                }
+                for (const [k, v] of Object.entries(dealCtx)) {
+                    unifiedContext[`${k}_${idx}`] = v;
+                }
+            });
+
+            // Handle repeating the property block for multiple deals in Details template
+            let finalRawBody = rawBody;
+            if (templateKey === 'Requirement Match (Details)' && selectedDeals.length > 1) {
+                const blockStart = finalRawBody.indexOf('📍');
+                const sepIndex = finalRawBody.indexOf('-------------------------');
+                const blockEnd = sepIndex !== -1 ? sepIndex : finalRawBody.indexOf('💰 *Price:* ₹{{price}}') + '💰 *Price:* ₹{{price}}'.length;
+                
+                if (blockStart !== -1 && blockEnd !== -1) {
+                    const blockTemplate = finalRawBody.substring(blockStart, blockEnd).trim();
+                    let combinedBlocks = selectedDeals.map((deal, idx) => {
+                        return blockTemplate.replace(/{{([^}]+)}}/g, `{{$1_${idx}}}`);
+                    }).join('\n\n-------------------------\n\n');
+                    
+                    const tailStart = sepIndex !== -1 ? sepIndex + 25 : blockEnd;
+                    finalRawBody = finalRawBody.substring(0, blockStart) + combinedBlocks + '\n\n-------------------------\n' + finalRawBody.substring(tailStart).trimStart();
+                }
+            }
+
             // 3. Resolve variables in template and collect parameters for WhatsApp API
             const templateComponents = [];
-            let resolvedBody = rawBody.replace(/{{([^}]+)}}/g, (match, vIdx) => {
+            let resolvedBody = finalRawBody.replace(/{{([^}]+)}}/g, (match, vIdx) => {
+
                 const cleanKey = vIdx.trim();
                 
                 // Index-based mapping fallback
