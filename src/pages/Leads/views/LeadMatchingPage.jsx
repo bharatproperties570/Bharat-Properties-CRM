@@ -14,6 +14,7 @@ import QuickFillModal from '../components/QuickFillModal';
 import whatsappService from '../../../services/whatsappService';
 import { systemSettingsAPI } from '../../../utils/api';
 import { useUserContext } from '../../../context/UserContext';
+import { generateDealsPDF } from '../../../utils/pdfUtils';
 
 const LeadMatchingPage = ({ onNavigate, leadId }) => {
     const { addActivity } = useActivities();
@@ -1563,9 +1564,10 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                         onClick={() => {
                                             const toastId = toast.loading('Generating Professional PDF...');
                                             setTimeout(() => {
+                                                generateDealsPDF([item], lead?.name);
                                                 toast.success('Professional Listing PDF Generated!', { id: toastId });
                                                 logActivity('PDF Shared', item);
-                                            }, 1500);
+                                            }, 500);
                                         }}
                                         title="Generate Professional PDF"
                                         style={{ flex: 1, height: '38px', borderRadius: '12px', border: '1px solid #f1f5f9', background: '#fff', color: '#64748b', cursor: 'pointer' }}
@@ -1707,6 +1709,17 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             {selectedItems.length > 0 && (
                 <div style={{ position: 'fixed', bottom: '24px', left: '50%', transform: 'translateX(-50%)', background: '#0f172a', padding: '12px 24px', borderRadius: '20px', display: 'flex', alignItems: 'center', gap: '20px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.3)', zIndex: 1000 }}>
                     <span style={{ color: '#fff', fontWeight: 600 }}>{selectedItems.length} selected</span>
+                    <button 
+                        className="btn-primary" 
+                        onClick={() => {
+                            const selectedDeals = matchedItems.filter(item => selectedItems.includes(item.id || item.unitNo));
+                            generateDealsPDF(selectedDeals, lead?.name);
+                            toast.success(`Portfolio PDF generated with ${selectedDeals.length} properties.`);
+                        }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#ec4899', borderColor: '#ec4899' }}
+                    >
+                        <i className="fas fa-file-pdf"></i> Download PDF
+                    </button>
                     <button 
                         className="btn-primary" 
                         onClick={handleSendPortfolio} 

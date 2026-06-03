@@ -76,6 +76,53 @@ const resolveLookup = async (type, value, createIfMissing = true) => {
     return null;
 };
 
+const extractNumericSize = (val) => {
+    if (typeof val === 'number') return val;
+    if (!val) return 0;
+    let clean = String(val).replace(/,/g, '');
+    const match = clean.match(/\d+(\.\d+)?/g);
+    if (match && match.length > 0) {
+        return Math.max(...match.map(Number));
+    }
+    return 0;
+};
+
+const convertToSqYd = (val, unit) => {
+    let num = extractNumericSize(val);
+    if (isNaN(num)) return 0;
+    
+    let u = '';
+    if (typeof val === 'string' && /[a-zA-Z]/.test(val)) {
+        u = val.toLowerCase();
+    }
+    if (!u && unit) {
+        u = String(unit).toLowerCase().trim();
+    }
+    
+    if (!u) return num;
+    
+    if (u.includes('sq.yd') || u.includes('sqyd') || u.includes('sq yd') || u.includes('sq. yard') || u.includes('sq yard') || u.includes('gaj') || u.includes('gaz')) return num;
+    if (u.includes('sq.ft') || u.includes('sqft') || u.includes('sq ft')) return num / 9.0;
+    if (u.includes('sq.m') || u.includes('sqm') || u.includes('sq meter') || u.includes('mtr')) return num * 1.19599;
+    if (u.includes('kanal')) return num * 605;
+    if (u.includes('marla')) return num * 30.25;
+    if (u.includes('acre')) return num * 4840;
+    if (u.includes('hectare')) return num * 11959.9;
+    return num;
+};
+
+const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    if (!lat1 || !lon1 || !lat2 || !lon2) return null;
+    const R = 6371; // km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+};
+
 export const matchDeals = async (req, res) => {
     try {
         const { 
@@ -222,8 +269,8 @@ export const matchDeals = async (req, res) => {
         const lBudgetMax = parseFloat(lead.budgetMax) > 0 ? parseFloat(lead.budgetMax) : Infinity;
 
         // Area/Size signals
-        const lAreaMin = parseFloat(lead.areaMin) || 0;
-        const lAreaMax = parseFloat(lead.areaMax) > 0 ? parseFloat(lead.areaMax) : 0;
+        const lAreaMin = extractNumericSize(lead.areaMin) || 0;
+        const lAreaMax = extractNumericSize(lead.areaMax) > 0 ? extractNumericSize(lead.areaMax) : 0;
 
         // ─── 3. Fetch potential deals ─────────────────────────────────────────────
         let visibilityFilter = {};
@@ -241,7 +288,53 @@ export const matchDeals = async (req, res) => {
             stage: { $nin: ["Cancelled", "Closed Lost", "Sold Out"] }
         };
 
-        const deals = await Deal.find(query).populate('inventoryId').lean();
+        let deals = [];
+        const dealDistanceMap = new Map();
+
+        // 🚀 ENTERPRISE GRADE: Use $geoNear if Lead has coordinates
+        if (lead.geoPoint && lead.geoPoint.coordinates && lead.geoPoint.coordinates.length === 2) {
+            const geoNearQuery = [
+                {
+                    $geoNear: {
+                        near: lead.geoPoint,
+                        distanceField: "dbCalculatedDistance",
+                        distanceMultiplier: 0.001, // Convert meters to km
+                        spherical: true
+                    }
+                },
+                { $match: query },
+                { $project: { _id: 1, dbCalculatedDistance: 1 } }
+            ];
+
+            const geoResults = await Deal.aggregate(geoNearQuery);
+            const geoDealIds = geoResults.map(g => g._id);
+            
+            geoResults.forEach(g => {
+                dealDistanceMap.set(String(g._id), g.dbCalculatedDistance);
+            });
+
+            // Fetch the populated deals for those IDs, plus any deals that don't have geoPoints
+            deals = await Deal.find({
+                $or: [
+                    { _id: { $in: geoDealIds } },
+                    { ...query, geoPoint: { $exists: false } }
+                ]
+            }).populate('inventoryId').lean();
+
+        } else {
+            // Fallback for leads without exact geo coordinates
+            deals = await Deal.find(query).populate('inventoryId').lean();
+        }
+
+        // Pre-fetch selected projects to get their coordinates
+        const projectIds = (Array.isArray(lead.projectName) ? lead.projectName : [])
+            .map(p => {
+                if (typeof p === 'object' && p !== null) return p._id || p.id;
+                return p;
+            })
+            .filter(id => id && /^[0-9a-fA-F]{24}$/.test(String(id)));
+            
+        const selectedProjects = projectIds.length > 0 ? await Project.find({ _id: { $in: projectIds } }).lean() : [];
 
         // 4. Activity Intelligence: Fetch Dispatch Proof
         const dispatchActivities = await Activity.find({
@@ -316,7 +409,7 @@ export const matchDeals = async (req, res) => {
                 }
 
                 // --- CITY ENFORCEMENT (User Requested Toggle) ---
-                const dealCity = getLookupValueLocal(deal.inventoryId?.address?.city);
+                const dealCity = getLookupValueLocal(deal.locationDetails?.city || deal.inventoryId?.address?.city || deal.inventoryId?.locationDetails?.city);
                 const leadCityMatch = leadLocCity && dealCity && leadLocCity === dealCity;
                 
                 if (leadLocCity && dealCity && !leadCityMatch && !showOtherCities) {
@@ -342,30 +435,99 @@ export const matchDeals = async (req, res) => {
                 // 1. LOCATION PRECISION (Weight: 30%)
                 const locWeight = weights.location || 30;
                 const dealProjName = (deal.projectName || deal.inventoryId?.projectName || "").toLowerCase();
-                const dealSector = (deal.sector || deal.inventoryId?.sector || "").toLowerCase();
-                const dealLocality = getLookupValueLocal(deal.location || deal.inventoryId?.address?.locality);
+                const dealSector = getLookupValueLocal(deal.locationDetails?.locality || deal.locationDetails?.area || deal.sector || deal.inventoryId?.sector);
+                const dealLocality = getLookupValueLocal(deal.locationDetails?.location || deal.location || deal.inventoryId?.address?.locality);
                 const dealBlock = (deal.block || deal.inventoryId?.block || "").toLowerCase();
 
-                const locSignalsMatch = [
-                    leadProjects.some(p => p && (dealProjName.includes(p) || p.includes(dealProjName))),
-                    leadSector && dealSector && (dealSector.includes(leadSector) || leadSector.includes(dealSector)),
-                    leadLocArea && (dealLocality.includes(leadLocArea) || dealSector.includes(leadLocArea) || dealProjName.includes(leadLocArea)),
-                    leadLocCity && dealCity && (dealCity.includes(leadLocCity) || leadLocCity.includes(dealCity)),
-                    leadLocValue && (dealProjName.includes(leadLocValue) || dealLocality.includes(leadLocValue) || dealSector.includes(leadLocValue)),
-                    leadBlocks.some(b => b && dealBlock.includes(b))
-                ];
+                const dealLat = parseFloat(deal.latitude || deal.inventoryId?.latitude || deal.inventoryId?.address?.latitude);
+                const dealLng = parseFloat(deal.longitude || deal.inventoryId?.longitude || deal.inventoryId?.address?.longitude);
+                
+                const leadLat = parseFloat(lead.locLat);
+                const leadLng = parseFloat(lead.locLng);
+                const leadRange = parseFloat(lead.range) || 5; // Default 5km
+                
+                let locationResolved = false;
 
-                const locMatchCount = locSignalsMatch.filter(Boolean).length;
-                if (locMatchCount >= 2) {
-                    score += locWeight;
-                    scoreBreakdown.location = { earned: locWeight, max: locWeight, label: 'Strong multi-signal match' };
-                    matchDetails.push("Location Match");
-                } else if (locMatchCount === 1) {
-                    score += locWeight * 0.7;
-                    scoreBreakdown.location = { earned: Math.round(locWeight * 0.7), max: locWeight, label: 'Partial location signal' };
-                    matchDetails.push("Area Correlation");
-                } else {
-                    scoreBreakdown.location = { earned: 0, max: locWeight, label: leadSector || leadLocArea || leadLocCity ? 'No matching location found' : 'Lead has no location set' };
+                // Priority A: Search Location (Coordinates + Range)
+                if (leadLat && leadLng && dealLat && dealLng) {
+                    // Use Enterprise Database Calculated distance if available, else fallback to JS
+                    let dist = dealDistanceMap.has(String(deal._id)) ? dealDistanceMap.get(String(deal._id)) : calculateDistance(leadLat, leadLng, dealLat, dealLng);
+                    if (dist !== null) {
+                        if (dist <= leadRange) {
+                            score += locWeight;
+                            scoreBreakdown.location = { earned: locWeight, max: locWeight, label: `Within ${leadRange}km radius (${dist.toFixed(1)}km away)` };
+                            matchDetails.push("Exact Radius Match");
+                        } else {
+                            // Proportional decay outside range (up to 2x range gets partial points)
+                            const extraDist = dist - leadRange;
+                            const penalty = (extraDist / leadRange) * locWeight * 0.5; // lose up to 50% points up to 2x range
+                            const earned = Math.max(0, locWeight - penalty);
+                            
+                            score += earned;
+                            scoreBreakdown.location = { earned: Math.round(earned), max: locWeight, label: `Outside radius (${dist.toFixed(1)}km away)` };
+                            if (earned > locWeight * 0.4) matchDetails.push("Near Radius");
+                        }
+                        locationResolved = true;
+                    }
+                }
+                
+                // Priority B: Project Coordinates
+                if (!locationResolved && selectedProjects.length > 0 && dealLat && dealLng) {
+                    // Check distance against any selected project coordinates
+                    for (const proj of selectedProjects) {
+                        const pLat = parseFloat(proj.latitude);
+                        const pLng = parseFloat(proj.longitude);
+                        if (pLat && pLng) {
+                            const dist = calculateDistance(pLat, pLng, dealLat, dealLng);
+                            if (dist !== null) {
+                                const projectBaseRange = 3; // 3km base radius for project center
+                                if (dist <= projectBaseRange) {
+                                    score += locWeight;
+                                    scoreBreakdown.location = { earned: locWeight, max: locWeight, label: `Near selected project (${dist.toFixed(1)}km)` };
+                                    matchDetails.push("Project Vicinity");
+                                } else {
+                                    // Apply out of radius distance points as requested
+                                    const extraDist = dist - projectBaseRange;
+                                    const penalty = (extraDist / projectBaseRange) * locWeight * 0.5; // lose up to 50% points up to 2x range
+                                    const earned = Math.max(0, locWeight - penalty);
+                                    
+                                    if (earned > 0) {
+                                        score += earned;
+                                        scoreBreakdown.location = { earned: Math.round(earned), max: locWeight, label: `Outside project radius (${dist.toFixed(1)}km away)` };
+                                        if (earned > locWeight * 0.4) matchDetails.push("Extended Project Radius");
+                                    }
+                                }
+                                locationResolved = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // Priority C: Legacy String / ID Matching
+                if (!locationResolved) {
+                    const locSignalsMatch = [
+                        leadProjects.some(p => p && (dealProjName.includes(p) || p.includes(dealProjName))), // Project Name match
+                        leadSector && dealSector && (dealSector.includes(leadSector) || leadSector.includes(dealSector)),
+                        leadLocArea && (dealLocality.includes(leadLocArea) || dealSector.includes(leadLocArea) || dealProjName.includes(leadLocArea)),
+                        leadLocCity && dealCity && (dealCity.includes(leadLocCity) || leadLocCity.includes(dealCity)),
+                        leadLocValue && (dealProjName.includes(leadLocValue) || dealLocality.includes(leadLocValue) || dealSector.includes(leadLocValue)),
+                        leadBlocks.some(b => b && dealBlock.includes(b))
+                    ];
+
+                    const locMatchCount = locSignalsMatch.filter(Boolean).length;
+                    const projectMatchedDirectly = locSignalsMatch[0] === true;
+                    
+                    // Also check if deal belongs to selected projects by ID
+                    const projectMatchById = selectedProjects.some(p => dealProjName.includes((p.name || '').toLowerCase()) || String(deal.projectId) === String(p._id));
+
+                    if (projectMatchedDirectly || projectMatchById || locMatchCount >= 1) {
+                        score += locWeight;
+                        scoreBreakdown.location = { earned: locWeight, max: locWeight, label: projectMatchedDirectly || projectMatchById ? 'Exact project match' : 'Strong location match' };
+                        matchDetails.push("Location Match");
+                    } else {
+                        scoreBreakdown.location = { earned: 0, max: locWeight, label: leadSector || leadLocArea || leadLocCity ? 'No matching location found' : 'Lead has no location set' };
+                    }
                 }
 
                 // 2. TYPE SYMMETRY (Weight: 20%)
@@ -414,24 +576,52 @@ export const matchDeals = async (req, res) => {
 
                 // 4. SIZE ALIGNMENT (Weight: 25%)
                 const sizeWeight = weights.size || 25;
-                const dealSize = parseFloat(deal.size || deal.inventoryId?.size) || 0;
-                if (dealSize > 0 && lAreaMax > 0) {
-                    const aMin = lAreaMin * (1 - sFlex);
-                    const aMax = lAreaMax * (1 + sFlex);
-                    if (dealSize >= aMin && dealSize <= aMax) {
+                
+                let rawDealSizeNum = 0;
+                let rawDealSizeStr = null;
+                
+                // ENTERPRISE FIX: Prioritize sizeConfig, handle legacy 0-value objects
+                const configStr = getLookupValueLocal(deal.unitSpecification?.sizeLabel || deal.sizeConfig || deal.inventoryId?.sizeConfig || deal.inventoryId?.unitSpecification?.sizeLabel);
+                
+                if (configStr) {
+                    rawDealSizeStr = configStr;
+                } else if (deal.size && deal.size.value > 0) {
+                    rawDealSizeStr = deal.size.value;
+                } else if (deal.inventoryId?.size && deal.inventoryId.size.value > 0) {
+                    rawDealSizeStr = deal.inventoryId.size.value;
+                } else if (typeof deal.size === 'string' && deal.size.trim() !== '0') {
+                    rawDealSizeStr = deal.size;
+                }
+
+                if (rawDealSizeStr) {
+                    rawDealSizeNum = extractNumericSize(rawDealSizeStr);
+                }
+
+                const dealSizeUnit = deal.sizeUnit || deal.inventoryId?.size?.unit || deal.inventoryId?.sizeUnit || 'Sq.Yd.';
+                const dealSizeNorm = convertToSqYd(rawDealSizeStr, dealSizeUnit);
+                
+                const leadAreaUnit = lead.areaMetric || 'Sq.Yd.';
+                const leadAreaMinNorm = convertToSqYd(lead.areaMin, leadAreaUnit);
+                const leadAreaMaxNorm = convertToSqYd(lead.areaMax, leadAreaUnit);
+
+                if (dealSizeNorm > 0 && leadAreaMaxNorm > 0) {
+                    const aMin = leadAreaMinNorm * (1 - sFlex);
+                    const aMax = leadAreaMaxNorm * (1 + sFlex);
+                    
+                    if (dealSizeNorm >= aMin && dealSizeNorm <= aMax) {
                         score += sizeWeight;
-                        scoreBreakdown.size = { earned: sizeWeight, max: sizeWeight, label: `${dealSize} Sq.Yd. within preferred range` };
+                        scoreBreakdown.size = { earned: sizeWeight, max: sizeWeight, label: `${rawDealSizeNum} ${dealSizeUnit} within preferred range` };
                         matchDetails.push("Size Fit");
-                    } else if (dealSize >= lAreaMin * (1 - sFlex * 2) && dealSize <= lAreaMax * (1 + sFlex * 2)) {
+                    } else if (dealSizeNorm >= leadAreaMinNorm * (1 - sFlex * 2) && dealSizeNorm <= leadAreaMaxNorm * (1 + sFlex * 2)) {
                         score += sizeWeight * 0.5;
-                        scoreBreakdown.size = { earned: Math.round(sizeWeight * 0.5), max: sizeWeight, label: `${dealSize} Sq.Yd. — approximate range` };
+                        scoreBreakdown.size = { earned: Math.round(sizeWeight * 0.5), max: sizeWeight, label: `${rawDealSizeNum} ${dealSizeUnit} — approximate range` };
                         matchDetails.push("Approx Size Match");
                     } else {
-                        scoreBreakdown.size = { earned: 0, max: sizeWeight, label: `${dealSize} Sq.Yd. is outside preferred range` };
+                        scoreBreakdown.size = { earned: 0, max: sizeWeight, label: `${rawDealSizeNum} ${dealSizeUnit} is outside preferred range` };
                     }
-                } else if (dealSize === 0 || lAreaMax === 0) {
+                } else if (dealSizeNorm === 0 || leadAreaMaxNorm === 0) {
                     score += sizeWeight * 0.3;
-                    scoreBreakdown.size = { earned: Math.round(sizeWeight * 0.3), max: sizeWeight, label: lAreaMax === 0 ? 'Lead has no area preference' : 'Inventory size not recorded' };
+                    scoreBreakdown.size = { earned: Math.round(sizeWeight * 0.3), max: sizeWeight, label: leadAreaMaxNorm === 0 ? 'Lead has no area preference' : 'Inventory size not recorded' };
                 }
 
                 // --- MATCH DECAY ---
@@ -2056,5 +2246,347 @@ export const addOffer = async (req, res) => {
         res.json({ success: true, message: "Offer added successfully", data: deal });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+
+/**
+ * 🚀 ENTERPRISE OPTIMIZATION: Bulk Match Counter for List Views
+ * Reuses the EXACT scoring logic of matchDeals but optimized for bulk array processing
+ * Fetches Lookups and Deals exactly ONCE to prevent O(N) database queries!
+ */
+export const getBulkExactMatchCounts = async (leads, options = {}) => {
+    try {
+        const { budgetFlexibility = 20, sizeFlexibility = 20, weightsParam, showOtherCities = false } = options;
+        
+        let weights = { location: 30, type: 20, budget: 25, size: 25 };
+        if (weightsParam) {
+            try {
+                const parsed = typeof weightsParam === 'string' ? JSON.parse(weightsParam) : weightsParam;
+                if (parsed && typeof parsed === 'object') weights = { ...weights, ...parsed };
+            } catch (e) {}
+        }
+
+        const bFlex = parseFloat(budgetFlexibility) / 100;
+        const sFlex = parseFloat(sizeFlexibility) / 100;
+
+        // 1. Fetch Lookups
+        const Lookup = (await import('../models/Lookup.js')).default;
+        const lookupTypes = [
+            'Category', 'Intent', 'SubCategory', 'Status', 'PropertyType', 'UnitType',
+            'Locality', 'Area', 'Location', 'Size', 'City', 'State', 'Requirement',
+            'Facing', 'Direction', 'RoadWidth', 'BuiltupType', 'Orientation'
+        ];
+        const allLookups = await Lookup.find({ lookup_type: { $in: lookupTypes } }).lean();
+        const lookupIdMap = new Map(allLookups.map(l => [String(l._id), l.lookup_value]));
+        
+        const getLookupValueLocal = (val) => {
+            if (!val) return "";
+            if (val.lookup_value) return String(val.lookup_value).toLowerCase();
+            const idStr = String(val._id || val);
+            const resolved = lookupIdMap.get(idStr);
+            if (resolved) return resolved.toLowerCase();
+            if (!/^[0-9a-fA-F]{24}$/.test(idStr)) return idStr.toLowerCase();
+            return "";
+        };
+
+        const getLookupLabelLocal = (val) => {
+            if (!val) return "Not Set";
+            if (val.lookup_value) return val.lookup_value;
+            const idStr = String(val._id || val);
+            const resolved = lookupIdMap.get(idStr);
+            if (resolved) return resolved;
+            if (!/^[0-9a-fA-F]{24}$/.test(idStr)) return idStr;
+            return "Unknown";
+        };
+
+        const resolveToLabel = (val) => {
+            if (!val) return null;
+            if (typeof val === 'object' && val.lookup_value) return val.lookup_value;
+            const idStr = String(val._id || val).trim();
+            if (!/^[0-9a-fA-F]{24}$/.test(idStr)) return idStr;
+            return lookupIdMap.get(idStr) || null;
+        };
+
+        // 2. Fetch Active Deals
+        const Deal = (await import('../models/Deal.js')).default;
+        const excludedStatusIds = allLookups
+            .filter(l => ["Lost", "Closed", "Rejected", "Sold", "Cancelled"].includes(l.lookup_value))
+            .map(l => l._id.toString());
+            
+        let query = { status: { $nin: excludedStatusIds } };
+        let allDeals = await Deal.find(query).populate('inventoryId').lean();
+
+        // Distance helpers
+        const calculateDistance = (lat1, lon1, lat2, lon2) => {
+            if (!lat1 || !lon1 || !lat2 || !lon2) return null;
+            const R = 6371; 
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                      Math.sin(dLon/2) * Math.sin(dLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        };
+        
+        const extractNumericSize = (val) => {
+            if (!val) return 0;
+            const s = String(val).toLowerCase().replace(/,/g, '');
+            const match = s.match(/[0-9]+(?:\.[0-9]+)?/);
+            return match ? parseFloat(match[0]) : 0;
+        };
+
+        const convertToSqYd = (val, unit) => {
+            let num = extractNumericSize(val);
+            if (isNaN(num)) return 0;
+            
+            let u = '';
+            if (typeof val === 'string' && /[a-zA-Z]/.test(val)) {
+                u = val.toLowerCase();
+            }
+            if (!u && unit) {
+                u = typeof unit === 'object' ? (unit.lookup_value || unit.name || '') : String(unit);
+                u = u.toLowerCase().trim();
+            }
+            
+            if (u.includes('sq.yd') || u.includes('sqyd') || u.includes('sq. yard') || u.includes('sq. yd') || u.includes('yard')) return num;
+            if (u.includes('sq.ft') || u.includes('sqft') || u.includes('sq. foot') || u.includes('sq. ft') || u.includes('feet')) return num / 9.0;
+            if (u.includes('sq.m') || u.includes('sqm') || u.includes('sq. meter') || u.includes('meter')) return num * 1.19599;
+            if (u.includes('marla')) return num * 25.115;
+            if (u.includes('kanal')) return num * 502.3;
+            if (u.includes('acre')) return num * 4840;
+            if (u.includes('hectare')) return num * 11959.9;
+            if (u.includes('bigha')) return num * 1000;
+            if (u.includes('guz') || u.includes('gaj')) return num;
+            return num; // fallback
+        };
+
+        const getNum = (v) => {
+            if (typeof v === 'number') return v;
+            if (typeof v === 'object' && v !== null) return Number(v.value || 0);
+            return Number(v || 0);
+        };
+
+        const counts = {};
+
+        // 3. Score calculation for each lead
+        for (const lead of leads) {
+            let count = 0;
+            const leadReq = getLookupValueLocal(lead.requirement);
+            const leadCats = (Array.isArray(lead.propertyType) ? lead.propertyType : []).map(getLookupValueLocal).filter(Boolean);
+            const leadLocCity = getLookupValueLocal(lead.locCity);
+            const leadSector = getLookupValueLocal(lead.sector || lead.locArea);
+            const leadLocArea = String(lead.locArea || "").toLowerCase();
+            const leadLocValue = getLookupValueLocal(lead.location);
+            const leadBlocks = (Array.isArray(lead.locBlock) ? lead.locBlock : []).map(b => getLookupValueLocal(b));
+            const leadProjects = (Array.isArray(lead.projectName) ? lead.projectName : []).map(p => getLookupValueLocal(p));
+            
+            const selectedProjects = (Array.isArray(lead.project) ? lead.project : (lead.project ? [lead.project] : []));
+
+            const lBudgetMin = getNum(lead.budgetMin);
+            const lBudgetMax = getNum(lead.budgetMax);
+            
+            const lAreaMin = getNum(lead.areaMin);
+            const lAreaMax = getNum(lead.areaMax);
+            
+            let lSizeSqYdMin = lAreaMin;
+            let lSizeSqYdMax = lAreaMax;
+            if (lead.areaMetric) {
+                lSizeSqYdMin = convertToSqYd(lAreaMin, lead.areaMetric);
+                lSizeSqYdMax = convertToSqYd(lAreaMax, lead.areaMetric);
+            }
+
+            for (const deal of allDeals) {
+                const dealIntent = getLookupValueLocal(deal.intent || deal.inventoryId?.intent);
+                
+                const intentMatched = (() => {
+                    if (!dealIntent || !leadReq) return true;
+                    if ((dealIntent.includes("sell") || dealIntent.includes("sale")) && (leadReq.includes("buy") || leadReq.includes("purchase"))) return true;
+                    if ((dealIntent.includes("rent") || dealIntent.includes("lease")) && (leadReq.includes("rent") || leadReq.includes("lease"))) return true;
+                    if (dealIntent === leadReq || dealIntent.includes(leadReq) || leadReq.includes(dealIntent)) return true;
+                    return false;
+                })();
+                
+                if (!intentMatched) continue;
+
+                const dealCategory = getLookupValueLocal(deal.category || deal.inventoryId?.category);
+                const catMatched = !dealCategory || leadCats.length === 0 || leadCats.some(c => 
+                    c.includes(dealCategory) || dealCategory.includes(c) ||
+                    (dealCategory.includes("res") && c.includes("res")) || 
+                    (dealCategory.includes("comm") && c.includes("comm")) ||
+                    (dealCategory.includes("plot") && c.includes("plot")) ||
+                    (dealCategory.includes("agri") && c.includes("agri"))
+                );
+
+                if (!catMatched) continue;
+
+                const dealCity = getLookupValueLocal(deal.locationDetails?.city || deal.inventoryId?.address?.city || deal.inventoryId?.locationDetails?.city);
+                const leadCityMatch = leadLocCity && dealCity && leadLocCity === dealCity;
+                
+                if (leadLocCity && dealCity && !leadCityMatch && !showOtherCities) continue;
+
+                let score = 0;
+                
+                // A. Location
+                const locWeight = weights.location || 30;
+                const dealProjName = (deal.projectName || deal.inventoryId?.projectName || "").toLowerCase();
+                const dealSectorLoc = getLookupValueLocal(deal.locationDetails?.locality || deal.locationDetails?.area || deal.sector || deal.inventoryId?.sector);
+                const dealLocality = getLookupValueLocal(deal.locationDetails?.location || deal.location || deal.inventoryId?.address?.locality);
+                const dealBlock = (deal.block || deal.inventoryId?.block || "").toLowerCase();
+
+                const dealLat = parseFloat(deal.latitude || deal.inventoryId?.latitude || deal.inventoryId?.address?.latitude);
+                const dealLng = parseFloat(deal.longitude || deal.inventoryId?.longitude || deal.inventoryId?.address?.longitude);
+                
+                const leadLat = parseFloat(lead.locLat);
+                const leadLng = parseFloat(lead.locLng);
+                const leadRange = parseFloat(lead.range) || 5;
+                
+                let locationResolved = false;
+
+                if (leadLat && leadLng && dealLat && dealLng) {
+                    let dist = calculateDistance(leadLat, leadLng, dealLat, dealLng);
+                    if (dist !== null) {
+                        if (dist <= leadRange) {
+                            score += locWeight;
+                        } else {
+                            const extraDist = dist - leadRange;
+                            const penalty = (extraDist / leadRange) * locWeight * 0.5;
+                            const earned = Math.max(0, locWeight - penalty);
+                            score += earned;
+                        }
+                        locationResolved = true;
+                    }
+                }
+                
+                if (!locationResolved && selectedProjects.length > 0 && dealLat && dealLng) {
+                    for (const proj of selectedProjects) {
+                        const pLat = parseFloat(proj.latitude);
+                        const pLng = parseFloat(proj.longitude);
+                        if (pLat && pLng) {
+                            const dist = calculateDistance(pLat, pLng, dealLat, dealLng);
+                            if (dist !== null) {
+                                const projectBaseRange = 3; 
+                                if (dist <= projectBaseRange) {
+                                    score += locWeight;
+                                } else {
+                                    const extraDist = dist - projectBaseRange;
+                                    const penalty = (extraDist / projectBaseRange) * locWeight * 0.5; 
+                                    const earned = Math.max(0, locWeight - penalty);
+                                    if (earned > 0) score += earned;
+                                }
+                                locationResolved = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (!locationResolved) {
+                    const locSignalsMatch = [
+                        leadProjects.some(p => p && (dealProjName.includes(p) || p.includes(dealProjName))),
+                        leadSector && dealSectorLoc && (dealSectorLoc.includes(leadSector) || leadSector.includes(dealSectorLoc)),
+                        leadLocArea && (dealLocality.includes(leadLocArea) || dealSectorLoc.includes(leadLocArea) || dealProjName.includes(leadLocArea)),
+                        leadLocCity && dealCity && (dealCity.includes(leadLocCity) || leadLocCity.includes(dealCity)),
+                        leadLocValue && (dealProjName.includes(leadLocValue) || dealLocality.includes(leadLocValue) || dealSectorLoc.includes(leadLocValue)),
+                        leadBlocks.some(b => b && dealBlock.includes(b))
+                    ];
+
+                    const locMatchCount = locSignalsMatch.filter(Boolean).length;
+                    const projectMatchedDirectly = locSignalsMatch[0] === true;
+                    const projectMatchById = selectedProjects.some(p => dealProjName.includes((p.name || '').toLowerCase()) || String(deal.projectId) === String(p._id));
+
+                    if (projectMatchedDirectly || projectMatchById || locMatchCount >= 1) {
+                        score += locWeight;
+                    }
+                }
+
+                // B. Type
+                const typeWeight = weights.type || 20;
+                const leadSubs = (Array.isArray(lead.subType) ? lead.subType : []).map(s => getLookupValueLocal(s)).filter(Boolean);
+                const dealSub = getLookupValueLocal(deal.subCategory || deal.inventoryId?.subCategory);
+
+                if (leadSubs.length > 0 && dealSub && leadSubs.some(s => dealSub.includes(s) || s.includes(dealSub))) {
+                    score += typeWeight;
+                } else if (leadCats.length > 0 && dealCategory && leadCats.some(t => dealCategory.includes(t) || t.includes(dealCategory))) {
+                    score += typeWeight * 0.75;
+                } else if (leadCats.length === 0) {
+                    score += typeWeight * 0.4;
+                }
+
+                // C. Budget
+                const budgetWeight = weights.budget || 25;
+                const dealPrice = parseFloat(deal.price || deal.quotePrice) || 0;
+                if (dealPrice > 0 && lBudgetMax > 0) {
+                    if (dealPrice >= lBudgetMin && dealPrice <= lBudgetMax) {
+                        score += budgetWeight;
+                    } else {
+                        const lowBound = lBudgetMin * (1 - bFlex);
+                        const highBound = lBudgetMax === Infinity ? Infinity : lBudgetMax * (1 + bFlex);
+                        if (dealPrice >= lowBound && dealPrice <= highBound) {
+                            score += budgetWeight * 0.7;
+                        }
+                    }
+                } else if (dealPrice === 0) {
+                    score += budgetWeight * 0.3;
+                }
+
+                // D. Size
+                const sizeWeight = weights.size || 25;
+                let rawDealSizeNum = 0;
+                let rawDealSizeStr = null;
+                const configStr = getLookupValueLocal(deal.unitSpecification?.sizeLabel || deal.sizeConfig || deal.inventoryId?.sizeConfig || deal.inventoryId?.unitSpecification?.sizeLabel);
+                
+                if (configStr) {
+                    rawDealSizeStr = configStr;
+                } else if (deal.size && deal.size.value > 0) {
+                    rawDealSizeStr = deal.size.value;
+                } else if (deal.inventoryId?.size && deal.inventoryId.size.value > 0) {
+                    rawDealSizeStr = deal.inventoryId.size.value;
+                } else if (typeof deal.size === 'string' && deal.size.trim() !== '0') {
+                    rawDealSizeStr = deal.size;
+                }
+
+                if (rawDealSizeStr) {
+                    rawDealSizeNum = extractNumericSize(rawDealSizeStr);
+                }
+                const dealSizeUnit = deal.sizeUnit || deal.inventoryId?.size?.unit || deal.inventoryId?.sizeUnit || 'Sq.Yd.';
+                let dSizeSqYd = 0;
+                
+                if (deal.sizeType && deal.sizeType.toLowerCase() === 'marla') {
+                    dSizeSqYd = convertToSqYd(rawDealSizeStr, "marla");
+                } else if (deal.sizeType && deal.sizeType.toLowerCase() === 'sqyd') {
+                    dSizeSqYd = convertToSqYd(rawDealSizeStr, "sq.yd.");
+                } else if (typeof rawDealSizeStr === 'string' && (rawDealSizeStr.toLowerCase().includes('marla') || rawDealSizeStr.toLowerCase().includes('sq yd'))) {
+                     dSizeSqYd = convertToSqYd(rawDealSizeStr, "");
+                } else {
+                    dSizeSqYd = convertToSqYd(rawDealSizeNum, dealSizeUnit);
+                }
+
+                if (dSizeSqYd > 0 && lSizeSqYdMax > 0) {
+                    if (dSizeSqYd >= lSizeSqYdMin && dSizeSqYd <= lSizeSqYdMax) {
+                        score += sizeWeight;
+                    } else {
+                        const lowBound = lSizeSqYdMin * (1 - sFlex);
+                        const highBound = lSizeSqYdMax * (1 + sFlex);
+                        if (dSizeSqYd >= lowBound && dSizeSqYd <= highBound) {
+                            score += sizeWeight * 0.7;
+                        }
+                    }
+                } else if (dSizeSqYd === 0) {
+                    score += sizeWeight * 0.3;
+                }
+
+                if (score >= 30) {
+                    count++;
+                }
+            }
+            counts[lead._id.toString()] = count;
+        }
+
+        return counts;
+    } catch (err) {
+        console.error("[BulkExactMatchCounts] Error:", err);
+        return {};
     }
 };

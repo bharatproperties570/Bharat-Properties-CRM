@@ -253,7 +253,11 @@ const DealSchema = new mongoose.Schema({
         reason: { type: String }
     }],
     latitude: { type: String },
-    longitude: { type: String }
+    longitude: { type: String },
+    geoPoint: {
+        type: { type: String, enum: ['Point'] },
+        coordinates: { type: [Number] }
+    }
 }, { timestamps: true, strict: false });
 
 DealSchema.pre("save", async function (next) {
@@ -263,15 +267,32 @@ DealSchema.pre("save", async function (next) {
             // Import dynamically to avoid circular dependencies if any
             const Inventory = mongoose.model('Inventory');
             if (Inventory) {
-                const inventory = await Inventory.findById(this.inventoryId).select('latitude longitude lat lng');
+                const inventory = await Inventory.findById(this.inventoryId).select('latitude longitude lat lng geoPoint');
                 if (inventory) {
                     this.latitude = inventory.latitude || inventory.lat || this.latitude;
                     this.longitude = inventory.longitude || inventory.lng || this.longitude;
+                    if (inventory.geoPoint) {
+                        this.geoPoint = inventory.geoPoint;
+                    }
                 }
             }
         } catch (err) {
             console.error("Error syncing coordinates from inventory to deal:", err);
         }
+    }
+
+    // --- Sync GeoJSON ---
+    if (this.latitude && this.longitude) {
+        const lat = parseFloat(this.latitude);
+        const lng = parseFloat(this.longitude);
+        if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+            this.geoPoint = {
+                type: 'Point',
+                coordinates: [lng, lat]
+            };
+        }
+    } else if (this.latitude === "" || this.longitude === "") {
+        this.geoPoint = undefined;
     }
 
     // --- Assignment & Visibility Synchronization ---
@@ -380,5 +401,19 @@ DealSchema.index({ projectId: 1 }); // Project lookup
 DealSchema.index({ inventoryId: 1 }); // Inventory mapping
 DealSchema.index({ owner: 1 }); // Owner lookup
 DealSchema.index({ dealId: 1 }); // Quick search
+DealSchema.index({ geoPoint: "2dsphere" });
+
+DealSchema.pre('insertMany', function(next, docs) {
+    if (Array.isArray(docs)) {
+        docs.forEach(doc => {
+            if (doc.latitude && doc.longitude) {
+                const lat = parseFloat(doc.latitude);
+                const lng = parseFloat(doc.longitude);
+                if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) doc.geoPoint = { type: 'Point', coordinates: [lng, lat] };
+            }
+        });
+    }
+    next();
+});
 
 export default mongoose.model("Deal", DealSchema);

@@ -1269,17 +1269,19 @@ export const PropertyConfigProvider = ({ children }) => {
 
             const catMap = new Map();
             if (lookups.Category) lookups.Category.forEach(l => {
-                if (l.lookup_value) catMap.set(l.lookup_value.toLowerCase(), l._id.toString());
+                if (l.lookup_value && !catMap.has(l.lookup_value.toLowerCase())) catMap.set(l.lookup_value.toLowerCase(), l._id.toString());
             });
             
             const subCatMap = new Map();
             if (lookups.SubCategory) lookups.SubCategory.forEach(l => {
-                if (l.lookup_value) subCatMap.set(`${l.parent_lookup_id?.toString()}_${l.lookup_value.toLowerCase()}`, l._id.toString());
+                const key = `${l.parent_lookup_id?.toString()}_${l.lookup_value.toLowerCase()}`;
+                if (l.lookup_value && !subCatMap.has(key)) subCatMap.set(key, l._id.toString());
             });
             
             const typeMap = new Map();
             if (lookups.PropertyType) lookups.PropertyType.forEach(l => {
-                if (l.lookup_value) typeMap.set(`${l.parent_lookup_id?.toString()}_${l.lookup_value.toLowerCase()}`, l._id.toString());
+                const key = `${l.parent_lookup_id?.toString()}_${l.lookup_value.toLowerCase()}`;
+                if (l.lookup_value && !typeMap.has(key)) typeMap.set(key, l._id.toString());
             });
             
             const builtupMap = new Map();
@@ -1428,7 +1430,7 @@ export const PropertyConfigProvider = ({ children }) => {
         
         return lookups[normalizedType].find(l => {
             const lValue = String(l.lookup_value || l.name || l.label || '').trim().toLowerCase();
-            return lValue === standardizedValue && (!parentId || l.parent_lookup_id === parentId);
+            return lValue === standardizedValue && (!parentId || String(l.parent_lookup_id) === String(parentId));
         });
     }, [lookups]);
 

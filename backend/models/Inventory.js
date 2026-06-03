@@ -175,6 +175,10 @@ const InventorySchema = new mongoose.Schema({
     tags: { type: String, default: '-' },
     latitude: { type: String },
     longitude: { type: String },
+    geoPoint: {
+        type: { type: String, enum: ['Point'] },
+        coordinates: { type: [Number] }
+    },
 
     // Documents & Media
     inventoryDocuments: [{
@@ -235,12 +239,27 @@ InventorySchema.index({ teams: 1, status: 1 });
 InventorySchema.index({ assignedTo: 1, status: 1 });
 InventorySchema.index({ facing: 1 });
 InventorySchema.index({ direction: 1 });
+InventorySchema.index({ geoPoint: "2dsphere" });
  
 // Permanent Fix: Deep Data Integrity Hooks
 
 
 InventorySchema.pre('save', async function (next) {
     try {
+        // --- Sync GeoJSON ---
+        if (this.latitude && this.longitude) {
+            const lat = parseFloat(this.latitude);
+            const lng = parseFloat(this.longitude);
+            if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+                this.geoPoint = {
+                    type: 'Point',
+                    coordinates: [lng, lat]
+                };
+            }
+        } else if (this.latitude === "" || this.longitude === "") {
+            this.geoPoint = undefined;
+        }
+
         const resolveAddr = async (type, val) => {
             if (!val) return null;
             if (typeof val === 'object' && val !== null && val._id) val = val._id;
@@ -492,6 +511,19 @@ InventorySchema.pre('findOneAndUpdate', async function (next) {
     } catch (error) {
         next(error);
     }
+});
+
+InventorySchema.pre('insertMany', function(next, docs) {
+    if (Array.isArray(docs)) {
+        docs.forEach(doc => {
+            if (doc.latitude && doc.longitude) {
+                const lat = parseFloat(doc.latitude);
+                const lng = parseFloat(doc.longitude);
+                if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) doc.geoPoint = { type: 'Point', coordinates: [lng, lat] };
+            }
+        });
+    }
+    next();
 });
 
 export default mongoose.model("Inventory", InventorySchema);

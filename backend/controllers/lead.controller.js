@@ -17,7 +17,7 @@ import Project from "../models/Project.js";
 import Inventory from "../models/Inventory.js";
 import AiAgent from '../models/AiAgent.js';
 import UnifiedAIService from '../services/UnifiedAIService.js';
-
+import { getBulkExactMatchCounts } from './deal.controller.js';
 const escapeRegExp = (string) => {
     if (!string) return '';
     return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -792,6 +792,19 @@ export const getLeads = async (req, res, next) => {
             });
         }
 
+        // 🚀 BULK EXACT MATCH COUNT CALCULATION
+        if (results.records && results.records.length > 0) {
+            try {
+                const bulkMatchCounts = await getBulkExactMatchCounts(results.records);
+                results.records = results.records.map(lead => ({
+                    ...lead,
+                    matched: bulkMatchCounts[lead._id?.toString() || String(lead._id)] || 0
+                }));
+            } catch (err) {
+                console.error("[BulkExactMatchCounts] error in list view:", err);
+            }
+        }
+
         console.log(`[LEAD_AUDIT] Results fetched. Total: ${results.totalCount}, Records: ${results.records?.length}`);
         res.status(200).json({
             success: true,
@@ -911,29 +924,25 @@ export const addLead = async (req, res, next) => {
 export const togglePinMatch = async (req, res) => {
     try {
         const { id, inventoryId } = req.params;
-        const lead = await Lead.findById(id);
-
+        
+        // 🛡️ Enterprise Fix: Avoid .save() validation errors by using atomic operators
+        const lead = await Lead.findById(id).select('pinnedMatches');
         if (!lead) {
             return res.status(404).json({ success: false, message: "Lead not found" });
         }
 
-        if (!lead.pinnedMatches) lead.pinnedMatches = [];
+        const isPinned = lead.pinnedMatches?.some(p => p.toString() === inventoryId.toString());
+        
+        const updateOp = isPinned
+            ? { $pull: { pinnedMatches: inventoryId } }
+            : { $addToSet: { pinnedMatches: inventoryId } };
 
-        const index = lead.pinnedMatches.indexOf(inventoryId);
-        if (index > -1) {
-            // Remove (Unpin)
-            lead.pinnedMatches.splice(index, 1);
-        } else {
-            // Add (Pin)
-            lead.pinnedMatches.push(inventoryId);
-        }
-
-        await lead.save();
+        const updatedLead = await Lead.findByIdAndUpdate(id, updateOp, { new: true }).select('pinnedMatches');
 
         res.json({
             success: true,
-            message: index > -1 ? "Match unpinned" : "Match pinned successfully",
-            data: lead.pinnedMatches
+            message: isPinned ? "Match unpinned" : "Match pinned successfully",
+            data: updatedLead.pinnedMatches
         });
     } catch (error) {
         console.error("[TOGGLE_PIN_MATCH_ERROR]", error);

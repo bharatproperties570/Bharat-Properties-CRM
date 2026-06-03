@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { api } from '../../../utils/api';
 import toast from 'react-hot-toast';
+import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 
 const BUDGET_VALUES = [
     { value: 500000, label: "5 Lakh" },
@@ -210,6 +211,12 @@ const CustomMultiSelect = ({ options, value, onChange, placeholder, disabled, al
 // --- Main QuickFillModal Component ---
 
 const QuickFillModal = ({ isOpen, onClose, lead, onUpdate, getLookupValue, getLookupId, propertyConfig, lookups }) => {
+    const { projects: allProjects } = usePropertyConfig();
+    const [locationTab, setLocationTab] = useState('search');
+    const [projectData, setProjectData] = useState({});
+    const [cities, setCities] = useState([]);
+    const searchInputRef = useRef(null);
+
     const [formData, setFormData] = useState({
         requirement: 'Buy',
         propertyType: [], // category names, e.g. ['Residential']
@@ -223,9 +230,88 @@ const QuickFillModal = ({ isOpen, onClose, lead, onUpdate, getLookupValue, getLo
         location: '',     // Location lookup ID
         sector: '',
         locArea: '',
-        locCity: ''
+        locCity: '',
+        searchLocation: '',
+        locStreet: '',
+        locHNo: '',
+        range: 'Within 3 km',
+        locPinCode: '',
+        locState: '',
+        locCountry: '',
+        locLat: '',
+        locLng: '',
+        projectName: [],
+        projectCity: ''
     });
     const [loading, setLoading] = useState(false);
+
+    // Initialize Project & Cities lists from Context
+    useEffect(() => {
+        if (allProjects && allProjects.length > 0) {
+            const grouped = allProjects.reduce((acc, project) => {
+                let cityName = 'Other';
+                const rawCity = project.address?.city;
+                if (rawCity) {
+                    cityName = getLookupValue('City', rawCity) || rawCity;
+                }
+
+                if (!acc[cityName]) acc[cityName] = [];
+                const safeBlocks = (project.blocks || []).map(b =>
+                    typeof b === 'object' ? (b.name || '') : b
+                ).filter(Boolean);
+
+                acc[cityName].push({
+                    ...project,
+                    towers: safeBlocks
+                });
+                return acc;
+            }, {});
+
+            setProjectData(grouped);
+            setCities(Object.keys(grouped).sort());
+        }
+    }, [allProjects, getLookupValue]);
+
+    // Setup autocomplete search list
+    useEffect(() => {
+        if (isOpen && locationTab === 'search' && searchInputRef.current && window.google) {
+            const autocomplete = new window.google.maps.places.Autocomplete(searchInputRef.current, {
+                types: ['geocode'],
+                fields: ['address_components', 'geometry', 'formatted_address']
+            });
+
+            autocomplete.addListener('place_changed', () => {
+                const place = autocomplete.getPlace();
+                if (!place.geometry) {
+                    console.log("Returned place contains no geometry");
+                    return;
+                }
+
+                const addressComponents = place.address_components;
+                let city = '', state = '', country = '', zipcode = '', area = '';
+                addressComponents.forEach(component => {
+                    const types = component.types;
+                    if (types.includes('locality')) city = component.long_name;
+                    if (types.includes('sublocality_level_1')) area = component.long_name;
+                    if (types.includes('administrative_area_level_1')) state = component.long_name;
+                    if (types.includes('country')) country = component.long_name;
+                    if (types.includes('postal_code')) zipcode = component.long_name;
+                });
+
+                setFormData(prev => ({
+                    ...prev,
+                    searchLocation: place.formatted_address,
+                    locCity: city,
+                    locArea: area || city,
+                    locState: state,
+                    locCountry: country,
+                    locPinCode: zipcode,
+                    locLat: place.geometry.location.lat(),
+                    locLng: place.geometry.location.lng()
+                }));
+            });
+        }
+    }, [isOpen, locationTab]);
 
     useEffect(() => {
         if (lead) {
@@ -254,8 +340,25 @@ const QuickFillModal = ({ isOpen, onClose, lead, onUpdate, getLookupValue, getLo
                 location: lead.location?._id || lead.location || '',
                 sector: lead.sector || '',
                 locArea: lead.locArea || '',
-                locCity: lead.locCity || ''
+                locCity: lead.locCity || '',
+                searchLocation: lead.searchLocation || '',
+                locStreet: lead.locStreet || '',
+                locHNo: lead.locHNo || '',
+                range: lead.range || 'Within 3 km',
+                locPinCode: lead.locPinCode || '',
+                locState: lead.locState || '',
+                locCountry: lead.locCountry || '',
+                locLat: lead.locLat || '',
+                locLng: lead.locLng || '',
+                projectName: lead.projectName || [],
+                projectCity: lead.projectCity || ''
             });
+
+            if (lead.projectName && lead.projectName.length > 0) {
+                setLocationTab('select');
+            } else {
+                setLocationTab('search');
+            }
         }
     }, [lead, isOpen, getLookupValue]);
 
@@ -278,7 +381,19 @@ const QuickFillModal = ({ isOpen, onClose, lead, onUpdate, getLookupValue, getLo
                 areaMetric: formData.areaMetric,
                 sector: formData.sector,
                 locArea: formData.locArea,
-                locCity: formData.locCity
+                locCity: formData.locCity,
+                // Include newly added fields
+                projectName: formData.projectName,
+                projectCity: formData.projectCity,
+                searchLocation: formData.searchLocation,
+                locStreet: formData.locStreet,
+                locHNo: formData.locHNo,
+                range: formData.range,
+                locPinCode: formData.locPinCode,
+                locState: formData.locState,
+                locCountry: formData.locCountry,
+                locLat: formData.locLat,
+                locLng: formData.locLng
             };
 
             const res = await api.put(`leads/${lead._id}`, payload);
@@ -294,6 +409,25 @@ const QuickFillModal = ({ isOpen, onClose, lead, onUpdate, getLookupValue, getLo
             setLoading(false);
         }
     };
+
+    const handleProjectCityChange = (city) => {
+        setFormData(prev => ({
+            ...prev,
+            projectCity: city,
+            projectName: []
+        }));
+    };
+
+    const handleProjectSelectionChange = (projects) => {
+        setFormData(prev => ({
+            ...prev,
+            projectName: projects
+        }));
+    };
+
+    const availableProjects = formData.projectCity && projectData[formData.projectCity]
+        ? projectData[formData.projectCity].map(p => p.name)
+        : [];
 
     // --- Options Calculators matching AddLeadModal ---
     const categoriesList = propertyConfig && Object.keys(propertyConfig).length > 0 
@@ -316,8 +450,6 @@ const QuickFillModal = ({ isOpen, onClose, lead, onUpdate, getLookupValue, getLo
         return Array.from(new Set(allRawTypes)).sort();
     })();
 
-    const locationsList = lookups?.Location || [];
-
     // --- Styling matching modern CRM layout ---
     const overlayStyle = {
         position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
@@ -326,7 +458,7 @@ const QuickFillModal = ({ isOpen, onClose, lead, onUpdate, getLookupValue, getLo
     };
 
     const modalStyle = {
-        backgroundColor: '#fff', width: '100%', maxWidth: '650px',
+        backgroundColor: '#fff', width: '100%', maxWidth: '680px',
         borderRadius: '24px', padding: '32px', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
         maxHeight: '90vh', overflowY: 'auto'
     };
@@ -336,8 +468,28 @@ const QuickFillModal = ({ isOpen, onClose, lead, onUpdate, getLookupValue, getLo
     };
 
     const labelStyle = { display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#475569', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.5px' };
-    const inputStyle = { width: '100%', padding: '12px 16px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b' };
-    const customSelectStyle = { ...inputStyle, background: '#fff', cursor: 'pointer' };
+    const inputStyle = { width: '100%', padding: '12px 16px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b', boxSizing: 'border-box' };
+    
+    const customSelectStyle = {
+        width: '100%',
+        padding: '12px 16px',
+        paddingRight: '30px',
+        borderRadius: '10px',
+        border: '1px solid #cbd5e1',
+        fontSize: '0.9rem',
+        outline: 'none',
+        background: '#fff',
+        color: '#1e293b',
+        appearance: 'none',
+        WebkitAppearance: 'none',
+        MozAppearance: 'none',
+        backgroundImage: `url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23475569%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")`,
+        backgroundRepeat: 'no-repeat',
+        backgroundPosition: 'right 12px center',
+        backgroundSize: '12px',
+        cursor: 'pointer',
+        boxSizing: 'border-box'
+    };
 
     return (
         <div style={overlayStyle} onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -532,51 +684,177 @@ const QuickFillModal = ({ isOpen, onClose, lead, onUpdate, getLookupValue, getLo
 
                     {/* LOCATION DETAILS CARD */}
                     <div style={sectionCardStyle}>
-                        <label style={labelStyle}>Location Details</label>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '16px' }}>
-                            <div>
-                                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#64748b', marginBottom: '6px' }}>Primary Location (Lookup)</label>
-                                <select 
-                                    style={customSelectStyle} 
-                                    value={formData.location}
-                                    onChange={(e) => setFormData(prev => ({ ...prev, location: e.target.value }))}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                            <label style={{ ...labelStyle, marginBottom: 0 }}>Location Details</label>
+                            <div style={{ background: '#e2e8f0', padding: '3px', borderRadius: '8px', display: 'flex', gap: '4px' }}>
+                                <button
+                                    type="button"
+                                    onClick={() => setLocationTab('search')}
+                                    style={{
+                                        padding: '6px 14px',
+                                        borderRadius: '6px',
+                                        border: 'none',
+                                        background: locationTab === 'search' ? '#fff' : 'transparent',
+                                        color: locationTab === 'search' ? '#2563eb' : '#64748b',
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                        fontSize: '0.8rem',
+                                        transition: 'all 0.2s'
+                                    }}
                                 >
-                                    <option value="">Select Location...</option>
-                                    {locationsList.map(l => (
-                                        <option key={l._id} value={l._id}>{l.lookup_value}</option>
-                                    ))}
-                                </select>
-                            </div>
-
-                            <div>
-                                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#64748b', marginBottom: '6px' }}>Area/Sector</label>
-                                <input 
-                                    type="text" style={inputStyle} value={formData.sector}
-                                    placeholder="e.g. Sector 45"
-                                    onChange={(e) => setFormData(prev => ({ ...prev, sector: e.target.value }))}
-                                />
-                            </div>
-                        </div>
-
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                            <div>
-                                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#64748b', marginBottom: '6px' }}>Locality / Area Name</label>
-                                <input 
-                                    type="text" style={inputStyle} value={formData.locArea}
-                                    placeholder="e.g. Near Main Market"
-                                    onChange={(e) => setFormData(prev => ({ ...prev, locArea: e.target.value }))}
-                                />
-                            </div>
-
-                            <div>
-                                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#64748b', marginBottom: '6px' }}>City</label>
-                                <input 
-                                    type="text" style={inputStyle} value={formData.locCity}
-                                    placeholder="e.g. Gurgaon"
-                                    onChange={(e) => setFormData(prev => ({ ...prev, locCity: e.target.value }))}
-                                />
+                                    Search Location
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setLocationTab('select')}
+                                    style={{
+                                        padding: '6px 14px',
+                                        borderRadius: '6px',
+                                        border: 'none',
+                                        background: locationTab === 'select' ? '#fff' : 'transparent',
+                                        color: locationTab === 'select' ? '#2563eb' : '#64748b',
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                        fontSize: '0.8rem',
+                                        transition: 'all 0.2s'
+                                    }}
+                                >
+                                    Select Project
+                                </button>
                             </div>
                         </div>
+
+                        {locationTab === 'search' ? (
+                            <div>
+                                <div style={{ display: 'flex', gap: '16px', marginBottom: '20px', alignItems: 'flex-start' }}>
+                                    <div style={{ flex: 1 }}>
+                                        <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px', fontWeight: 600 }}>Search Location (Google Maps)</label>
+                                        <input
+                                            ref={searchInputRef}
+                                            type="text"
+                                            value={formData.searchLocation}
+                                            onChange={(e) => setFormData(prev => ({ ...prev, searchLocation: e.target.value }))}
+                                            placeholder="Search area, city or landmark..."
+                                            style={{
+                                                ...inputStyle,
+                                                paddingLeft: '36px',
+                                                backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 24 24\' stroke=\'%2394a3b8\' stroke-width=\'2\'%3E%3Cpath stroke-linecap=\'round\' stroke-linejoin=\'round\' d=\'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z\' /%3E%3C/svg%3E")',
+                                                backgroundRepeat: 'no-repeat',
+                                                backgroundPosition: '12px center',
+                                                backgroundSize: '16px'
+                                            }}
+                                        />
+                                    </div>
+                                    <div style={{ width: '140px' }}>
+                                        <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px', fontWeight: 600 }}>Range</label>
+                                        <select
+                                            value={formData.range}
+                                            onChange={(e) => setFormData(prev => ({ ...prev, range: e.target.value }))}
+                                            style={customSelectStyle}
+                                        >
+                                            <option value="0 km">Exact</option>
+                                            <option value="Within 1 km">0-1 km</option>
+                                            <option value="Within 2 km">0-2 km</option>
+                                            <option value="Within 3 km">0-3 km</option>
+                                            <option value="Within 5 km">0-5 km</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.8rem', color: '#64748b', marginBottom: '6px', fontWeight: 600 }}>House/Flat No.</label>
+                                        <input
+                                            type="text"
+                                            value={formData.locHNo}
+                                            onChange={(e) => setFormData(prev => ({ ...prev, locHNo: e.target.value }))}
+                                            placeholder="H.No"
+                                            style={inputStyle}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.8rem', color: '#64748b', marginBottom: '6px', fontWeight: 600 }}>Street/Road</label>
+                                        <input
+                                            type="text"
+                                            value={formData.locStreet}
+                                            onChange={(e) => setFormData(prev => ({ ...prev, locStreet: e.target.value }))}
+                                            placeholder="Street Name"
+                                            style={inputStyle}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.8rem', color: '#64748b', marginBottom: '6px', fontWeight: 600 }}>Area/Sector</label>
+                                        <input
+                                            type="text"
+                                            value={formData.sector}
+                                            onChange={(e) => setFormData(prev => ({ ...prev, sector: e.target.value }))}
+                                            placeholder="e.g. Sector 45"
+                                            style={inputStyle}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.8rem', color: '#64748b', marginBottom: '6px', fontWeight: 600 }}>City</label>
+                                        <input
+                                            type="text"
+                                            value={formData.locCity}
+                                            onChange={(e) => setFormData(prev => ({ ...prev, locCity: e.target.value }))}
+                                            placeholder="City"
+                                            style={inputStyle}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.8rem', color: '#64748b', marginBottom: '6px', fontWeight: 600 }}>State</label>
+                                        <input
+                                            type="text"
+                                            value={formData.locState}
+                                            onChange={(e) => setFormData(prev => ({ ...prev, locState: e.target.value }))}
+                                            placeholder="State"
+                                            style={inputStyle}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.8rem', color: '#64748b', marginBottom: '6px', fontWeight: 600 }}>Pin Code</label>
+                                        <input
+                                            type="text"
+                                            value={formData.locPinCode}
+                                            onChange={(e) => setFormData(prev => ({ ...prev, locPinCode: e.target.value }))}
+                                            placeholder="Pincode"
+                                            style={inputStyle}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px', fontWeight: 600 }}>Select City</label>
+                                    <select
+                                        value={formData.projectCity}
+                                        onChange={(e) => handleProjectCityChange(e.target.value)}
+                                        style={customSelectStyle}
+                                    >
+                                        <option value="">Select City</option>
+                                        {cities.map(city => (
+                                            <option key={city} value={city}>{city}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.85rem', color: '#64748b', marginBottom: '6px', fontWeight: 600 }}>Select Projects</label>
+                                    <CustomMultiSelect
+                                        options={availableProjects}
+                                        value={formData.projectName}
+                                        onChange={handleProjectSelectionChange}
+                                        placeholder={formData.projectCity ? "Select Projects" : "Select City First"}
+                                        disabled={!formData.projectCity}
+                                    />
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                 </div>

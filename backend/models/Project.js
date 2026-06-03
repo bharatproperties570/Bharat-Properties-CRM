@@ -54,6 +54,10 @@ const ProjectSchema = new mongoose.Schema({
     locationSearch: String,
     latitude: String,
     longitude: String,
+    geoPoint: {
+        type: { type: String, enum: ['Point'] },
+        coordinates: { type: [Number] }
+    },
     address: {
         hNo: String,
         street: String,
@@ -145,6 +149,8 @@ const ProjectSchema = new mongoose.Schema({
     }
 }, { timestamps: true });
 
+ProjectSchema.index({ geoPoint: "2dsphere" });
+
 // Middleware to recursively convert empty strings to null
 const sanitizeData = (obj) => {
     if (!obj || typeof obj !== "object") return;
@@ -185,6 +191,21 @@ const resolveLookupLocal = async (type, value) => {
 // Middleware to resolve lookup names to IDs before saving
 ProjectSchema.pre('save', async function (next) {
     sanitizeData(this);
+
+    // --- Sync GeoJSON ---
+    if (this.latitude && this.longitude) {
+        const lat = parseFloat(this.latitude);
+        const lng = parseFloat(this.longitude);
+        if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+            this.geoPoint = {
+                type: 'Point',
+                coordinates: [lng, lat]
+            };
+        }
+    } else if (this.latitude === "" || this.longitude === "") {
+        this.geoPoint = undefined;
+    }
+
     if (this.status && typeof this.status === 'string') this.status = await resolveLookupLocal('ProjectStatus', this.status);
     if (this.parkingType && typeof this.parkingType === 'string') this.parkingType = await resolveLookupLocal('ParkingType', this.parkingType);
     if (this.unitType && typeof this.unitType === 'string') this.unitType = await resolveLookupLocal('UnitType', this.unitType);
@@ -221,6 +242,19 @@ ProjectSchema.pre('findOneAndUpdate', async function (next) {
     }
     if (update.subCategory && Array.isArray(update.subCategory)) {
         update.subCategory = await Promise.all(update.subCategory.map(val => typeof val === 'string' ? resolveLookupLocal('SubCategory', val) : val));
+    }
+    next();
+});
+
+ProjectSchema.pre('insertMany', function(next, docs) {
+    if (Array.isArray(docs)) {
+        docs.forEach(doc => {
+            if (doc.latitude && doc.longitude) {
+                const lat = parseFloat(doc.latitude);
+                const lng = parseFloat(doc.longitude);
+                if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) doc.geoPoint = { type: 'Point', coordinates: [lng, lat] };
+            }
+        });
     }
     next();
 });

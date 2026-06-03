@@ -723,7 +723,8 @@ const PropertySettingsPage = () => {
                             const res = await syncBuiltupTypeLookup(configCategory, configSubCategory, configType, name, 'add');
                             if (res && (res._id || res.id)) {
                                 const newId = (res._id || res.id).toString();
-                                typeObj.builtupTypes.push({ _id: newId, name: name });
+                                if (!typeObj.builtupTypes) typeObj.builtupTypes = [];
+                                typeObj.builtupTypes.push({ id: newId, name: name });
                                 await updateConfig(newConfig);
                                 showToast(`Builtup Type '${name}' added`);
                             } else {

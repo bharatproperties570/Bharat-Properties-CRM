@@ -59,6 +59,13 @@ const LeadSchema = new mongoose.Schema({
     locState: { type: String },
     locCountry: { type: String },
     searchLocation: { type: String },
+    locLat: { type: String },
+    locLng: { type: String },
+    range: { type: String },
+    geoPoint: {
+        type: { type: String, enum: ['Point'] },
+        coordinates: { type: [Number] }
+    },
 
     // Phase 5: Enterprise Persistence
     pinnedMatches: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Inventory' }],
@@ -161,6 +168,7 @@ LeadSchema.index({ lastActivityAt: 1 });
 // mobile + email: fast duplicate detection
 LeadSchema.index({ mobile: 1, email: 1 });
 LeadSchema.index({ firstName: 1 });
+LeadSchema.index({ geoPoint: "2dsphere" });
 LeadSchema.index({ intent_index: -1 });
 LeadSchema.index({ lastActivityAt: -1 });
 LeadSchema.index({ leadScore: -1 });
@@ -218,6 +226,20 @@ const sanitizeLeadData = async (data) => {
     // 4. Phone Normalization
     if (data.mobile) {
         data.mobile = normalizePhone(data.mobile);
+    }
+
+    // 5. GeoJSON Sync
+    if (data.locLat && data.locLng) {
+        const lat = parseFloat(data.locLat);
+        const lng = parseFloat(data.locLng);
+        if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+            data.geoPoint = {
+                type: 'Point',
+                coordinates: [lng, lat]
+            };
+        }
+    } else if (data.locLat === "" || data.locLng === "") {
+        data.geoPoint = undefined; // clear if unset
     }
 };
 
@@ -425,5 +447,18 @@ LeadSchema.post('save', async function (doc, next) {
 
 LeadSchema.post('findOneAndUpdate', invalidateDashboardCache);
 LeadSchema.post('findOneAndDelete', invalidateDashboardCache);
+
+LeadSchema.pre('insertMany', function(next, docs) {
+    if (Array.isArray(docs)) {
+        docs.forEach(doc => {
+            if (doc.locLat && doc.locLng) {
+                const lat = parseFloat(doc.locLat);
+                const lng = parseFloat(doc.locLng);
+                if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) doc.geoPoint = { type: 'Point', coordinates: [lng, lat] };
+            }
+        });
+    }
+    next();
+});
 
 export default mongoose.model("Lead", LeadSchema);
