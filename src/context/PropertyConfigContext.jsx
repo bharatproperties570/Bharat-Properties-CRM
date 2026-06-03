@@ -1274,13 +1274,13 @@ export const PropertyConfigProvider = ({ children }) => {
             
             const subCatMap = new Map();
             if (lookups.SubCategory) lookups.SubCategory.forEach(l => {
-                const key = `${l.parent_lookup_id?.toString()}_${l.lookup_value.toLowerCase()}`;
+                const key = `${l.parent_lookup_id?.toString()}_${l.lookup_value?.toLowerCase()}`;
                 if (l.lookup_value && !subCatMap.has(key)) subCatMap.set(key, l._id.toString());
             });
             
             const typeMap = new Map();
             if (lookups.PropertyType) lookups.PropertyType.forEach(l => {
-                const key = `${l.parent_lookup_id?.toString()}_${l.lookup_value.toLowerCase()}`;
+                const key = `${l.parent_lookup_id?.toString()}_${l.lookup_value?.toLowerCase()}`;
                 if (l.lookup_value && !typeMap.has(key)) typeMap.set(key, l._id.toString());
             });
             
