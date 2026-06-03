@@ -91,8 +91,22 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
     const [loading, setLoading] = useState(false);
     const [selectedIds, setSelectedIds] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
-    const [currentPage, setCurrentPage] = useState(1);
-    const [recordsPerPage, setRecordsPerPage] = useState(10);
+    const [currentPage, setCurrentPage] = useState(() => {
+        const saved = sessionStorage.getItem('leadsPage_currentPage');
+        return saved !== null ? Number(saved) : 1;
+    });
+    const [recordsPerPage, setRecordsPerPage] = useState(() => {
+        const saved = sessionStorage.getItem('leadsPage_recordsPerPage');
+        return saved !== null ? Number(saved) : 10;
+    });
+
+    useEffect(() => {
+        sessionStorage.setItem('leadsPage_currentPage', currentPage);
+    }, [currentPage]);
+
+    useEffect(() => {
+        sessionStorage.setItem('leadsPage_recordsPerPage', recordsPerPage);
+    }, [recordsPerPage]);
     const [refreshTrigger, setRefreshTrigger] = useState(0);
     const [liveScores, setLiveScores] = useState({}); // { leadId: { score, color, label } } from stage engine
     const [sortConfig, setSortConfig] = useState({ by: 'createdAt', order: -1, label: 'Newest First' });
