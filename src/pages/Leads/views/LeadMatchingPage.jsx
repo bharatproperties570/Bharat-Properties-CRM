@@ -582,10 +582,16 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                 console.warn('Could not read DB templates, utilizing default fallback.');
             }
 
-            // Identify Single vs Portfolio Template
-            const isSingle = selectedDeals.length === 1;
-            const templateKey = isSingle ? 'Requirement Match (Single)' : 'Requirement Match (Portfolio)';
-            const template = templates.find(t => t.name === templateKey) || templates[isSingle ? 1 : 2]; // Match standard portfolio fallback index 2
+            // Identify Target Template based on Visit Status
+            // Rule: If lead has completed a Site Visit with 'interested' outcome, use Portfolio template.
+            // Otherwise, ALWAYS use Details template (regardless of single vs multiple deals selected).
+            const isVisited = lead.timeline?.some(t => 
+                t.activityType === 'Site Visit' && 
+                t.outcome && t.outcome.toLowerCase().includes('interested')
+            );
+            
+            const templateKey = isVisited ? 'Requirement Match (Portfolio)' : 'Requirement Match (Details)';
+            const template = templates.find(t => t.name === templateKey) || templates.find(t => t.name === 'Requirement Match (Single)') || templates[1];
 
             if (!template) {
                 throw new Error('Target portfolio template could not be resolved.');
@@ -756,7 +762,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                 // 2. getPropVal (backend pre-enriched label string)
                 // 3. safeLookup (PropertyConfigContext cache fallback)
                 'builtupType': resolveLive(getPropVal('builtupType')) || safeLookup(getPropVal('builtupType'), 'BuiltupType'),
-                'sizeType': resolveLive(getPropVal('sizeLabel') || getPropVal('sizeConfig') || getPropVal('sizeType')) || getPropVal('sizeLabel') || getPropVal('sizeConfig'),
+                'sizeType': resolveLive(safeLookup(getPropVal('sizeLabel') || getPropVal('sizeConfig'), 'Size') || getPropVal('sizeType')) || safeLookup(getPropVal('sizeLabel') || getPropVal('sizeConfig'), 'Size'),
                 'direction': resolveLive(getPropVal('direction')) || safeLookup(getPropVal('direction'), 'Direction'),
                 'facing': resolveLive(getPropVal('facing')) || safeLookup(getPropVal('facing'), 'Facing'),
                 'roadWidth': resolveLive(getPropVal('roadWidth')) || safeLookup(getPropVal('roadWidth'), 'RoadWidth'),
