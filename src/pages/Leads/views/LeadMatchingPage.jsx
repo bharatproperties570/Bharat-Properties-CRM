@@ -871,25 +871,11 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                 const encodedMsg = encodeURIComponent(resolvedBody);
 
                 // Step 2: Detect if we should try native protocol (Mac/Windows desktop)
-                const isDesktopLikelyInstalled = /Win|Mac/.test(navigator.platform || navigator.userAgentData?.platform || '');
-
-                if (isDesktopLikelyInstalled) {
-                    // Try native whatsapp:// protocol first (desktop app handles this natively)
-                    const nativeUrl = `whatsapp://send?phone=${formattedPhone}&text=${encodedMsg}`;
-                    const webUrl = `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodedMsg}`;
-                    
-                    // Open native protocol. If desktop app is installed it will open directly.
-                    window.location.href = nativeUrl;
-                    
-                    // Fallback: after 2.5 seconds, if native didn't work, open web
-                    setTimeout(() => {
-                        window.open(webUrl, '_blank');
-                    }, 2500);
-                } else {
-                    // Mobile / Linux: Use web URL directly
-                    const webUrl = `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodedMsg}`;
-                    window.open(webUrl, '_blank');
-                }
+                // Use the official WhatsApp API Gateway for all platforms.
+                // This prevents the Mac Desktop app from stripping the text parameter, 
+                // which often happens when invoking the raw whatsapp:// scheme directly.
+                const webUrl = `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodedMsg}`;
+                window.open(webUrl, '_blank');
 
                 // Step 3: Show a persistent toast with clear instructions for desktop users
                 toast(
