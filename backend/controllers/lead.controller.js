@@ -342,8 +342,13 @@ export const getLeads = async (req, res, next) => {
         if (teamId && mongoose.Types.ObjectId.isValid(teamId)) query['assignment.team'] = teamId;
         
         if (userId && mongoose.Types.ObjectId.isValid(userId)) {
-            query.$or = query.$or || [];
-            query.$or.push({ owner: userId }, { 'assignment.assignedTo': userId });
+            const userFilter = { $or: [{ owner: userId }, { 'assignment.assignedTo': userId }] };
+            if (Object.keys(query).length > 0) {
+                const baseQuery = { ...query };
+                query = { $and: [baseQuery, userFilter] };
+            } else {
+                query = userFilter;
+            }
         }
 
         if (source) {
