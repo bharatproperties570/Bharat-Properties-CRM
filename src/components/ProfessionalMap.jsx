@@ -18,8 +18,8 @@ const ProfessionalMap = ({
     const clustererRef = useRef(null);
     const infoWindowRef = useRef(null);
     
-    const drawingManagerRef = useRef(null);
     const drawnPolygonRef = useRef(null);
+    const finishDrawingRef = useRef(null);
     const transitLayerRef = useRef(null);
     const trafficLayerRef = useRef(null);
     const [layerStates, setLayerStates] = useState({
@@ -74,21 +74,7 @@ const ProfessionalMap = ({
         transitLayerRef.current = new window.google.maps.TransitLayer();
         trafficLayerRef.current = new window.google.maps.TrafficLayer();
 
-        // Setup Drawing Manager
-        drawingManagerRef.current = new window.google.maps.drawing.DrawingManager({
-            drawingMode: null,
-            drawingControl: false,
-            polygonOptions: {
-                fillColor: '#3b82f6',
-                fillOpacity: 0.2,
-                strokeWeight: 2,
-                strokeColor: '#2563eb',
-                clickable: false,
-                editable: false,
-                zIndex: 1
-            }
-        });
-        drawingManagerRef.current.setMap(googleMapRef.current);
+
 
         const filterByPolygon = (polygon) => {
             if (!polygon || !onVisibleItemsChange || !window.google.maps.geometry) return;
@@ -119,13 +105,7 @@ const ProfessionalMap = ({
             onVisibleItemsChange(visibleIds);
         };
 
-        const drawListener = window.google.maps.event.addListener(drawingManagerRef.current, 'polygoncomplete', (polygon) => {
-            if (drawnPolygonRef.current) drawnPolygonRef.current.setMap(null);
-            drawnPolygonRef.current = polygon;
-            drawingManagerRef.current.setDrawingMode(null);
-            setLayerStates(prev => ({ ...prev, drawing: false }));
-            filterByPolygon(polygon);
-        });
+
 
         const idleListener = googleMapRef.current.addListener('idle', () => {
             if (!googleMapRef.current || !onVisibleItemsChange) return;
@@ -172,7 +152,7 @@ const ProfessionalMap = ({
             if (drawnPolygonRef.current) drawnPolygonRef.current.setMap(null);
             if (window.handleInfoWindowClick) delete window.handleInfoWindowClick;
             window.google.maps.event.removeListener(idleListener);
-            if (drawListener) window.google.maps.event.removeListener(drawListener);
+            if (finishDrawingRef.current) finishDrawingRef.current();
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [items, onVisibleItemsChange]);
@@ -431,21 +411,84 @@ const ProfessionalMap = ({
         }
     }, [activeDealId]);
 
+    const startDrawing = () => {
+        if (!googleMapRef.current) return null;
+        if (drawnPolygonRef.current) {
+            drawnPolygonRef.current.setMap(null);
+            drawnPolygonRef.current = null;
+            window.google.maps.event.trigger(googleMapRef.current, 'idle');
+        }
+        
+        const drawPath = [];
+        googleMapRef.current.setOptions({ draggableCursor: 'crosshair', draggable: false, disableDoubleClickZoom: true });
+        
+        const tempPolyline = new window.google.maps.Polyline({
+            map: googleMapRef.current,
+            path: [],
+            strokeColor: '#2563eb',
+            strokeWeight: 2,
+            strokeOpacity: 0.8,
+            clickable: false
+        });
+
+        const tempPolygon = new window.google.maps.Polygon({
+            map: googleMapRef.current,
+            paths: [],
+            fillColor: '#3b82f6',
+            fillOpacity: 0.2,
+            strokeWeight: 0,
+            clickable: false
+        });
+        
+        const clickListener = googleMapRef.current.addListener('click', (e) => {
+            drawPath.push(e.latLng);
+            tempPolyline.setPath(drawPath);
+            tempPolygon.setPaths(drawPath);
+        });
+
+        const finish = () => {
+            if (drawPath.length >= 3) {
+                const finalPolygon = new window.google.maps.Polygon({
+                    map: googleMapRef.current,
+                    paths: drawPath,
+                    fillColor: '#3b82f6',
+                    fillOpacity: 0.2,
+                    strokeWeight: 2,
+                    strokeColor: '#2563eb',
+                    clickable: false,
+                    editable: false,
+                    zIndex: 1
+                });
+                drawnPolygonRef.current = finalPolygon;
+                
+                // Trigger filter calculation inside the existing component scope
+                window.google.maps.event.trigger(googleMapRef.current, 'idle');
+            }
+            
+            window.google.maps.event.removeListener(clickListener);
+            window.google.maps.event.removeListener(dblClickListener);
+            tempPolyline.setMap(null);
+            tempPolygon.setMap(null);
+            
+            googleMapRef.current.setOptions({ draggableCursor: null, draggable: true, disableDoubleClickZoom: false });
+            setLayerStates(prev => ({ ...prev, drawing: false }));
+            finishDrawingRef.current = null;
+        };
+
+        const dblClickListener = googleMapRef.current.addListener('dblclick', finish);
+        return finish;
+    };
+
     const toggleLayer = (layer) => {
         setLayerStates(prev => {
             const next = { ...prev, [layer]: !prev[layer] };
             if (layer === 'transit' && transitLayerRef.current) transitLayerRef.current.setMap(next.transit ? googleMapRef.current : null);
             if (layer === 'traffic' && trafficLayerRef.current) trafficLayerRef.current.setMap(next.traffic ? googleMapRef.current : null);
-            if (layer === 'drawing' && drawingManagerRef.current) {
+            if (layer === 'drawing') {
                 if (next.drawing) {
-                    drawingManagerRef.current.setDrawingMode(window.google.maps.drawing.OverlayType.POLYGON);
-                    if (drawnPolygonRef.current) {
-                        drawnPolygonRef.current.setMap(null);
-                        drawnPolygonRef.current = null;
-                        if (googleMapRef.current) window.google.maps.event.trigger(googleMapRef.current, 'idle');
-                    }
+                    finishDrawingRef.current = startDrawing();
                 } else {
-                    drawingManagerRef.current.setDrawingMode(null);
+                    if (finishDrawingRef.current) finishDrawingRef.current();
                 }
             }
             return next;
