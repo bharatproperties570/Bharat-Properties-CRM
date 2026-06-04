@@ -459,7 +459,11 @@ const InventoryFeedbackModal = ({ isOpen, onClose, inventory, onSave, initialInt
                             agenda: `${formData.nextActionType} to discuss ${resultVal} for Unit ${inventory.unitNo}`,
                             inventoryId: inventory._id,
                             scheduledFor: 'Follow Up',
-                            formSource: 'InventoryFeedbackForm'
+                            formSource: 'InventoryFeedbackForm',
+                            outcome: resultVal,
+                            specificReason: reasonVal,
+                            project: inventory.project,
+                            block: inventory.block
                         }
                     };
                     await addActivity(newActivity).catch(e => console.error("Follow-up activity creation failed:", e));

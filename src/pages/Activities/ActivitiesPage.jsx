@@ -110,7 +110,16 @@ const ActivityRow = memo(function ActivityRow({
 
             {/* Agenda */}
             <div style={{ fontSize: '0.75rem', color: '#475569', lineHeight: 1.5, overflow: 'hidden' }}>
-                <div className="address-clamp" style={{ fontStyle: 'italic' }}>{renderValue(activity.subject || activity.details?.agenda)}</div>
+                <div className="address-clamp" style={{ fontStyle: 'italic' }}>
+                    {(() => {
+                        if (activity.details?.outcome) return <span style={{ fontWeight: 700, color: '#0f172a', fontStyle: 'normal' }}>{renderValue(activity.details.outcome)}</span>;
+                        if (activity.entityType === 'Inventory' && activity.details?.agenda) {
+                            const match = activity.details.agenda.match(/discuss (.*?) for Unit/);
+                            if (match && match[1]) return <span style={{ fontWeight: 700, color: '#0f172a', fontStyle: 'normal' }}>{renderValue(match[1])}</span>;
+                        }
+                        return renderValue(activity.subject || activity.details?.agenda);
+                    })()}
+                </div>
             </div>
 
             {/* Activity Type */}
@@ -133,18 +142,23 @@ const ActivityRow = memo(function ActivityRow({
                     <div className="text-ellipsis" style={{ fontSize: '0.75rem', color: '#0891b2', fontWeight: 600, marginBottom: '4px' }}>
                         <i className="fas fa-building" style={{ marginRight: '4px' }}></i>
                         {activity.entityType === 'Inventory' && activity.relatedTo?.[0]?.name 
-                            ? `Unit ${activity.relatedTo[0].name}`
+                            ? `Unit ${activity.relatedTo[0].name}${activity.details?.project ? ` | ${activity.details.project}` : ''}${activity.details?.block ? ` (${String(activity.details.block).toLowerCase()})` : ''}`
                             : renderValue(activity.details?.visitedProperties?.[0]?.project)}
                     </div>
                 )}
-                {activity.description && (
+                {activity.details?.specificReason && (
+                    <div className="address-clamp" style={{ fontSize: '0.75rem', color: '#b45309', fontWeight: 600, padding: '4px 8px', background: '#fef3c7', borderRadius: '4px', borderLeft: '3px solid #f59e0b', marginBottom: '4px' }}>
+                        <i className="fas fa-info-circle" style={{ marginRight: '4px' }}></i>{renderValue(activity.details.specificReason)}
+                    </div>
+                )}
+                {!activity.details?.specificReason && activity.description && (
                     <div className="address-clamp" style={{ fontSize: '0.75rem', color: '#059669', fontWeight: 600, padding: '4px 8px', background: '#d1fae5', borderRadius: '4px', borderLeft: '3px solid #10b981', marginBottom: '4px' }}>
                         <i className="fas fa-comment-dots" style={{ marginRight: '4px' }}></i>{renderValue(activity.description)}
                     </div>
                 )}
                 {activity.details && Object.keys(activity.details).length > 0 && typeof activity.details === 'object' && !Array.isArray(activity.details) && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                        {Object.entries(activity.details).filter(([k, v]) => v && typeof v === 'string' && k !== 'visitedProperties' && k !== 'formSource' && k !== 'platform' && k !== 'source' && k !== 'agenda').slice(0, 2).map(([key, value], i) => (
+                        {Object.entries(activity.details).filter(([k, v]) => v && typeof v === 'string' && !['visitedProperties', 'formSource', 'platform', 'source', 'agenda', 'outcome', 'specificReason', 'project', 'block'].includes(k)).slice(0, 2).map(([key, value], i) => (
                             <span key={i} title={`${key}: ${renderValue(value)}`} className="text-ellipsis" style={{ maxWidth: '100%', fontSize: '0.65rem', background: '#f1f5f9', color: '#475569', padding: '2px 6px', borderRadius: '4px', border: '1px solid #e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden' }}>
                                 <span style={{ fontWeight: 700, textTransform: 'capitalize' }}>{key}</span>: {renderValue(value)}
                             </span>
