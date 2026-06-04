@@ -113,6 +113,7 @@ const ActivityRow = memo(function ActivityRow({
                 <div className="address-clamp" style={{ fontStyle: 'italic' }}>
                     {(() => {
                         if (activity.details?.outcome) return <span style={{ fontWeight: 700, color: '#0f172a', fontStyle: 'normal' }}>{renderValue(activity.details.outcome)}</span>;
+                        if (activity.details?.feedback && activity.details?.formSource === 'InventoryFeedbackForm') return <span style={{ fontWeight: 700, color: '#0f172a', fontStyle: 'normal' }}>{renderValue(activity.details.feedback)}</span>;
                         if (activity.entityType === 'Inventory' && activity.details?.agenda) {
                             const match = activity.details.agenda.match(/discuss (.*?) for Unit/);
                             if (match && match[1]) return <span style={{ fontWeight: 700, color: '#0f172a', fontStyle: 'normal' }}>{renderValue(match[1])}</span>;
@@ -151,14 +152,14 @@ const ActivityRow = memo(function ActivityRow({
                         <i className="fas fa-info-circle" style={{ marginRight: '4px' }}></i>{renderValue(activity.details.specificReason)}
                     </div>
                 )}
-                {!activity.details?.specificReason && activity.description && (
+                {!activity.details?.specificReason && activity.description && activity.type === 'Call Back' && (
                     <div className="address-clamp" style={{ fontSize: '0.75rem', color: '#059669', fontWeight: 600, padding: '4px 8px', background: '#d1fae5', borderRadius: '4px', borderLeft: '3px solid #10b981', marginBottom: '4px' }}>
                         <i className="fas fa-comment-dots" style={{ marginRight: '4px' }}></i>{renderValue(activity.description)}
                     </div>
                 )}
                 {activity.details && Object.keys(activity.details).length > 0 && typeof activity.details === 'object' && !Array.isArray(activity.details) && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                        {Object.entries(activity.details).filter(([k, v]) => v && typeof v === 'string' && !['visitedProperties', 'formSource', 'platform', 'source', 'agenda', 'outcome', 'specificReason', 'project', 'block'].includes(k)).slice(0, 2).map(([key, value], i) => (
+                        {Object.entries(activity.details).filter(([k, v]) => v && typeof v === 'string' && !['visitedProperties', 'formSource', 'platform', 'source', 'agenda', 'outcome', 'specificReason', 'project', 'block', 'feedback', 'unitNo', 'inventoryId'].includes(k)).slice(0, 2).map(([key, value], i) => (
                             <span key={i} title={`${key}: ${renderValue(value)}`} className="text-ellipsis" style={{ maxWidth: '100%', fontSize: '0.65rem', background: '#f1f5f9', color: '#475569', padding: '2px 6px', borderRadius: '4px', border: '1px solid #e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden' }}>
                                 <span style={{ fontWeight: 700, textTransform: 'capitalize' }}>{key}</span>: {renderValue(value)}
                             </span>
@@ -169,7 +170,7 @@ const ActivityRow = memo(function ActivityRow({
 
             {/* Scheduled By */}
             <div className="text-ellipsis" style={{ fontSize: '0.8rem', color: '#334155', fontWeight: 600 }}>
-                {renderValue(activity.performedBy || activity.createdBy?.fullName || activity.createdBy?.name || activity.scheduledBy || '--')}
+                {renderValue(activity.createdBy?.fullName || activity.createdBy?.name || activity.performedBy || activity.scheduledBy || '--')}
             </div>
 
             {/* Scheduled For */}

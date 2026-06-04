@@ -30,6 +30,7 @@ const populateParticipantsAndRelatedData = async (activities) => {
 
     const leadIds = new Set();
     const contactIds = new Set();
+    const inventoryIds = new Set();
     const namesForSearch = new Set();
 
     activities.forEach(a => {
@@ -61,14 +62,27 @@ const populateParticipantsAndRelatedData = async (activities) => {
                 }
             }
         });
+        
+        // Also look for Inventory IDs to attach Project and Block for legacy records
+        if (String(a.entityType || '').toLowerCase() === 'inventory' && a.entityId) {
+            inventoryIds.add(String(a.entityId).trim());
+        } else if (Array.isArray(a.relatedTo)) {
+            a.relatedTo.forEach(r => {
+                if (String(r.model || '').toLowerCase() === 'inventory' && r.id) {
+                    inventoryIds.add(String(r.id).trim());
+                }
+            });
+        }
     });
 
     const leadIdArray = Array.from(leadIds);
     const contactIdArray = Array.from(contactIds);
+    const inventoryIdArray = Array.from(inventoryIds);
 
     // Filter to valid object IDs for primary lookup
     const validLeadObjIds = leadIdArray.filter(id => mongoose.Types.ObjectId.isValid(id)).map(id => new mongoose.Types.ObjectId(id));
     const validContactObjIds = contactIdArray.filter(id => mongoose.Types.ObjectId.isValid(id)).map(id => new mongoose.Types.ObjectId(id));
+    const validInventoryObjIds = inventoryIdArray.filter(id => mongoose.Types.ObjectId.isValid(id)).map(id => new mongoose.Types.ObjectId(id));
 
     // Advance Name Parsing for Lead resolution (Split firstName/lastName)
     const leadNameQueries = Array.from(namesForSearch).map(name => {
@@ -95,7 +109,7 @@ const populateParticipantsAndRelatedData = async (activities) => {
     });
 
     // Parallel lookup across both ID types AND names as an ultimate fallback for deep data healing
-    const [leads, contacts] = await Promise.all([
+    const [leads, contacts, inventories] = await Promise.all([
         Lead.find({ 
             $or: [
                 { _id: { $in: validLeadObjIds } },
@@ -107,7 +121,10 @@ const populateParticipantsAndRelatedData = async (activities) => {
                 { _id: { $in: validContactObjIds } },
                 ...contactNameQueries
             ]
-        }).select('name surname phones emails title').populate('title').lean()
+        }).select('name surname phones emails title').populate('title').lean(),
+        Inventory.find({
+            _id: { $in: validInventoryObjIds }
+        }).select('projectName block').lean()
     ]);
 
     // Build optimized lookup maps for O(1) row processing
@@ -130,16 +147,23 @@ const populateParticipantsAndRelatedData = async (activities) => {
         contactNameMap.set(fullName, data);
     });
 
+    const inventoryMap = new Map();
+    inventories.forEach(inv => {
+        inventoryMap.set(String(inv._id), { project: inv.projectName, block: inv.block });
+    });
+
     return activities.map(a => {
         const act = { ...a };
         
         // Identity Resolution Logic (Multi-Path)
         let entityMatch = null;
+        let inventoryMatch = null;
         
         // Path A: Primary Pointer
         const eId = String(act.entityId || '');
         const eType = String(act.entityType || '').toLowerCase();
         entityMatch = eType === 'lead' ? leadMap.get(eId) : contactMap.get(eId);
+        if (eType === 'inventory') inventoryMatch = inventoryMap.get(eId);
 
         // Path B: Related Array Discovery
         if (!entityMatch && Array.isArray(act.relatedTo)) {
@@ -158,6 +182,20 @@ const populateParticipantsAndRelatedData = async (activities) => {
                     break;
                 }
             }
+        }
+        
+        if (!inventoryMatch && Array.isArray(act.relatedTo)) {
+            for (const r of act.relatedTo) {
+                if (String(r.model || '').toLowerCase() === 'inventory') {
+                    inventoryMatch = inventoryMap.get(String(r.id));
+                    if (inventoryMatch) break;
+                }
+            }
+        }
+
+        // Attach Inventory fields if found (for legacy records missing them in details)
+        if (inventoryMatch) {
+            act.details = { ...act.details, project: inventoryMatch.project, block: inventoryMatch.block };
         }
 
         // Apply Discovered Identity to heal the record
