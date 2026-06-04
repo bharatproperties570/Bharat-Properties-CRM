@@ -300,31 +300,25 @@ export const getActivities = async (req, res) => {
         // 🌟 Senior Logic: Filter out omnichannel communications from the global activity list
         // These should only be visible in Communication Hub or Entity Timelines.
         // We include manual 'Call' and 'Email' tasks but exclude automated logs.
+        // 🌟 Senior Logic: Filter out omnichannel communications from the global activity list
+        // These should only be visible in Communication Hub or Entity Timelines.
         if (includeCommunications !== 'true') {
-            const excludedTypes = [
-                /^WhatsApp$/i, /^SMS$/i, /^RCS$/i, 
-                /^Messaging$/i, /^Conversation$/i, /^Chat$/i,
-                /^Marketing$/i, /^Campaign$/i, /^Bulk$/i, /^System$/i
-            ];
+            const actionableTypes = ['Call', 'Call Back', 'Email', 'Meeting', 'Site Visit', 'Task', 'Follow Up', 'Feedback', 'Note'];
+            const typeRegexes = actionableTypes.map(t => new RegExp(`^${t}$`, 'i'));
             
             query.$and = query.$and || [];
             
-            // 1. Must not be a strictly excluded type (WhatsApp, SMS, etc)
-            query.$and.push({ type: { $nin: excludedTypes } });
+            // 1. MUST be an actionable task type
+            query.$and.push({ type: { $in: typeRegexes } });
             
-            // 2. If it is a Call or Email, it must NOT be an automated log
+            // 2. MUST NOT be an automated system log or synced passive log
             query.$and.push({
-                $or: [
-                    { type: { $nin: ['Call', 'Email', 'call', 'email', 'Call Back'] } },
-                    { 
-                        type: { $in: ['Call', 'Email', 'call', 'email', 'Call Back'] },
-                        'details.sid': { $exists: false },
-                        'details.callSid': { $exists: false },
-                        'details.messageId': { $exists: false },
-                        'details.isAutomated': { $ne: true },
-                        'details.source': { $ne: 'System' }
-                    }
-                ]
+                'details.sid': { $exists: false },
+                'details.callSid': { $exists: false },
+                'details.messageId': { $exists: false },
+                'details.mobileId': { $exists: false }, // Fix: Excludes Android synced passive calls
+                'details.isAutomated': { $ne: true },
+                'details.source': { $nin: ['System', 'AI_PROFILER'] }
             });
         }
 
