@@ -303,20 +303,29 @@ export const getActivities = async (req, res) => {
         if (includeCommunications !== 'true') {
             const excludedTypes = [
                 /^WhatsApp$/i, /^SMS$/i, /^RCS$/i, 
-                /^Messaging$/i, /^Conversation$/i, /^Chat$/i, /^whatsapp$/i,
-                /^Marketing$/i, /^Campaign$/i, /^Bulk$/i
+                /^Messaging$/i, /^Conversation$/i, /^Chat$/i,
+                /^Marketing$/i, /^Campaign$/i, /^Bulk$/i, /^System$/i
             ];
             
-            query.$or = [
-                { type: { $nin: excludedTypes } },
-                { 
-                    type: { $in: ['Call', 'Email', 'call', 'email'] },
-                    'details.sid': { $exists: false },
-                    'details.callSid': { $exists: false },
-                    'details.messageId': { $exists: false },
-                    'details.isAutomated': { $ne: true }
-                }
-            ];
+            query.$and = query.$and || [];
+            
+            // 1. Must not be a strictly excluded type (WhatsApp, SMS, etc)
+            query.$and.push({ type: { $nin: excludedTypes } });
+            
+            // 2. If it is a Call or Email, it must NOT be an automated log
+            query.$and.push({
+                $or: [
+                    { type: { $nin: ['Call', 'Email', 'call', 'email', 'Call Back'] } },
+                    { 
+                        type: { $in: ['Call', 'Email', 'call', 'email', 'Call Back'] },
+                        'details.sid': { $exists: false },
+                        'details.callSid': { $exists: false },
+                        'details.messageId': { $exists: false },
+                        'details.isAutomated': { $ne: true },
+                        'details.source': { $ne: 'System' }
+                    }
+                ]
+            });
         }
 
 
