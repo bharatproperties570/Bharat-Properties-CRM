@@ -192,14 +192,15 @@ ActivityRow.displayName = 'ActivityRow';
 // ─── MAIN ACTIVITIES PAGE ───────────────────────────────────────────────────
 
 function ActivitiesPage() {
-    const { activities, fetchActivities, addActivity } = useActivities();
+    const { activities, fetchActivities, addActivity, updateActivity, deleteActivity } = useActivities();
 
     // UI State
     const [viewMode, setViewMode] = useState('list'); 
     const [calendarView, setCalendarView] = useState('month'); 
     const [currentDate, setCurrentDate] = useState(new Date());
-    const [selectedActivity, setSelectedActivity] = useState(null);
+    const [selectedActivity, setSelectedActivity] = useState(null); 
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+    const [activityToEdit, setActivityToEdit] = useState(null);
     const [isOutcomeModalOpen, setIsOutcomeModalOpen] = useState(false);
 
     // Selection State
@@ -228,10 +229,39 @@ function ActivitiesPage() {
 
     const handleSaveActivity = async (backendData) => {
         try {
-            await addActivity(backendData);
+            if (activityToEdit) {
+                await updateActivity(activityToEdit._id, backendData);
+            } else {
+                await addActivity(backendData);
+            }
             setIsCreateModalOpen(false);
+            setActivityToEdit(null);
+            fetchActivities();
         } catch (error) {
             console.error('Failed to save activity:', error);
+        }
+    };
+
+    const handleEditActivity = () => {
+        const activity = filteredActivities.find(a => a._id === selectedIds[0]);
+        if (activity) {
+            setActivityToEdit({ ...activity, id: activity._id }); // Pass ID for editing
+            setIsCreateModalOpen(true);
+        }
+    };
+
+    const handleDeleteActivities = async () => {
+        if (window.confirm(`Are you sure you want to delete ${selectedIds.length} activities?`)) {
+            try {
+                for (const id of selectedIds) {
+                    await deleteActivity(id);
+                }
+                setSelectedIds([]);
+                fetchActivities();
+            } catch (error) {
+                console.error("Failed to delete activities", error);
+                alert("Failed to delete some activities");
+            }
         }
     };
 
@@ -609,15 +639,15 @@ function ActivitiesPage() {
                                         <div className="selection-count" style={{ marginRight: '10px', fontWeight: 600, color: 'var(--primary-color)', whiteSpace: 'nowrap' }}>{selectedIds.length} Selected</div>
                                         {selectedIds.length === 1 && (
                                             <>
-                                                <button className="action-btn" title="Edit Activity"><i className="fas fa-edit"></i> Edit</button>
-                                                <button className="action-btn" title="Reschedule"><i className="fas fa-calendar-alt"></i> Reschedule</button>
+                                                <button className="action-btn" title="Edit Activity" onClick={handleEditActivity}><i className="fas fa-edit"></i> Edit</button>
+                                                <button className="action-btn" title="Reschedule" onClick={handleEditActivity}><i className="fas fa-calendar-alt"></i> Reschedule</button>
                                                 <button className="action-btn" title="Mark Complete" onClick={() => handleOpenCompleteModal(filteredActivities.find(a => a._id === selectedIds[0]))}><i className="fas fa-check-circle"></i> Complete</button>
                                                 <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px' }}></div>
                                             </>
                                         )}
-                                        <button className="action-btn" title="Add Note"><i className="fas fa-sticky-note"></i> Note</button>
+                                        <button className="action-btn" title="Add Note" onClick={selectedIds.length === 1 ? handleEditActivity : () => {}}><i className="fas fa-sticky-note"></i> Note</button>
                                         <div style={{ flex: 1 }}></div>
-                                        <button className="action-btn delete-btn" title="Delete Activities"><i className="fas fa-trash-alt"></i> Delete</button>
+                                        <button className="action-btn delete-btn" title="Delete Activities" onClick={handleDeleteActivities}><i className="fas fa-trash-alt"></i> Delete</button>
                                     </div>
                                 ) : (
                                     <div style={{ display: 'flex', gap: '12px', alignItems: 'center', width: '100%' }}>
@@ -777,7 +807,7 @@ function ActivitiesPage() {
                     </div>
                 </div>
             </div >
-            <CreateActivityModal isOpen={isCreateModalOpen} onClose={() => setIsCreateModalOpen(false)} onSave={handleSaveActivity} />
+            <CreateActivityModal isOpen={isCreateModalOpen} onClose={() => { setIsCreateModalOpen(false); setActivityToEdit(null); }} onSave={handleSaveActivity} initialData={activityToEdit} />
             <ActivityFilterPanel isOpen={isFilterPanelOpen} onClose={() => setIsFilterPanelOpen(false)} filters={filters} onFilterChange={(key, value) => { if (typeof key === 'object') { setFilters(prev => ({ ...prev, ...key })); } else { setFilters(prev => ({ ...prev, [key]: value })); } }} onReset={() => setFilters({})} />
             {isOutcomeModalOpen && (
                 <ActivityOutcomeModal isOpen={isOutcomeModalOpen} onClose={() => { setIsOutcomeModalOpen(false); fetchActivities(); }} activity={selectedActivity || activities.find(a => a._id === selectedIds[0])} />
