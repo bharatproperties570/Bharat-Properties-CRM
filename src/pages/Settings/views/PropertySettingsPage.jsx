@@ -711,29 +711,32 @@ const PropertySettingsPage = () => {
 
     const handleAddBuiltupType = () => {
         if (!configCategory || !configSubCategory || !configType) return;
-        openInputModal(`Enter new Builtup Type for ${configType}:`, '', async (name) => {
+        openInputModal(`Enter new Builtup Type:`, '', async (name) => {
             if (name) {
                 const newConfig = JSON.parse(JSON.stringify(propertyConfig));
                 const subIndex = newConfig[configCategory].subCategories.findIndex(s => s.name === configSubCategory);
                 if (subIndex > -1) {
-                    const typeObj = newConfig[configCategory].subCategories[subIndex].types.find(t => t.name === configType);
-                    if (typeObj) {
-                        const exists = typeObj.builtupTypes.some(b => (typeof b === 'object' ? b.name : b) === name);
+                    const allTypes = newConfig[configCategory].subCategories[subIndex].types;
+                    let addedCount = 0;
+                    for (const tObj of allTypes) {
+                        const exists = tObj.builtupTypes?.some(b => (typeof b === 'object' ? b.name : b) === name);
                         if (!exists) {
-                            const res = await syncBuiltupTypeLookup(configCategory, configSubCategory, configType, name, 'add');
+                            const res = await syncBuiltupTypeLookup(configCategory, configSubCategory, tObj.name, name, 'add');
                             if (res && (res._id || res.id)) {
                                 const newId = (res._id || res.id).toString();
-                                if (!typeObj.builtupTypes) typeObj.builtupTypes = [];
-                                typeObj.builtupTypes.push({ id: newId, name: name });
-                                await updateConfig(newConfig);
-                                showToast(`Builtup Type '${name}' added`);
+                                if (!tObj.builtupTypes) tObj.builtupTypes = [];
+                                tObj.builtupTypes.push({ id: newId, name: name });
+                                addedCount++;
                             } else {
-                                showToast("Failed to sync Builtup Type with Database. Configuration not saved.", "error");
-                                console.error("[PropertySettingsPage] Add failed: Server returned no ID", res);
+                                console.error("[PropertySettingsPage] Add failed for type", tObj.name);
                             }
-                        } else {
-                            alert("Builtup Type already exists.");
                         }
+                    }
+                    if (addedCount > 0) {
+                        await updateConfig(newConfig);
+                        showToast(`Builtup Type '${name}' added to all size types.`);
+                    } else {
+                        alert("Builtup Type already exists in all size types.");
                     }
                 }
             }
@@ -745,20 +748,25 @@ const PropertySettingsPage = () => {
             if (newName && newName !== oldName) {
                 const newConfig = JSON.parse(JSON.stringify(propertyConfig));
                 const subIndex = newConfig[configCategory].subCategories.findIndex(s => s.name === configSubCategory);
-                const typeObj = newConfig[configCategory].subCategories[subIndex].types.find(t => t.name === configType);
-                const index = typeObj.builtupTypes.findIndex(b => (typeof b === 'object' ? b.name : b) === oldName);
-                if (index > -1) {
-                    const existingItem = typeObj.builtupTypes[index];
-                    const existingId = typeof existingItem === 'object' ? existingItem.id : undefined;
-                    const res = await syncBuiltupTypeLookup(configCategory, configSubCategory, configType, newName, 'update', oldName);
-                    
-                    if (res && (res._id || res.id || existingId)) {
-                        const newId = (res._id || res.id || existingId).toString();
-                        typeObj.builtupTypes[index] = { _id: newId, name: newName };
+                if (subIndex > -1) {
+                    const allTypes = newConfig[configCategory].subCategories[subIndex].types;
+                    let updatedCount = 0;
+                    for (const tObj of allTypes) {
+                        const index = tObj.builtupTypes?.findIndex(b => (typeof b === 'object' ? b.name : b) === oldName);
+                        if (index > -1) {
+                            const existingItem = tObj.builtupTypes[index];
+                            const existingId = typeof existingItem === 'object' ? existingItem.id : undefined;
+                            const res = await syncBuiltupTypeLookup(configCategory, configSubCategory, tObj.name, newName, 'update', oldName);
+                            if (res && (res._id || res.id || existingId)) {
+                                const newId = (res._id || res.id || existingId).toString();
+                                tObj.builtupTypes[index] = { _id: newId, name: newName };
+                                updatedCount++;
+                            }
+                        }
+                    }
+                    if (updatedCount > 0) {
                         await updateConfig(newConfig);
-                        showToast(`Builtup Type updated to '${newName}'`);
-                    } else {
-                        showToast("Failed to update Builtup Type in Database.", "error");
+                        showToast(`Builtup Type updated to '${newName}' everywhere.`);
                     }
                 }
             }
@@ -766,14 +774,20 @@ const PropertySettingsPage = () => {
     };
 
     const handleDeleteBuiltupType = (name) => {
-        openConfirmModal(`Delete Builtup Type '${name}'?`, async () => {
+        openConfirmModal(`Delete Builtup Type '${name}' everywhere?`, async () => {
             const newConfig = JSON.parse(JSON.stringify(propertyConfig));
             const subIndex = newConfig[configCategory].subCategories.findIndex(s => s.name === configSubCategory);
-            const typeObj = newConfig[configCategory].subCategories[subIndex].types.find(t => t.name === configType);
-            typeObj.builtupTypes = typeObj.builtupTypes.filter(b => (typeof b === 'object' ? (b._id || b.id || b.name) : b) !== name);
-            await updateConfig(newConfig);
-            await syncBuiltupTypeLookup(configCategory, configSubCategory, configType, name, 'delete');
-            showToast(`Builtup Type '${name}' deleted`);
+            if (subIndex > -1) {
+                const allTypes = newConfig[configCategory].subCategories[subIndex].types;
+                for (const tObj of allTypes) {
+                    if (tObj.builtupTypes?.some(b => (typeof b === 'object' ? (b._id || b.id || b.name) : b) === name)) {
+                        tObj.builtupTypes = tObj.builtupTypes.filter(b => (typeof b === 'object' ? (b._id || b.id || b.name) : b) !== name);
+                        await syncBuiltupTypeLookup(configCategory, configSubCategory, tObj.name, name, 'delete');
+                    }
+                }
+                await updateConfig(newConfig);
+                showToast(`Builtup Type '${name}' deleted everywhere.`);
+            }
         });
     };
 
