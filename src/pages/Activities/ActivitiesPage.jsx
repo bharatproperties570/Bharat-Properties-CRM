@@ -114,10 +114,11 @@ const ActivityRow = memo(function ActivityRow({
                     {(() => {
                         if (activity.details?.outcome) return <span style={{ fontWeight: 700, color: '#0f172a', fontStyle: 'normal' }}>{renderValue(activity.details.outcome)}</span>;
                         if (activity.details?.feedback && activity.details?.formSource === 'InventoryFeedbackForm') return <span style={{ fontWeight: 700, color: '#0f172a', fontStyle: 'normal' }}>{renderValue(activity.details.feedback)}</span>;
-                        if (activity.entityType === 'Inventory' && activity.details?.agenda) {
-                            const match = activity.details.agenda.match(/discuss (.*?) for Unit/);
-                            if (match && match[1]) return <span style={{ fontWeight: 700, color: '#0f172a', fontStyle: 'normal' }}>{renderValue(match[1])}</span>;
-                        }
+                        
+                        const strToSearch = activity.details?.agenda || activity.subject || '';
+                        const match = String(strToSearch).match(/discuss (.*?) for Unit/i);
+                        if (match && match[1]) return <span style={{ fontWeight: 700, color: '#0f172a', fontStyle: 'normal' }}>{renderValue(match[1].trim())}</span>;
+
                         return renderValue(activity.subject || activity.details?.agenda);
                     })()}
                 </div>
@@ -170,7 +171,7 @@ const ActivityRow = memo(function ActivityRow({
 
             {/* Scheduled By */}
             <div className="text-ellipsis" style={{ fontSize: '0.8rem', color: '#334155', fontWeight: 600 }}>
-                {renderValue(activity.createdBy?.fullName || activity.createdBy?.name || activity.performedBy || activity.scheduledBy || '--')}
+                {renderValue(activity.assignedTo?.fullName || activity.assignedTo?.name || activity.createdBy?.fullName || activity.createdBy?.name || activity.performedBy || activity.scheduledBy || '--')}
             </div>
 
             {/* Scheduled For */}
@@ -234,7 +235,7 @@ function ActivitiesPage() {
     const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
     const [filters, setFilters] = useState({});
     const [searchTerm, setSearchTerm] = useState('');
-    const [sortConfig, setSortConfig] = useState({ label: 'Oldest Due', by: 'dueDate', order: 1, icon: 'fa-calendar-day' });
+    const [sortConfig, setSortConfig] = useState({ label: 'Recently Created', by: 'createdAt', order: -1, icon: 'fa-calendar-plus' });
     const [isSortOpen, setIsSortOpen] = useState(false);
 
     // Handlers
