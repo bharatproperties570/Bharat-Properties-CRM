@@ -72,8 +72,11 @@ const ActivityRow = memo(function ActivityRow({
 
             {/* Details */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', overflow: 'hidden' }}>
-                <div title={renderValue(activity.relatedTo?.[0]?.name || activity.participants?.[0]?.name)} className="text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0f172a' }}>
-                    {renderValue(activity.relatedTo?.[0]?.name || activity.participants?.[0]?.name || activity.contactName || 'Unknown Client')}
+                <div title={renderValue(activity.entityType === 'Inventory' ? activity.participants?.[0]?.name : (activity.relatedTo?.[0]?.name || activity.participants?.[0]?.name))} className="text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0f172a' }}>
+                    {renderValue(activity.entityType === 'Inventory' 
+                        ? (activity.participants?.[0]?.name || activity.contactName || 'Unknown Owner') 
+                        : (activity.relatedTo?.[0]?.name || activity.participants?.[0]?.name || activity.contactName || 'Unknown Client')
+                    )}
                 </div>
                 
                 {/* Mobile / Phone - Enterprise Multi-Path Lookup */}
@@ -107,7 +110,7 @@ const ActivityRow = memo(function ActivityRow({
 
             {/* Agenda */}
             <div style={{ fontSize: '0.75rem', color: '#475569', lineHeight: 1.5, overflow: 'hidden' }}>
-                <div className="address-clamp" style={{ fontStyle: 'italic' }}>{renderValue(activity.subject)}</div>
+                <div className="address-clamp" style={{ fontStyle: 'italic' }}>{renderValue(activity.subject || activity.details?.agenda)}</div>
             </div>
 
             {/* Activity Type */}
@@ -117,8 +120,8 @@ const ActivityRow = memo(function ActivityRow({
                     padding: '5px 12px',
                     borderRadius: '16px',
                     fontWeight: 700,
-                    background: activity.type === 'Meeting' ? '#dbeafe' : activity.type === 'Call' ? '#fef3c7' : '#d1fae5',
-                    color: activity.type === 'Meeting' ? '#1e40af' : activity.type === 'Call' ? '#92400e' : '#065f46',
+                    background: activity.type === 'Meeting' ? '#dbeafe' : activity.type === 'Call' || activity.type === 'Call Back' ? '#fef3c7' : '#d1fae5',
+                    color: activity.type === 'Meeting' ? '#1e40af' : activity.type === 'Call' || activity.type === 'Call Back' ? '#92400e' : '#065f46',
                 }}>
                     {renderValue(activity.type)}
                 </span>
@@ -126,9 +129,12 @@ const ActivityRow = memo(function ActivityRow({
 
             {/* Project / Feedback / Details */}
             <div style={{ fontSize: '0.75rem', color: '#475569', lineHeight: 1.5, overflow: 'hidden' }}>
-                {activity.details?.visitedProperties?.[0]?.project && (
+                {(activity.details?.visitedProperties?.[0]?.project || activity.entityType === 'Inventory') && (
                     <div className="text-ellipsis" style={{ fontSize: '0.75rem', color: '#0891b2', fontWeight: 600, marginBottom: '4px' }}>
-                        <i className="fas fa-building" style={{ marginRight: '4px' }}></i>{renderValue(activity.details.visitedProperties[0].project)}
+                        <i className="fas fa-building" style={{ marginRight: '4px' }}></i>
+                        {activity.entityType === 'Inventory' && activity.relatedTo?.[0]?.name 
+                            ? `Unit ${activity.relatedTo[0].name}`
+                            : renderValue(activity.details?.visitedProperties?.[0]?.project)}
                     </div>
                 )}
                 {activity.description && (
@@ -138,7 +144,7 @@ const ActivityRow = memo(function ActivityRow({
                 )}
                 {activity.details && Object.keys(activity.details).length > 0 && typeof activity.details === 'object' && !Array.isArray(activity.details) && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                        {Object.entries(activity.details).filter(([k, v]) => v && typeof v === 'string' && k !== 'visitedProperties').slice(0, 2).map(([key, value], i) => (
+                        {Object.entries(activity.details).filter(([k, v]) => v && typeof v === 'string' && k !== 'visitedProperties' && k !== 'formSource' && k !== 'platform' && k !== 'source' && k !== 'agenda').slice(0, 2).map(([key, value], i) => (
                             <span key={i} title={`${key}: ${renderValue(value)}`} className="text-ellipsis" style={{ maxWidth: '100%', fontSize: '0.65rem', background: '#f1f5f9', color: '#475569', padding: '2px 6px', borderRadius: '4px', border: '1px solid #e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden' }}>
                                 <span style={{ fontWeight: 700, textTransform: 'capitalize' }}>{key}</span>: {renderValue(value)}
                             </span>
@@ -149,12 +155,12 @@ const ActivityRow = memo(function ActivityRow({
 
             {/* Scheduled By */}
             <div className="text-ellipsis" style={{ fontSize: '0.8rem', color: '#334155', fontWeight: 600 }}>
-                {renderValue(activity.createdBy?.fullName || activity.createdBy?.name || activity.performedBy || activity.scheduledBy || '--')}
+                {renderValue(activity.performedBy || activity.createdBy?.fullName || activity.createdBy?.name || activity.scheduledBy || '--')}
             </div>
 
             {/* Scheduled For */}
             <div className="text-ellipsis" style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>
-                {renderValue(activity.assignedTo?.fullName || activity.assignedTo?.name || (activity.createdBy && !activity.assignedTo ? 'Self' : '--'))}
+                {renderValue(activity.assignedTo?.fullName || activity.assignedTo?.name || (activity.performedBy || activity.createdBy ? 'Self' : '--'))}
             </div>
 
             {/* Stage / Status */}
