@@ -210,7 +210,7 @@ function ActivitiesPage() {
     const [recordsPerPage, setRecordsPerPage] = useState(25);
 
     const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
-    const [filters, setFilters] = useState({ origin: ['Manual Follow-up'] });
+    const [filters, setFilters] = useState({});
     const [searchTerm, setSearchTerm] = useState('');
     const [sortConfig, setSortConfig] = useState({ label: 'Oldest Due', by: 'dueDate', order: 1, icon: 'fa-calendar-day' });
     const [isSortOpen, setIsSortOpen] = useState(false);
@@ -597,34 +597,6 @@ function ActivitiesPage() {
                             ))}
                         </div>
                         <div style={{ flex: 1 }}></div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '4px' }}>
-                            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#94a3b8' }}>VIEWING:</span>
-                            <div style={{ background: '#fff', border: '1px solid #e2e8f0', padding: '4px 8px', borderRadius: '20px', display: 'flex', gap: '6px' }}>
-                                {['Manual Follow-up', 'All Sources'].map(source => {
-                                    const isActive = source === 'All Sources' ? !filters.origin || filters.origin.length === 3 : filters.origin?.includes('Manual Follow-up') && filters.origin?.length === 1;
-                                    return (
-                                        <button 
-                                            key={source} 
-                                            onClick={() => {
-                                                if (source === 'All Sources') {
-                                                    setFilters(prev => { const n = { ...prev }; delete n.origin; return n; });
-                                                } else {
-                                                    setFilters(prev => ({ ...prev, origin: ['Manual Follow-up'] }));
-                                                }
-                                            }}
-                                            style={{ 
-                                                fontSize: '0.65rem', fontWeight: 800, border: 'none', 
-                                                background: isActive ? '#10b981' : 'transparent',
-                                                color: isActive ? '#fff' : '#64748b', cursor: 'pointer',
-                                                padding: '2px 10px', borderRadius: '15px', transition: 'all 0.2s'
-                                            }}
-                                        >
-                                            {source.toUpperCase()}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        </div>
                     </div>
                 </div>
 
