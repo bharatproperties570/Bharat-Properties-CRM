@@ -4,6 +4,7 @@ import { MarkerClusterer } from '@googlemaps/markerclusterer';
 
 const ProfessionalMap = ({
     items = [],
+    dealScores = {},
     center = MAP_CENTER,
     zoom = 13,
     onMarkerClick = null,
@@ -191,10 +192,20 @@ const ProfessionalMap = ({
                 validCoords++;
                 const position = { lat, lng };
 
+                const scoreData = dealScores[item._id || item.id] || {};
+                const gapPct = scoreData.marketGapPct;
+                const orientationScore = item.orientationScore || scoreData.orientationScore || null;
+
                 const intentStr = String(item.intent?.lookup_value || item.intent || item.primaryDealIntent || '').toLowerCase();
                 const isDemand = intentStr === 'buy' || intentStr === 'rent';
 
                 const getMarkerColor = () => {
+                    // Investor Map Priority Override
+                    if (gapPct !== undefined && gapPct !== null) {
+                        if (gapPct < -10) return '#10b981'; // Green: Undervalued
+                        if (gapPct > 15) return '#ef4444'; // Red: Overpriced
+                        return '#eab308'; // Yellow: Fair
+                    }
                     if (intentStr === 'sell') return '#ec4899'; // Pink
                     if (intentStr === 'rent') return '#f59e0b'; // Yellow
                     if (intentStr === 'lease') return '#3b82f6'; // Blue
@@ -292,12 +303,29 @@ const ProfessionalMap = ({
                     }
 
                     const statusDisplay = item.status?.lookup_value || item.status || 'Active';
+                    let pricingHtml = '';
+                    if (gapPct !== undefined && gapPct !== null) {
+                        const isUnder = gapPct < -10;
+                        const isOver = gapPct > 15;
+                        const badgeColor = isUnder ? '#10b981' : isOver ? '#ef4444' : '#eab308';
+                        const badgeText = isUnder ? 'Undervalued' : isOver ? 'Overpriced' : 'Fair';
+                        pricingHtml = `
+                        <div style="margin-top: 8px; padding: 6px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-size: 11px; color: #475569; font-weight: 600;">Market Gap:</span>
+                            <span style="font-size: 11px; font-weight: 700; color: ${badgeColor}; display:flex; align-items:center; gap: 4px;">
+                                ${gapPct > 0 ? '+' : ''}${gapPct}% 
+                                <span style="background: ${badgeColor}22; padding: 2px 4px; border-radius: 3px; font-size: 9px; text-transform: uppercase;">${badgeText}</span>
+                            </span>
+                        </div>
+                        `;
+                    }
 
                     const contentString = `
-                        <div style="font-family: inherit; min-width: 200px; padding: 4px;">
+                        <div style="font-family: inherit; min-width: 210px; padding: 4px;">
                             <h4 style="margin: 0 0 2px 0; font-size: 14px; font-weight: 700; color: #1e293b; display: flex; align-items: center; justify-content: flex-start; gap: 8px;">
                                 ${item.unitNo ? `<span style="background: ${getUnitBg()}; color: ${getUnitColor()}; font-size: 10px; padding: 2px 6px; border-radius: 4px; border: 1px solid ${getUnitColor()}33; white-space: nowrap;">${item.unitNo}</span>` : ''}
                                 <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px;">${item.projectName || item.location || 'Property Requirement'}</span>
+                                ${orientationScore >= 80 ? '<i class="fas fa-gem" style="color:#8b5cf6; font-size:12px;" title="Prime Asset"></i>' : ''}
                             </h4>
                             ${item.block ? `<div style="font-size: 11px; color: #64748b; margin-bottom: 8px; font-weight: 500;">Block: <span style="color: #475569; font-weight: 700;">${item.block}</span></div>` : '<div style="margin-bottom: 8px;"></div>'}
                             
@@ -312,6 +340,7 @@ const ProfessionalMap = ({
                                     <span style="color: #10b981; font-weight: 600;">${priceFormatted}</span>
                                 </div>
                                 ` : ''}
+                                ${pricingHtml}
                                 <div style="margin-top: 4px; padding-top: 4px; border-top: 1px dashed #e2e8f0;">
                                     <span style="display:block; font-size:10px; text-transform:uppercase; font-weight:700; color:#94a3b8; margin-bottom:2px;">${footerTitle}</span>
                                     <div style="font-size:11.5px; display: flex; justify-content: space-between;">

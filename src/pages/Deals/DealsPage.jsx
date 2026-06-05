@@ -1061,6 +1061,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                             <div style={{ flex: 1, position: 'relative' }}>
                                 <ProfessionalMap
                                     items={filteredDeals}
+                                    dealScores={dealScores}
                                     activeDealId={activeMapDealId}
                                     onMarkerClick={(deal) => onNavigate('deal-detail', deal._id)}
                                 />
