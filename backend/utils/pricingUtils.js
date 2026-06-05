@@ -178,9 +178,15 @@ export function getAreaUnit(subCategoryValue) {
  * @returns {number} - Equivalent area in Sq.Ft
  */
 export function toSqFt(value, unit) {
-    if (!value || isNaN(value)) return 0;
+    if (!value) return 0;
     const v = parseFloat(value);
-    const u = String(unit || '').toLowerCase().replace(/[\s.]/g, '');
+    if (isNaN(v) || v <= 0) return 0;
+    
+    // If unit is undefined, try to extract it from value string (e.g. '14 Marla')
+    let u = String(unit || '').toLowerCase().replace(/[\s.]/g, '');
+    if (!u && typeof value === 'string') {
+        u = value.toLowerCase().replace(/[\s.]/g, '');
+    }
 
     if (u.includes('sqyd') || u.includes('sqyard') || u === 'yard') return v * AREA_CONVERSIONS.SQ_FT_PER_SQ_YD;
     if (u.includes('marla')) return v * AREA_CONVERSIONS.SQ_FT_PER_MARLA;

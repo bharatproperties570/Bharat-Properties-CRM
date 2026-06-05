@@ -205,14 +205,18 @@ const InventoryTable = ({
                                         </div>
                                         <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#2563eb', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                             <i className="fas fa-expand-arrows-alt" style={{ fontSize: '0.65rem' }}></i>
-                                            {renderValue(
-                                                resolveInventoryLookup(item.sizeConfig, 'Size') || 
-                                                resolveInventoryLookup(item.sizeType, 'PropertyType') ||
-                                                resolveInventoryLookup(item.sizeLabel, 'Size') ||
-                                                resolveInventoryLookup(item.sizeLabel, 'PropertyType') ||
-                                                item.sizeLabel || 
-                                                (typeof item.size === 'object' ? (item.size?.value ? `${item.size.value} ${item.size.unit || ''}` : null) : item.size)
-                                            )}
+                                            {(() => {
+                                                const sizeStr = resolveInventoryLookup(item.sizeConfig, 'Size') || 
+                                                                resolveInventoryLookup(item.sizeType, 'PropertyType') ||
+                                                                resolveInventoryLookup(item.sizeLabel, 'Size') ||
+                                                                resolveInventoryLookup(item.sizeLabel, 'PropertyType') ||
+                                                                item.sizeLabel || 
+                                                                (typeof item.size === 'object' ? (item.size?.value ? `${item.size.value} ${item.size.unit || ''}` : null) : item.size);
+                                                
+                                                // Prevent rendering '0' if it's literally just the number 0
+                                                if (sizeStr === 0 || sizeStr === '0') return null;
+                                                return renderValue(sizeStr);
+                                            })()}
                                         </div>
 
                                     </div>
