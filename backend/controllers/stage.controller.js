@@ -14,6 +14,7 @@ import Lookup from '../models/Lookup.js';
 import AuditLog from '../models/AuditLog.js';
 import mongoose from 'mongoose';
 import { getVisibilityFilter } from "../utils/visibility.js";
+import { toSqFt } from '../utils/pricingUtils.js';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -966,7 +967,9 @@ export const getDealScores = async (req, res) => {
         }
 
         const deals = await Deal.find(dealQuery)
-            .select('_id stage history lastActivityAt createdAt')
+            .select('_id stage history lastActivityAt createdAt price size sizeUnit location subCategory ratePerUnit')
+            .populate('subCategory', 'lookup_value')
+            .populate('location', 'lookup_value')
             .lean();
             
         const dealIds = deals.map(d => d._id);
@@ -984,6 +987,50 @@ export const getDealScores = async (req, res) => {
         ]);
         const activityStatsMap = new Map(activityStats.map(s => [s._id.toString(), s]));
             
+        // 3. Market Gap Integration
+        const uniqueLookupIds = new Set();
+        deals.forEach(d => {
+            if (d.location && mongoose.Types.ObjectId.isValid(d.location)) uniqueLookupIds.add(d.location.toString());
+            if (d.subCategory && mongoose.Types.ObjectId.isValid(d.subCategory)) uniqueLookupIds.add(d.subCategory.toString());
+        });
+        
+        const lookupMap = new Map();
+        if (uniqueLookupIds.size > 0) {
+            const Lookup = mongoose.model('Lookup');
+            const lookups = await Lookup.find({ _id: { $in: Array.from(uniqueLookupIds) } }).lean();
+            lookups.forEach(l => lookupMap.set(l._id.toString(), l.lookup_value));
+        }
+
+        const uniqueParams = new Set();
+        deals.forEach(d => {
+            let locVal = d.location;
+            if (locVal && mongoose.Types.ObjectId.isValid(locVal)) locVal = lookupMap.get(locVal.toString()) || locVal.toString();
+            else if (typeof locVal === 'object' && locVal?.lookup_value) locVal = locVal.lookup_value;
+
+            let subCatVal = d.subCategory;
+            if (subCatVal && mongoose.Types.ObjectId.isValid(subCatVal)) subCatVal = lookupMap.get(subCatVal.toString()) || subCatVal.toString();
+            else if (typeof subCatVal === 'object' && subCatVal?.lookup_value) subCatVal = subCatVal.lookup_value;
+
+            if (locVal && subCatVal && typeof locVal === 'string' && typeof subCatVal === 'string') {
+                uniqueParams.add(`${locVal}|${subCatVal}`);
+            }
+        });
+
+        const benchmarkMap = new Map();
+        if (uniqueParams.size > 0) {
+            const PricingBenchmark = mongoose.model('PricingBenchmark');
+            const queries = Array.from(uniqueParams).map(param => {
+                const [loc, subCat] = param.split('|');
+                return { location: loc, subCategory: subCat, period: 'trailing-90d' };
+            });
+            if (queries.length > 0) {
+                const benchmarks = await PricingBenchmark.find({ $or: queries }).lean();
+                benchmarks.forEach(bm => {
+                    benchmarkMap.set(`${bm.location}|${bm.subCategory}`, bm);
+                });
+            }
+        }
+
         const scores = {};
         const now = new Date();
 
@@ -1019,7 +1066,56 @@ export const getDealScores = async (req, res) => {
             // Check for meetings
             if (stats.meetings > 0) historyBonus += (historyRules.meetingsDone?.points || 15);
 
-            const score = Math.min(100, Math.max(0, stageWeight + activityBonus + historyBonus));
+            // 3. Market Pricing Gap (Pricing Intelligence Option 4)
+            let marketGapPct = null;
+            let gapBonus = 0;
+            
+            let locVal = deal.location;
+            if (locVal && mongoose.Types.ObjectId.isValid(locVal)) locVal = lookupMap.get(locVal.toString()) || locVal.toString();
+            else if (typeof locVal === 'object' && locVal?.lookup_value) locVal = locVal.lookup_value;
+
+            let subCatVal = deal.subCategory;
+            if (subCatVal && mongoose.Types.ObjectId.isValid(subCatVal)) subCatVal = lookupMap.get(subCatVal.toString()) || subCatVal.toString();
+            else if (typeof subCatVal === 'object' && subCatVal?.lookup_value) subCatVal = subCatVal.lookup_value;
+            
+            if (locVal && subCatVal && typeof locVal === 'string' && typeof subCatVal === 'string') {
+                const bm = benchmarkMap.get(`${locVal}|${subCatVal}`);
+                if (bm && bm.avgClosedRPU && deal.price) {
+                    // Try to determine size value
+                    const dealSizeVal = typeof deal.size === 'object' ? deal.size?.value : deal.size;
+                    
+                    if (dealSizeVal) {
+                        const sqFtSize = toSqFt(dealSizeVal, deal.sizeUnit);
+                        if (sqFtSize > 0) {
+                            // Compute RPU in target AreaUnit using getAreaUnit from pricingUtils if we wanted, 
+                            // but actually bm.avgClosedRPU is in bm.areaUnit.
+                            // The simplest way to be safe is comparing the deal's ratePerUnit directly if it's there.
+                            let dealRPU = deal.ratePerUnit;
+                            
+                            // If dealRPU isn't set, calculate it on the fly in SqFt, then convert to standard unit?
+                            // For simplicity, if we don't have deal.ratePerUnit, and since Pricing Benchmark
+                            // avgClosedRPU is in standard unit, let's just use the deal's price / size value 
+                            // assuming the sizeUnit matches standard unit (which is 99% the case in deals).
+                            if (!dealRPU) {
+                                dealRPU = deal.price / parseFloat(dealSizeVal);
+                            }
+                            
+                            if (dealRPU > 0) {
+                                const diff = dealRPU - bm.avgClosedRPU;
+                                marketGapPct = Math.round((diff / bm.avgClosedRPU) * 100);
+                                
+                                // Overpriced drops probability, underpriced boosts it
+                                if (marketGapPct > 10) gapBonus = -20;
+                                else if (marketGapPct > 5) gapBonus = -10;
+                                else if (marketGapPct < -5) gapBonus = 10;
+                                else if (marketGapPct < -10) gapBonus = 20;
+                            }
+                        }
+                    }
+                }
+            }
+
+            const score = Math.min(100, Math.max(0, stageWeight + activityBonus + historyBonus + gapBonus));
             
             // Bands logic
             let color = '#3b82f6'; // Blue
@@ -1028,7 +1124,7 @@ export const getDealScores = async (req, res) => {
             else if (score >= 60) { color = '#f59e0b'; label = 'Hot'; }
             else if (score < 30) { color = '#94a3b8'; label = 'Cold'; }
 
-            scores[deal._id.toString()] = { score, color, label };
+            scores[deal._id.toString()] = { score, color, label, marketGapPct };
         });
 
         res.json({ success: true, count: deals.length, scores });

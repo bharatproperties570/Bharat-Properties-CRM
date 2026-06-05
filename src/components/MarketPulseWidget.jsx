@@ -8,7 +8,7 @@
  * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
  */
 import React, { useEffect, useState } from 'react';
-import { pricingAPI, formatINRFull } from '../../utils/pricingAPI';
+import { pricingAPI, formatINRFull } from '../utils/pricingAPI';
 
 const AREA_UNIT_LABELS = {
     PER_SQ_FT:  '/Sq.Ft.',

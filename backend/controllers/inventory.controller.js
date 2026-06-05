@@ -7,9 +7,13 @@ import User from "../models/User.js";
 import Contact from "../models/Contact.js";
 import Team from "../models/Team.js";
 import Project from "../models/Project.js"; // REQUIRED for population
-import { paginate } from "../utils/pagination.js";
-import mongoose from "mongoose";
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import mongoose from 'mongoose';
 import { getVisibilityFilter } from "../utils/visibility.js";
+import { toSqFt } from '../utils/pricingUtils.js';
+import { paginate } from "../utils/pagination.js";
 
 import DuplicationRule from "../models/DuplicationRule.js";
 import { normalizePhone } from "../utils/normalization.js";
@@ -680,6 +684,43 @@ export const getInventory = async (req, res) => {
         const teamMap = new Map(teams.map(t => [t._id.toString(), t]));
         const projectMap = new Map(projects.map(p => [p._id.toString(), p]));
 
+        // --- Market Gap Integration (Pricing Intelligence) ---
+        const uniquePricingParams = new Set();
+        results.records.forEach(item => {
+            let locVal = item.address?.locality || item.address?.location || item.address?.area;
+            if (locVal && mongoose.Types.ObjectId.isValid(locVal)) {
+                locVal = lookupMap.get(locVal.toString())?.lookup_value || locVal.toString();
+            } else if (typeof locVal === 'object' && locVal?.lookup_value) {
+                locVal = locVal.lookup_value;
+            }
+            
+            let subCatVal = item.subCategory;
+            if (subCatVal && mongoose.Types.ObjectId.isValid(subCatVal)) {
+                subCatVal = lookupMap.get(subCatVal.toString())?.lookup_value || subCatVal.toString();
+            } else if (typeof subCatVal === 'object' && subCatVal?.lookup_value) {
+                subCatVal = subCatVal.lookup_value;
+            }
+            
+            if (locVal && subCatVal && typeof locVal === 'string' && typeof subCatVal === 'string') {
+                uniquePricingParams.add(`${locVal}|${subCatVal}`);
+            }
+        });
+
+        const benchmarkMap = new Map();
+        if (uniquePricingParams.size > 0) {
+            const PricingBenchmark = mongoose.models.PricingBenchmark || mongoose.model('PricingBenchmark');
+            const queries = Array.from(uniquePricingParams).map(param => {
+                const [loc, subCat] = param.split('|');
+                return { location: loc, subCategory: subCat, period: 'trailing-90d' };
+            });
+            if (queries.length > 0) {
+                const benchmarks = await PricingBenchmark.find({ $or: queries }).lean();
+                benchmarks.forEach(bm => {
+                    benchmarkMap.set(`${bm.location}|${bm.subCategory}`, bm);
+                });
+            }
+        }
+
         results.records = results.records.map((item) => {
             const itemObj = { ...item };
             
@@ -765,11 +806,33 @@ export const getInventory = async (req, res) => {
                 else primaryDealIntent = dealIntents[0];
             }
 
+            // --- Compute Market Gap ---
+            let marketGapPct = null;
+            let bmLoc = itemObj.address?.locality || itemObj.address?.location || itemObj.address?.area;
+            if (bmLoc && typeof bmLoc === 'object') bmLoc = bmLoc.lookup_value;
+            
+            let bmSubCat = itemObj.subCategory;
+            if (bmSubCat && typeof bmSubCat === 'object' && !Array.isArray(bmSubCat)) bmSubCat = bmSubCat.lookup_value;
+            else if (Array.isArray(bmSubCat) && bmSubCat.length > 0) bmSubCat = bmSubCat[0].lookup_value || bmSubCat[0];
+
+            if (bmLoc && bmSubCat && typeof bmLoc === 'string' && typeof bmSubCat === 'string') {
+                const bm = benchmarkMap.get(`${bmLoc}|${bmSubCat}`);
+                if (bm && bm.avgClosedRPU && itemObj.price?.value && itemObj.size?.value) {
+                    const sqFtSize = toSqFt(itemObj.size.value, itemObj.size.unit || 'Sq.Ft.');
+                    if (sqFtSize > 0) {
+                        const rpu = itemObj.price.value / sqFtSize;
+                        const diff = rpu - bm.avgClosedRPU;
+                        marketGapPct = Math.round((diff / bm.avgClosedRPU) * 100);
+                    }
+                }
+            }
+
             return {
                 ...itemObj,
                 hasDeal: dealIntents.length > 0,
                 dealIntents,
-                primaryDealIntent
+                primaryDealIntent,
+                marketGapPct
             };
         });
 

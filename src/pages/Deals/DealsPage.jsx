@@ -1435,7 +1435,7 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
             {/* Col 5: Expectation */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', padding: '8px', background: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)', borderRadius: '6px' }}>
                 <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#15803d' }}>{formatIndianCurrency(deal.price)}</div>
-                <div style={{ fontSize: '0.65rem', color: '#64748b', lineHeight: 1.2, fontStyle: 'italic' }}>
+                <div style={{ fontSize: '0.65rem', color: '#64748b', lineHeight: 1.2, fontStyle: 'italic', marginBottom: '4px' }}>
                     {deal.priceInWords || deal.priceWord || numberToIndianWords(deal.price)}
                 </div>
             </div>
@@ -1479,6 +1479,18 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
             {/* Col 8: Stage */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <DealStageChip stage={deal.stage || 'Open'} />
+                {s && s.marketGapPct !== undefined && s.marketGapPct !== null && (
+                    <div style={{ 
+                        display: 'inline-flex', alignItems: 'center', gap: '4px', 
+                        fontSize: '0.6rem', fontWeight: 800, 
+                        color: s.marketGapPct > 0 ? '#ef4444' : s.marketGapPct < 0 ? '#10b981' : '#64748b', 
+                        background: s.marketGapPct > 0 ? '#fef2f2' : s.marketGapPct < 0 ? '#ecfdf5' : '#f1f5f9', 
+                        padding: '2px 6px', borderRadius: '4px', width: 'fit-content', border: `1px solid ${s.marketGapPct > 0 ? '#fecaca' : s.marketGapPct < 0 ? '#a7f3d0' : '#e2e8f0'}`
+                    }}>
+                        {s.marketGapPct > 0 ? <i className="fas fa-arrow-up"></i> : s.marketGapPct < 0 ? <i className="fas fa-arrow-down"></i> : <i className="fas fa-minus"></i>}
+                        {Math.abs(s.marketGapPct)}% {s.marketGapPct > 0 ? 'Premium' : s.marketGapPct < 0 ? 'Below Mkt' : 'Fair'}
+                    </div>
+                )}
                 {deal.stageUpdatedAt && (
                     <div style={{ fontSize: '0.62rem', color: '#94a3b8' }}>
                         <i className="fas fa-robot" style={{ marginRight: '3px', fontSize: '0.58rem' }} />

@@ -214,6 +214,7 @@ const InventoryTable = ({
                                                 (typeof item.size === 'object' ? (item.size?.value ? `${item.size.value} ${item.size.unit || ''}` : null) : item.size)
                                             )}
                                         </div>
+
                                     </div>
                                 </div>
 

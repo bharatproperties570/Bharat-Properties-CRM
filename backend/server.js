@@ -4,6 +4,7 @@ import connectDB from "./config/db.js";
 import NurtureBot from "./services/NurtureBot.js";
 import { initMatchingScheduler } from "./services/matchingScheduler.js";
 import AgingCronService from "./services/AgingCronService.js";
+import { startNightlyPricingCron } from "./jobs/nightlyPricingCron.js";
 
 // 🧠 SENIOR ARCHITECTURE: Initialize background workers
 import "./src/workers/marketingWorker.js";
@@ -19,6 +20,9 @@ connectDB().then(() => {
         // Initialize Auto-Aging Engine
         AgingCronService.init();
         
+        // Initialize Nightly Pricing Intelligence Benchmark Aggregation
+        startNightlyPricingCron();
+
         // --- 🤖 UNIVERSAL CRON FALLBACK (NurtureBot) ---
         // Runs every hour to advance leads through the Nurture Flow automatically.
         const NURTURE_INTERVAL = 60 * 60 * 1000; // 1 Hour

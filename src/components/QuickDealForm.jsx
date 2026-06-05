@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import QuickInventoryForm from './common/QuickInventoryForm';
 import { renderValue } from '../utils/renderUtils';
+import SmartQuoteSuggestor from './SmartQuoteSuggestor';
 
 const QuickDealForm = ({
     currentItem,
@@ -525,6 +526,14 @@ const QuickDealForm = ({
                             }}
                         />
                     </div>
+                </div>
+
+                {/* Smart Price Suggestor */}
+                <div style={{ marginTop: '20px' }}>
+                    <SmartQuoteSuggestor 
+                        inventoryId={selectedProperty?.id || selectedProperty?._id}
+                        onSelectPrice={(val) => setDealPrice(val.toString())}
+                    />
                 </div>
             </div>
 

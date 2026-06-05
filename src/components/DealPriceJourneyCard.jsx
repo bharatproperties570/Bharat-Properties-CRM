@@ -10,7 +10,7 @@
  * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
  */
 import React, { useEffect, useState, useRef } from 'react';
-import { pricingAPI, formatINRShort, formatINRFull, POSITIONING_CONFIG } from '../../utils/pricingAPI';
+import { pricingAPI, formatINRShort, formatINRFull, POSITIONING_CONFIG } from '../utils/pricingAPI';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 

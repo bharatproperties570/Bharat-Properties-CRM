@@ -9,7 +9,7 @@
  * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
  */
 import React, { useEffect, useState, useRef } from 'react';
-import { pricingAPI, POSITIONING_CONFIG, TREND_CONFIG, PERSONA_CONFIG, formatINRShort, formatINRFull } from '../../utils/pricingAPI';
+import { pricingAPI, POSITIONING_CONFIG, TREND_CONFIG, PERSONA_CONFIG, formatINRShort, formatINRFull } from '../utils/pricingAPI';
 
 // ─── Micro sub-components ────────────────────────────────────────────────────
 
