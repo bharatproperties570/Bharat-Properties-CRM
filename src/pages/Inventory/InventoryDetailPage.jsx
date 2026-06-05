@@ -20,6 +20,8 @@ import BuiltupDetailsCard from '../Inventory/components/BuiltupDetailsCard';
 import MatchedLeadsCard from '../../components/MatchedLeadsCard';
 import InventorySidebar from './components/InventorySidebar';
 import UnifiedActivitySection from '../../components/Activities/UnifiedActivitySection';
+import PriceIntelligenceCard from '../../components/PriceIntelligenceCard';
+
 
 // Modals
 import UploadModal from '../../components/UploadModal';
@@ -234,6 +236,10 @@ export default function InventoryDetailPage({ inventoryId, onBack, onAddActivity
                     />
 
                     <BuiltupDetailsCard inventory={inventory} getLookupValue={getLookupValue} />
+
+                    {/* ── Price Intelligence Card ── */}
+                    <PriceIntelligenceCard inventoryId={inventoryId} />
+
                 </div>
 
                 {/* COLUMN 2: CENTER - INTERACTION INTELLIGENCE */}

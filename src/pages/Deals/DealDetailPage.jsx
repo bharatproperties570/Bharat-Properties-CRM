@@ -45,6 +45,8 @@ import SendMessageModal from '../../components/SendMessageModal';
 import ComposeEmailModal from '../Communication/components/ComposeEmailModal';
 import ManageTagsModal from '../../components/ManageTagsModal';
 import MarketingTab from './components/MarketingTab';
+import PriceIntelligenceCard from '../../components/PriceIntelligenceCard';
+import DealPriceJourneyCard from '../../components/DealPriceJourneyCard';
 
 const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
     const { user } = useUserContext();
@@ -773,6 +775,10 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                             financials={financials} 
                             setIsOfferModalOpen={setIsOfferModalOpen} 
                         />
+
+                        {/* ── Price Intelligence + Deal Journey ── */}
+                        <PriceIntelligenceCard dealId={dealId} compact />
+                        <DealPriceJourneyCard dealId={dealId} deal={deal} />
 
                         <MatchedLeadsCard 
                             matchingLeads={matchingLeads} 

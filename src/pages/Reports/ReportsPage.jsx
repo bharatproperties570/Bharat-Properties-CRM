@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import Chart from 'react-apexcharts';
 import { api } from '../../utils/api';
 import toast from 'react-hot-toast';
+import { pricingAPI, POSITIONING_CONFIG, TREND_CONFIG, formatINRFull } from '../../utils/pricingAPI';
 
 const ReportsPage = () => {
     const [activeTab, setActiveTab] = useState('insights');
@@ -112,6 +113,7 @@ const ReportsPage = () => {
         { id: 'insights', label: 'Strategic Insights', icon: 'fa-brain' },
         { id: 'matrix', label: 'Executive Matrix', icon: 'fa-shield-alt' },
         { id: 'market', label: 'Market Hotspots', icon: 'fa-map-marked-alt' },
+        { id: 'price_intel', label: 'Price Intelligence', icon: 'fa-chart-bar' },
         { id: 'revenue', label: 'Debt Dynamics', icon: 'fa-coins' },
         { id: 'activity', label: 'Activity Reports', icon: 'fa-tasks' },
         { id: 'leads', label: 'Lead Analysis', icon: 'fa-filter' },
@@ -131,6 +133,7 @@ const ReportsPage = () => {
                         <StrategicInsightsSection active={activeTab === 'insights'} data={reportsData} />
                         <ExecutiveMatrixSection active={activeTab === 'matrix'} data={reportsData} />
                         <MarketHotspotsSection active={activeTab === 'market'} data={reportsData} />
+                        <MarketAnalyticsSection active={activeTab === 'price_intel'} />
                         <DebtDynamicsSection active={activeTab === 'revenue'} data={reportsData} />
 
                         <ActivitySection active={activeTab === 'activity'} data={reportsData.activity} />
@@ -677,4 +680,261 @@ const SalesSection = React.memo(function SalesSection({ active, data }) {
 SalesSection.displayName = 'SalesSection';
 
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// MARKET ANALYTICS SECTION — Price Intelligence Reports
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const AREA_UNIT_LABELS = {
+    PER_SQ_FT:  'per Sq.Ft.',
+    PER_SQ_YD:  'per Sq.Yd.',
+    PER_KANAL:  'per Kanal',
+    PER_ACRE:   'per Acre',
+    PER_MARLA:  'per Marla',
+};
+
+const MarketAnalyticsSection = React.memo(function MarketAnalyticsSection({ active }) {
+    const [pulse, setPulse] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [aggregating, setAggregating] = useState(false);
+    const [activeView, setActiveView] = useState('hot');
+
+    useEffect(() => {
+        if (!active) return;
+        setLoading(true);
+        pricingAPI.getMarketPulse({ limit: 10 })
+            .then(res => { if (res.status === 'success') setPulse(res.data); })
+            .catch(() => {})
+            .finally(() => setLoading(false));
+    }, [active]);
+
+    if (!active) return null;
+
+    const handleAggregate = () => {
+        setAggregating(true);
+        toast.promise(
+            pricingAPI.aggregate({ trailingDays: 90 })
+                .then(res => {
+                    return pricingAPI.getMarketPulse({ limit: 10 });
+                })
+                .then(res => {
+                    if (res.status === 'success') setPulse(res.data);
+                }),
+            {
+                loading: 'Running market benchmark aggregation (90 days)…',
+                success: 'Benchmarks updated! Market pulse is fresh.',
+                error: 'Aggregation failed. Check backend logs.'
+            }
+        ).finally(() => setAggregating(false));
+    };
+
+    // Build chart series from pulse data
+    const hotLocations = pulse?.hotMarkets || [];
+    const stableLocations = pulse?.stableMarkets || [];
+    const downLocations = pulse?.downMarkets || [];
+
+    const allLocations = [...hotLocations, ...stableLocations, ...downLocations];
+    const trendChartOptions = {
+        chart: { type: 'bar', toolbar: { show: false }, fontFamily: 'Inter, sans-serif' },
+        plotOptions: { bar: { horizontal: true, borderRadius: 6, barHeight: '60%' } },
+        colors: allLocations.map(m => m.trend === 'upward' ? '#16a34a' : m.trend === 'downward' ? '#dc2626' : '#d97706'),
+        xaxis: { categories: allLocations.map(m => `${m.location} (${m.subCategory})`), labels: { style: { fontSize: '0.7rem' } } },
+        dataLabels: { enabled: true, formatter: (v) => `${v >= 0 ? '+' : ''}${v?.toFixed(1)}%` },
+        tooltip: { y: { formatter: (v) => `${v >= 0 ? '+' : ''}${v?.toFixed(1)}% trend` } },
+        legend: { show: false },
+        grid: { borderColor: '#f1f5f9' },
+    };
+
+    const rateChartOptions = {
+        chart: { type: 'bar', toolbar: { show: false }, fontFamily: 'Inter, sans-serif' },
+        plotOptions: { bar: { borderRadius: 6, columnWidth: '60%' } },
+        colors: ['#4f46e5'],
+        xaxis: { categories: allLocations.slice(0, 8).map(m => m.location.split(',')[0]), labels: { style: { fontSize: '0.7rem' } } },
+        yaxis: { labels: { formatter: (v) => `₹${(v / 1000).toFixed(0)}K` } },
+        dataLabels: { enabled: false },
+        grid: { borderColor: '#f1f5f9' },
+    };
+
+    const positioningDonutOptions = {
+        labels: ['Undervalued', 'Fair Value', 'Overpriced', 'No Data'],
+        colors: ['#2563eb', '#16a34a', '#dc2626', '#cbd5e1'],
+        chart: { type: 'donut', fontFamily: 'Inter, sans-serif' },
+        legend: { position: 'bottom', fontSize: '12px' },
+        plotOptions: { pie: { donut: { size: '65%', labels: { show: true, total: { show: true, label: 'Properties Analyzed', fontSize: '12px' } } } } },
+        dataLabels: { enabled: false },
+    };
+
+    return (
+        <div className="report-grid animate-in">
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '28px' }}>
+                <div>
+                    <h2 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 900, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <span style={{ width: '40px', height: '40px', background: 'linear-gradient(135deg, #4f46e5, #7c3aed)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <i className="fas fa-brain" style={{ color: '#fff', fontSize: '1rem' }} />
+                        </span>
+                        Price Intelligence Analytics
+                    </h2>
+                    <p style={{ margin: '6px 0 0 52px', fontSize: '0.8rem', color: '#64748b' }}>
+                        Market-level price benchmarks · Orientation premium analysis · Deal price journey insights
+                    </p>
+                </div>
+                <button
+                    onClick={handleAggregate}
+                    disabled={aggregating}
+                    style={{
+                        display: 'flex', alignItems: 'center', gap: '8px',
+                        padding: '10px 18px', borderRadius: '10px', border: 'none', cursor: 'pointer',
+                        background: aggregating ? '#e2e8f0' : 'linear-gradient(135deg, #4f46e5, #7c3aed)',
+                        color: aggregating ? '#94a3b8' : '#fff', fontWeight: 700, fontSize: '0.82rem',
+                    }}
+                >
+                    <i className={`fas fa-sync-alt ${aggregating ? 'fa-spin' : ''}`} />
+                    {aggregating ? 'Aggregating…' : 'Refresh Benchmarks (90d)'}
+                </button>
+            </div>
+
+            {loading ? (
+                <div style={{ textAlign: 'center', padding: '60px', color: '#94a3b8' }}>
+                    <div style={{ width: '32px', height: '32px', border: '3px solid #e2e8f0', borderTopColor: '#4f46e5', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 16px' }} />
+                    <div>Loading market intelligence…</div>
+                    <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+                </div>
+            ) : !pulse || allLocations.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '60px', background: '#fff', borderRadius: '20px', border: '1px dashed #e2e8f0' }}>
+                    <i className="fas fa-chart-bar" style={{ fontSize: '3rem', color: '#e2e8f0', display: 'block', marginBottom: '16px' }} />
+                    <h3 style={{ color: '#374151', margin: '0 0 8px' }}>No Market Benchmarks Yet</h3>
+                    <p style={{ color: '#94a3b8', fontSize: '0.85rem', margin: '0 0 20px' }}>
+                        Click "Refresh Benchmarks" to aggregate closed deals (minimum 3 closed deals per location required).
+                    </p>
+                </div>
+            ) : (
+                <>
+                    {/* KPI Summary Row */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '28px' }}>
+                        {[
+                            { label: 'Hot Markets', value: hotLocations.length, icon: 'fa-fire', color: '#16a34a', bg: '#f0fdf4' },
+                            { label: 'Stable Markets', value: stableLocations.length, icon: 'fa-minus', color: '#d97706', bg: '#fffbeb' },
+                            { label: 'Declining Markets', value: downLocations.length, icon: 'fa-arrow-trend-down', color: '#dc2626', bg: '#fef2f2' },
+                            { label: 'Total Benchmarks', value: allLocations.length, icon: 'fa-database', color: '#4f46e5', bg: '#f0f0ff' },
+                        ].map((kpi, i) => (
+                            <div key={i} style={{ padding: '20px', background: kpi.bg, borderRadius: '14px', border: `1px solid ${kpi.color}20` }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                                    <i className={`fas ${kpi.icon}`} style={{ color: kpi.color }} />
+                                    <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>{kpi.label}</span>
+                                </div>
+                                <div style={{ fontSize: '2rem', fontWeight: 900, color: kpi.color }}>{kpi.value}</div>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Charts Row */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginBottom: '28px' }}>
+                        {/* Trend Chart */}
+                        <div style={{ background: '#fff', borderRadius: '18px', padding: '24px', boxShadow: '0 4px 20px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0' }}>
+                            <h3 style={{ margin: '0 0 20px', fontSize: '1rem', fontWeight: 800, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <i className="fas fa-chart-line" style={{ color: '#4f46e5' }} />
+                                Market Trend by Location
+                            </h3>
+                            {allLocations.length > 0 ? (
+                                <Chart
+                                    options={trendChartOptions}
+                                    series={[{ name: 'Trend %', data: allLocations.map(m => m.trendPct || 0) }]}
+                                    type="bar"
+                                    height={Math.max(300, allLocations.length * 35)}
+                                />
+                            ) : (
+                                <div style={{ height: '300px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>No data</div>
+                            )}
+                        </div>
+
+                        {/* Rate Per Unit Chart */}
+                        <div style={{ background: '#fff', borderRadius: '18px', padding: '24px', boxShadow: '0 4px 20px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0' }}>
+                            <h3 style={{ margin: '0 0 20px', fontSize: '1rem', fontWeight: 800, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <i className="fas fa-rupee-sign" style={{ color: '#4f46e5' }} />
+                                Avg Closed Rate per Unit (Top 8)
+                            </h3>
+                            {allLocations.length > 0 ? (
+                                <Chart
+                                    options={rateChartOptions}
+                                    series={[{ name: 'Avg Rate', data: allLocations.slice(0, 8).map(m => m.avgClosedRPU || 0) }]}
+                                    type="bar"
+                                    height={300}
+                                />
+                            ) : (
+                                <div style={{ height: '300px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>No data</div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Benchmark Table */}
+                    <div style={{ background: '#fff', borderRadius: '18px', border: '1px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
+                        {/* Tab switcher */}
+                        <div style={{ display: 'flex', borderBottom: '1px solid #f1f5f9', padding: '0 24px', background: '#fafbff' }}>
+                            {['hot', 'stable', 'down'].map(t => (
+                                <button key={t} onClick={() => setActiveView(t)} style={{
+                                    padding: '14px 20px', background: 'none', border: 'none', cursor: 'pointer',
+                                    fontSize: '0.8rem', fontWeight: 700, textTransform: 'capitalize',
+                                    color: activeView === t ? '#4f46e5' : '#94a3b8',
+                                    borderBottom: activeView === t ? '2px solid #4f46e5' : '2px solid transparent',
+                                }}>
+                                    {t === 'hot' ? '🔥 Hot Markets' : t === 'stable' ? '➡️ Stable' : '📉 Declining'}
+                                    <span style={{ marginLeft: '8px', fontSize: '0.65rem', color: '#94a3b8' }}>
+                                        ({(t === 'hot' ? hotLocations : t === 'stable' ? stableLocations : downLocations).length})
+                                    </span>
+                                </button>
+                            ))}
+                        </div>
+
+                        <div style={{ padding: '0 24px 20px' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+                                <thead>
+                                    <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                        {['Location', 'Sub-Category', 'Avg Rate', 'Unit', 'Trend', 'Deals', 'Negotiation Gap'].map(h => (
+                                            <th key={h} style={{ padding: '12px 0', textAlign: 'left', fontWeight: 700, fontSize: '0.67rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {(activeView === 'hot' ? hotLocations : activeView === 'stable' ? stableLocations : downLocations).map((m, i) => (
+                                        <tr key={i} style={{ borderBottom: '1px solid #f8fafc' }}>
+                                            <td style={{ padding: '12px 0', fontWeight: 700, color: '#1e293b' }}>{m.location}</td>
+                                            <td style={{ padding: '12px 0', color: '#64748b' }}>{m.subCategory}</td>
+                                            <td style={{ padding: '12px 0', fontWeight: 800, color: '#0f172a' }}>{formatINRFull(m.avgClosedRPU)}</td>
+                                            <td style={{ padding: '12px 0', color: '#94a3b8', fontSize: '0.72rem' }}>{AREA_UNIT_LABELS[m.areaUnit] || ''}</td>
+                                            <td style={{ padding: '12px 0' }}>
+                                                <span style={{
+                                                    padding: '3px 9px', borderRadius: '999px', fontSize: '0.68rem', fontWeight: 800,
+                                                    background: m.trend === 'upward' ? '#f0fdf4' : m.trend === 'downward' ? '#fef2f2' : '#fffbeb',
+                                                    color: m.trend === 'upward' ? '#16a34a' : m.trend === 'downward' ? '#dc2626' : '#d97706',
+                                                }}>
+                                                    {m.trendPct >= 0 ? '+' : ''}{m.trendPct?.toFixed(1)}%
+                                                </span>
+                                            </td>
+                                            <td style={{ padding: '12px 0', color: '#64748b' }}>{m.dealCount}</td>
+                                            <td style={{ padding: '12px 0', color: m.avgNegotiationGapPct > 5 ? '#dc2626' : '#64748b', fontWeight: m.avgNegotiationGapPct > 5 ? 700 : 400 }}>
+                                                {m.avgNegotiationGapPct !== null && m.avgNegotiationGapPct !== undefined
+                                                    ? `${m.avgNegotiationGapPct.toFixed(1)}%`
+                                                    : '—'}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {(activeView === 'hot' ? hotLocations : activeView === 'stable' ? stableLocations : downLocations).length === 0 && (
+                                        <tr>
+                                            <td colSpan={7} style={{ padding: '32px 0', textAlign: 'center', color: '#94a3b8', fontStyle: 'italic' }}>
+                                                No data for this category. Run "Refresh Benchmarks" first.
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </>
+            )}
+        </div>
+    );
+});
+MarketAnalyticsSection.displayName = 'MarketAnalyticsSection';
+
+
 export default ReportsPage;
+

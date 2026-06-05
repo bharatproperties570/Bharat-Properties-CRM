@@ -8,6 +8,7 @@ import RevenuePanel from './components/RevenuePanel';
 import DashboardSidebar from './components/DashboardSidebar';
 
 import AIIntelligenceWidget from '../../components/AIIntelligenceWidget';
+import MarketPulseWidget from '../../components/MarketPulseWidget';
 import { useDashboardData } from '../../hooks/useDashboardData';
 
 const DashboardPage = ({ onNavigate }) => {
@@ -194,6 +195,9 @@ const DashboardPage = ({ onNavigate }) => {
                     <DashboardKPIs metrics={metrics} formatters={formatters} />
                     <LeadAcquisitionPanel charts={charts} metrics={metrics} formatters={formatters} />
                     <RevenuePanel charts={charts} metrics={metrics} formatters={formatters} />
+                    <div style={{ marginTop: '32px' }}>
+                        <MarketPulseWidget />
+                    </div>
                 </div>
 
                 <DashboardSidebar metrics={metrics} users={users} onNavigate={onNavigate} />
