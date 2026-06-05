@@ -55,6 +55,23 @@ const DealSchema = new mongoose.Schema({
         fixed: { type: Boolean, default: false }
     },
 
+    // ── Pricing Intelligence Fields (Phase 1 — Market Analytics Engine) ──
+    // Auto-computed by pricingUtils on deal save / benchmark run
+    ratePerUnit: { type: Number, default: null },       // e.g. ₹3,500 per Sq.Yd
+    areaUnit: {                                          // Standard unit for this subCategory
+        type: String,
+        enum: ['PER_SQ_FT', 'PER_SQ_YD', 'PER_KANAL', 'PER_ACRE', 'PER_MARLA'],
+        default: null
+    },
+    orientationScore: { type: Number, default: null, min: 0, max: 100 }, // 0–100 composite
+    marketPositioning: {                                 // vs benchmark
+        type: String,
+        enum: ['undervalued', 'fair', 'overpriced', 'no_data'],
+        default: 'no_data'
+    },
+    closedPrice: { type: Number, default: null },        // Actual registry/closing price (if different from deal.price)
+
+
     dealId: String, // SELL-345-2026
     inventoryId: { type: mongoose.Schema.Types.ObjectId, ref: 'Inventory' },
     stage: {

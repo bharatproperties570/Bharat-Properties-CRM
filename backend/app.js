@@ -61,6 +61,7 @@ import portfolioRoutes from "./routes/portfolio.routes.js";
 import discoveryRoutes from "./src/modules/discovery/discovery.routes.js";
 import intakeWebhookRoutes from "./src/modules/webhooks/whatsapp.routes.js";
 import whatsappWebhookV2 from "./routes/whatsapp_webhook.v2.js";
+import pricingBenchmarkRoutes from "./routes/pricingBenchmark.routes.js";
 
 const app = express();
 
@@ -193,6 +194,7 @@ app.use("/api/companies", companyRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/collector-rates", collectorRateRoutes);
 app.use("/api/valuation", valuationRoutes);
+app.use("/api/pricing", pricingBenchmarkRoutes);
 app.use("/api/bookings", bookingRoutes);
 app.use("/api/duplication-rules", duplicationRuleRoutes);
 app.use("/api/dashboard", dashboardRoutes);
