@@ -1,5 +1,6 @@
 import { memo } from 'react';
 import Chart from 'react-apexcharts';
+import { renderValue } from '../../../utils/renderUtils';
 
 const RevenuePanel = ({ charts, metrics, formatters }) => {
     const { cashFlowChart } = charts;
