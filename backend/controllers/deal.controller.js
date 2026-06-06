@@ -957,15 +957,56 @@ export const getDeals = async (req, res) => {
             };
         }
 
-        // ROBUST MULTI-FILTER RESOLUTION
+        // ROBUST MULTI-FILTER RESOLUTION (Polymorphic: IDs + Strings + Names)
         const resolveMultiFilter = async (type, value) => {
             if (!value) return null;
-            const values = Array.isArray(value) ? value : String(value).split(',').filter(Boolean);
+            const values = Array.isArray(value) ? value : String(value).split(',').map(s => s.trim()).filter(Boolean);
             if (values.length === 0) return null;
 
-            const ids = await Promise.all(values.map(val => resolveFilter(type, val)));
-            const validIds = ids.filter(Boolean);
-            return validIds.length > 0 ? { $in: validIds } : null;
+            const results = { ids: [], names: [], idStrings: [] };
+
+            await Promise.all(values.map(async (v) => {
+                const trimmedVal = String(v).trim();
+                
+                // CASE 1: Value is already an ObjectId
+                if (isValidObjectId(trimmedVal)) {
+                    const objId = new mongoose.Types.ObjectId(trimmedVal);
+                    results.ids.push(objId);
+                    results.idStrings.push(trimmedVal);
+                    
+                    const lookup = await Lookup.findById(objId).select('lookup_value').lean();
+                    if (lookup?.lookup_value) results.names.push(lookup.lookup_value.trim());
+                    return;
+                }
+                
+                // CASE 2: Value is a Name string
+                results.names.push(trimmedVal);
+                
+                // Find corresponding IDs in Lookup collection
+                const lookups = await Lookup.find({ 
+                    lookup_type: type, 
+                    lookup_value: { $regex: new RegExp(`^\\s*${escapeRegExp(trimmedVal)}\\s*$`, 'i') } 
+                }).select('_id lookup_value').lean();
+                
+                if (lookups.length > 0) {
+                    lookups.forEach(l => {
+                        results.ids.push(l._id);
+                        results.idStrings.push(l._id.toString());
+                        if (l.lookup_value) results.names.push(l.lookup_value.trim());
+                    });
+                }
+            }));
+
+            const nameRegexes = results.names.map(name => new RegExp(escapeRegExp(name.trim()), 'i'));
+
+            const finalValues = [...new Set([
+                ...results.ids, 
+                ...results.idStrings, 
+                ...nameRegexes
+            ])];
+
+            if (finalValues.length === 0) return null;
+            return { $in: finalValues };
         };
 
         const { 
