@@ -172,7 +172,7 @@ const MultiSelectDropdown = ({ options, selected, onChange, placeholder, disable
 };
 
 const DealsFilterPanel = ({ isOpen, onClose, filters, onFilterChange, portalTarget = document.body }) => {
-    const { masterFields = {}, propertyConfig = {} } = usePropertyConfig();
+    const { masterFields = {}, propertyConfig = {}, projects: dynamicProjects = [] } = usePropertyConfig();
     const [isVisible, setIsVisible] = useState(false);
     const [sizeMode, setSizeMode] = useState('type');
     const [availableBlocks, setAvailableBlocks] = useState([]);
@@ -284,17 +284,18 @@ const DealsFilterPanel = ({ isOpen, onClose, filters, onFilterChange, portalTarg
     const uniqueSizeTypes = [...new Set(availableSizeTypes)];
 
     const getFilteredProjects = () => {
-        const projects = PROJECTS_LIST.map(p => p.name);
+        const allProjects = dynamicProjects.length > 0 ? dynamicProjects : PROJECTS_LIST;
+        const projectNames = allProjects.map(p => p.name);
         if (filters.locationCoords && filters.range && filters.range !== 'Exact') {
             const rangeKm = parseInt(filters.range.replace(/\D/g, ''), 10);
             if (!isNaN(rangeKm)) {
-                return PROJECTS_LIST.filter(p => {
+                return allProjects.filter(p => {
                     const dist = calculateDistance(filters.locationCoords.lat, filters.locationCoords.lng, p.lat, p.lng);
                     return dist !== null && dist <= rangeKm;
                 }).map(p => p.name);
             }
         }
-        return projects;
+        return projectNames;
     };
 
     const projectOptions = getFilteredProjects();
