@@ -107,7 +107,7 @@ const InventoryUnitSection = ({
                                         {isBlocked ? 'Action Blocked: Duplicate Found' : 'Warning: Duplicate Found'}
                                     </p>
                                     <p style={{ margin: '2px 0 0 0', fontSize: '0.7rem', color: isBlocked ? '#ef4444' : '#c2410c' }}>
-                                        Unit {formData.unitNo} already exists in {formData.block}.
+                                        Unit {formData.unitNo} already exists in {typeof formData.block === 'object' ? (formData.block?.name || formData.block?.block) : formData.block}.
                                     </p>
                                 </div>
                             </div>

@@ -166,7 +166,7 @@ export const CostSheet = ({ financials, deal }) => (
             </div>
             <div style={{ textAlign: 'right' }}>
                 <div style={{ fontSize: '1.1rem', fontWeight: 700 }}>{deal.unitNo}</div>
-                <div style={{ fontSize: '0.8rem', opacity: 0.8 }}>{deal.projectName}</div>
+                <div style={{ fontSize: '0.8rem', opacity: 0.8 }}>{renderValue(deal.projectName?.name || deal.projectName)}</div>
             </div>
         </div>
 

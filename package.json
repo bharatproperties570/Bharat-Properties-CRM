@@ -38,7 +38,8 @@
     "react-window": "^2.2.7",
     "sweetalert2": "^11.26.18",
     "tailwind-merge": "^2.2.0",
-    "tesseract.js": "^7.0.0"
+    "tesseract.js": "^7.0.0",
+    "whatwg-url-minimum": "^0.1.2"
   },
   "devDependencies": {
     "@types/react": "^18.2.43",

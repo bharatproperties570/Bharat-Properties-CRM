@@ -290,7 +290,9 @@ const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
         const toastId = toast.loading('AI is drafting a premium property description...');
 
         try {
-            const unitDetailStr = `Project: ${deal.projectName || ''}${deal.block ? `, Block: ${deal.block}` : ''}${deal.unitNo ? `, Unit No: ${deal.unitNo}` : ''} (${deal.propertyType || 'Residential'})`;
+            const projectNameStr = deal.projectName?.name || deal.projectName || '';
+            const blockStr = typeof deal.block === 'object' ? (deal.block?.name || '') : (deal.block || '');
+            const unitDetailStr = `Project: ${projectNameStr}${blockStr ? `, Block: ${blockStr}` : ''}${deal.unitNo ? `, Unit No: ${deal.unitNo}` : ''} (${deal.propertyType || 'Residential'})`;
             const locationStr = `${deal.locationDetails?.locality || deal.location || ''} ${deal.locationDetails?.city || 'Kurukshetra'}`.trim();
             
             // Builtup Area
@@ -1052,11 +1054,11 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                 onClose={() => setIsSocialModalOpen(false)}
                 initialData={deal ? {
                     id: deal._id,
-                    name: `${deal.projectName || 'Premium Property'} - ${deal.unitNo}`,
-                    title: `${deal.unitNo} | ${deal.projectName || 'Exclusive Listing'}`,
+                    name: `${deal.projectName?.name || deal.projectName || 'Premium Property'} - ${deal.unitNo}`,
+                    title: `${deal.unitNo} | ${deal.projectName?.name || deal.projectName || 'Exclusive Listing'}`,
                     location: deal.location || deal.address?.location || inventory?.address?.location || 'Prime Location',
                     price: deal.price ? formatIndianCurrency(deal.price) : (inventory?.price ? formatIndianCurrency(inventory.price) : "Contact for Price"),
-                    description: deal.notes || inventory?.description || `Excited to showcase this high-potential listing at ${deal.projectName || 'our latest project'}. View details of Unit ${deal.unitNo} now!`,
+                    description: deal.notes || inventory?.description || `Excited to showcase this high-potential listing at ${deal.projectName?.name || deal.projectName || 'our latest project'}. View details of Unit ${deal.unitNo} now!`,
                     imageUrl: deal.primaryImage || (inventory?.media?.[0]?.url) || (inventory?.images?.[0]) || deal.projectId?.primaryImage
                 } : null}
             />

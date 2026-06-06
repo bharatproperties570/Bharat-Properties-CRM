@@ -824,17 +824,11 @@ body {
 .list-item.inventory-list-grid,
 .list-header.inventory-list-grid {
     display: grid;
-    grid-template-columns: 40px minmax(160px, 1.1fr) minmax(300px, 1.3fr) minmax(160px, 0.7fr) minmax(150px, 0.8fr) minmax(140px, 0.8fr) 280px minmax(150px, 1fr);
+    grid-template-columns: 35px minmax(150px, 1.1fr) minmax(160px, 1.2fr) minmax(140px, 0.8fr) minmax(140px, 1fr) minmax(140px, 0.8fr) minmax(130px, 0.8fr) minmax(180px, 1.2fr) minmax(130px, 0.8fr);
     align-items: center;
-    gap: 1.8rem;
+    gap: 1.25rem;
 }
 
-.inventory-list-grid > *:nth-child(4),
-.inventory-list-grid > *:nth-child(5),
-.inventory-list-grid > *:nth-child(6),
-.inventory-list-grid > *:nth-child(7) {
-    padding-left: 2.5rem; /* Shift Orientation, Owner, Associate, and Status columns right */
-}
 
 .list-item {
     padding: 12px 1.5rem 12px 0.75rem;
@@ -3025,8 +3019,8 @@ html[data-theme="light"] {
 /* Inventory Module Optimized Grid (Split Version) */
 .inventory-list-grid {
     display: grid;
-    grid-template-columns: 40px minmax(160px, 1.1fr) minmax(180px, 1fr) minmax(260px, 1.3fr) minmax(150px, 0.8fr) minmax(140px, 0.8fr) 280px minmax(150px, 1fr) 120px;
-    gap: 1.5rem;
+    grid-template-columns: 35px minmax(150px, 1.1fr) minmax(160px, 1.2fr) minmax(140px, 0.8fr) minmax(140px, 0.8fr) minmax(130px, 0.8fr) minmax(180px, 1.2fr) minmax(130px, 0.8fr);
+    gap: 1.25rem;
     width: 100%;
 }
 

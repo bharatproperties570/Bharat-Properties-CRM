@@ -2901,7 +2901,7 @@ export default function MarketingOverviewPage() {
                         <div style={{ padding: '12px 14px', display: 'flex', alignItems: 'center', gap: '12px' }}>
                           <div style={{ flex: 1 }}>
                             <div style={{ fontWeight: 700, fontSize: '13px', color: 'var(--text)' }}>{deal.unitNo || deal.title || `Deal ${di+1}`}</div>
-                            <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '2px' }}>{deal.projectName || 'Bharat Properties'} · {deal.price || '—'}</div>
+                            <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '2px' }}>{renderValue(deal.projectName?.name || deal.projectName || 'Bharat Properties')} · {deal.price || '—'}</div>
                           </div>
                           {/* Budget Utilization Bar */}
                           <div style={{ textAlign: 'right', minWidth: '100px' }}>

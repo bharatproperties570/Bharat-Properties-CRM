@@ -19,7 +19,14 @@ const QuickInventoryForm = ({ formData, setFormData, onTriggerModal }) => {
         const fetchProjects = async () => {
             try {
                 const res = await api.get('/deal-forms/public/inventory/projects');
-                if (res.data?.success) setDynamicProjects(res.data.data);
+                if (res.data?.success) {
+                    const data = res.data.data || [];
+                    const safeData = data.map(i => {
+                        if (typeof i !== 'object' || i === null) return String(i);
+                        return i.name && typeof i.name === 'string' ? i.name : String(i);
+                    }).filter(Boolean);
+                    setDynamicProjects(safeData);
+                }
             } catch (err) {
                 console.error("Error fetching projects", err);
             }
@@ -35,7 +42,16 @@ const QuickInventoryForm = ({ formData, setFormData, onTriggerModal }) => {
             }
             try {
                 const res = await api.get(`/deal-forms/public/inventory/blocks?projectName=${encodeURIComponent(formData.projectName)}`);
-                if (res.data?.success) setDynamicBlocks(res.data.data);
+                if (res.data?.success) {
+                    const data = res.data.data || [];
+                    const safeData = data.map(i => {
+                        if (typeof i !== 'object' || i === null) return String(i);
+                        if (i.name && typeof i.name === 'string') return i.name;
+                        if (i.block) return typeof i.block === 'object' ? (i.block.name || String(i.block)) : String(i.block);
+                        return String(i);
+                    }).filter(Boolean);
+                    setDynamicBlocks(safeData);
+                }
             } catch (err) {
                 console.error("Error fetching blocks", err);
             }
@@ -52,7 +68,17 @@ const QuickInventoryForm = ({ formData, setFormData, onTriggerModal }) => {
             setLoadingUnits(true);
             try {
                 const res = await api.get(`/deal-forms/public/inventory/units?projectName=${encodeURIComponent(formData.projectName)}&block=${encodeURIComponent(formData.block)}`);
-                if (res.data?.success) setDynamicUnits(res.data.data);
+                if (res.data?.success) {
+                    const data = res.data.data || [];
+                    const safeData = data.map(i => {
+                        if (typeof i !== 'object' || i === null) return String(i);
+                        if (i.unitNo) return typeof i.unitNo === 'object' ? String(i.unitNo) : String(i.unitNo);
+                        if (i.unitNumber) return typeof i.unitNumber === 'object' ? String(i.unitNumber) : String(i.unitNumber);
+                        if (i.name && typeof i.name === 'string') return i.name;
+                        return String(i);
+                    }).filter(Boolean);
+                    setDynamicUnits(safeData);
+                }
             } catch (err) {
                 console.error("Error fetching units", err);
             } finally {

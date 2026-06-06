@@ -39,8 +39,8 @@ const AddSizeModal = ({ isOpen, onClose, onSave, projectName, block, category, s
             background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100
         }}>
             <div style={{ background: '#fff', borderRadius: '12px', padding: '24px', width: '400px', maxWidth: '90%' }}>
-                <h3 style={{ margin: '0 0 8px 0', fontSize: '1.1rem', color: '#1e293b' }}>Add New Layout / Size</h3>
-                <p style={{ fontSize: '0.8rem', color: '#64748b', marginBottom: '16px' }}>For: <strong>{projectName}</strong> &bull; {block}</p>
+                <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#1e293b', margin: '0 0 4px 0' }}>Add New Unit Size</h3>
+                <p style={{ fontSize: '0.8rem', color: '#64748b', marginBottom: '16px' }}>For: <strong>{typeof projectName === 'object' ? projectName?.name : projectName}</strong> &bull; {typeof block === 'object' ? block?.name : block}</p>
 
                 <div style={{ marginBottom: '12px' }}>
                     <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#64748b', marginBottom: '4px' }}>Configuration / Type</label>

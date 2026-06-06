@@ -355,6 +355,7 @@ export const MODULE_CONFIG = {
             { key: 'ownerName', label: 'Owner Name', sample: 'John Doe' },
             { key: 'fatherName', label: 'Father Name', sample: 'Shri Ram Lal' },
             { key: 'ownerMobile', label: 'Owner Mobile', sample: '9876543210' },
+            { key: 'alternateMobile', label: 'Alternate Mobile', sample: '9876543211' },
             { key: 'ownerEmail', label: 'Owner Email', sample: 'john@example.com' },
             
             // Structured Permanent Address

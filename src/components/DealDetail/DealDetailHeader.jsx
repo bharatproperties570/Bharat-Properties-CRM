@@ -198,7 +198,7 @@ const DealDetailHeader = ({
                         </button>
                     </div>
                     <p style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600, margin: 0 }}>
-                        {renderValue(deal.projectName)} • {renderValue(deal.block)}
+                        {renderValue(deal.projectName?.name || deal.projectName)} • {renderValue(deal.block)}
                         <span className="mx-2 opacity-30">|</span>
                         <i className="fas fa-calendar-alt mr-1 opacity-50"></i> Created on {new Date(deal.createdAt || deal.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
                         <span className="mx-2 opacity-30">|</span>

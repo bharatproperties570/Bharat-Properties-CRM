@@ -53,7 +53,12 @@ const PublicDealForm = ({ slug }) => {
     const fetchProjects = async () => {
         try {
             const res = await api.get('/deal-forms/public/inventory/projects');
-            setInventoryData(prev => ({ ...prev, projects: res.data.data }));
+            const data = res.data.data || [];
+            const safeData = data.map(i => {
+                if (typeof i !== 'object' || i === null) return String(i);
+                return i.name && typeof i.name === 'string' ? i.name : String(i);
+            }).filter(Boolean);
+            setInventoryData(prev => ({ ...prev, projects: safeData }));
         } catch (err) {
             console.error("Error fetching projects", err);
         }
@@ -62,7 +67,14 @@ const PublicDealForm = ({ slug }) => {
     const fetchBlocks = async (projectName) => {
         try {
             const res = await api.get(`/deal-forms/public/inventory/blocks?projectName=${projectName}`);
-            setInventoryData(prev => ({ ...prev, blocks: res.data.data, units: [] }));
+            const data = res.data.data || [];
+            const safeData = data.map(i => {
+                if (typeof i !== 'object' || i === null) return String(i);
+                if (i.name && typeof i.name === 'string') return i.name;
+                if (i.block) return typeof i.block === 'object' ? (i.block.name || String(i.block)) : String(i.block);
+                return String(i);
+            }).filter(Boolean);
+            setInventoryData(prev => ({ ...prev, blocks: safeData, units: [] }));
         } catch (err) {
             console.error("Error fetching blocks", err);
         }
@@ -71,7 +83,15 @@ const PublicDealForm = ({ slug }) => {
     const fetchUnits = async (projectName, block) => {
         try {
             const res = await api.get(`/deal-forms/public/inventory/units?projectName=${projectName}&block=${block}`);
-            setInventoryData(prev => ({ ...prev, units: res.data.data }));
+            const data = res.data.data || [];
+            const safeData = data.map(i => {
+                if (typeof i !== 'object' || i === null) return String(i);
+                if (i.unitNo) return typeof i.unitNo === 'object' ? String(i.unitNo) : String(i.unitNo);
+                if (i.unitNumber) return typeof i.unitNumber === 'object' ? String(i.unitNumber) : String(i.unitNumber);
+                if (i.name && typeof i.name === 'string') return i.name;
+                return String(i);
+            }).filter(Boolean);
+            setInventoryData(prev => ({ ...prev, units: safeData }));
         } catch (err) {
             console.error("Error fetching units", err);
         }

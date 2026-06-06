@@ -238,7 +238,7 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                                     </div>
                                     <div>
                                         <small style={{ fontWeight: 700, color: '#94a3b8', fontSize: '0.6rem', textTransform: 'uppercase' }}>Block</small>
-                                        <div style={{ fontWeight: 800, fontSize: '0.85rem' }}>{deal.block || deal.inventoryId?.block || '-'}</div>
+                                        <div style={{ fontWeight: 800, fontSize: '0.85rem' }}>{renderVal(deal.block || deal.inventoryId?.block) || '-'}</div>
                                     </div>
                                 </div>
                                 <div style={{ marginTop: '10px' }}>

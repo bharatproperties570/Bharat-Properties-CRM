@@ -194,7 +194,9 @@ const InventoryFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
             try {
                 const res = await api.get(`inventory/blocks?project=${encodeURIComponent(filters.project)}`);
                 if (res.data && res.data.success) {
-                    setAvailableBlocks(res.data.blocks || []);
+                    const blocksArray = res.data.blocks || [];
+                    const safeBlocks = blocksArray.map(b => typeof b === 'object' ? (b.name || b.block || String(b)) : b).filter(Boolean);
+                    setAvailableBlocks(safeBlocks);
                 }
             } catch (err) {
                 console.error("Error fetching blocks:", err);

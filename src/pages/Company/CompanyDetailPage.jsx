@@ -416,7 +416,7 @@ const CompanyDetailPage = ({ companyId, onBack, onNavigate, onAddProject, onAddI
                                         {dealsData.slice(0, 5).map((deal, i) => (
                                             <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
                                                 <td style={tableCellStyle}><strong>{deal.dealId || `Deal #${i+1}`}</strong></td>
-                                                <td style={tableCellStyle}>{deal.projectName || 'N/A'} {deal.unitNo ? `(${deal.unitNo})` : ''}</td>
+                                                <td style={tableCellStyle}>{renderValue(deal.projectName?.name || deal.projectName || 'N/A')} {deal.unitNo ? `(${deal.unitNo})` : ''}</td>
                                                 <td style={tableCellStyle}>
                                                     <span style={{
                                                         padding: '2px 6px', borderRadius: '4px',

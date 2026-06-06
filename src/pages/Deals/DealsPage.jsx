@@ -63,7 +63,7 @@ const DealStageChip = ({ stage }) => {
 function DealsPage({ onNavigate, onAddActivity }) {
     const { teams, users } = useUserContext();
     const { startCall } = useCall();
-    const { getLookupValue } = usePropertyConfig();
+    const { getLookupValue, sizes } = usePropertyConfig();
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedIds, setSelectedIds] = useState([]);
     const [currentView, setCurrentView] = useState('list'); // 'list' or 'map'
@@ -934,7 +934,8 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                             getUserName,
                                             getTeamName,
                                             dealScores,
-                                            handleAction
+                                            handleAction,
+                                            sizes
                                         }}
                                         rowComponent={VirtualizedDealRow}
                                         overscanCount={5}
@@ -1040,15 +1041,15 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                                         {renderValue(resolveDealLookup(deal.location, 'Locality') || resolveDealLookup(deal.location, 'Area') || resolveDealLookup(deal.location, 'Location'))}
                                                     </span>
                                                 </div>
-                                                {deal.projectName && (
+                                                {(deal.projectName?.name || deal.projectName) && (
                                                     <div style={{ fontSize: '0.7rem', color: '#64748b', marginBottom: '4px' }}>
                                                         <i className="fas fa-building" style={{ marginRight: '4px', fontSize: '0.65rem' }}></i>
-                                                        {renderValue(deal.projectName)}
+                                                        {renderValue(deal.projectName?.name || deal.projectName)}
                                                     </div>
                                                 )}
                                                 {deal.block && (
                                                     <div style={{ display: 'inline-block', fontSize: '0.6rem', padding: '2px 8px', background: '#f1f5f9', color: '#475569', fontWeight: 800, borderRadius: '4px', border: '1px solid #e2e8f0' }}>
-                                                        BLOCK: {deal.block}
+                                                        BLOCK: {renderValue(deal.block?.name || deal.block)}
                                                     </div>
                                                 )}
                                             </div>
@@ -1062,6 +1063,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                 <ProfessionalMap
                                     items={filteredDeals}
                                     dealScores={dealScores}
+                                    sizes={sizes}
                                     activeDealId={activeMapDealId}
                                     onMarkerClick={(deal) => onNavigate('deal-detail', deal._id)}
                                 />
@@ -1279,7 +1281,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
 
 // --- MEMOIZED COMPONENTS FOR PERFORMANCE ---
 
-const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLookupValue, resolveDealLookup, activeRowMenu, setActiveRowMenu, onAction, dealScores = {}, getUserName, getTeamName, style }) => {
+const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLookupValue, resolveDealLookup, activeRowMenu, setActiveRowMenu, onAction, dealScores = {}, getUserName, getTeamName, sizes, style }) => {
     
     const s = dealScores[deal._id];
     const scoreVal = s ? s.score : (deal.dealProbability || 0);
@@ -1414,14 +1416,14 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
                     <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.75rem' }}></i>
                     <span className="text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>{renderValue(resolveDealLookup(deal.location, 'Locality') || resolveDealLookup(deal.location, 'Area') || resolveDealLookup(deal.location, 'Location'))}</span>
                 </div>
-                {deal.projectName && (
+                {(deal.projectName?.name || deal.projectName) && (
                     <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '4px' }}>
                         <i className="fas fa-building" style={{ marginRight: '4px', fontSize: '0.7rem' }}></i>
-                        {renderValue(deal.projectName)}
+                        {renderValue(deal.projectName?.name || deal.projectName)}
                     </div>
                 )}
                 {deal.block && (
-                    <span className="verified-badge" style={{ fontSize: '0.58rem', padding: '2px 10px', background: '#f1f5f9', color: '#475569', fontWeight: 800 }}>BLOCK: {deal.block}</span>
+                    <span className="verified-badge" style={{ fontSize: '0.58rem', padding: '2px 10px', background: '#f1f5f9', color: '#475569', fontWeight: 800 }}>BLOCK: {renderValue(deal.block?.name || deal.block)}</span>
                 )}
             </div>
 
@@ -1436,6 +1438,24 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
             {/* Col 5: Expectation */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', padding: '8px', background: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)', borderRadius: '6px' }}>
                 <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#15803d' }}>{formatIndianCurrency(deal.price)}</div>
+                
+                {(() => {
+                    if (!deal.price) return null;
+                    const sizeId = typeof deal.sizeConfig === 'object' ? (deal.sizeConfig._id || deal.sizeConfig.id) : deal.sizeConfig;
+                    const sizeLookup = sizeId ? sizes?.find(size => size.id === sizeId) : null;
+                    const calcArea = sizeLookup && sizeLookup.totalArea ? parseFloat(sizeLookup.totalArea) : deal.size;
+                    const calcUnit = sizeLookup && sizeLookup.resultMetric ? sizeLookup.resultMetric : deal.sizeUnit || 'sq.ft.';
+                    
+                    if (calcArea && calcArea > 0) {
+                        return (
+                            <div style={{ fontSize: '0.65rem', color: '#16a34a', fontWeight: 700, marginBottom: '2px' }}>
+                                ₹{Math.round(deal.price / calcArea).toLocaleString('en-IN')}/{String(calcUnit).replace(/\s+/g, '').toLowerCase()}
+                            </div>
+                        );
+                    }
+                    return null;
+                })()}
+
                 <div style={{ fontSize: '0.65rem', color: '#64748b', lineHeight: 1.2, fontStyle: 'italic', marginBottom: '4px' }}>
                     {deal.priceInWords || deal.priceWord || numberToIndianWords(deal.price)}
                 </div>
@@ -1555,7 +1575,7 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
 });
 // --- VIRTUALIZED WRAPPER ---
 const VirtualizedDealRow = React.memo((props) => {
-    const { index, style, deals, selectedIds, toggleSelect, onNavigate, getLookupValue, resolveDealLookup, activeRowMenu, setActiveRowMenu, getUserName, getTeamName, dealScores, handleAction } = props;
+    const { index, style, deals, selectedIds, toggleSelect, onNavigate, getLookupValue, resolveDealLookup, activeRowMenu, setActiveRowMenu, getUserName, getTeamName, dealScores, handleAction, sizes } = props;
     const deal = deals[index];
     if (!deal) return null;
     return (
@@ -1573,6 +1593,7 @@ const VirtualizedDealRow = React.memo((props) => {
             getUserName={getUserName}
             getTeamName={getTeamName}
             dealScores={dealScores}
+            sizes={sizes}
             onAction={handleAction}
         />
     );

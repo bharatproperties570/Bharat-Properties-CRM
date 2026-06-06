@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import { invalidateDashboardCache } from "../src/config/redis.js";
 import Lookup from "./Lookup.js";
+import { calcRatePerUnit, calcOrientationPremium, getAreaUnit } from "../utils/pricingUtils.js";
 
 const escapeRegExp = (string) => {
     if (!string) return '';
@@ -350,6 +351,51 @@ DealSchema.pre("save", async function (next) {
             this.subCategory = await resolveLookup('SubCategory', this.subCategory);
             this.intent = await resolveLookup('Intent', this.intent);
             this.sizeConfig = await resolveLookup('Size', this.sizeConfig);
+
+            // Phase 2: Compute Pricing Intelligence Fields on Save
+            if (this.price > 0 || this.closedPrice > 0) {
+                try {
+                    let areaValue = this.size?.value || parseFloat(this.size) || 0;
+                    let areaUnit = this.size?.unit || this.sizeUnit || 'Sq.Ft.';
+                    let subCatStr = '';
+                    let facingStr = '', directionStr = '', roadWidthStr = '', orientationStr = '';
+
+                    // Resolve strings for pricingUtils
+                    if (this.subCategory) {
+                        const subDoc = await Lookup.findById(this.subCategory).select('lookup_value');
+                        if (subDoc) subCatStr = subDoc.lookup_value;
+                    }
+                    
+                    if (this.sizeConfig) {
+                        const sizeDoc = await Lookup.findById(this.sizeConfig).select('metadata');
+                        if (sizeDoc && sizeDoc.metadata && sizeDoc.metadata.totalArea) {
+                            areaValue = parseFloat(sizeDoc.metadata.totalArea);
+                            areaUnit = sizeDoc.metadata.resultMetric || areaUnit;
+                        }
+                    }
+
+                    if (this.corner) facingStr = this.corner; // Assuming corner holds the facing value
+                    
+                    const priceToUse = this.stage === 'Closed' || this.stage === 'Closed Won' ? (this.closedPrice || this.price) : this.price;
+
+                    const rateResult = calcRatePerUnit(priceToUse, areaValue, areaUnit, subCatStr);
+                    if (rateResult && rateResult.ratePerUnit > 0) {
+                        this.ratePerUnit = rateResult.ratePerUnit;
+                        this.areaUnit = rateResult.areaUnit;
+                    }
+
+                    const orientationResult = calcOrientationPremium({
+                        facing: facingStr,
+                        direction: directionStr, // To be populated from Inventory if linked in the future
+                        roadWidth: roadWidthStr,
+                        orientation: orientationStr
+                    });
+                    this.orientationScore = orientationResult.orientationScore;
+
+                } catch (calcErr) {
+                    console.error("Pricing Intelligence Calculation Error:", calcErr);
+                }
+            }
         } catch (err) {
             console.error("Lookup resolution error:", err);
         }
@@ -400,6 +446,10 @@ DealSchema.pre('findOneAndUpdate', async function (next) {
         if (setUpdate.subCategory) setUpdate.subCategory = await resolveLookup('SubCategory', setUpdate.subCategory);
         if (setUpdate.intent) setUpdate.intent = await resolveLookup('Intent', setUpdate.intent);
         if (setUpdate.sizeConfig) setUpdate.sizeConfig = await resolveLookup('Size', setUpdate.sizeConfig);
+
+        // We skip complex pricing calculation in findOneAndUpdate to avoid performance hits on bulk updates.
+        // The frontend and aggregate cron job will self-heal or use live calculation. 
+        // For accurate pricing intel, it's recommended to use save().
     };
 
     resolveAndUpdate().then(() => next()).catch(next);

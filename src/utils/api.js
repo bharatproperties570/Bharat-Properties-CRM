@@ -3,12 +3,7 @@ import axios from 'axios';
 
 // 🛡️ Senior Implementation: Environment Variable Safety
 export const getEnvVar = (name) => {
-    // Priority 0: Vite (import.meta.env)
-    try {
-        if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[name] !== undefined) {
-            return import.meta.env[name];
-        }
-    } catch (e) {}
+    // Removed import.meta.env to prevent Metro Bundler SyntaxError
 
     // Priority 1: process.env (Node/Expo/React Native)
     try {
@@ -56,12 +51,7 @@ const STABLE_TUNNEL_URL = 'https://api.bharatproperties.co/api';
 // 🛡️ Vite Static Replacement (Vite requires literal references)
 let VITE_API_URL = '';
 let VITE_API_URL_PROD = '';
-try {
-    if (typeof import.meta !== 'undefined' && import.meta.env) {
-        VITE_API_URL = import.meta.env.VITE_API_URL || '';
-        VITE_API_URL_PROD = import.meta.env.VITE_API_URL_PROD || '';
-    }
-} catch (e) {}
+// Removed import.meta.env to prevent Metro Bundler SyntaxError
 
 // Fallbacks using dynamic resolution
 const rawViteApiUrl = getEnvVar('VITE_API_URL') || VITE_API_URL;

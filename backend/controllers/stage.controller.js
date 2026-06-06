@@ -1090,15 +1090,7 @@ export const getDealScores = async (req, res) => {
                             // Compute RPU in target AreaUnit using getAreaUnit from pricingUtils if we wanted, 
                             // but actually bm.avgClosedRPU is in bm.areaUnit.
                             // The simplest way to be safe is comparing the deal's ratePerUnit directly if it's there.
-                            let dealRPU = deal.ratePerUnit;
-                            
-                            // If dealRPU isn't set, calculate it on the fly in SqFt, then convert to standard unit?
-                            // For simplicity, if we don't have deal.ratePerUnit, and since Pricing Benchmark
-                            // avgClosedRPU is in standard unit, let's just use the deal's price / size value 
-                            // assuming the sizeUnit matches standard unit (which is 99% the case in deals).
-                            if (!dealRPU) {
-                                dealRPU = deal.price / parseFloat(dealSizeVal);
-                            }
+                            let dealRPU = deal.price / sqFtSize;
                             
                             if (dealRPU > 0) {
                                 const diff = dealRPU - bm.avgClosedRPU;

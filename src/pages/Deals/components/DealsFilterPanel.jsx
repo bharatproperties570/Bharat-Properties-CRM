@@ -189,7 +189,9 @@ const DealsFilterPanel = ({ isOpen, onClose, filters, onFilterChange, portalTarg
                 // Professional Fix: Fetch unique blocks for the selected project in deals
                 const res = await api.get(`deals/blocks?project=${encodeURIComponent(filters.project)}`);
                 if (res.data && res.data.success) {
-                    setAvailableBlocks(res.data.blocks || []);
+                    const blocksArray = res.data.blocks || [];
+                    const safeBlocks = blocksArray.map(b => typeof b === 'object' ? (b.name || b.block || String(b)) : b).filter(Boolean);
+                    setAvailableBlocks(safeBlocks);
                 }
             } catch (err) {
                 console.error("Error fetching blocks for deals:", err);

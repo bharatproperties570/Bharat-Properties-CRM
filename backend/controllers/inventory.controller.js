@@ -2232,6 +2232,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
             const ownerName = row.ownerName || row['Owner Name'] || row['Name'] || '';
             const ownerFatherName = row.fatherName || row.ownerFatherName || row['Father Name'] || row['Owner Father Name'] || row['FatherName'] || '';
             const ownerMobile = row.ownerMobile || row['Owner Mobile'] || row['Mobile'] || row['Phone'] || row['Mobile Number'] || '';
+            const alternateMobileRaw = row.alternateMobile || row['Alternate Mobile'] || row['Alt Mobile'] || row['Secondary Mobile'] || row['Mobile 2'] || '';
             
             const ownerHNo = row.ownerHNo || row['Owner House No'] || row['House No'] || row['House Number'] || row['HNo'] || '';
             const ownerStreet = row.ownerStreet || row['Owner Street'] || row['Street'] || '';
@@ -2353,6 +2354,8 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                     const fatherName = String(ownerFatherName || '').trim();
                     const mobileRaw = String(ownerMobile || '').trim();
                     const mobile = mobileRaw ? normalizePhone(mobileRaw) : null;
+                    const altMobileRawStr = String(alternateMobileRaw || '').trim();
+                    const alternateMobile = altMobileRawStr ? normalizePhone(altMobileRawStr) : null;
                     const email = String(ownerEmail || '').trim();
 
                     if (!mobile) results.noMobileCount++;
@@ -2434,6 +2437,13 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                                 }
                             });
 
+                            if (alternateMobile) {
+                                const hasAlt = existingContact.phones && existingContact.phones.some(p => p.number === alternateMobile);
+                                if (!hasAlt) {
+                                    diffs.push({ field: 'Alternate Mobile', old: 'N/A', new: alternateMobile });
+                                }
+                            }
+
                             // Route ONLY actual data mismatches to Conflict UI
                             if (diffs.length > 0) {
                                 // CASE: Conflict Detected (Allow Edit/Merge for all mobile matches)
@@ -2459,6 +2469,15 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                                         Object.assign(existingContact, assignmentUpdate);
                                         if (!existingContact.tags) existingContact.tags = [];
                                         [ 'Property Owner', propertyTag ].forEach(t => { if (!existingContact.tags.includes(t)) existingContact.tags.push(t); });
+                                        
+                                        if (alternateMobile) {
+                                            if (!existingContact.phones) existingContact.phones = [];
+                                            const hasAlt = existingContact.phones.some(p => p.number === alternateMobile);
+                                            if (!hasAlt) {
+                                                existingContact.phones.push({ number: alternateMobile, type: 'Alternate' });
+                                            }
+                                        }
+
                                         await existingContact.save();
                                         ownerId = existingContact._id;
                                         results.contactsFound++;
@@ -2469,9 +2488,14 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                                         results.duplicates.push({ name: existingContact.name, mobile: mobile || existingContact.phones?.[0]?.number, _id: existingContact._id });
                                     } else if (resolution === 'CREATE_NEW') {
                                         const resolvedAddress = await resolveHierarchicalAddress(personalAddress);
+                                        
+                                        const newPhones = [];
+                                        if (mobile) newPhones.push({ number: mobile, type: 'Personal' });
+                                        if (alternateMobile && alternateMobile !== mobile) newPhones.push({ number: alternateMobile, type: 'Alternate' });
+
                                         const newContact = await Contact.create({
                                             name: name || 'Unknown Owner', fatherName: fatherName,
-                                            phones: mobile ? [{ number: mobile, type: 'Personal' }] : [],
+                                            phones: newPhones,
                                             emails: email ? [{ address: email, type: 'Personal' }] : [],
                                             personalAddress: resolvedAddress, ...assignmentUpdate, source: commonSource,
                                             tags: ['Property Owner', propertyTag]
@@ -2491,6 +2515,14 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                                         Object.assign(existingContact, assignmentUpdate);
                                         if (!existingContact.tags) existingContact.tags = [];
                                         [ 'Property Owner', propertyTag ].forEach(t => { if (!existingContact.tags.includes(t)) existingContact.tags.push(t); });
+                                        
+                                        if (alternateMobile) {
+                                            if (!existingContact.phones) existingContact.phones = [];
+                                            const hasAlt = existingContact.phones.some(p => p.number === alternateMobile);
+                                            if (!hasAlt) {
+                                                existingContact.phones.push({ number: alternateMobile, type: 'Alternate' });
+                                            }
+                                        }
                                         
                                         await existingContact.save();
                                         ownerId = existingContact._id;
@@ -2520,14 +2552,19 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                                 ownerId = "SIMULATED_ID";
                                 results.contactsCreated++;
                             } else {
-                                const resolvedAddress = await resolveHierarchicalAddress(personalAddress);
-                                const newContact = await Contact.create({
-                                    name: name || 'Unknown Owner', fatherName: fatherName,
-                                    phones: mobile ? [{ number: mobile, type: 'Personal' }] : [],
-                                    emails: email ? [{ address: email, type: 'Personal' }] : [],
-                                    personalAddress: resolvedAddress, ...assignmentUpdate, source: commonSource,
-                                    tags: ['Property Owner', propertyTag]
-                                });
+                                        const resolvedAddress = await resolveHierarchicalAddress(personalAddress);
+
+                                        const newPhones = [];
+                                        if (mobile) newPhones.push({ number: mobile, type: 'Personal' });
+                                        if (alternateMobile && alternateMobile !== mobile) newPhones.push({ number: alternateMobile, type: 'Alternate' });
+
+                                        const newContact = await Contact.create({
+                                            name: name || 'Unknown Owner', fatherName: fatherName,
+                                            phones: newPhones,
+                                            emails: email ? [{ address: email, type: 'Personal' }] : [],
+                                            personalAddress: resolvedAddress, ...assignmentUpdate, source: commonSource,
+                                            tags: ['Property Owner', propertyTag]
+                                        });
                                 ownerId = newContact._id;
                                 results.contactsCreated++;
                             }

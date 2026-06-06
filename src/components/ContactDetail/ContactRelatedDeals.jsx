@@ -191,7 +191,7 @@ const ContactRelatedDeals = React.memo(function ContactRelatedDeals({
                                                 <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 650 }}>
                                                     <i className="fas fa-building" style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}></i>
                                                     <span style={{ color: 'var(--text-main)', fontWeight: 700 }}>
-                                                        {deal.projectName || 'Premium Listing'}
+                                                        {renderValue(deal.projectName) || 'Premium Listing'}
                                                     </span>
                                                     <span style={{ color: 'var(--border-color)' }}>|</span>
                                                     <i className="fas fa-map-marker-alt" style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}></i>

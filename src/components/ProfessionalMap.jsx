@@ -11,6 +11,7 @@ const ProfessionalMap = ({
     onVisibleItemsChange = null,
     activeDealId = null,
     isInventory = false,
+    sizes = [],
     style = { width: '100%', height: '100%' }
 }) => {
     const mapRef = useRef(null);
@@ -304,6 +305,19 @@ const ProfessionalMap = ({
 
                     const statusDisplay = item.status?.lookup_value || item.status || 'Active';
                     let pricingHtml = '';
+                    let rpuHtml = '';
+                    if (!isInventory && item.price) {
+                        const sizeId = typeof item.sizeConfig === 'object' ? (item.sizeConfig._id || item.sizeConfig.id) : item.sizeConfig;
+                        const sizeLookup = sizeId ? sizes?.find(size => size.id === sizeId) : null;
+                        const calcArea = sizeLookup && sizeLookup.totalArea ? parseFloat(sizeLookup.totalArea) : item.size;
+                        const calcUnit = sizeLookup && sizeLookup.resultMetric ? sizeLookup.resultMetric : item.sizeUnit || 'sq.ft.';
+                        
+                        if (calcArea && calcArea > 0) {
+                            const rpu = Math.round(item.price / calcArea).toLocaleString('en-IN');
+                            rpuHtml = `<div style="font-size: 11px; color: #16a34a; font-weight: 700; text-align: right; line-height: 1.1; margin-top: 2px;">₹${rpu}/${String(calcUnit).replace(/\s+/g, '').toLowerCase()}</div>`;
+                        }
+                    }
+
                     if (gapPct !== undefined && gapPct !== null) {
                         const isUnder = gapPct < -10;
                         const isOver = gapPct > 15;
@@ -335,9 +349,12 @@ const ProfessionalMap = ({
                                     ${intentStr ? `<span style="color: ${itemColor}; font-weight: 600;">${intentStr.toUpperCase()}</span>` : ''}
                                 </div>
                                 ${!isInventory ? `
-                                <div style="display: flex; justify-content: space-between;">
+                                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
                                     <span><strong>Status:</strong> ${statusDisplay}</span>
-                                    <span style="color: #10b981; font-weight: 600;">${priceFormatted}</span>
+                                    <div style="display: flex; flex-direction: column; align-items: flex-end;">
+                                        <span style="color: #10b981; font-weight: 600;">${priceFormatted}</span>
+                                        ${rpuHtml}
+                                    </div>
                                 </div>
                                 ` : ''}
                                 ${pricingHtml}

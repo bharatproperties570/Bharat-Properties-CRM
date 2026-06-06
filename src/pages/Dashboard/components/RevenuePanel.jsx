@@ -51,7 +51,7 @@ const RevenuePanel = ({ charts, metrics, formatters }) => {
                     {recentDeals.slice(0, 5).map((deal, idx) => (
                         <div key={idx} style={{ padding: '16px', background: 'rgba(15, 23, 42, 0.4)', borderRadius: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid rgba(255,255,255,0.02)' }}>
                             <div style={{ minWidth: 0 }}>
-                                <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{deal.project}</div>
+                                <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{renderValue(deal.project?.name || deal.project)}</div>
                                 <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>{deal.unitNo} • {new Date(deal.updatedAt).toLocaleDateString()}</div>
                             </div>
                             <div style={{ textAlign: 'right', flexShrink: 0 }}>

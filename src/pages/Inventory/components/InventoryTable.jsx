@@ -1,6 +1,8 @@
 import React, { useEffect } from 'react';
 import { renderValue, formatSafeDate, formatSafeDateTime } from '../../../utils/renderUtils';
 import { getInitials } from '../../../utils/helpers';
+import { formatINRShort, toSqFt } from '../../../utils/pricingAPI';
+import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 
 const InventoryTable = ({
     inventoryItems,
@@ -14,6 +16,7 @@ const InventoryTable = ({
     getTeamName,
     loading
 }) => {
+    const { sizes } = usePropertyConfig();
     const isAllSelected = inventoryItems.length > 0 && selectedIds.length === inventoryItems.length;
     
     const renderContactAddress = (contact) => {
@@ -53,7 +56,7 @@ const InventoryTable = ({
     };
 
     return (
-        <div className="table-wrapper" style={{ height: 'calc(100vh - 250px)', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+        <div className="table-wrapper" style={{ height: 'calc(100vh - 250px)', display: 'flex', flexDirection: 'column', position: 'relative', overflowX: 'auto', overflowY: 'hidden' }}>
             <style>{`
                 @keyframes spin {
                     0% { transform: rotate(0deg); }
@@ -293,6 +296,7 @@ const InventoryTable = ({
                                         );
                                     })()}
                                 </div>
+
 
                                 {/* Col 5: Owner Profile */}
                                 <div className="super-cell">

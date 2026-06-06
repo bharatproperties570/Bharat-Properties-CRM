@@ -110,3 +110,19 @@ export function formatINRFull(amount) {
     if (!amount || isNaN(amount)) return '—';
     return '₹ ' + Math.round(amount).toLocaleString('en-IN');
 }
+
+export function toSqFt(val, unitLabel) {
+    if (!val || isNaN(val)) return 0;
+    const v = Number(val);
+    if (!unitLabel) return v;
+    const u = String(unitLabel).toLowerCase();
+    
+    if (u.includes('sq.ft') || u.includes('sqft') || u.includes('sq. ft')) return v;
+    if (u.includes('sq.yd') || u.includes('sqyd') || u.includes('sq. yd')) return v * 9;
+    if (u.includes('sq.mt') || u.includes('sqmt') || u.includes('sqm') || u.includes('sq. mt')) return v * 10.7639;
+    if (u.includes('marla')) return v * 225; // standard marla
+    if (u.includes('kanal')) return v * 4500;
+    if (u.includes('acre')) return v * 43560;
+    if (u.includes('hectare')) return v * 107639;
+    return v; // fallback
+}
