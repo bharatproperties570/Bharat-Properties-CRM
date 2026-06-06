@@ -335,36 +335,10 @@ function DealsPage({ onNavigate, onAddActivity }) {
     };
 
 
+    // 🚀 ENTERPRISE GRADE: 100% Server-side filtering offloaded to Database
     const filteredDeals = useMemo(() => {
-        return deals.filter(deal => {
-            if (deal.isVisible === false) return false;
-            const search = debouncedSearchTerm.toLowerCase();
-
-            const dealId = deal.dealId || deal.id || deal._id;
-            const ownerName = deal.owner?.name || deal.owner;
-            const location = deal.location?.lookup_value || deal.location;
-            const propertyType = deal.propertyType?.lookup_value || deal.propertyType;
-            const assigned = deal.assigned;
-            const unitNo = deal.unitNo;
-            const projectName = deal.projectName;
-
-            // Basic Search
-            const matchesSearch = (
-                (dealId && dealId.toString().toLowerCase().includes(search)) ||
-                (ownerName && ownerName.toString().toLowerCase().includes(search)) ||
-                (location && location.toString().toLowerCase().includes(search)) ||
-                (propertyType && propertyType.toString().toLowerCase().includes(search)) ||
-                (assigned && assigned.toString().toLowerCase().includes(search)) ||
-                (unitNo && unitNo.toString().toLowerCase().includes(search)) ||
-                (projectName && projectName.toString().toLowerCase().includes(search))
-            );
-
-            if (!matchesSearch) return false;
-
-            // Advanced Filters via Utility
-            return applyDealsFilters(deal, filters);
-        });
-    }, [deals, debouncedSearchTerm, filters]);
+        return deals.filter(deal => deal.isVisible !== false);
+    }, [deals]);
 
 
     const getSelectedDeal = () => deals.find(d => d._id === selectedIds[0]);
@@ -682,7 +656,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                         className="search-input-premium"
                                         placeholder="Search deals by ID, property or owner..."
                                         value={searchTerm}
-                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                        onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
                                     />
                                     <i className={`fas fa-search search-icon-premium ${searchTerm ? 'active' : ''}`}></i>
                                 </div>
@@ -1207,7 +1181,10 @@ function DealsPage({ onNavigate, onAddActivity }) {
                     isOpen={isFilterPanelOpen}
                     onClose={() => setIsFilterPanelOpen(false)}
                     filters={filters}
-                    onFilterChange={setFilters}
+                    onFilterChange={(newFilters) => {
+                        setFilters(newFilters);
+                        setCurrentPage(1);
+                    }}
                     portalTarget={isMapFullscreen ? document.getElementById('deal-map-wrapper') : document.body}
                 />
 
