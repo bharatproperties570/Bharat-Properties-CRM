@@ -4,6 +4,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from './utils/queryClient';
 import { isWeb, safeWindow, getPathname } from './utils/platform';
 import { Toaster } from 'react-hot-toast';
+import { View, Text, Platform } from 'react-native';
 import AppRouter from './router/AppRouter';
 import MainLayout from './layouts/MainLayout';
 import { PropertyConfigProvider } from './context/PropertyConfigContext';

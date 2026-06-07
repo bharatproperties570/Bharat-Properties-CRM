@@ -16,13 +16,17 @@ const automatedIntakeSourceSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
         required: true
+    },
+    tenantId: {
+        type: mongoose.Schema.Types.ObjectId,
+        index: true
     }
 }, {
     timestamps: true
 });
 
-// Ensure a user doesn't monitor the same URL twice
-automatedIntakeSourceSchema.index({ url: 1, createdBy: 1 }, { unique: true });
+// Ensure a tenant doesn't monitor the same URL twice
+automatedIntakeSourceSchema.index({ url: 1, tenantId: 1 }, { unique: true });
 
 const AutomatedIntakeSource = mongoose.model('AutomatedIntakeSource', automatedIntakeSourceSchema);
 

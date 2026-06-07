@@ -34,6 +34,7 @@ class BaseConnector {
         return {
             title: normalizedData.title || '',
             description: normalizedData.description || '',
+            content: normalizedData.description || '', // Sync with description for frontend UI compatibility
             location: normalizedData.location || '',
             sector: normalizedData.sector || '',
             property_type: normalizedData.property_type || '',
@@ -45,6 +46,7 @@ class BaseConnector {
             verification_status: normalizedData.verification_status || 'unverified',
             source_type: this.sourceType,
             source_confidence: normalizedData.source_confidence || 0,
+            tenantId: normalizedData.tenantId || null,
             raw_source_data: normalizedData.raw_source_data || {}
         };
     }

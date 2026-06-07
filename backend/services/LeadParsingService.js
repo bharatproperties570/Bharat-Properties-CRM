@@ -12,8 +12,11 @@ const stripHtml = (html) => {
                .replace(/&gt;/g, '>')
                .replace(/&#39;/g, "'")
                .replace(/&quot;/g, '"');
-    // Normalize whitespace
-    return text.replace(/\s+/g, ' ').trim();
+    // Normalize horizontal whitespace but preserve newlines
+    return text.split(/[\r\n]+/)
+               .map(line => line.replace(/[^\S\r\n]+/g, ' ').trim())
+               .filter(Boolean)
+               .join('\n');
 };
 
 export const parsePortalEmail = (subject, body) => {
@@ -56,6 +59,26 @@ export const parsePortalEmail = (subject, body) => {
             break;
     }
 
+    // Validation check: Detect format mismatch or template changes
+    if (portal && portal !== 'General Inquiry') {
+        const isMissingCoreFields = !parsed.name || !parsed.mobile;
+        if (isMissingCoreFields) {
+            parsed.formatMismatch = true;
+            console.warn(JSON.stringify({
+                level: 'warn',
+                svc: 'LeadParsing',
+                msg: `Format mismatch/template update detected for portal: ${portal}`,
+                portal,
+                hasName: !!parsed.name,
+                hasMobile: !!parsed.mobile,
+                bodySnippet: cleanBody.slice(0, 200),
+                ts: new Date().toISOString()
+            }));
+        } else {
+            parsed.formatMismatch = false;
+        }
+    }
+
     return parsed;
 };
 
@@ -91,7 +114,10 @@ const parse99Acres = (body, data) => {
     const detailsKeyword = 'Details of the response';
     const detailsIndex = body.toLowerCase().indexOf(detailsKeyword.toLowerCase());
     if (detailsIndex !== -1) {
-        const afterDetails = body.slice(detailsIndex + detailsKeyword.length).trim();
+        let afterDetails = body.slice(detailsIndex + detailsKeyword.length).trim();
+        if (afterDetails.startsWith(':')) {
+            afterDetails = afterDetails.slice(1).trim();
+        }
         // Just take the first few words/parts since we've normalized spaces
         const parts = afterDetails.split(' ');
         
@@ -101,7 +127,11 @@ const parse99Acres = (body, data) => {
 
         if (emailIndex !== -1 && emailIndex > 0) {
             // Everything before email is likely the name
-            data.name = parts.slice(0, emailIndex).join(' ');
+            let name = parts.slice(0, emailIndex).join(' ');
+            if (name.startsWith(':')) {
+                name = name.slice(1).trim();
+            }
+            data.name = name;
             data.email = parts[emailIndex];
         }
         

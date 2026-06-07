@@ -180,6 +180,10 @@ const UserSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'
     },
+    tenantId: {
+        type: mongoose.Schema.Types.ObjectId,
+        index: true
+    },
 
     // ========== Legacy Support (for backward compatibility) ==========
     // Keep old 'name' field for backward compatibility

@@ -91,6 +91,10 @@ const intakeSchema = new mongoose.Schema({
     createdBy: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'
+    },
+    tenantId: {
+        type: mongoose.Schema.Types.ObjectId,
+        index: true
     }
 }, {
     timestamps: true
@@ -98,7 +102,6 @@ const intakeSchema = new mongoose.Schema({
 
 intakeSchema.index({ receivedAt: -1 });
 intakeSchema.index({ status: 1 });
-intakeSchema.index({ duplicate_hash: 1 });
 
 const Intake = mongoose.model('Intake', intakeSchema);
 

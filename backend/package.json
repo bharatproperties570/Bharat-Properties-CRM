@@ -8,6 +8,11 @@
         "dev": "nodemon src/server.js"
     },
     "dependencies": {
+        "@opentelemetry/api": "^1.9.1",
+        "@opentelemetry/auto-instrumentations-node": "^0.76.0",
+        "@opentelemetry/exporter-trace-otlp-proto": "^0.218.0",
+        "@opentelemetry/sdk-node": "^0.218.0",
+        "@opentelemetry/sdk-trace-node": "^2.7.1",
         "axios": "^1.13.5",
         "axios-retry": "^4.5.0",
         "bcryptjs": "^2.4.3",

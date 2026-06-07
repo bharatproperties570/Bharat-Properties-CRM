@@ -1,4 +1,5 @@
 import "dotenv/config";
+import "./src/config/otel.js";
 import app from "./app.js";
 import connectDB from "./config/db.js";
 import NurtureBot from "./services/NurtureBot.js";

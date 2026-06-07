@@ -210,6 +210,7 @@ class AutomatedIntakeService {
                     url:                  source.url,
                     source:               source.source || 'Automated Monitor',
                     automated_source_id:  source._id,
+                    tenantId:             source.tenantId,
                     traceId,
                 },
                 source.createdBy

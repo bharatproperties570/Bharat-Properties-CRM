@@ -21,12 +21,42 @@ const GLOBAL_PATTERNS = {
     BHK: /(\d)\s?bhk/i
 };
 
+let patternsCache = new Map();
+let patternsCacheTime = new Map();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes cache TTL
+
+export const clearPatternsCache = (tenantId = null) => {
+    if (tenantId) {
+        const key = String(tenantId);
+        patternsCache.delete(key);
+        patternsCacheTime.delete(key);
+    } else {
+        patternsCache.clear();
+        patternsCacheTime.clear();
+    }
+};
+
 /**
  * Fetches rules from DB and builds dynamic regex patterns
  */
-export const getDynamicPatterns = async () => {
+export const getDynamicPatterns = async (bypassCache = false, tenantId = null) => {
+    const cacheKey = tenantId ? String(tenantId) : 'global';
+    const now = Date.now();
+    if (!bypassCache && patternsCache.has(cacheKey) && (now - (patternsCacheTime.get(cacheKey) || 0) < CACHE_TTL_MS)) {
+        return patternsCache.get(cacheKey);
+    }
     try {
-        const rules = await ParsingRule.find();
+        const query = {
+            $or: [
+                { tenantId: null },
+                { tenantId: { $exists: false } }
+            ]
+        };
+        if (tenantId) {
+            query.$or.push({ tenantId });
+        }
+        
+        const rules = await ParsingRule.find(query);
         
         const cities = rules.filter(r => r.type === 'CITY').map(r => r.value);
         const locations = rules.filter(r => r.type === 'LOCATION').map(r => r.value);
@@ -49,24 +79,27 @@ export const getDynamicPatterns = async () => {
         const dynamicLocs = finalLocs.filter(l => l.toLowerCase() !== 'sector').join('|');
         const locPattern = new RegExp(`(?:sector|sec|sec-|sector-)\\s?(\\d+[a-z]?)|(${dynamicLocs})`, 'i');
 
-        return {
+        const patternsObj = {
             CITY: cityPattern,
             LOCATION: locPattern,
             TYPE_KEYWORDS: typesMap
         };
+        patternsCache.set(cacheKey, patternsObj);
+        patternsCacheTime.set(cacheKey, now);
+        return patternsObj;
     } catch (error) {
         console.error("[IntakeParser:Rules Error]:", error);
-        return null;
+        return patternsCache.get(cacheKey) || null;
     }
 };
 
 /**
  * Main parser function
  */
-export const parseContent = async (text) => {
+export const parseContent = async (text, tenantId = null) => {
     if (!text) return null;
     
-    const patterns = await getDynamicPatterns() || {
+    const patterns = await getDynamicPatterns(false, tenantId) || {
         CITY: new RegExp(`(${DEFAULT_CITIES.join('|')})`, 'i'),
         LOCATION: new RegExp(`(?:sector|sec|sec-|sector-)\\s?(\\d+[a-z]?)|(${DEFAULT_LOCATIONS.join('|')})`, 'i'),
         TYPE_KEYWORDS: DEFAULT_TYPES
@@ -135,6 +168,7 @@ export const parseContent = async (text) => {
             price: priceMatch ? priceMatch[0] : null,
             size: sizeMatch ? sizeMatch[0] : null
         },
+        contact_numbers: phones,
         allContacts: phones.map(p => ({ mobile: p, name: 'Unknown' })), // Aligned with frontend
         raw: text.substring(0, 500) // Keep snippet
     };

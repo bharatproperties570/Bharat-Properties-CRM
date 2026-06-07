@@ -42,7 +42,7 @@ class PdfConnector extends BaseConnector {
         }
 
         // Use the existing NLP parser
-        const extracted = await parseContent(finalContent);
+        const extracted = await parseContent(finalContent, inputData.tenantId);
 
         const normalized = {
             title: extracted.projectName || extracted.location || originalName || 'PDF Import',
@@ -57,6 +57,7 @@ class PdfConnector extends BaseConnector {
             extracted_entities: extracted,
             verification_status: 'unverified',
             source_confidence: extractedText.trim().length > 50 ? 80 : 30,
+            tenantId: inputData.tenantId || null,
             raw_source_data: { metadata, pages: data.numpages, originalName }
         };
 

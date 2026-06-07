@@ -19,10 +19,18 @@ class IntakeAIAssistantEngine {
 
     generateSummary(record) {
         let summary = [];
-        if (record.property_type) summary.push(record.property_type);
-        if (record.size) summary.push(record.size);
-        if (record.location) summary.push(`in ${record.location}`);
-        if (record.price) summary.push(`listed at ${record.price}`);
+        if (record.property_type && record.property_type !== 'Unknown') {
+            summary.push(record.property_type);
+        }
+        if (record.size) {
+            summary.push(record.size);
+        }
+        if (record.location && record.location !== 'Unspecified') {
+            summary.push(`in ${record.location}`);
+        }
+        if (record.price) {
+            summary.push(`listed at ${record.price}`);
+        }
         
         if (summary.length > 0) {
             return summary.join(' ').replace(/\s+/g, ' ') + '.';
@@ -47,7 +55,17 @@ class IntakeAIAssistantEngine {
             return "Possible Investor Deal";
         }
         
-        return "Unknown Seller Intent";
+        if (record.seller_intent === 'sell' || record.seller_intent === 'seller') {
+            return "Standard Seller Listing";
+        }
+        if (record.seller_intent === 'rent' || record.seller_intent === 'landlord') {
+            return "Standard Rental Listing";
+        }
+        if (record.seller_intent === 'lease') {
+            return "Standard Lease Listing";
+        }
+        
+        return "General Inquiry";
     }
 
     recommendNextAction(record) {

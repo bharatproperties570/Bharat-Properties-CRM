@@ -18,12 +18,16 @@ const parsingRuleSchema = new mongoose.Schema({
     lastUpdatedBy: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'
+    },
+    tenantId: {
+        type: mongoose.Schema.Types.ObjectId,
+        index: true
     }
 }, {
     timestamps: true
 });
 
-// Ensure uniqueness for type and value
-parsingRuleSchema.index({ type: 1, value: 1, category: 1 }, { unique: true });
+// Ensure uniqueness for tenant, type and value
+parsingRuleSchema.index({ tenantId: 1, type: 1, value: 1, category: 1 }, { unique: true });
 
 export default mongoose.model('ParsingRule', parsingRuleSchema);

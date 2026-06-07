@@ -24,7 +24,7 @@ import Contact from '../models/Contact.js';
 import WhatsAppService from './WhatsAppService.js';
 import { resolveLeadLookup } from '../models/Lead.js';
 import NotificationEngine from './NotificationEngine.js';
-import geminiService from './GeminiService.js';
+import unifiedAIService from './UnifiedAIService.js';
 
 // ── Structured logger ──────────────────────────────────────────
 const log = {
@@ -291,20 +291,19 @@ class DealVerificationService {
     }
 
     // ────────────────────────────────────────────────────────────
-    // 3. AI PARSER — Claude API call
+    // 3. AI PARSER — Unified AI call
     // ────────────────────────────────────────────────────────────
     /**
-     * Calls Claude API to classify user reply intent.
+     * Calls Unified AI API to classify user reply intent.
      * Returns structured JSON matching VERIFICATION_INTENTS.
      */
     static async _parseWithAI(userMessage, deals, traceId) {
         const systemPrompt = buildVerificationPrompt(deals);
 
-        log.info(traceId, 'Parsing intent using Gemini 1.5 Engine...');
-        const rawText = await geminiService.generateWithSystem(
-            systemPrompt,
+        log.info(traceId, 'Parsing intent using Unified AI Engine...');
+        const rawText = await unifiedAIService.generate(
             userMessage,
-            { model: 'gemini-1.5-flash-latest', temperature: 0.1, maxTokens: 500 }
+            { systemPrompt, temperature: 0.1, maxTokens: 500 }
         );
 
         // Strip any accidental markdown fences

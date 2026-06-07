@@ -167,16 +167,20 @@ export class Queue {
             const worker = mockWorkers.get(this.name);
             if (worker && worker.processor) {
                 setTimeout(async () => {
+                    const mockJob = {
+                        id: jobId,
+                        name: name,
+                        data: data,
+                        progress: 0,
+                        opts: opts || {}
+                    };
                     try {
                         console.log(`[MockQueue] Processing job ${jobId} on queue ${this.name}`);
-                        await worker.processor({
-                            id: jobId,
-                            name: name,
-                            data: data,
-                            progress: 0
-                        });
+                        await worker.processor(mockJob);
+                        worker.emit('completed', mockJob);
                     } catch (err) {
                         console.error(`[MockQueue] Job ${jobId} failed:`, err);
+                        worker.emit('failed', mockJob, err);
                     }
                 }, 50);
             }
@@ -191,8 +195,9 @@ export class Queue {
     }
 }
 
-export class Worker {
+export class Worker extends EventEmitter {
     constructor(name, processor, opts = {}) {
+        super();
         if (internalConnection.isMock) {
             this.name = name;
             this.processor = processor;
@@ -201,9 +206,6 @@ export class Worker {
             return this;
         }
         return new BullWorker(name, processor, opts);
-    }
-    on(event, cb) {
-        return this;
     }
     async close() {
         return;

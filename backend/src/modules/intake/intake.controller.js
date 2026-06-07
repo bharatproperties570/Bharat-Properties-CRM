@@ -3,6 +3,7 @@ import fs from 'fs';
 import JSZip from 'jszip';
 import pdf from 'pdf-parse';
 import path from 'path';
+import mongoose from 'mongoose';
 import { parseContent } from './intakeParser.js';
 import Intake from '../../../models/Intake.js';
 import AutomatedIntakeSource from '../../../models/AutomatedIntakeSource.js';
@@ -21,7 +22,17 @@ if (!fs.existsSync(uploadsDir)) {
  */
 export const getIntakes = async (req, res) => {
     try {
-        const intakes = await Intake.aggregate([
+        const matchStage = {};
+        if (req.user && req.user.tenantId) {
+            matchStage.tenantId = new mongoose.Types.ObjectId(req.user.tenantId);
+        }
+
+        const pipeline = [];
+        if (Object.keys(matchStage).length > 0) {
+            pipeline.push({ $match: matchStage });
+        }
+        
+        pipeline.push(
             { $sort: { receivedAt: -1 } },
             { $limit: 100 },
             {
@@ -36,7 +47,9 @@ export const getIntakes = async (req, res) => {
                 }
             },
             { $project: { content: 0 } }
-        ]);
+        );
+
+        const intakes = await Intake.aggregate(pipeline);
         
         // Ensure id property is present for frontend compatibility
         intakes.forEach(item => {
@@ -65,7 +78,11 @@ export const getIntakes = async (req, res) => {
  */
 export const getIntakeById = async (req, res) => {
     try {
-        const intake = await Intake.findById(req.params.id);
+        const query = { _id: req.params.id };
+        if (req.user && req.user.tenantId) {
+            query.tenantId = req.user.tenantId;
+        }
+        const intake = await Intake.findOne(query);
         if (!intake) return res.status(404).json({ success: false, message: 'Intake record not found' });
         res.status(200).json({ success: true, data: intake });
     } catch (error) {
@@ -82,7 +99,11 @@ export const updateIntakeStatus = async (req, res) => {
         const { id } = req.params;
         const { status } = req.body;
 
-        const intake = await Intake.findByIdAndUpdate(id, { status }, { new: true });
+        const query = { _id: id };
+        if (req.user && req.user.tenantId) {
+            query.tenantId = req.user.tenantId;
+        }
+        const intake = await Intake.findOneAndUpdate(query, { status }, { new: true });
         if (!intake) return res.status(404).json({ success: false, message: 'Intake record not found' });
 
         res.status(200).json({ success: true, data: intake });
@@ -99,8 +120,12 @@ export const createIntake = async (req, res) => {
     try {
         const { source, content, campaignName } = req.body;
         
+        const rawData = { text: content, source, campaignName };
+        if (req.user && req.user.tenantId) {
+            rawData.tenantId = req.user.tenantId;
+        }
         // Directly push to the new Queue architecture
-        const result = await addToIntakeQueue('manual', { text: content, source, campaignName }, req.user?._id || req.user?.id);
+        const result = await addToIntakeQueue('manual', rawData, req.user?._id || req.user?.id);
         
         if (!result.success) {
             return res.status(409).json({ success: false, message: result.message, data: { _id: result.intakeId } });
@@ -119,7 +144,11 @@ export const createIntake = async (req, res) => {
 export const deleteIntake = async (req, res) => {
     try {
         const { id } = req.params;
-        const intake = await Intake.findByIdAndDelete(id);
+        const query = { _id: id };
+        if (req.user && req.user.tenantId) {
+            query.tenantId = req.user.tenantId;
+        }
+        const intake = await Intake.findOneAndDelete(query);
         if (!intake) return res.status(404).json({ success: false, message: 'Intake record not found' });
         res.status(200).json({ success: true, message: 'Intake deleted successfully' });
     } catch (error) {
@@ -197,11 +226,15 @@ export const processZIP = async (req, res) => {
             return res.status(400).json({ success: false, message: "No ZIP file uploaded" });
         }
 
-        const result = await addToIntakeQueue('zip', {
+        const payload = {
             filePath: req.file.path,
             originalName: req.file.originalname,
             mimeType: req.file.mimetype
-        }, req.user?._id || req.user?.id);
+        };
+        if (req.user && req.user.tenantId) {
+            payload.tenantId = req.user.tenantId;
+        }
+        const result = await addToIntakeQueue('zip', payload, req.user?._id || req.user?.id);
 
         if (!result.success) {
             return res.status(409).json({ success: false, message: result.message, data: { _id: result.intakeId } });
@@ -229,11 +262,15 @@ export const processPDF = async (req, res) => {
             return res.status(400).json({ success: false, message: "No PDF file uploaded" });
         }
 
-        const result = await addToIntakeQueue('pdf', {
+        const payload = {
             filePath: req.file.path,
             originalName: req.file.originalname,
             mimeType: req.file.mimetype
-        }, req.user?._id || req.user?.id);
+        };
+        if (req.user && req.user.tenantId) {
+            payload.tenantId = req.user.tenantId;
+        }
+        const result = await addToIntakeQueue('pdf', payload, req.user?._id || req.user?.id);
 
         if (!result.success) {
             return res.status(409).json({ success: false, message: result.message, data: { _id: result.intakeId } });
@@ -273,10 +310,14 @@ export const processURL = async (req, res) => {
             return res.status(400).json({ success: false, message: "Invalid URL format" });
         }
 
-        const result = await addToIntakeQueue(source_type, {
+        const payload = {
             url: urlToProcess,
             source: source
-        }, req.user?._id || req.user?.id);
+        };
+        if (req.user && req.user.tenantId) {
+            payload.tenantId = req.user.tenantId;
+        }
+        const result = await addToIntakeQueue(source_type, payload, req.user?._id || req.user?.id);
 
         if (!result.success) {
             return res.status(409).json({ success: false, message: result.message, data: { _id: result.intakeId } });
@@ -316,12 +357,16 @@ export const createAutomatedSource = async (req, res) => {
             return res.status(400).json({ success: false, message: "Invalid URL format" });
         }
 
-        const automatedSource = await AutomatedIntakeSource.create({
+        const payload = {
             url: urlToProcess,
             source,
             frequency,
             createdBy: req.user?._id || req.user?.id
-        });
+        };
+        if (req.user && req.user.tenantId) {
+            payload.tenantId = req.user.tenantId;
+        }
+        const automatedSource = await AutomatedIntakeSource.create(payload);
 
         // Schedule the job immediately
         automatedIntakeService.scheduleSource(automatedSource);
@@ -344,7 +389,11 @@ export const createAutomatedSource = async (req, res) => {
  */
 export const getAutomatedSources = async (req, res) => {
     try {
-        const sources = await AutomatedIntakeSource.find({ createdBy: req.user?._id || req.user?.id }).sort({ createdAt: -1 });
+        const query = { createdBy: req.user?._id || req.user?.id };
+        if (req.user && req.user.tenantId) {
+            query.tenantId = req.user.tenantId;
+        }
+        const sources = await AutomatedIntakeSource.find(query).sort({ createdAt: -1 });
         res.status(200).json({ success: true, data: sources });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
@@ -357,7 +406,11 @@ export const getAutomatedSources = async (req, res) => {
 export const toggleAutomatedSource = async (req, res) => {
     try {
         const { id } = req.params;
-        const source = await AutomatedIntakeSource.findOne({ _id: id, createdBy: req.user?._id || req.user?.id });
+        const query = { _id: id, createdBy: req.user?._id || req.user?.id };
+        if (req.user && req.user.tenantId) {
+            query.tenantId = req.user.tenantId;
+        }
+        const source = await AutomatedIntakeSource.findOne(query);
 
         if (!source) {
             return res.status(404).json({ success: false, message: "Source not found" });
@@ -388,7 +441,11 @@ export const toggleAutomatedSource = async (req, res) => {
 export const deleteAutomatedSource = async (req, res) => {
     try {
         const { id } = req.params;
-        const source = await AutomatedIntakeSource.findOneAndDelete({ _id: id, createdBy: req.user?._id || req.user?.id });
+        const query = { _id: id, createdBy: req.user?._id || req.user?.id };
+        if (req.user && req.user.tenantId) {
+            query.tenantId = req.user.tenantId;
+        }
+        const source = await AutomatedIntakeSource.findOneAndDelete(query);
 
         if (!source) {
             return res.status(404).json({ success: false, message: "Source not found" });

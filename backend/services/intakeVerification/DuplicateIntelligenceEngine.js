@@ -1,5 +1,11 @@
 import Intake from '../../models/Intake.js';
 
+function normalizePhone(phone) {
+    if (!phone) return '';
+    const digits = String(phone).replace(/\D/g, '');
+    return digits.length >= 10 ? digits.slice(-10) : digits;
+}
+
 // We will implement a basic similarity function if the library isn't available
 function calculateStringSimilarity(str1, str2) {
     if (!str1 || !str2) return 0;
@@ -42,8 +48,20 @@ class DuplicateIntelligenceEngine {
         let queryConditions = [];
         
         // 1. Phone numbers match (High probability)
+        const phonesToQuery = [];
         if (newRecord.contact_numbers && newRecord.contact_numbers.length > 0) {
-            queryConditions.push({ contact_numbers: { $in: newRecord.contact_numbers } });
+            newRecord.contact_numbers.forEach(phone => {
+                if (phone) {
+                    phonesToQuery.push(phone);
+                    const norm = normalizePhone(phone);
+                    if (norm && norm !== phone) {
+                        phonesToQuery.push(norm);
+                    }
+                }
+            });
+        }
+        if (phonesToQuery.length > 0) {
+            queryConditions.push({ contact_numbers: { $in: phonesToQuery } });
         }
         
         // 2. Exact Pricing match (Medium probability, needs other signals)
@@ -77,8 +95,10 @@ class DuplicateIntelligenceEngine {
 
             // Phone Number Check
             if (newRecord.contact_numbers && candidate.contact_numbers) {
-                const commonPhones = newRecord.contact_numbers.filter(phone => 
-                    candidate.contact_numbers.includes(phone)
+                const newNormalized = newRecord.contact_numbers.map(normalizePhone).filter(Boolean);
+                const candidateNormalized = candidate.contact_numbers.map(normalizePhone).filter(Boolean);
+                const commonPhones = newNormalized.filter(phone => 
+                    candidateNormalized.includes(phone)
                 );
                 if (commonPhones.length > 0) {
                     score += 40; // High confidence signal

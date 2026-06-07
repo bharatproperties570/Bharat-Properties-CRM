@@ -35,7 +35,7 @@ class PublicUrlConnector extends BaseConnector {
         const bodyText = $('body').text().replace(/\s+/g, ' ').trim();
 
         // Pass extracted text to NLP Parser
-        const extracted = (await parseContent(bodyText)) || {};
+        const extracted = (await parseContent(bodyText, inputData.tenantId)) || {};
 
         const normalized = {
             title: title.substring(0, 100),
@@ -50,6 +50,7 @@ class PublicUrlConnector extends BaseConnector {
             extracted_entities: extracted,
             verification_status: 'unverified',
             source_confidence: bodyText.length > 100 ? 75 : 20,
+            tenantId: inputData.tenantId || null,
             raw_source_data: { url, originalTitle: title }
         };
 
