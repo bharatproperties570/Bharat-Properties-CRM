@@ -2288,15 +2288,29 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                 }
 
                 const inventory = await Inventory.findOne(inventoryQuery)
-                    .populate({ path: 'owners', select: 'name' })
-                    .select('_id projectName unitNo owners associates assignedTo team visibleTo').lean();
+                    .populate({ path: 'owners', select: 'name phones' })
+                    .select('_id projectName unitNo unitNumber block owners associates assignedTo team visibleTo').lean();
 
                 if (!inventory) {
                     results.inventoryNotFound++;
+                    // 🚀 [ENTERPRISE] Return structured notFound for inline UI resolution
+                    const notFoundEntry = {
+                        rowKey,
+                        row: absoluteRow,
+                        item: cleanUnit || 'Unknown Unit',
+                        unitNo: cleanUnit,
+                        projectName: cleanProject,
+                        block: cleanBlock,
+                        ownerName,
+                        ownerMobile,
+                        reason: `Inventory not found. Check if Project "${cleanProject}", Block "${cleanBlock || 'Any'}", and Unit "${cleanUnit}" exist in the system.`
+                    };
+                    if (!results.notFound) results.notFound = [];
+                    results.notFound.push(notFoundEntry);
                     results.errors.push({ 
                         row: absoluteRow, 
                         item: cleanUnit || 'Unknown Unit', 
-                        reason: `Inventory not found. Check if Project "${cleanProject}", Block "${cleanBlock || 'Any'}", and Unit "${cleanUnit}" exist in the system.` 
+                        reason: notFoundEntry.reason
                     });
                     continue;
                 }
@@ -2448,14 +2462,34 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                             if (diffs.length > 0) {
                                 // CASE: Conflict Detected (Allow Edit/Merge for all mobile matches)
                                 if (!resolution) {
+                                    // 🚀 [ENTERPRISE] Enrich identity conflict with full side-by-side data
                                     results.conflicts.push({
-                                        row: i + 1, rowKey, type: 'owner', unitNo, mobile: mobile || 'N/A',
+                                        row: i + 1, rowKey, type: 'owner', unitNo: inventory?.unitNo || unitNo,
+                                        projectName: inventory?.projectName,
+                                        block: inventory?.block,
+                                        mobile: mobile || 'N/A',
+                                        // Incoming data (CSV)
+                                        incoming: {
+                                            name, fatherName,
+                                            mobile: mobile || 'N/A',
+                                            hNo, locality
+                                        },
+                                        // Existing data (System)
+                                        existing: {
+                                            contactId: existingContact._id?.toString(),
+                                            name: existingContact.name,
+                                            fatherName: existingContact.fatherName,
+                                            mobile: existingContact.phones?.[0]?.number || 'N/A',
+                                            hNo: existingContact.personalAddress?.hNo,
+                                            locality: existingContact.personalAddress?.location?.lookup_value || existingContact.personalAddress?.location
+                                        },
+                                        // Legacy fields kept for backward compat
                                         providedName: name, providedFatherName: fatherName,
                                         providedHNo: hNo, providedLoc: locality,
                                         existingName: existingContact.name, existingFatherName: existingContact.fatherName,
                                         existingHNo: existingContact.personalAddress?.hNo,
                                         existingLoc: existingContact.personalAddress?.location?.lookup_value || existingContact.personalAddress?.location,
-                                        reason: diffs.length > 0 ? 'Data Mismatch (' + diffs.map(d => d.field).join(', ') + ')' : 'Manual Review Requested'
+                                        reason: 'Data Mismatch (' + diffs.map(d => d.field).join(', ') + ')'
                                     });
                                     ownerId = "CONFLICT_PENDING";
                                 } else {
@@ -2586,13 +2620,33 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                             const resolution = resolutions[rowKey]?.ownership;
 
                             if (!resolution) {
+                                // 🚀 [ENTERPRISE] Enrich conflict with full side-by-side data for UI comparison
+                                const enrichedExistingOwners = existingOwners.map(o => ({
+                                    contactId: (o._id || o).toString(),
+                                    name: o.name || 'Unknown',
+                                    mobile: o.phones?.[0]?.number || 'N/A'
+                                }));
                                 results.conflicts.push({
                                     row: i + 1,
                                     rowKey,
                                     type: 'ownership',
-                                    unitNo,
+                                    unitNo: inventory.unitNo || inventory.unitNumber || unitNo,
+                                    projectName: inventory.projectName,
+                                    block: inventory.block,
+                                    // Incoming data (from CSV)
+                                    incoming: {
+                                        name: name || 'Unknown Owner',
+                                        mobile: mobile || 'N/A',
+                                        fatherName: ownerFatherName || ''
+                                    },
+                                    // Existing data (from system)
+                                    existing: {
+                                        owners: enrichedExistingOwners,
+                                        ownerNames: enrichedExistingOwners.map(o => o.name).join(', ')
+                                    },
+                                    // Legacy field kept for backward compat
                                     mobile: mobile || 'N/A',
-                                    existingOwnerNames: existingOwners.map(o => o.name || 'Unknown').join(', '),
+                                    existingOwnerNames: enrichedExistingOwners.map(o => o.name).join(', '),
                                     newOwnerName: name || 'Unknown Owner',
                                     reason: 'Property already has different owner(s)'
                                 });
@@ -2784,6 +2838,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
             conflicts: results.conflicts,
             plannedUpdates: results.plannedUpdates,
             duplicates: results.duplicates || [], // 🚀 Return matches for UI transparency
+            notFound: results.notFound || [], // 🚀 [ENTERPRISE] Unit not found rows for inline fix UI
             successLogs: results.successLogs,
             errors: results.errors
         });

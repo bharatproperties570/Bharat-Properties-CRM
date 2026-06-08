@@ -31,6 +31,12 @@ const ImportDataPage = () => {
     const [plannedUpdates, setPlannedUpdates] = useState([]);
     const [resolutions, setResolutions] = useState({});
     const [isAnalyzing, setIsAnalyzing] = useState(false);
+    const [expandedConflictRow, setExpandedConflictRow] = useState(null); // rowKey of expanded card
+    const [notFound, setNotFound] = useState([]); // unit-not-found rows
+    const [unitOverrides, setUnitOverrides] = useState({}); // { rowKey: inventoryId } manual unit match
+    const [unitSearchQuery, setUnitSearchQuery] = useState({}); // { rowKey: searchText }
+    const [unitSearchResults, setUnitSearchResults] = useState({}); // { rowKey: [inventory items] }
+    const conflictSectionRef = useRef(null);
 
     // Global Defaults for Assignment
 
@@ -264,6 +270,7 @@ const ImportDataPage = () => {
 
             if (response.data.success) {
                 setConflicts(response.data.conflicts || []);
+                setNotFound(response.data.notFound || []);
                 setImportSummary({
                     newItems: response.data.newCount || 0,
                     updateItems: response.data.updatedCount || response.data.successCount || 0,
@@ -281,6 +288,8 @@ const ImportDataPage = () => {
 
                 if (response.data.conflictCount > 0) {
                     toast.error(`Detected ${response.data.conflictCount} data conflicts.`);
+                } else if ((response.data.notFound || []).length > 0) {
+                    toast(`⚠️ ${response.data.notFound.length} units not found in system.`, { icon: '⚠️' });
                 } else {
                     toast.success('Validation complete: No conflicts found.');
                 }
@@ -453,6 +462,31 @@ const ImportDataPage = () => {
             ...prev,
             [systemField]: fileHeader
         }));
+    };
+
+    // Search inventory units for manual override picker
+    const searchInventoryUnits = async (rowKey, query, projectName, block) => {
+        if (!query || query.length < 2) {
+            setUnitSearchResults(prev => ({ ...prev, [rowKey]: [] }));
+            return;
+        }
+        try {
+            const res = await api.get('/inventory', { params: { search: query, projectName, block, limit: 10 } });
+            const items = res.data?.data || res.data?.inventory || [];
+            setUnitSearchResults(prev => ({ ...prev, [rowKey]: items }));
+        } catch (e) {
+            console.error('Unit search error:', e);
+        }
+    };
+
+    // Apply bulk resolution to all conflicts at once
+    const applyBulkResolution = (type, action) => {
+        const newResolutions = { ...resolutions };
+        conflicts.forEach(c => {
+            newResolutions[c.rowKey] = { ...newResolutions[c.rowKey], [c.type]: action };
+        });
+        setResolutions(newResolutions);
+        toast.success(`Applied "${action}" to all ${conflicts.length} conflicts.`);
     };
 
     // --- Renderers ---
@@ -743,7 +777,7 @@ const ImportDataPage = () => {
                                 <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1e293b', marginBottom: '16px' }}>Review Data Analysis</h3>
 
                                 {module === 'propertyOwners' && (
-                                    <div style={{ marginBottom: '32px', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
+                                    <div ref={conflictSectionRef} style={{ marginBottom: '32px', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
                                         <div style={{ padding: '20px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: conflicts.length > 0 ? '#fff1f2' : '#f8fafc' }}>
                                             <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: conflicts.length > 0 ? '#be123c' : '#1e293b', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                 <i className={conflicts.length > 0 ? "fas fa-exclamation-triangle" : "fas fa-table"}></i> 
@@ -752,7 +786,27 @@ const ImportDataPage = () => {
                                             <div style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>Total Rows: {fileData.data.length}</div>
                                         </div>
                                         
-                                        <div style={{ overflowX: 'auto', maxHeight: '500px' }}>
+                                        {conflicts.length > 1 && (
+                                            <div style={{ padding: '12px 24px', background: '#fef9ec', borderBottom: '1px solid #fcd34d', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+                                                <div style={{ fontSize: '0.85rem', color: '#92400e', fontWeight: 600 }}>
+                                                    <i className="fas fa-bolt" style={{ marginRight: '6px', color: '#d97706' }}></i>
+                                                    {conflicts.length} conflicts — Apply same resolution to all:
+                                                </div>
+                                                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                                    <button onClick={() => applyBulkResolution('ownership', 'SKIP_UPDATE')} style={{ padding: '6px 14px', borderRadius: '6px', border: '1px solid #d1d5db', background: '#fff', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', color: '#374151' }}>
+                                                        <i className="fas fa-ban" style={{ marginRight: '6px', color: '#6b7280' }}></i>Skip All
+                                                    </button>
+                                                    <button onClick={() => applyBulkResolution('ownership', 'REPLACE_OWNER')} style={{ padding: '6px 14px', borderRadius: '6px', border: '1px solid #fca5a5', background: '#fef2f2', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', color: '#991b1b' }}>
+                                                        <i className="fas fa-exchange-alt" style={{ marginRight: '6px' }}></i>Replace All
+                                                    </button>
+                                                    <button onClick={() => applyBulkResolution('ownership', 'ADD_CO_OWNER')} style={{ padding: '6px 14px', borderRadius: '6px', border: '1px solid #a7f3d0', background: '#f0fdf4', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', color: '#065f46' }}>
+                                                        <i className="fas fa-user-plus" style={{ marginRight: '6px' }}></i>Add All Co-Owners
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        <div style={{ overflowX: 'auto', maxHeight: '600px' }}>
                                             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                                                 <thead style={{ background: '#f1f5f9', position: 'sticky', top: 0, zIndex: 10 }}>
                                                     <tr>
@@ -761,7 +815,7 @@ const ImportDataPage = () => {
                                                         <th style={{ padding: '12px 16px', textAlign: 'left', borderBottom: '2px solid #cbd5e1', color: '#475569', fontWeight: 700, whiteSpace: 'nowrap' }}>Name (File)</th>
                                                         <th style={{ padding: '12px 16px', textAlign: 'left', borderBottom: '2px solid #cbd5e1', color: '#475569', fontWeight: 700, whiteSpace: 'nowrap' }}>Mobile (File)</th>
                                                         <th style={{ padding: '12px 16px', textAlign: 'left', borderBottom: '2px solid #cbd5e1', color: '#475569', fontWeight: 700, whiteSpace: 'nowrap' }}>Status</th>
-                                                        <th style={{ padding: '12px 16px', textAlign: 'left', borderBottom: '2px solid #cbd5e1', color: '#475569', fontWeight: 700, whiteSpace: 'nowrap', minWidth: '250px' }}>Conflict Resolution</th>
+                                                        <th style={{ padding: '12px 16px', textAlign: 'left', borderBottom: '2px solid #cbd5e1', color: '#475569', fontWeight: 700, whiteSpace: 'nowrap', minWidth: '180px' }}>Action</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
@@ -769,73 +823,241 @@ const ImportDataPage = () => {
                                                         const rowKey = `row_${idx}`;
                                                         const conflict = conflicts.find(c => c.rowKey === rowKey);
                                                         const isConflict = !!conflict;
+                                                        const isExpanded = expandedConflictRow === rowKey;
                                                         
-                                                        // Extract mapped values for display
                                                         const getVal = (sysKey) => {
                                                             const fileHeader = mapping[sysKey];
                                                             return fileHeader ? row[fileHeader] : '-';
                                                         };
                                                         const unitNo = getVal('unitNo') || getVal('unitNumber') || getVal('inventory') || '-';
-                                                        const name = getVal('name') || getVal('ownerName') || '-';
-                                                        const mobile = getVal('mobile') || getVal('phone') || '-';
+                                                        const name = getVal('ownerName') || getVal('name') || '-';
+                                                        const mobile = getVal('ownerMobile') || getVal('mobile') || '-';
+                                                        
+                                                        const rowBg = isConflict ? (isExpanded ? '#fff7f7' : '#fffbfb') : '#fff';
 
                                                         return (
-                                                            <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0', background: isConflict ? '#fef2f2' : '#fff' }}>
-                                                                <td style={{ padding: '12px 16px', color: '#64748b', fontWeight: 600 }}>{idx + 1}</td>
-                                                                <td style={{ padding: '12px 16px', color: '#1e293b', fontWeight: 600 }}>{conflict ? conflict.unitNo : unitNo}</td>
-                                                                <td style={{ padding: '12px 16px', color: '#1e293b' }}>
-                                                                    {conflict ? (conflict.newOwnerName || conflict.providedName || name) : name}
-                                                                </td>
-                                                                <td style={{ padding: '12px 16px', color: '#1e293b' }}>
-                                                                    {conflict ? conflict.mobile : mobile}
-                                                                </td>
-                                                                <td style={{ padding: '12px 16px' }}>
-                                                                    {isConflict ? (
-                                                                        <span style={{ display: 'inline-block', padding: '4px 8px', borderRadius: '4px', background: '#fee2e2', color: '#b91c1c', fontSize: '0.75rem', fontWeight: 700 }}>
-                                                                            <i className="fas fa-exclamation-circle" style={{ marginRight: '4px' }}></i>
-                                                                            {conflict.type === 'ownership' ? 'Ownership Conflict' : 'Identity Conflict'}
-                                                                        </span>
-                                                                    ) : (
-                                                                        <span style={{ display: 'inline-block', padding: '4px 8px', borderRadius: '4px', background: '#dcfce7', color: '#16a34a', fontSize: '0.75rem', fontWeight: 700 }}>
-                                                                            <i className="fas fa-check-circle" style={{ marginRight: '4px' }}></i> Ready
-                                                                        </span>
-                                                                    )}
-                                                                </td>
-                                                                <td style={{ padding: '12px 16px' }}>
-                                                                    {isConflict ? (
-                                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                                                            <select 
-                                                                                value={resolutions[rowKey]?.[conflict.type] || ''}
-                                                                                onChange={(e) => handleResolutionChange(rowKey, conflict.type, e.target.value)}
-                                                                                style={{ padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.8rem', fontWeight: 600, color: '#0f172a', width: '100%', outline: 'none', cursor: 'pointer', background: '#fff' }}
+                                                            <>
+                                                                <tr key={rowKey} style={{ borderBottom: '1px solid #f1f5f9', background: rowBg, transition: 'background 0.2s' }}>
+                                                                    <td style={{ padding: '10px 16px', color: '#94a3b8', fontWeight: 500 }}>{idx + 1}</td>
+                                                                    <td style={{ padding: '10px 16px', fontWeight: 700, color: '#0f172a' }}>{unitNo}</td>
+                                                                    <td style={{ padding: '10px 16px', color: '#1e293b' }}>{name}</td>
+                                                                    <td style={{ padding: '10px 16px', color: '#475569' }}>{mobile}</td>
+                                                                    <td style={{ padding: '10px 16px' }}>
+                                                                        {isConflict ? (
+                                                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '3px 10px', borderRadius: '20px', background: '#fef2f2', color: '#dc2626', fontSize: '0.75rem', fontWeight: 700 }}>
+                                                                                <i className="fas fa-exclamation-triangle"></i>
+                                                                                {conflict.type === 'ownership' ? 'Owner Conflict' : 'Data Mismatch'}
+                                                                            </span>
+                                                                        ) : (
+                                                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '3px 10px', borderRadius: '20px', background: '#f0fdf4', color: '#16a34a', fontSize: '0.75rem', fontWeight: 700 }}>
+                                                                                <i className="fas fa-check-circle"></i> Ready
+                                                                            </span>
+                                                                        )}
+                                                                    </td>
+                                                                    <td style={{ padding: '10px 16px' }}>
+                                                                        {isConflict ? (
+                                                                            <button
+                                                                                onClick={() => setExpandedConflictRow(isExpanded ? null : rowKey)}
+                                                                                style={{ padding: '6px 14px', borderRadius: '6px', border: `1px solid ${isExpanded ? '#fca5a5' : '#e2e8f0'}`, background: isExpanded ? '#fef2f2' : '#f8fafc', color: isExpanded ? '#dc2626' : '#475569', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
                                                                             >
-                                                                                {conflict.type === 'ownership' ? (
-                                                                                    <>
-                                                                                        <option value="SKIP_UPDATE">Skip (Keep Existing Owners)</option>
-                                                                                        <option value="REPLACE_OWNER">Replace Existing (Transfer)</option>
-                                                                                        <option value="ADD_CO_OWNER">Add as Co-Owner (Joint)</option>
-                                                                                    </>
-                                                                                ) : (
-                                                                                    <>
-                                                                                        <option value="KEEP_SYSTEM">Keep System Data</option>
-                                                                                        <option value="UPDATE_SYSTEM">Update System Data</option>
-                                                                                        <option value="CREATE_NEW">Create New Contact</option>
-                                                                                    </>
-                                                                                )}
-                                                                            </select>
-                                                                            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                                                                                <strong>System:</strong> {conflict.type === 'ownership' ? conflict.existingOwnerNames : conflict.existingName}
+                                                                                <i className={`fas ${isExpanded ? 'fa-chevron-up' : 'fa-balance-scale'}`}></i>
+                                                                                {isExpanded ? 'Collapse' : 'Resolve Conflict'}
+                                                                            </button>
+                                                                        ) : (
+                                                                            <span style={{ color: '#94a3b8', fontSize: '0.8rem', fontStyle: 'italic' }}>No action needed</span>
+                                                                        )}
+                                                                    </td>
+                                                                </tr>
+                                                                {isConflict && isExpanded && (
+                                                                    <tr key={`${rowKey}-card`}>
+                                                                        <td colSpan={6} style={{ padding: '0 16px 16px', background: '#fff7f7' }}>
+                                                                            <div style={{ border: '2px solid #fecaca', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 4px 16px rgba(220,38,38,0.08)' }}>
+                                                                                <div style={{ background: '#fef2f2', padding: '14px 20px', borderBottom: '1px solid #fecaca', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                                                    <i className="fas fa-exclamation-triangle" style={{ color: '#dc2626', fontSize: '1.1rem' }}></i>
+                                                                                    <div>
+                                                                                        <div style={{ fontWeight: 700, color: '#991b1b', fontSize: '0.95rem' }}>
+                                                                                            {conflict.type === 'ownership' ? `Ownership Conflict — Unit ${conflict.unitNo}` : `Data Mismatch — ${conflict.reason}`}
+                                                                                        </div>
+                                                                                        <div style={{ fontSize: '0.75rem', color: '#b91c1c', marginTop: '2px' }}>{conflict.projectName} {conflict.block ? `/ ${conflict.block}` : ''}</div>
+                                                                                    </div>
+                                                                                </div>
+                                                                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0' }}>
+                                                                                    <div style={{ padding: '16px 20px', borderRight: '1px solid #fecaca', background: '#fff' }}>
+                                                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                                                                                            <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#dbeafe', color: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem' }}>
+                                                                                                <i className="fas fa-file-csv"></i>
+                                                                                            </div>
+                                                                                            <span style={{ fontWeight: 700, color: '#1e40af', fontSize: '0.85rem' }}>FROM YOUR CSV FILE</span>
+                                                                                        </div>
+                                                                                        <table style={{ width: '100%', fontSize: '0.82rem', borderCollapse: 'collapse' }}>
+                                                                                            <tbody>
+                                                                                                {[['Name', conflict.incoming?.name], ['Father Name', conflict.incoming?.fatherName], ['Mobile', conflict.incoming?.mobile], ['House No', conflict.incoming?.hNo], ['Locality', conflict.incoming?.locality]].filter(([,v]) => v).map(([label, value]) => (
+                                                                                                    <tr key={label}>
+                                                                                                        <td style={{ padding: '5px 0', color: '#64748b', fontWeight: 600, width: '40%' }}>{label}</td>
+                                                                                                        <td style={{ padding: '5px 0', color: '#1e293b', fontWeight: 500 }}>{value || '—'}</td>
+                                                                                                    </tr>
+                                                                                                ))}
+                                                                                            </tbody>
+                                                                                        </table>
+                                                                                    </div>
+                                                                                    <div style={{ padding: '16px 20px', background: '#fafafa' }}>
+                                                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                                                                                            <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#d1fae5', color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem' }}>
+                                                                                                <i className="fas fa-database"></i>
+                                                                                            </div>
+                                                                                            <span style={{ fontWeight: 700, color: '#065f46', fontSize: '0.85rem' }}>ALREADY IN SYSTEM</span>
+                                                                                        </div>
+                                                                                        {conflict.type === 'ownership' ? (
+                                                                                            (conflict.existing?.owners || []).map((owner, oi) => (
+                                                                                                <div key={oi} style={{ marginBottom: '12px', padding: '10px', background: '#fff', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                                                                                    <table style={{ width: '100%', fontSize: '0.82rem', borderCollapse: 'collapse' }}>
+                                                                                                        <tbody>
+                                                                                                            <tr><td style={{ padding: '4px 0', color: '#64748b', fontWeight: 600, width: '40%' }}>Name</td><td style={{ color: '#1e293b', fontWeight: 600 }}>{owner.name}</td></tr>
+                                                                                                            <tr><td style={{ padding: '4px 0', color: '#64748b', fontWeight: 600 }}>Mobile</td><td style={{ color: '#1e293b' }}>{owner.mobile}</td></tr>
+                                                                                                        </tbody>
+                                                                                                    </table>
+                                                                                                </div>
+                                                                                            ))
+                                                                                        ) : (
+                                                                                            <table style={{ width: '100%', fontSize: '0.82rem', borderCollapse: 'collapse' }}>
+                                                                                                <tbody>
+                                                                                                    {[['Name', conflict.existing?.name], ['Father Name', conflict.existing?.fatherName], ['Mobile', conflict.existing?.mobile], ['House No', conflict.existing?.hNo], ['Locality', conflict.existing?.locality]].filter(([,v]) => v).map(([label, value]) => (
+                                                                                                        <tr key={label}>
+                                                                                                            <td style={{ padding: '5px 0', color: '#64748b', fontWeight: 600, width: '40%' }}>{label}</td>
+                                                                                                            <td style={{ padding: '5px 0', color: '#1e293b', fontWeight: 500 }}>{value || '—'}</td>
+                                                                                                        </tr>
+                                                                                                    ))}
+                                                                                                </tbody>
+                                                                                            </table>
+                                                                                        )}
+                                                                                    </div>
+                                                                                </div>
+                                                                                <div style={{ padding: '16px 20px', borderTop: '1px solid #fecaca', background: '#fff' }}>
+                                                                                    <div style={{ fontWeight: 700, color: '#1e293b', marginBottom: '12px', fontSize: '0.9rem' }}>What should we do?</div>
+                                                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                                                                        {(conflict.type === 'ownership' ? [
+                                                                                            { value: 'SKIP_UPDATE', label: 'Skip — Keep existing owner (no changes)', icon: 'fa-ban', color: '#6b7280' },
+                                                                                            { value: 'REPLACE_OWNER', label: 'Replace — Transfer ownership to new person from CSV', icon: 'fa-exchange-alt', color: '#dc2626' },
+                                                                                            { value: 'ADD_CO_OWNER', label: 'Add as Co-Owner — Both will jointly own the unit', icon: 'fa-user-plus', color: '#2563eb' },
+                                                                                        ] : [
+                                                                                            { value: 'KEEP_SYSTEM', label: 'Keep System Data — Ignore CSV changes for this contact', icon: 'fa-database', color: '#6b7280' },
+                                                                                            { value: 'UPDATE_SYSTEM', label: 'Update System — Apply CSV data to existing contact', icon: 'fa-edit', color: '#2563eb' },
+                                                                                            { value: 'CREATE_NEW', label: 'Create New — Add CSV person as a separate new contact', icon: 'fa-user-plus', color: '#16a34a' },
+                                                                                        ]).map(opt => {
+                                                                                            const currentVal = resolutions[rowKey]?.[conflict.type];
+                                                                                            const isSelected = currentVal === opt.value;
+                                                                                            return (
+                                                                                                <label key={opt.value} style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '10px 14px', borderRadius: '8px', border: `2px solid ${isSelected ? opt.color : '#e2e8f0'}`, background: isSelected ? `${opt.color}0d` : '#fafafa', cursor: 'pointer', transition: 'all 0.2s' }}>
+                                                                                                    <input
+                                                                                                        type="radio"
+                                                                                                        name={`conflict_${rowKey}`}
+                                                                                                        value={opt.value}
+                                                                                                        checked={isSelected}
+                                                                                                        onChange={() => handleResolutionChange(rowKey, conflict.type, opt.value)}
+                                                                                                        style={{ marginTop: '2px', accentColor: opt.color }}
+                                                                                                    />
+                                                                                                    <div>
+                                                                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontWeight: 700, fontSize: '0.85rem', color: isSelected ? opt.color : '#374151' }}>
+                                                                                                            <i className={`fas ${opt.icon}`}></i>
+                                                                                                            {opt.label.split('—')[0]}
+                                                                                                        </div>
+                                                                                                        <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>{opt.label.split('—')[1]}</div>
+                                                                                                    </div>
+                                                                                                </label>
+                                                                                            );
+                                                                                        })}
+                                                                                    </div>
+                                                                                    <div style={{ marginTop: '12px', textAlign: 'right' }}>
+                                                                                        <button onClick={() => setExpandedConflictRow(null)} style={{ padding: '7px 18px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#f8fafc', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', color: '#475569' }}>
+                                                                                            Done — Collapse
+                                                                                        </button>
+                                                                                    </div>
+                                                                                </div>
                                                                             </div>
-                                                                        </div>
-                                                                    ) : (
-                                                                        <span style={{ color: '#94a3b8', fontSize: '0.8rem', fontStyle: 'italic' }}>No action needed</span>
-                                                                    )}
-                                                                </td>
-                                                            </tr>
+                                                                        </td>
+                                                                    </tr>
+                                                                )}
+                                                            </>
                                                         );
                                                     })}
                                                 </tbody>
                                             </table>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {module === 'propertyOwners' && notFound.length > 0 && (
+                                    <div style={{ marginBottom: '32px', background: '#fff', borderRadius: '12px', border: '2px solid #fcd34d', boxShadow: '0 4px 12px rgba(251,191,36,0.1)', overflow: 'hidden' }}>
+                                        <div style={{ padding: '16px 24px', background: '#fef9ec', borderBottom: '1px solid #fcd34d', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#92400e', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <i className="fas fa-search-minus"></i> {notFound.length} Units Not Found in System
+                                            </h3>
+                                            <span style={{ fontSize: '0.8rem', color: '#78350f', fontWeight: 600 }}>Manually match or skip each row</span>
+                                        </div>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
+                                            {notFound.map((nf, nfIdx) => {
+                                                const override = unitOverrides[nf.rowKey];
+                                                const searchResults = unitSearchResults[nf.rowKey] || [];
+                                                const sqVal = unitSearchQuery[nf.rowKey] || '';
+                                                return (
+                                                    <div key={nf.rowKey} style={{ padding: '18px 24px', borderBottom: nfIdx < notFound.length - 1 ? '1px solid #fef3c7' : 'none', background: override ? '#f0fdf4' : '#fff' }}>
+                                                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
+                                                            <div>
+                                                                <div style={{ fontWeight: 700, color: '#92400e', fontSize: '0.9rem', marginBottom: '4px' }}>
+                                                                    <i className="fas fa-exclamation-circle" style={{ marginRight: '6px', color: '#f59e0b' }}></i>
+                                                                    Row {nf.row} — Unit &quot;{nf.unitNo}&quot; not found
+                                                                </div>
+                                                                <div style={{ fontSize: '0.8rem', color: '#78350f' }}>
+                                                                    Project: <strong>{nf.projectName}</strong> {nf.block && <>/ Block: <strong>{nf.block}</strong></>}
+                                                                </div>
+                                                            </div>
+                                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', minWidth: '280px' }}>
+                                                                {override ? (
+                                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', borderRadius: '8px', background: '#dcfce7', border: '1px solid #86efac' }}>
+                                                                        <i className="fas fa-check-circle" style={{ color: '#16a34a' }}></i>
+                                                                        <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#166534' }}>Matched to: {override.unitNo || override.unitNumber}</span>
+                                                                        <button onClick={() => setUnitOverrides(prev => { const n = {...prev}; delete n[nf.rowKey]; return n; })} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#16a34a', cursor: 'pointer', fontWeight: 700, fontSize: '0.75rem' }}>✕ Change</button>
+                                                                    </div>
+                                                                ) : (
+                                                                    <div style={{ position: 'relative' }}>
+                                                                        <input
+                                                                            type="text"
+                                                                            placeholder={`Search units in ${nf.projectName}...`}
+                                                                            value={sqVal}
+                                                                            onChange={e => {
+                                                                                const q = e.target.value;
+                                                                                setUnitSearchQuery(prev => ({ ...prev, [nf.rowKey]: q }));
+                                                                                searchInventoryUnits(nf.rowKey, q, nf.projectName, nf.block);
+                                                                            }}
+                                                                            style={{ width: '100%', padding: '9px 12px', borderRadius: '7px', border: '1px solid #fcd34d', fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box' }}
+                                                                        />
+                                                                        {searchResults.length > 0 && (
+                                                                            <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 8px 20px rgba(0,0,0,0.1)', zIndex: 100, maxHeight: '200px', overflowY: 'auto', marginTop: '4px' }}>
+                                                                                {searchResults.map(unit => (
+                                                                                    <div
+                                                                                        key={unit._id}
+                                                                                        onClick={() => {
+                                                                                            setUnitOverrides(prev => ({ ...prev, [nf.rowKey]: unit }));
+                                                                                            setUnitSearchQuery(prev => ({ ...prev, [nf.rowKey]: '' }));
+                                                                                            setUnitSearchResults(prev => ({ ...prev, [nf.rowKey]: [] }));
+                                                                                        }}
+                                                                                        style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '0.85rem' }}
+                                                                                        onMouseOver={e => e.currentTarget.style.background='#f0f9ff'}
+                                                                                        onMouseOut={e => e.currentTarget.style.background='#fff'}
+                                                                                    >
+                                                                                        <div style={{ fontWeight: 700, color: '#0f172a' }}>{unit.unitNo || unit.unitNumber}</div>
+                                                                                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{unit.projectName} / {unit.block}</div>
+                                                                                    </div>
+                                                                                ))}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
                                     </div>
                                 )}
@@ -1066,19 +1288,32 @@ const ImportDataPage = () => {
                                                     <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>Project</th>
                                                     <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>Block</th>
                                                     <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>Status</th>
+                                                    {module === 'propertyOwners' && <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>Action</th>}
                                                 </tr>
                                             </thead>
                                             <tbody>
                                                 {importSuccessLogs.length === 0 ? (
-                                                    <tr><td colSpan="4" style={{ padding: '24px', textAlign: 'center', color: '#94a3b8' }}>No records processed in this batch.</td></tr>
+                                                    <tr><td colSpan="5" style={{ padding: '24px', textAlign: 'center', color: '#94a3b8' }}>No records processed in this batch.</td></tr>
                                                 ) : importSuccessLogs.map((log, idx) => (
                                                     <tr key={idx} style={{ borderBottom: idx === importSuccessLogs.length - 1 ? 'none' : '1px solid #f1f5f9' }}>
                                                         <td style={{ padding: '12px', color: '#1e293b', fontWeight: 600 }}>{log.unitNo || 'N/A'}</td>
                                                         <td style={{ padding: '12px', color: '#475569' }}>{log.project || 'N/A'}</td>
                                                         <td style={{ padding: '12px', color: '#475569' }}>{log.block || 'N/A'}</td>
                                                         <td style={{ padding: '12px' }}>
-                                                            <span style={{ padding: '2px 8px', borderRadius: '4px', background: '#dcfce7', color: '#16a34a', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase' }}>{log.status}</span>
+                                                            <span style={{ padding: '2px 8px', borderRadius: '4px', background: log.status === 'Conflict Pending' ? '#fef2f2' : '#dcfce7', color: log.status === 'Conflict Pending' ? '#dc2626' : '#16a34a', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase' }}>{log.status}</span>
                                                         </td>
+                                                        {module === 'propertyOwners' && (
+                                                            <td style={{ padding: '12px' }}>
+                                                                {log.status === 'Conflict Pending' && (
+                                                                    <button
+                                                                        onClick={() => { setStep(4); setTimeout(() => conflictSectionRef.current?.scrollIntoView({ behavior: 'smooth' }), 100); }}
+                                                                        style={{ padding: '4px 12px', borderRadius: '6px', border: '1px solid #fca5a5', background: '#fef2f2', color: '#dc2626', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' }}
+                                                                    >
+                                                                        <i className="fas fa-arrow-left"></i> Resolve Now
+                                                                    </button>
+                                                                )}
+                                                            </td>
+                                                        )}
                                                     </tr>
                                                 ))}
                                             </tbody>
