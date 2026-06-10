@@ -2494,6 +2494,10 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                                     ownerId = "CONFLICT_PENDING";
                                 } else {
                                     // Handle Conflict Resolutions
+                                    if (resolution === 'SKIP_ROW') {
+                                        results.errors.push({ row: i + 1, item: unitNo, reason: "Row skipped by user resolution choice" });
+                                        continue;
+                                    }
                                     if (resolution === 'UPDATE_SYSTEM') {
                                         if (name) existingContact.name = name;
                                         if (fatherName) existingContact.fatherName = fatherName;

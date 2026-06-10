@@ -24,6 +24,7 @@ const ProfessionalMap = ({
     const finishDrawingRef = useRef(null);
     const transitLayerRef = useRef(null);
     const trafficLayerRef = useRef(null);
+    const activeCircleRef = useRef(null);
     const [layerStates, setLayerStates] = useState({
         transit: false,
         traffic: false,
@@ -63,6 +64,12 @@ const ProfessionalMap = ({
         });
 
         infoWindowRef.current = new window.google.maps.InfoWindow();
+        infoWindowRef.current.addListener('closeclick', () => {
+            if (activeCircleRef.current) {
+                activeCircleRef.current.setMap(null);
+                activeCircleRef.current = null;
+            }
+        });
 
         // Attach global click handler for InfoWindow button
         window.handleInfoWindowClick = (itemId) => {
@@ -149,6 +156,10 @@ const ProfessionalMap = ({
         });
 
         return () => {
+            if (activeCircleRef.current) {
+                activeCircleRef.current.setMap(null);
+                activeCircleRef.current = null;
+            }
             if (clustererRef.current) clustererRef.current.clearMarkers();
             markersRef.current.forEach(marker => marker.setMap(null));
             if (drawnPolygonRef.current) drawnPolygonRef.current.setMap(null);
@@ -232,35 +243,20 @@ const ProfessionalMap = ({
                     return '#475569';
                 };
 
-                let marker;
-                if (isDemand) {
-                    // Render Circle for Buy/Rent representing search radius
-                    marker = new window.google.maps.Circle({
-                        strokeColor: itemColor,
-                        strokeOpacity: 0.8,
-                        strokeWeight: 2,
+                // Render standard pin for all deals (Sell, Lease, Rent, Buy)
+                const marker = new window.google.maps.Marker({
+                    position,
+                    map: googleMapRef.current,
+                    icon: {
+                        path: 'M12,2C8.1,2,5,5.1,5,9c0,5.2,7,13,7,13s7-7.8,7-13C19,5.1,15.9,2,12,2z M12,11.5c-1.4,0-2.5-1.1-2.5-2.5s1.1-2.5,2.5-2.5s2.5,1.1,2.5,2.5S13.4,11.5,12,11.5z',
                         fillColor: itemColor,
-                        fillOpacity: 0.35,
-                        map: googleMapRef.current,
-                        center: position,
-                        radius: 500, // 500 meters search zone
-                    });
-                } else {
-                    // Render standard pin for Supply (Sell/Lease)
-                    marker = new window.google.maps.Marker({
-                        position,
-                        map: googleMapRef.current,
-                        icon: {
-                            path: 'M12,2C8.1,2,5,5.1,5,9c0,5.2,7,13,7,13s7-7.8,7-13C19,5.1,15.9,2,12,2z M12,11.5c-1.4,0-2.5-1.1-2.5-2.5s1.1-2.5,2.5-2.5s2.5,1.1,2.5,2.5S13.4,11.5,12,11.5z',
-                            fillColor: itemColor,
-                            fillOpacity: 1,
-                            strokeWeight: 1.5,
-                            strokeColor: '#FFFFFF',
-                            scale: 1.8,
-                            anchor: new window.google.maps.Point(12, 22),
-                        }
-                    });
-                }
+                        fillOpacity: 1,
+                        strokeWeight: 1.5,
+                        strokeColor: '#FFFFFF',
+                        scale: 1.8,
+                        anchor: new window.google.maps.Point(12, 22),
+                    }
+                });
 
                 // InfoWindow Content logic
                 const handleOpenInfo = () => {
@@ -388,20 +384,31 @@ const ProfessionalMap = ({
                         </div>
                     `;
 
-                    infoWindowRef.current.setContent(contentString);
-                    if (isDemand) {
-                        infoWindowRef.current.setPosition(position);
-                        infoWindowRef.current.open(googleMapRef.current);
-                    } else {
-                        infoWindowRef.current.open(googleMapRef.current, marker);
+                    // Clear any previously active demand circle
+                    if (activeCircleRef.current) {
+                        activeCircleRef.current.setMap(null);
+                        activeCircleRef.current = null;
                     }
+
+                    // If it is a demand deal (Buy/Rent), draw its 500m search radius circle
+                    if (isDemand) {
+                        activeCircleRef.current = new window.google.maps.Circle({
+                            strokeColor: itemColor,
+                            strokeOpacity: 0.6,
+                            strokeWeight: 1.5,
+                            fillColor: itemColor,
+                            fillOpacity: 0.15,
+                            map: googleMapRef.current,
+                            center: position,
+                            radius: 500,
+                        });
+                    }
+
+                    infoWindowRef.current.setContent(contentString);
+                    infoWindowRef.current.open(googleMapRef.current, marker);
                 };
 
-                if (isDemand) {
-                    marker.addListener('click', handleOpenInfo);
-                } else {
-                    marker.addListener('click', handleOpenInfo);
-                }
+                marker.addListener('click', handleOpenInfo);
 
                 // Store metadata for active tracking
                 marker._dealId = item._id || item.id;

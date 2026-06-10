@@ -943,6 +943,7 @@ const ImportDataPage = () => {
                                                                                             { value: 'KEEP_SYSTEM', label: 'Keep System Data — Ignore CSV changes for this contact', icon: 'fa-database', color: '#6b7280' },
                                                                                             { value: 'UPDATE_SYSTEM', label: 'Update System — Apply CSV data to existing contact', icon: 'fa-edit', color: '#2563eb' },
                                                                                             { value: 'CREATE_NEW', label: 'Create New — Add CSV person as a separate new contact', icon: 'fa-user-plus', color: '#16a34a' },
+                                                                                            { value: 'SKIP_ROW', label: 'Skip Row — Discard this CSV row entirely', icon: 'fa-trash-alt', color: '#ef4444' },
                                                                                         ]).map(opt => {
                                                                                             const currentVal = resolutions[rowKey]?.[conflict.type];
                                                                                             const isSelected = currentVal === opt.value;

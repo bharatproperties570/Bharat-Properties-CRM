@@ -1082,12 +1082,8 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                             <span>Lease (Supply Pin)</span>
                                         </div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                            <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#8b5cf6', opacity: 0.5 }}></div>
-                                            <span>Buy (Search Zone)</span>
-                                        </div>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                            <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#f59e0b', opacity: 0.5 }}></div>
-                                            <span>Rent (Search Zone)</span>
+                                            <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#f59e0b' }}></div>
+                                            <span>Rent (Supply Pin)</span>
                                         </div>
                                         <div style={{ marginTop: '4px', borderTop: '1px solid #e2e8f0', paddingTop: '4px' }}>
                                             <i className="fas fa-search-plus" style={{ color: '#64748b' }}></i> <span style={{ color: '#64748b', fontSize: '0.7rem' }}>Zoom out to see Deal Clusters</span>
