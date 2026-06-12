@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { api } from '../../utils/api';
+import { useTheme } from '../../context/ThemeContext';
 import {
   BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, Tooltip, ResponsiveContainer,
-  AreaChart, Area, CartesianGrid, LineChart, Line, FunnelChart, Funnel
+  AreaChart, Area, CartesianGrid, LineChart, Line
 } from 'recharts';
 import './LeadAnalyticsPage.css';
 
@@ -96,16 +97,19 @@ const getStageConfig = (stageKey) => {
 };
 
 // ── Custom Tooltip ────────────────────────────────────────────
-const Tip = ({ active, payload, label }) => {
+const Tip = ({ active, payload, label, isDark }) => {
   if (!active || !payload?.length) return null;
   return (
     <div style={{
-      background: '#12101e', border: '1px solid rgba(139,92,246,0.2)',
-      borderRadius: 10, padding: '10px 14px', fontSize: '0.75rem', color: '#e2e8f0'
+      background: isDark ? '#12101e' : '#ffffff',
+      border: `1px solid ${isDark ? 'rgba(139,92,246,0.2)' : 'rgba(0,0,0,0.1)'}`,
+      boxShadow: isDark ? '0 4px 24px rgba(0,0,0,0.5)' : '0 4px 24px rgba(0,0,0,0.12)',
+      borderRadius: 10, padding: '10px 14px', fontSize: '0.75rem',
+      color: isDark ? '#e2e8f0' : '#1e293b'
     }}>
-      {label && <div style={{ fontWeight: 700, marginBottom: 4, color: '#94a3b8' }}>{label}</div>}
+      {label && <div style={{ fontWeight: 700, marginBottom: 4, color: isDark ? '#94a3b8' : '#64748b' }}>{label}</div>}
       {payload.map((p, i) => (
-        <div key={i} style={{ color: p.color || '#e2e8f0', fontWeight: 600 }}>
+        <div key={i} style={{ color: p.color || (isDark ? '#e2e8f0' : '#1e293b'), fontWeight: 600 }}>
           {p.name}: {p.value}
         </div>
       ))}
@@ -137,6 +141,11 @@ const KPI = ({ icon, iconBg, iconColor, label, value, sub, trend, trendDir, colo
 
 // ── MAIN PAGE ────────────────────────────────────────────────
 const LeadAnalyticsPage = ({ onNavigate }) => {
+  const { isDark } = useTheme();
+  const tickColor = isDark ? '#64748b' : '#94a3b8';
+  const gridStroke = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)';
+  const TipWithTheme = (props) => <Tip {...props} isDark={isDark} />;
+
   const [leads, setLeads]       = useState([]);
   const [scores, setScores]     = useState({});
   const [loading, setLoading]   = useState(true);
@@ -522,10 +531,10 @@ const LeadAnalyticsPage = ({ onNavigate }) => {
                         <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                    <XAxis dataKey="month" tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <Tooltip content={<Tip />} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
+                    <XAxis dataKey="month" tick={{ fill: tickColor, fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: tickColor, fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <Tooltip content={<TipWithTheme />} />
                     <Area type="monotone" dataKey="total" name="Total" stroke="#8b5cf6" fill="url(#laGrad)" strokeWidth={2} dot={false} />
                     <Line type="monotone" dataKey="hot" name="Hot (≥61)" stroke="#ef4444" strokeWidth={1.5} dot={false} strokeDasharray="4 2" />
                   </AreaChart>
@@ -552,7 +561,7 @@ const LeadAnalyticsPage = ({ onNavigate }) => {
                       <Pie data={tempData} dataKey="value" cx="50%" cy="50%" outerRadius={65} innerRadius={35} paddingAngle={3}>
                         {tempData.map((e, i) => <Cell key={i} fill={e.color} />)}
                       </Pie>
-                      <Tooltip content={<Tip />} />
+                      <Tooltip content={<TipWithTheme />} />
                     </PieChart>
                   </ResponsiveContainer>
                   <div className="la-donut-legend">
@@ -581,10 +590,10 @@ const LeadAnalyticsPage = ({ onNavigate }) => {
               {loading ? <Skel h={200} /> : (
                 <ResponsiveContainer width="100%" height={200}>
                   <BarChart data={scoreHistogram} barSize={18}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                    <XAxis dataKey="label" tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <Tooltip content={<Tip />} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
+                    <XAxis dataKey="label" tick={{ fill: tickColor, fontSize: 9 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: tickColor, fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <Tooltip content={<TipWithTheme />} />
                     <Bar dataKey="count" name="Leads" radius={[4, 4, 0, 0]}>
                       {scoreHistogram.map((e, i) => <Cell key={i} fill={e.color} />)}
                     </Bar>
@@ -605,7 +614,7 @@ const LeadAnalyticsPage = ({ onNavigate }) => {
                       <Pie data={intentData} dataKey="value" cx="50%" cy="50%" outerRadius={65} innerRadius={35} paddingAngle={3}>
                         {intentData.map((e, i) => <Cell key={i} fill={e.color} />)}
                       </Pie>
-                      <Tooltip content={<Tip />} />
+                      <Tooltip content={<TipWithTheme />} />
                     </PieChart>
                   </ResponsiveContainer>
                   <div className="la-donut-legend">
@@ -669,10 +678,10 @@ const LeadAnalyticsPage = ({ onNavigate }) => {
               ) : (
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={sourceData} barSize={16}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                    <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} angle={-25} textAnchor="end" height={40} />
-                    <YAxis tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <Tooltip content={<Tip />} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
+                    <XAxis dataKey="name" tick={{ fill: tickColor, fontSize: 9 }} axisLine={false} tickLine={false} angle={-25} textAnchor="end" height={40} />
+                    <YAxis tick={{ fill: tickColor, fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <Tooltip content={<TipWithTheme />} />
                     <Bar dataKey="count" name="Leads" radius={[4, 4, 0, 0]}>
                       {sourceData.map((e, i) => <Cell key={i} fill={e.color} />)}
                     </Bar>
@@ -734,10 +743,10 @@ const LeadAnalyticsPage = ({ onNavigate }) => {
               ) : (
                 <ResponsiveContainer width="100%" height={230}>
                   <BarChart data={categoryData} layout="vertical" barSize={16}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" horizontal={false} />
-                    <XAxis type="number" tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <YAxis type="category" dataKey="name" width={100} tick={{ fill: '#94a3b8', fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <Tooltip content={<Tip />} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} horizontal={false} />
+                    <XAxis type="number" tick={{ fill: tickColor, fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <YAxis type="category" dataKey="name" width={100} tick={{ fill: tickColor, fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <Tooltip content={<TipWithTheme />} />
                     <Bar dataKey="value" name="Leads" radius={[0, 4, 4, 0]}>
                       {categoryData.map((e, i) => <Cell key={i} fill={e.color} />)}
                     </Bar>
@@ -763,10 +772,10 @@ const LeadAnalyticsPage = ({ onNavigate }) => {
               ) : (
                 <ResponsiveContainer width="100%" height={230}>
                   <BarChart data={budgetData} barSize={28}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                    <XAxis dataKey="label" tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <Tooltip content={<Tip />} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
+                    <XAxis dataKey="label" tick={{ fill: tickColor, fontSize: 9 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: tickColor, fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <Tooltip content={<TipWithTheme />} />
                     <Bar dataKey="count" name="Leads" radius={[6, 6, 0, 0]}>
                       {budgetData.map((e, i) => <Cell key={i} fill={e.color} />)}
                     </Bar>
@@ -793,7 +802,7 @@ const LeadAnalyticsPage = ({ onNavigate }) => {
                       {agentData.map((a, i) => (
                         <tr key={a.name}>
                           <td><div className={`la-rank-badge ${i===0?'r1':i===1?'r2':i===2?'r3':'rn'}`}>{i+1}</div></td>
-                          <td style={{ fontWeight: 600, color: '#e2e8f0', maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</td>
+                          <td style={{ fontWeight: 600, color: 'var(--an-text-main)', maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</td>
                           <td>{a.total}</td>
                           <td style={{ color: '#ef4444', fontWeight: 700 }}>{a.hot}</td>
                           <td>

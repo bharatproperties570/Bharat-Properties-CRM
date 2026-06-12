@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { api } from '../../utils/api';
+import { useTheme } from '../../context/ThemeContext';
 import {
   BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -78,16 +79,19 @@ const resolveAssigned = (item) => {
 };
 
 // ── Custom Tooltip ────────────────────────────────────────────
-const Tip = ({ active, payload, label }) => {
+const Tip = ({ active, payload, label, isDark }) => {
   if (!active || !payload?.length) return null;
   return (
     <div style={{
-      background: '#132018', border: '1px solid rgba(16,185,129,0.2)',
-      borderRadius: 10, padding: '10px 14px', fontSize: '0.75rem', color: '#e2e8f0'
+      background: isDark ? '#132018' : '#ffffff',
+      border: `1px solid ${isDark ? 'rgba(16,185,129,0.2)' : 'rgba(0,0,0,0.1)'}`,
+      boxShadow: isDark ? '0 4px 20px rgba(0,0,0,0.4)' : '0 4px 20px rgba(0,0,0,0.1)',
+      borderRadius: 10, padding: '10px 14px', fontSize: '0.75rem',
+      color: isDark ? '#e2e8f0' : '#1e293b'
     }}>
-      {label && <div style={{ fontWeight: 700, marginBottom: 4, color: '#94a3b8' }}>{label}</div>}
+      {label && <div style={{ fontWeight: 700, marginBottom: 4, color: isDark ? '#94a3b8' : '#64748b' }}>{label}</div>}
       {payload.map((p, i) => (
-        <div key={i} style={{ color: p.color || '#e2e8f0', fontWeight: 600 }}>
+        <div key={i} style={{ color: p.color || (isDark ? '#e2e8f0' : '#1e293b'), fontWeight: 600 }}>
           {p.name}: {p.value}
         </div>
       ))}
@@ -119,8 +123,13 @@ const KPI = ({ icon, iconBg, iconColor, label, value, sub, trend, trendDir, colo
   </div>
 );
 
-// ── Main Page ─────────────────────────────────────────────────
+// ── Main Page ────────────────────────────────────────────────
 const InventoryAnalyticsPage = ({ onNavigate }) => {
+  const { isDark } = useTheme();
+  const tickColor  = isDark ? '#64748b' : '#94a3b8';
+  const gridStroke = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)';
+  const TipT = (props) => <Tip {...props} isDark={isDark} />;
+
   const [inventory, setInventory] = useState([]);
   const [loading, setLoading]     = useState(true);
   const [dateRange, setDateRange] = useState('all');
@@ -447,10 +456,10 @@ const InventoryAnalyticsPage = ({ onNavigate }) => {
                         <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                    <XAxis dataKey="month" tick={{fill:'#64748b',fontSize:10}} axisLine={false} tickLine={false}/>
-                    <YAxis tick={{fill:'#64748b',fontSize:10}} axisLine={false} tickLine={false}/>
-                    <Tooltip content={<Tip/>}/>
+                    <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
+                    <XAxis dataKey="month" tick={{fill:tickColor,fontSize:10}} axisLine={false} tickLine={false}/>
+                    <YAxis tick={{fill:tickColor,fontSize:10}} axisLine={false} tickLine={false}/>
+                    <Tooltip content={<TipT/>}/>
                     <Area type="monotone" dataKey="added" name="Added" stroke="#10b981" fill="url(#invGrad)" strokeWidth={2} dot={false}/>
                     <Line type="monotone" dataKey="active" name="Active" stroke="#3b82f6" strokeWidth={1.5} dot={false} strokeDasharray="4 2"/>
                   </AreaChart>
@@ -477,7 +486,7 @@ const InventoryAnalyticsPage = ({ onNavigate }) => {
                       <Pie data={categoryData} dataKey="value" cx="50%" cy="50%" outerRadius={65} innerRadius={35} paddingAngle={3}>
                         {categoryData.map((e,i) => <Cell key={i} fill={e.color}/>)}
                       </Pie>
-                      <Tooltip content={<Tip/>}/>
+                      <Tooltip content={<TipT/>}/>
                     </PieChart>
                   </ResponsiveContainer>
                   <div className="inv-donut-legend">
@@ -505,10 +514,10 @@ const InventoryAnalyticsPage = ({ onNavigate }) => {
               {loading ? <Skeleton height={200}/> : (
                 <ResponsiveContainer width="100%" height={200}>
                   <BarChart data={subCatData} layout="vertical" barSize={14}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" horizontal={false}/>
-                    <XAxis type="number" tick={{fill:'#64748b',fontSize:10}} axisLine={false} tickLine={false}/>
-                    <YAxis type="category" dataKey="name" width={80} tick={{fill:'#94a3b8',fontSize:10}} axisLine={false} tickLine={false}/>
-                    <Tooltip content={<Tip/>}/>
+                    <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} horizontal={false}/>
+                    <XAxis type="number" tick={{fill:tickColor,fontSize:10}} axisLine={false} tickLine={false}/>
+                    <YAxis type="category" dataKey="name" width={80} tick={{fill:tickColor,fontSize:10}} axisLine={false} tickLine={false}/>
+                    <Tooltip content={<TipT/>}/>
                     <Bar dataKey="value" name="Count" radius={[0,4,4,0]}>
                       {subCatData.map((e,i) => <Cell key={i} fill={e.color}/>)}
                     </Bar>
@@ -529,7 +538,7 @@ const InventoryAnalyticsPage = ({ onNavigate }) => {
                       <Pie data={intentData} dataKey="value" cx="50%" cy="50%" outerRadius={65} innerRadius={35} paddingAngle={3}>
                         {intentData.map((e,i) => <Cell key={i} fill={e.color}/>)}
                       </Pie>
-                      <Tooltip content={<Tip/>}/>
+                      <Tooltip content={<TipT/>}/>
                     </PieChart>
                   </ResponsiveContainer>
                   <div className="inv-donut-legend">
@@ -567,10 +576,10 @@ const InventoryAnalyticsPage = ({ onNavigate }) => {
               ) : (
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={ageBandData} barSize={36}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)"/>
-                    <XAxis dataKey="label" tick={{fill:'#64748b',fontSize:10}} axisLine={false} tickLine={false}/>
-                    <YAxis tick={{fill:'#64748b',fontSize:10}} axisLine={false} tickLine={false}/>
-                    <Tooltip content={<Tip/>}/>
+                    <CartesianGrid strokeDasharray="3 3" stroke={gridStroke}/>
+                    <XAxis dataKey="label" tick={{fill:tickColor,fontSize:10}} axisLine={false} tickLine={false}/>
+                    <YAxis tick={{fill:tickColor,fontSize:10}} axisLine={false} tickLine={false}/>
+                    <Tooltip content={<TipT/>}/>
                     <Bar dataKey="count" name="Properties" radius={[6,6,0,0]}>
                       {ageBandData.map((e,i) => <Cell key={i} fill={e.color}/>)}
                     </Bar>
@@ -589,10 +598,10 @@ const InventoryAnalyticsPage = ({ onNavigate }) => {
               ) : (
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={facingData} barSize={20}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)"/>
-                    <XAxis dataKey="name" tick={{fill:'#64748b',fontSize:9}} axisLine={false} tickLine={false}/>
-                    <YAxis tick={{fill:'#64748b',fontSize:10}} axisLine={false} tickLine={false}/>
-                    <Tooltip content={<Tip/>}/>
+                    <CartesianGrid strokeDasharray="3 3" stroke={gridStroke}/>
+                    <XAxis dataKey="name" tick={{fill:tickColor,fontSize:9}} axisLine={false} tickLine={false}/>
+                    <YAxis tick={{fill:tickColor,fontSize:10}} axisLine={false} tickLine={false}/>
+                    <Tooltip content={<TipT/>}/>
                     <Bar dataKey="value" name="Count" radius={[4,4,0,0]}>
                       {facingData.map((e,i)=><Cell key={i} fill={e.color}/>)}
                     </Bar>
@@ -626,7 +635,7 @@ const InventoryAnalyticsPage = ({ onNavigate }) => {
                       {projectData.map((p,i) => (
                         <tr key={p.name}>
                           <td><div className={`inv-rank-badge ${i===0?'r1':i===1?'r2':i===2?'r3':'rn'}`}>{i+1}</div></td>
-                          <td style={{fontWeight:600,color:'#e2e8f0',maxWidth:130,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name}</td>
+                          <td style={{fontWeight:600,color:'var(--an-text-main)',maxWidth:130,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name}</td>
                           <td>{p.total}</td>
                           <td style={{color:'#10b981',fontWeight:700}}>{p.active}</td>
                           <td style={{color:'#64748b'}}>{p.sold}</td>
@@ -651,10 +660,10 @@ const InventoryAnalyticsPage = ({ onNavigate }) => {
               ) : (
                 <ResponsiveContainer width="100%" height={240}>
                   <BarChart data={cityData} layout="vertical" barSize={16}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" horizontal={false}/>
-                    <XAxis type="number" tick={{fill:'#64748b',fontSize:10}} axisLine={false} tickLine={false}/>
-                    <YAxis type="category" dataKey="name" width={90} tick={{fill:'#94a3b8',fontSize:10}} axisLine={false} tickLine={false}/>
-                    <Tooltip content={<Tip/>}/>
+                    <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} horizontal={false}/>
+                    <XAxis type="number" tick={{fill:tickColor,fontSize:10}} axisLine={false} tickLine={false}/>
+                    <YAxis type="category" dataKey="name" width={90} tick={{fill:tickColor,fontSize:10}} axisLine={false} tickLine={false}/>
+                    <Tooltip content={<TipT/>}/>
                     <Bar dataKey="count" name="Properties" fill="#10b981" radius={[0,4,4,0]}/>
                   </BarChart>
                 </ResponsiveContainer>
@@ -685,7 +694,7 @@ const InventoryAnalyticsPage = ({ onNavigate }) => {
                       {agentData.map((a,i) => (
                         <tr key={a.name}>
                           <td><div className={`inv-rank-badge ${i===0?'r1':i===1?'r2':i===2?'r3':'rn'}`}>{i+1}</div></td>
-                          <td style={{fontWeight:600,color:'#e2e8f0',maxWidth:110,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{a.name}</td>
+                          <td style={{fontWeight:600,color:'var(--an-text-main)',maxWidth:110,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{a.name}</td>
                           <td>{a.total}</td>
                           <td style={{color:'#10b981',fontWeight:700}}>{a.active}</td>
                           <td style={{color:'#94a3b8'}}>{a.withFeedback}</td>
@@ -711,10 +720,10 @@ const InventoryAnalyticsPage = ({ onNavigate }) => {
               ) : (
                 <ResponsiveContainer width="100%" height={230}>
                   <BarChart data={feedbackData} layout="vertical" barSize={14}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" horizontal={false}/>
-                    <XAxis type="number" tick={{fill:'#64748b',fontSize:10}} axisLine={false} tickLine={false}/>
-                    <YAxis type="category" dataKey="name" width={110} tick={{fill:'#94a3b8',fontSize:10}} axisLine={false} tickLine={false}/>
-                    <Tooltip content={<Tip/>}/>
+                    <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} horizontal={false}/>
+                    <XAxis type="number" tick={{fill:tickColor,fontSize:10}} axisLine={false} tickLine={false}/>
+                    <YAxis type="category" dataKey="name" width={110} tick={{fill:tickColor,fontSize:10}} axisLine={false} tickLine={false}/>
+                    <Tooltip content={<TipT/>}/>
                     <Bar dataKey="count" name="Count" radius={[0,4,4,0]}>
                       {feedbackData.map((e,i)=><Cell key={i} fill={e.color}/>)}
                     </Bar>
@@ -767,7 +776,7 @@ const InventoryAnalyticsPage = ({ onNavigate }) => {
                       const assigned = resolveAssigned(item);
                       return (
                         <tr key={item._id}>
-                          <td style={{fontWeight:700,color:'#34d399',fontSize:'0.72rem'}}>
+                          <td style={{fontWeight:700,color:'var(--an-kpi-value, #34d399)',fontSize:'0.72rem'}}>
                             {item.unitNo || item._id?.slice(-6)}
                           </td>
                           <td style={{maxWidth:120,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:'0.72rem'}}>

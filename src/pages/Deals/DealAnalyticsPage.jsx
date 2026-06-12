@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { api } from '../../utils/api';
 import { formatIndianCurrency } from '../../utils/numberToWords';
+import { useTheme } from '../../context/ThemeContext';
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
@@ -41,16 +42,19 @@ const PRICE_BANDS = [
 ];
 
 // ── Custom Tooltip ───────────────────────────────────────────────
-const CustomTooltip = ({ active, payload, label }) => {
+const CustomTooltip = ({ active, payload, label, isDark }) => {
   if (!active || !payload?.length) return null;
   return (
     <div style={{
-      background: '#1e293b', border: '1px solid rgba(255,255,255,0.12)',
-      borderRadius: '10px', padding: '10px 14px', fontSize: '0.75rem', color: '#e2e8f0'
+      background: isDark ? '#1e293b' : '#ffffff',
+      border: `1px solid ${isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)'}`,
+      boxShadow: isDark ? '0 4px 20px rgba(0,0,0,0.4)' : '0 4px 20px rgba(0,0,0,0.1)',
+      borderRadius: '10px', padding: '10px 14px', fontSize: '0.75rem',
+      color: isDark ? '#e2e8f0' : '#1e293b'
     }}>
-      {label && <div style={{ fontWeight: 700, marginBottom: 4, color: '#94a3b8' }}>{label}</div>}
+      {label && <div style={{ fontWeight: 700, marginBottom: 4, color: isDark ? '#94a3b8' : '#64748b' }}>{label}</div>}
       {payload.map((p, i) => (
-        <div key={i} style={{ color: p.color || '#e2e8f0', fontWeight: 600 }}>
+        <div key={i} style={{ color: p.color || (isDark ? '#e2e8f0' : '#1e293b'), fontWeight: 600 }}>
           {p.name}: {typeof p.value === 'number' && p.value > 100000
             ? formatIndianCurrency(p.value)
             : p.value}
@@ -87,10 +91,15 @@ const KPICard = ({ icon, iconBg, label, value, sub, trend, trendDir, color }) =>
 
 // ── Main Component ───────────────────────────────────────────────
 const DealAnalyticsPage = ({ onNavigate }) => {
+  const { isDark } = useTheme();
+  const tickColor   = isDark ? '#64748b' : '#94a3b8';
+  const gridStroke  = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)';
+  const Tip = (props) => <CustomTooltip {...props} isDark={isDark} />;
+
   const [deals, setDeals] = useState([]);
   const [scores, setScores] = useState({});
   const [loading, setLoading] = useState(true);
-  const [dateRange, setDateRange] = useState('all'); // 7, 30, 90, all
+  const [dateRange, setDateRange] = useState('all');
   const [refreshKey, setRefreshKey] = useState(0);
 
   // Fetch all deals (large limit for analytics)
@@ -446,10 +455,10 @@ const DealAnalyticsPage = ({ onNavigate }) => {
               {loading ? <Skeleton height={220} /> : (
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={monthlyData} barSize={12}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                    <XAxis dataKey="month" tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <Tooltip content={<CustomTooltip />} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
+                    <XAxis dataKey="month" tick={{ fill: tickColor, fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: tickColor, fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <Tooltip content={<Tip />} />
                     <Bar dataKey="won" name="Won (₹L)" fill="#10b981" radius={[4, 4, 0, 0]} />
                     <Bar dataKey="pipeline" name="Pipeline (₹L)" fill="#3b82f650" radius={[4, 4, 0, 0]} />
                   </BarChart>
@@ -478,10 +487,10 @@ const DealAnalyticsPage = ({ onNavigate }) => {
                         <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                    <XAxis dataKey="month" tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <Tooltip content={<CustomTooltip />} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
+                    <XAxis dataKey="month" tick={{ fill: tickColor, fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: tickColor, fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <Tooltip content={<Tip />} />
                     <Area type="monotone" dataKey="new" name="New Deals" stroke="#3b82f6" fill="url(#newGrad)" strokeWidth={2} dot={false} />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -502,7 +511,7 @@ const DealAnalyticsPage = ({ onNavigate }) => {
                           <Cell key={i} fill={entry.color} />
                         ))}
                       </Pie>
-                      <Tooltip content={<CustomTooltip />} />
+                      <Tooltip content={<Tip />} />
                     </PieChart>
                   </ResponsiveContainer>
                   <div className="donut-legend" style={{ flex: 1 }}>
@@ -541,7 +550,7 @@ const DealAnalyticsPage = ({ onNavigate }) => {
                       <Pie data={intentData} dataKey="value" cx="50%" cy="50%" outerRadius={65} innerRadius={35} paddingAngle={3}>
                         {intentData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
                       </Pie>
-                      <Tooltip content={<CustomTooltip />} />
+                      <Tooltip content={<Tip />} />
                     </PieChart>
                   </ResponsiveContainer>
                   <div className="donut-legend">
@@ -573,7 +582,7 @@ const DealAnalyticsPage = ({ onNavigate }) => {
                       <Pie data={dealTypeData} dataKey="value" cx="50%" cy="50%" outerRadius={65} innerRadius={35} paddingAngle={3}>
                         {dealTypeData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
                       </Pie>
-                      <Tooltip content={<CustomTooltip />} />
+                      <Tooltip content={<Tip />} />
                     </PieChart>
                   </ResponsiveContainer>
                   <div className="donut-legend">
@@ -606,16 +615,16 @@ const DealAnalyticsPage = ({ onNavigate }) => {
                       { label: 'Fair Market', count: marketGapData.fair, cls: 'fair', icon: 'fa-check' },
                       { label: 'Below Market', count: marketGapData.below, cls: 'below', icon: 'fa-arrow-down' },
                     ].map(m => (
-                      <div key={m.cls} style={{ flex: 1, textAlign: 'center', padding: '0.75rem 0.5rem', background: 'rgba(255,255,255,0.04)', borderRadius: '10px' }}>
-                        <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#e2e8f0' }}>{m.count}</div>
+                      <div key={m.cls} style={{ flex: 1, textAlign: 'center', padding: '0.75rem 0.5rem', background: 'var(--an-bg-subtle)', borderRadius: '10px' }}>
+                        <div style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--an-text-main)' }}>{m.count}</div>
                         <span className={`market-gap-chip ${m.cls}`}><i className={`fas ${m.icon}`} /> {m.cls}</span>
-                        <div style={{ fontSize: '0.65rem', color: '#64748b', marginTop: 4 }}>{m.label}</div>
+                        <div style={{ fontSize: '0.65rem', color: 'var(--an-text-faint)', marginTop: 4 }}>{m.label}</div>
                       </div>
                     ))}
                   </div>
-                  <div style={{ fontSize: '0.72rem', color: '#475569', padding: '8px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--an-text-faint)', padding: '8px 10px', background: 'var(--an-bg-subtle)', borderRadius: '8px' }}>
                     <i className="fas fa-lightbulb" style={{ color: '#f59e0b', marginRight: 6 }} />
-                    <strong style={{ color: '#94a3b8' }}>Tip:</strong> Premium-priced + Stalled stage = reduce price or repackage to close faster.
+                    <strong style={{ color: 'var(--an-text-muted)' }}>Tip:</strong> Premium-priced + Stalled stage = reduce price or repackage to close faster.
                   </div>
                 </>
               )}
@@ -691,7 +700,7 @@ const DealAnalyticsPage = ({ onNavigate }) => {
                               {i + 1}
                             </div>
                           </td>
-                          <td style={{ fontWeight: 600, color: '#e2e8f0', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</td>
+                          <td style={{ fontWeight: 600, color: 'var(--an-text-main)', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</td>
                           <td>{a.total}</td>
                           <td style={{ color: '#10b981', fontWeight: 700 }}>{a.won}</td>
                           <td>
@@ -739,7 +748,7 @@ const DealAnalyticsPage = ({ onNavigate }) => {
                       {projectData.map((p, i) => (
                         <tr key={p.name}>
                           <td><div className={`rank-badge ${i < 3 ? `rank-${i + 1}` : 'rank-other'}`}>{i + 1}</div></td>
-                          <td style={{ fontWeight: 600, color: '#e2e8f0', maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</td>
+                          <td style={{ fontWeight: 600, color: 'var(--an-text-main)', maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</td>
                           <td>{p.total}</td>
                           <td style={{ color: '#10b981', fontWeight: 700 }}>{p.won}</td>
                           <td style={{ color: parseInt(p.winRate) >= 30 ? '#10b981' : '#f59e0b', fontWeight: 700 }}>{p.winRate}%</td>
@@ -763,10 +772,10 @@ const DealAnalyticsPage = ({ onNavigate }) => {
               ) : (
                 <ResponsiveContainer width="100%" height={230}>
                   <BarChart data={lossReasonData} layout="vertical" barSize={14}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" horizontal={false} />
-                    <XAxis type="number" tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <YAxis type="category" dataKey="reason" width={110} tick={{ fill: '#94a3b8', fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <Tooltip content={<CustomTooltip />} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} horizontal={false} />
+                    <XAxis type="number" tick={{ fill: tickColor, fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <YAxis type="category" dataKey="reason" width={110} tick={{ fill: tickColor, fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <Tooltip content={<Tip />} />
                     <Bar dataKey="count" name="Count" fill="#ef444480" radius={[0, 4, 4, 0]} />
                   </BarChart>
                 </ResponsiveContainer>

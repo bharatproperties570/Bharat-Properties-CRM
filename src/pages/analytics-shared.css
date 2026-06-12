@@ -1,0 +1,112 @@
+/* ============================================================
+   ANALYTICS SHARED VARIABLES — Theme-aware (Light & Dark)
+   Uses CRM's existing html.dark-mode / data-theme system
+   ============================================================ */
+
+/* ── Light Mode Variables ─── */
+:root {
+  --an-bg-page:         #f0f4ff;
+  --an-bg-card:         #ffffff;
+  --an-bg-card-hover:   #f8fafc;
+  --an-bg-subtle:       #f1f5f9;
+  --an-bg-input:        #f8fafc;
+  --an-border:          #e2e8f0;
+  --an-border-strong:   #cbd5e1;
+  --an-text-main:       #0f172a;
+  --an-text-sub:        #334155;
+  --an-text-muted:      #64748b;
+  --an-text-faint:      #94a3b8;
+  --an-chart-grid:      rgba(0,0,0,0.06);
+  --an-scrollbar-thumb: #cbd5e1;
+  --an-scrollbar-track: #f1f5f9;
+  --an-skeleton-from:   rgba(0,0,0,0.04);
+  --an-skeleton-to:     rgba(0,0,0,0.08);
+  --an-tip-bg:          #ffffff;
+  --an-tip-border:      rgba(0,0,0,0.1);
+  --an-tip-shadow:      0 4px 24px rgba(0,0,0,0.12);
+  --an-table-row-hover: rgba(0,0,0,0.025);
+  --an-table-border:    rgba(0,0,0,0.05);
+  --an-kpi-hover-bg:    rgba(0,0,0,0.02);
+  --an-kpi-hover-border:#e2e8f0;
+  --an-section-title:   #475569;
+  --an-badge-bg:        rgba(0,0,0,0.05);
+  --an-badge-text:      #475569;
+  --an-pill-bg:         rgba(0,0,0,0.04);
+  --an-header-bg:       rgba(255,255,255,0.9);
+  --an-back-btn-bg:     rgba(0,0,0,0.04);
+  --an-back-btn-border: #e2e8f0;
+  --an-back-btn-text:   #475569;
+  --an-rank1-from:      #f59e0b;
+  --an-rank1-to:        #d97706;
+  --an-rank2-from:      #94a3b8;
+  --an-rank2-to:        #64748b;
+  --an-rank3-from:      #cd7f32;
+  --an-rank3-to:        #a16207;
+  --an-rankn-bg:        rgba(0,0,0,0.06);
+  --an-rankn-text:      #64748b;
+  --an-empty-icon:      rgba(0,0,0,0.2);
+  --an-empty-text:      #94a3b8;
+  --an-bar-bg:          rgba(0,0,0,0.05);
+  --an-funnel-stat:     #64748b;
+  --an-mini-border:     rgba(0,0,0,0.05);
+  --an-ctrl-bg:         rgba(0,0,0,0.03);
+  --an-ctrl-border:     #e2e8f0;
+  --an-ctrl-text:       #475569;
+  --an-date-btn-text:   #64748b;
+  --an-date-wrap-bg:    rgba(0,0,0,0.03);
+  --an-date-wrap-border:#e2e8f0;
+}
+
+/* ── Dark Mode Overrides ─── */
+html.dark-mode {
+  --an-bg-page:         #0d0f1a;
+  --an-bg-card:         rgba(255,255,255,0.04);
+  --an-bg-card-hover:   rgba(255,255,255,0.07);
+  --an-bg-subtle:       rgba(255,255,255,0.03);
+  --an-bg-input:        rgba(255,255,255,0.05);
+  --an-border:          rgba(255,255,255,0.07);
+  --an-border-strong:   rgba(255,255,255,0.12);
+  --an-text-main:       #f1f5f9;
+  --an-text-sub:        #cbd5e1;
+  --an-text-muted:      #94a3b8;
+  --an-text-faint:      #475569;
+  --an-chart-grid:      rgba(255,255,255,0.05);
+  --an-scrollbar-thumb: rgba(255,255,255,0.1);
+  --an-scrollbar-track: transparent;
+  --an-skeleton-from:   rgba(255,255,255,0.04);
+  --an-skeleton-to:     rgba(255,255,255,0.08);
+  --an-tip-bg:          #12101e;
+  --an-tip-border:      rgba(255,255,255,0.1);
+  --an-tip-shadow:      0 4px 24px rgba(0,0,0,0.5);
+  --an-table-row-hover: rgba(255,255,255,0.03);
+  --an-table-border:    rgba(255,255,255,0.04);
+  --an-kpi-hover-bg:    rgba(255,255,255,0.07);
+  --an-kpi-hover-border:rgba(255,255,255,0.14);
+  --an-section-title:   #475569;
+  --an-badge-bg:        rgba(255,255,255,0.06);
+  --an-badge-text:      #94a3b8;
+  --an-pill-bg:         rgba(255,255,255,0.04);
+  --an-header-bg:       rgba(13,15,26,0.9);
+  --an-back-btn-bg:     rgba(255,255,255,0.04);
+  --an-back-btn-border: rgba(255,255,255,0.1);
+  --an-back-btn-text:   #94a3b8;
+  --an-rank1-from:      #f59e0b;
+  --an-rank1-to:        #d97706;
+  --an-rank2-from:      #94a3b8;
+  --an-rank2-to:        #64748b;
+  --an-rank3-from:      #cd7f32;
+  --an-rank3-to:        #a16207;
+  --an-rankn-bg:        rgba(255,255,255,0.06);
+  --an-rankn-text:      #64748b;
+  --an-empty-icon:      rgba(255,255,255,0.15);
+  --an-empty-text:      #475569;
+  --an-bar-bg:          rgba(255,255,255,0.04);
+  --an-funnel-stat:     #64748b;
+  --an-mini-border:     rgba(255,255,255,0.04);
+  --an-ctrl-bg:         rgba(255,255,255,0.04);
+  --an-ctrl-border:     rgba(255,255,255,0.1);
+  --an-ctrl-text:       #94a3b8;
+  --an-date-btn-text:   #94a3b8;
+  --an-date-wrap-bg:    rgba(255,255,255,0.04);
+  --an-date-wrap-border:rgba(255,255,255,0.08);
+}
