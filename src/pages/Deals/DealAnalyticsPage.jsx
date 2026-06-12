@@ -663,7 +663,7 @@ const DealAnalyticsPage = ({ onNavigate }) => {
                       </div>
                       <div className="source-stats">
                         <div style={{ color: '#10b981', fontWeight: 700 }}>{s.winRate}% win</div>
-                        <div style={{ color: '#475569', fontSize: '0.65rem' }}>{s.won} won</div>
+                        <div style={{ color: 'var(--an-section-title)', fontSize: '0.65rem' }}>{s.won} won</div>
                       </div>
                     </div>
                   ))}
@@ -708,7 +708,7 @@ const DealAnalyticsPage = ({ onNavigate }) => {
                               {a.winRate}%
                             </span>
                           </td>
-                          <td style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{formatIndianCurrency(a.pipeline)}</td>
+                          <td style={{ fontSize: '0.7rem', color: 'var(--an-text-muted)' }}>{formatIndianCurrency(a.pipeline)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -836,10 +836,10 @@ const DealAnalyticsPage = ({ onNavigate }) => {
                             {deal.dealNo || deal.dealId || deal._id?.slice(-6)}
                           </td>
                           <td style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.72rem' }}>
-                            {deal.unitNo && <span style={{ color: '#94a3b8' }}>{deal.unitNo} · </span>}
+                            {deal.unitNo && <span style={{ color: 'var(--an-text-muted)' }}>{deal.unitNo} · </span>}
                             {propName || 'N/A'}
                           </td>
-                          <td style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{ownerName || 'N/A'}</td>
+                          <td style={{ fontSize: '0.72rem', color: 'var(--an-text-muted)' }}>{ownerName || 'N/A'}</td>
                           <td>
                             <span className="stage-chip-mini" style={{
                               background: (STAGE_COLORS[deal.stage] || '#64748b') + '20',
@@ -853,9 +853,9 @@ const DealAnalyticsPage = ({ onNavigate }) => {
                               <div className="score-circle" style={{ borderColor: scoreColor, color: scoreColor }}>
                                 {score}
                               </div>
-                            ) : <span style={{ color: '#475569' }}>—</span>}
+                            ) : <span style={{ color: 'var(--an-section-title)' }}>—</span>}
                           </td>
-                          <td style={{ fontSize: '0.72rem', color: '#94a3b8', maxWidth: 90, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <td style={{ fontSize: '0.72rem', color: 'var(--an-text-muted)', maxWidth: 90, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {assignedName}
                           </td>
                           <td>

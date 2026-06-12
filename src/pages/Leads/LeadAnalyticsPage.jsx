@@ -10,7 +10,7 @@ import './LeadAnalyticsPage.css';
 
 // ── Constants ─────────────────────────────────────────────────
 const STAGE_CONFIG = [
-  { key: 'incoming',    label: 'Incoming',    color: '#64748b', prob: 10 },
+  { key: 'incoming',    label: 'Incoming',    color: 'var(--an-text-faint)', prob: 10 },
   { key: 'prospect',    label: 'Prospect',    color: '#3b82f6', prob: 20 },
   { key: 'opportunity', label: 'Opportunity', color: '#f59e0b', prob: 40 },
   { key: 'negotiation', label: 'Negotiation', color: '#f97316', prob: 65 },
@@ -21,7 +21,7 @@ const TEMP_CONFIG = [
   { key: 'super-hot', label: 'SUPER HOT', min: 81, max: 100, color: '#7c3aed', bg: 'rgba(124,58,237,0.15)' },
   { key: 'hot',       label: 'HOT',       min: 61, max: 80,  color: '#ef4444', bg: 'rgba(239,68,68,0.15)'  },
   { key: 'warm',      label: 'WARM',      min: 31, max: 60,  color: '#f59e0b', bg: 'rgba(245,158,11,0.15)' },
-  { key: 'cold',      label: 'COLD',      min: 0,  max: 30,  color: '#64748b', bg: 'rgba(100,116,139,0.15)'},
+  { key: 'cold',      label: 'COLD',      min: 0,  max: 30,  color: 'var(--an-text-faint)', bg: 'rgba(100,116,139,0.15)'},
 ];
 
 const SOURCE_COLORS = [
@@ -268,7 +268,7 @@ const LeadAnalyticsPage = ({ onNavigate }) => {
     { name: 'SUPER HOT', value: kpis.superHot, color: '#7c3aed' },
     { name: 'HOT',       value: kpis.hot - kpis.superHot, color: '#ef4444' },
     { name: 'WARM',      value: kpis.warm, color: '#f59e0b' },
-    { name: 'COLD',      value: kpis.cold, color: '#64748b' },
+    { name: 'COLD',      value: kpis.cold, color: 'var(--an-text-faint)' },
   ].filter(x => x.value > 0), [kpis]);
 
   // ── Source Analysis ───────────────────────────────────────────
@@ -862,7 +862,7 @@ const LeadAnalyticsPage = ({ onNavigate }) => {
                       const stageCfg = getStageConfig(stageKey);
                       return (
                         <tr key={lead._id}>
-                          <td style={{ fontWeight: 700, color: '#e2e8f0', fontSize: '0.75rem' }}>
+                          <td style={{ fontWeight: 700, color: 'var(--an-text-main)', fontSize: '0.75rem' }}>
                             {lead.name || `${lead.firstName || ''} ${lead.lastName || ''}`.trim() || '—'}
                           </td>
                           <td>
@@ -877,11 +877,11 @@ const LeadAnalyticsPage = ({ onNavigate }) => {
                               border: `1px solid ${stageCfg.color}30`
                             }}>{stageCfg.label}</span>
                           </td>
-                          <td style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{getStatus(lead)}</td>
+                          <td style={{ fontSize: '0.72rem', color: 'var(--an-text-muted)' }}>{getStatus(lead)}</td>
                           <td style={{ fontSize: '0.72rem', color: '#a78bfa', fontWeight: 600 }}>{getIntent(lead)}</td>
-                          <td style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{getSource(lead)}</td>
+                          <td style={{ fontSize: '0.72rem', color: 'var(--an-text-muted)' }}>{getSource(lead)}</td>
                           <td><span className={`la-age-badge ${badge.cls}`}>{badge.label}</span></td>
-                          <td style={{ fontSize: '0.72rem', color: '#94a3b8', maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <td style={{ fontSize: '0.72rem', color: 'var(--an-text-muted)', maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {getAssigned(lead)}
                           </td>
                         </tr>
@@ -943,7 +943,7 @@ const LeadAnalyticsPage = ({ onNavigate }) => {
                   <span className="la-mini-label" style={{ color: s.color }}>{s.label}</span>
                   <span className="la-mini-value">
                     {s.count}
-                    <span style={{ color: '#475569', fontWeight: 400, fontSize: '0.7rem', marginLeft: 4 }}>
+                    <span style={{ color: 'var(--an-section-title)', fontWeight: 400, fontSize: '0.7rem', marginLeft: 4 }}>
                       ({kpis.total > 0 ? ((s.count / kpis.total) * 100).toFixed(0) : 0}%)
                     </span>
                   </span>

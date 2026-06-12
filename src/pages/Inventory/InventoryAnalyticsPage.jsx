@@ -638,7 +638,7 @@ const InventoryAnalyticsPage = ({ onNavigate }) => {
                           <td style={{fontWeight:600,color:'var(--an-text-main)',maxWidth:130,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name}</td>
                           <td>{p.total}</td>
                           <td style={{color:'#10b981',fontWeight:700}}>{p.active}</td>
-                          <td style={{color:'#64748b'}}>{p.sold}</td>
+                          <td style={{color: 'var(--an-text-faint)'}}>{p.sold}</td>
                           <td style={{color: p.total>0&&(p.active/p.total)>0.7?'#10b981':'#f59e0b', fontWeight:700}}>
                             {p.total>0?((p.active/p.total)*100).toFixed(0):0}%
                           </td>
@@ -697,7 +697,7 @@ const InventoryAnalyticsPage = ({ onNavigate }) => {
                           <td style={{fontWeight:600,color:'var(--an-text-main)',maxWidth:110,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{a.name}</td>
                           <td>{a.total}</td>
                           <td style={{color:'#10b981',fontWeight:700}}>{a.active}</td>
-                          <td style={{color:'#94a3b8'}}>{a.withFeedback}</td>
+                          <td style={{color: 'var(--an-text-muted)'}}>{a.withFeedback}</td>
                           <td style={{color:parseInt(a.engagementRate)>=50?'#10b981':'#f59e0b',fontWeight:700}}>
                             {a.engagementRate}%
                           </td>
@@ -793,11 +793,11 @@ const InventoryAnalyticsPage = ({ onNavigate }) => {
                             {intents.map(it => (
                               <span key={it} className={`inv-intent-dot ${it.toLowerCase()}`} title={it}/>
                             ))}
-                            {intents.length === 0 && <span style={{color:'#475569'}}>—</span>}
+                            {intents.length === 0 && <span style={{color: 'var(--an-section-title)'}}>—</span>}
                           </td>
                           <td><span className={`inv-age-badge ${badge.cls}`}>{badge.label}</span></td>
-                          <td style={{fontSize:'0.72rem',color:'#94a3b8',maxWidth:100,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ownerName}</td>
-                          <td style={{fontSize:'0.72rem',color:'#94a3b8',maxWidth:90,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{assigned}</td>
+                          <td style={{fontSize:'0.72rem',color: 'var(--an-text-muted)',maxWidth:100,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ownerName}</td>
+                          <td style={{fontSize:'0.72rem',color: 'var(--an-text-muted)',maxWidth:90,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{assigned}</td>
                           <td>
                             {onNavigate && (
                               <button className="inv-view-btn" onClick={() => onNavigate('inventory-detail', item._id)}>
@@ -848,7 +848,7 @@ const InventoryAnalyticsPage = ({ onNavigate }) => {
               ].map((s,i) => (
                 <div key={i} className="inv-mini-stat">
                   <span className="inv-mini-label">{s.label}</span>
-                  <span className="inv-mini-value">{s.value} <span style={{color:'#475569',fontWeight:400}}>({s.pct}%)</span></span>
+                  <span className="inv-mini-value">{s.value} <span style={{color: 'var(--an-section-title)',fontWeight:400}}>({s.pct}%)</span></span>
                 </div>
               ))}
             </div>
