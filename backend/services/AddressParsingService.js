@@ -1,101 +1,168 @@
 import UnifiedAIService from './UnifiedAIService.js';
+import mongoose from 'mongoose';
+
+const getLookupModel = () => {
+    // Gracefully handle model loading to prevent "OverwriteModelError"
+    try {
+        return mongoose.model('Lookup');
+    } catch {
+        const LookupSchema = new mongoose.Schema({
+            lookup_type: { type: String, required: true, index: true },
+            lookup_value: { type: String, required: true },
+            code: { type: String, default: null },
+            parent_lookup_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup', default: null },
+            parent_lookup_value: { type: String, default: null },
+            isActive: { type: Boolean, default: true },
+            order: { type: Number, default: 0 },
+            metadata: { type: mongoose.Schema.Types.Mixed, default: {} }
+        }, { timestamps: true });
+        return mongoose.model('Lookup', LookupSchema);
+    }
+};
 
 class AddressParsingService {
     constructor() {
         this.cache = new Map();
+        this.masterDataInitialized = false;
+        this.initializing = false;
+
+        this.masterCache = {
+            cities: new Map(),
+            tehsils: new Map(),
+            locations: new Map(),
+            states: new Map()
+        };
+
+        // --- KEYWORDS & MAPPINGS ---
+        this.statesMapping = {
+            'mohali': 'Punjab',
+            'chandigarh': 'Chandigarh',
+            'kurukshetra': 'Haryana',
+            'panchkula': 'Haryana',
+            'panipat': 'Haryana',
+            'karnal': 'Haryana',
+            'ambala': 'Haryana',
+            'gurugram': 'Haryana',
+            'gurgaon': 'Haryana',
+            'faridabad': 'Haryana',
+            'delhi': 'Delhi',
+            'new delhi': 'Delhi',
+            'noida': 'Uttar Pradesh',
+            'greater noida': 'Uttar Pradesh',
+            'ghaziabad': 'Uttar Pradesh',
+            'zirakpur': 'Punjab',
+            'kharar': 'Punjab',
+            'dera bassi': 'Punjab'
+        };
+
+        this.tehsilMapping = {
+            'dera bassi': 'Dera Bassi',
+            'derabassi': 'Dera Bassi',
+            'zirakpur': 'Dera Bassi',
+            'kharar': 'Kharar',
+            'kurukshetra': 'Thanesar',
+            'thanesar': 'Thanesar',
+            'amin': 'Thanesar',
+            'pipli': 'Thanesar'
+        };
+
+        this.regexHouseNo = /^(?:House\s*No\.?|H\.?No\.?|Plot\s*No\.?|SCO\s*No\.?|SCO|Booth\s*No\.?|Booth|Shop\s*No\.?|Flat\s*No\.?|Flat|Apartment\s*No\.?|Unit\s*No\.?|Khasra\s*No\.?)\s*[:#-]?\s*([A-Za-z0-9-/]+)/i;
+        this.regexStreet = /(?:Road|Street|Gali|Lane|Marg|Chowk|Near\s+[^,]+|Opposite\s+[^,]+|Opp\.\s+[^,]+|Behind\s+[^,]+|Beside\s+[^,]+|c\/o\s+[^,]+)/i;
+        this.regexArea = /(?:Ward\s*No\.?\s*[0-9]+|[^,]*Colony|[^,]*Enclave|[^,]*Nagar|[^,]*Vihar|[^,]*Extension|Phase\s*[0-9A-Za-z]+|Block\s*[0-9A-Za-z]+|Pocket\s*[0-9A-Za-z]+|Tower\s*[0-9A-Za-z]+|[^,]*Apartment|[^,]*Society)/i;
+        this.regexLocation = /(?:VPO\s+[^,]+|Village\s+[^,]+|Vill\s+[^,]+|Sector\s*[0-9A-Za-z]+|Sec\s*[0-9A-Za-z]+|Urban\s+Estate|Industrial\s+Area|Model\s+Town|HUDA\s+Sector\s*[0-9A-Za-z]+|HSVP\s+Sector\s*[0-9A-Za-z]+)/i;
+        this.regexPincode = /\b([1-9][0-9]{5})\b/;
     }
 
-    /**
-     * Determines if a string field contains a full unstructured address rather than a simple field.
-     * @param {string} val 
-     * @returns {boolean}
-     */
+    async initializeMasterData() {
+        if (this.masterDataInitialized || this.initializing) return;
+        this.initializing = true;
+        
+        try {
+            // Check if mongoose is connected
+            if (mongoose.connection.readyState !== 1) {
+                console.warn('[AddressParsingService] Database not connected. Skipping Master Data Cache.');
+                return;
+            }
+
+            const Lookup = getLookupModel();
+            const lookups = await Lookup.find({
+                lookup_type: { $in: ['City', 'Tehsil', 'Location', 'State'] },
+                isActive: true
+            }).lean();
+
+            lookups.forEach(l => {
+                if (!l.lookup_value) return;
+                const val = l.lookup_value.toLowerCase().trim();
+                if (val.length < 3) return; // Skip very short generic terms
+
+                if (l.lookup_type === 'City') this.masterCache.cities.set(val, l.lookup_value);
+                if (l.lookup_type === 'Tehsil') this.masterCache.tehsils.set(val, l.lookup_value);
+                if (l.lookup_type === 'Location') this.masterCache.locations.set(val, l.lookup_value);
+                if (l.lookup_type === 'State') this.masterCache.states.set(val, l.lookup_value);
+            });
+            
+            console.log(`[AddressParsingService] Master Data Cache Loaded: ${this.masterCache.cities.size} Cities, ${this.masterCache.tehsils.size} Tehsils, ${this.masterCache.locations.size} Locations.`);
+            this.masterDataInitialized = true;
+        } catch (err) {
+            console.error('[AddressParsingService] Failed to load Master Data:', err.message);
+        } finally {
+            this.initializing = false;
+        }
+    }
+
     shouldParse(val) {
         if (!val || typeof val !== 'string') return false;
         const trimmed = val.trim();
         if (trimmed.length < 10) return false;
-        // Count spaces: a full address has at least 2 spaces (i.e. 3 or more words)
         const spaceCount = (trimmed.match(/\s/g) || []).length;
         if (spaceCount < 2) return false;
-        // Check for common address indicators (pincode, house, sector, phase, city names, etc.)
         const hasIndicators = /sector|sec|phase|ph|house|flat|plot|h\.?no|near|opposite|opp|landmark|road|gali|lane|kurukshetra|gurgaon|gurugram|delhi|ghaziabad|street|ward/i.test(trimmed);
         return hasIndicators || spaceCount >= 3;
     }
 
-
-    /**
-     * Parse a single raw address string into structured components.
-     * @param {string} rawAddress 
-     * @returns {Promise<Object>} Structured address components
-     */
     async parseAddress(rawAddress) {
         if (!rawAddress || typeof rawAddress !== 'string' || !rawAddress.trim()) {
             return this._getEmptyAddress();
         }
 
+        if (!this.masterDataInitialized && mongoose.connection.readyState === 1) {
+            await this.initializeMasterData();
+        }
+
         const normalizedKey = rawAddress.trim().toLowerCase();
         if (this.cache.has(normalizedKey)) {
-            console.log(`[AddressParsingService] Cache hit for: "${rawAddress.substring(0, 30)}..."`);
             return this.cache.get(normalizedKey);
         }
 
-        const systemPrompt = `You are an expert Indian postal address parser. 
-Your task is to analyze the unstructured address input and split it into structured JSON fields.
-Ensure you follow these rules:
-1. "houseNo": Flat/house/plot/shop number, building/apartment name, block, phase, or floor info.
-2. "street": Street name, road, lane, landmark, near-by reference, or colony name (if not sector-based).
-3. "area": Sector number, zone, sub-locality, or specific sector details (e.g., "Sector 45", "DLF Phase 3").
-4. "location": Locality, village name, main locality reference, or sub-district identifier.
-5. "tehsil": Tehsil, district, or city name (e.g., "Gurugram", "Ghaziabad", "New Delhi").
-6. "pincode": Find and extract the exact 6-digit postal code.
-7. "state": Full name of the state (e.g., "Haryana", "Uttar Pradesh", "Delhi").
-8. "country": Set to "India" if in India, otherwise specify.
-
-You MUST respond ONLY with a valid JSON object matching the schema. No explanations, no markdown wrappers, no backticks.
-Schema structure:
-{
-  "houseNo": "string",
-  "street": "string",
-  "area": "string",
-  "location": "string",
-  "tehsil": "string",
-  "pincode": "string",
-  "state": "string",
-  "country": "string"
-}`;
-
-        const userPrompt = `Address: "${rawAddress}"`;
-
         try {
-            console.log(`[AddressParsingService] Requesting AI to parse: "${rawAddress.substring(0, 50)}..."`);
+            let structured = this._applyMasterRules(rawAddress);
+            let normalized = this._normalizeStructuredAddress(structured);
             
-            // Using UnifiedAIService with automatic failover
-            const rawResponse = await UnifiedAIService.generate(userPrompt, {
-                systemPrompt,
-                temperature: 0.1
-            });
+            if (!normalized.city && !normalized.location && !normalized.tehsil) {
+                console.log(`[AddressParsingService] Master Rules failed to find location data. Falling back to AI LLM for: "${rawAddress.substring(0, 30)}..."`);
+                const aiResult = await this._applyAIFallback(rawAddress);
+                if (aiResult) {
+                    normalized = this._normalizeStructuredAddress(aiResult);
+                }
+            }
 
-            const structured = this._cleanAndParseJSON(rawResponse);
-            const normalized = this._normalizeStructuredAddress(structured);
             this.cache.set(normalizedKey, normalized);
             return normalized;
         } catch (error) {
             console.error(`[AddressParsingService] Error parsing address:`, error.message);
-            // Fallback to empty structure to prevent breaking import pipeline
             return this._getEmptyAddress();
         }
     }
 
-    /**
-     * Parse multiple addresses concurrently in batch using chunks to avoid timeouts.
-     * @param {Array<string>} addresses 
-     * @param {number} chunkSize 
-     * @returns {Promise<Array<Object>>}
-     */
     async parseAddressesInBatch(addresses, chunkSize = 10) {
         if (!addresses || !Array.isArray(addresses)) return [];
         console.log(`[AddressParsingService] Batch parsing ${addresses.length} addresses in chunks of ${chunkSize}...`);
         
+        // Ensure cache is loaded before batch processing
+        if (!this.masterDataInitialized && mongoose.connection.readyState === 1) {
+            await this.initializeMasterData();
+        }
+
         const results = [];
         for (let i = 0; i < addresses.length; i += chunkSize) {
             const chunk = addresses.slice(i, i + chunkSize);
@@ -106,9 +173,239 @@ Schema structure:
         return results;
     }
 
-    /**
-     * Standardizes common Indian address abbreviations to match database lookups.
-     */
+    _applyMasterRules(rawAddress) {
+        const result = this._getEmptyAddress();
+        
+        let remainingTokens = rawAddress.split(',').map(t => t.trim()).filter(t => t.length > 0);
+        let unassignedTokens = [];
+
+        // SAS Nagar -> Mohali
+        remainingTokens = remainingTokens.map(token => {
+            if (/S\.?A\.?S\.?\s*Nagar/i.test(token)) return token.replace(/S\.?A\.?S\.?\s*Nagar/ig, 'Mohali');
+            return token;
+        });
+
+        // VPO
+        remainingTokens = remainingTokens.map(token => {
+            const vpoMatch = token.match(/^VPO\s+(.+)/i);
+            if (vpoMatch) {
+                result.location = vpoMatch[1].trim();
+                result.postOffice = vpoMatch[1].trim();
+                return null;
+            }
+            return token;
+        }).filter(Boolean);
+
+        // Vill
+        remainingTokens = remainingTokens.map(token => {
+            const villMatch = token.match(/^(?:Village|Vill)\s+(.+)/i);
+            if (villMatch) {
+                result.location = villMatch[1].trim();
+                return null;
+            }
+            return token;
+        }).filter(Boolean);
+
+        // Pincode
+        remainingTokens = remainingTokens.map(token => {
+            const pinMatch = token.match(this.regexPincode);
+            if (pinMatch) {
+                result.pincode = pinMatch[1];
+                const newToken = token.replace(this.regexPincode, '').trim();
+                return newToken.length > 0 ? newToken : null;
+            }
+            return token;
+        }).filter(Boolean);
+
+        // Token Iteration
+        remainingTokens = remainingTokens.map(token => {
+            let matched = false;
+            const lowerToken = token.toLowerCase();
+
+            // House No
+            if (!result.houseNo) {
+                const hnMatch = token.match(this.regexHouseNo);
+                if (hnMatch) {
+                    result.houseNo = hnMatch[0].trim();
+                    const remainder = token.replace(this.regexHouseNo, '').trim();
+                    if (remainder.length > 0) unassignedTokens.push(remainder);
+                    matched = true;
+                    return null;
+                }
+            }
+
+            // Street
+            if (token.match(this.regexStreet)) {
+                if (!result.street) result.street = token;
+                else result.street += `, ${token}`;
+                matched = true;
+                return null;
+            }
+
+            // Area
+            if (token.match(this.regexArea)) {
+                if (token.toLowerCase() !== 'mohali') {
+                    if (!result.area) result.area = token;
+                    else result.area += `, ${token}`;
+                    matched = true;
+                    return null;
+                }
+            }
+
+            // Location Regex
+            if (token.match(this.regexLocation)) {
+                if (!result.location) result.location = token;
+                else result.location += `, ${token}`;
+                matched = true;
+                return null;
+            }
+
+            // Dynamic Location from Master Data
+            if (this.masterDataInitialized) {
+                for (const [key, locVal] of this.masterCache.locations.entries()) {
+                    if (lowerToken === key || lowerToken.includes(` ${key}`) || lowerToken.includes(`${key} `)) {
+                        if (!result.location) result.location = locVal;
+                        else result.location += `, ${locVal}`;
+                        matched = true;
+                        return null; // Exact match found, consume token
+                    }
+                }
+            }
+
+            // Check Hardcoded States Mapping for City
+            let cityMatched = false;
+            for (const city of Object.keys(this.statesMapping)) {
+                if (lowerToken.includes(city)) {
+                    if (!result.city) result.city = token; // Keep original casing
+                    matched = true;
+                    cityMatched = true;
+                    if (!result.state) result.state = this.statesMapping[city];
+                    return null;
+                }
+            }
+            if (cityMatched) return null;
+
+            // Dynamic City from Master Data
+            if (this.masterDataInitialized) {
+                for (const [key, cityVal] of this.masterCache.cities.entries()) {
+                    if (lowerToken === key) {
+                        if (!result.city) result.city = cityVal;
+                        matched = true;
+                        cityMatched = true;
+                        return null;
+                    }
+                }
+            }
+            if (cityMatched) return null;
+
+            // Known States
+            const knownStates = ['haryana', 'punjab', 'chandigarh', 'delhi', 'uttar pradesh'];
+            if (knownStates.some(s => lowerToken === s)) {
+                result.state = token;
+                return null;
+            }
+
+            // Dynamic State from Master Data
+            if (this.masterDataInitialized) {
+                for (const [key, stateVal] of this.masterCache.states.entries()) {
+                    if (lowerToken === key) {
+                        if (!result.state) result.state = stateVal;
+                        return null;
+                    }
+                }
+            }
+
+            if (lowerToken === 'india' || lowerToken === 'bharat') {
+                result.country = 'India';
+                return null;
+            }
+
+            if (!matched && token.length > 0) {
+                unassignedTokens.push(token);
+            }
+            
+            return matched ? (token.length > 0 ? token : null) : token;
+        }).filter(Boolean);
+
+        // Tehsil resolution
+        if (!result.tehsil) {
+            const lookupValue = (result.location || result.postOffice || result.city || '').toLowerCase();
+            let tehsilFound = false;
+            
+            // From hardcoded
+            for (const [key, tehsil] of Object.entries(this.tehsilMapping)) {
+                if (lookupValue.includes(key)) {
+                    result.tehsil = tehsil;
+                    tehsilFound = true;
+                    break;
+                }
+            }
+
+            // From dynamic Master Data
+            if (!tehsilFound && this.masterDataInitialized) {
+                for (const [key, tehsilVal] of this.masterCache.tehsils.entries()) {
+                    if (lookupValue.includes(key)) {
+                        result.tehsil = tehsilVal;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (!result.country) result.country = 'India';
+
+        if (unassignedTokens.length > 0) {
+            if (unassignedTokens.length > 0 && !result.houseNo && /^[\d\w-]+$/.test(unassignedTokens[0])) {
+                result.houseNo = unassignedTokens.shift();
+            }
+
+            unassignedTokens.forEach(token => {
+                if (!result.area) result.area = token;
+                else if (!result.street) result.street = token;
+                else result.area += `, ${token}`; 
+            });
+        }
+
+        return result;
+    }
+
+    async _applyAIFallback(rawAddress) {
+        const systemPrompt = `You are an expert Indian Real Estate Data Extraction AI. Parse the unstructured address string into a strict JSON structure.
+Rules you MUST follow:
+1. "houseNo": Flat/house/plot/shop number, building/apartment name, block, phase.
+2. "street": Street name, road, lane, landmark, near-by reference. Also put 'c/o', 'Opposite', 'Behind' ONLY here.
+3. "area": Put terms like 'Ward No', 'Colony', 'Phase' ONLY here.
+4. "location": If the word starts with 'Village' or 'VPO', put it here.
+5. "city": If you see 'SAS Nagar', output 'Mohali'.
+6. Do NOT drop any text. If a text does not fit any logical field, append it to 'street' or 'area'.
+7. "pincode": Extract the 6 digit pincode.
+8. "tehsil", "state", "country": Output accordingly. "country" defaults to "India".
+9. "postOffice": Determine if possible based on VPO keywords.
+
+You MUST respond ONLY with a valid JSON object matching the schema. No explanations, no markdown wrappers, no backticks.
+Schema structure:
+{
+  "houseNo": "string",
+  "street": "string",
+  "area": "string",
+  "location": "string",
+  "tehsil": "string",
+  "city": "string",
+  "postOffice": "string",
+  "pincode": "string",
+  "state": "string",
+  "country": "string"
+}`;
+        const userPrompt = `Address: "${rawAddress}"`;
+        try {
+            const rawResponse = await UnifiedAIService.generate(userPrompt, { systemPrompt, temperature: 0.1 });
+            return this._cleanAndParseJSON(rawResponse);
+        } catch (error) {
+            console.error(`[AddressParsingService] AI LLM Fallback failed:`, error.message);
+            return null;
+        }
+    }
+
     _normalizeStructuredAddress(parsed) {
         const cleanHouseNo = (str) => {
             if (!str || typeof str !== 'string') return '';
@@ -122,24 +419,20 @@ Schema structure:
             if (!str || typeof str !== 'string') return '';
             let val = str.trim();
             
-            // Generate fuzzy key for checking standard names
             let key = val.toLowerCase().trim();
-            // 1. Strip standard prefix "vill "
             key = key.replace(/^(?:village|vill\s*\.?|v\.?p\.?o\s*\.?)\s+/i, '');
-            // 2. Strip suffixes like "post office ...", "po ...", "p.o. ...", "district ...", "near ...", "via ..."
             key = key.replace(/\s+post\s+office.*$/gi, '');
             key = key.replace(/\s+p\.?o\.?.*$/gi, '');
             key = key.replace(/\s+district.*$/gi, '');
             key = key.replace(/\s+near.*$/gi, '');
             key = key.replace(/\s+via.*$/gi, '');
-            // 3. Normalize common spelling variations
             key = key.replace(/jayotisar/g, 'jyotisar');
             key = key.replace(/kirmach/g, 'kirmich');
             key = key.replace(/pipil/g, 'pipli');
             key = key.replace(/behali/g, 'baholi');
             key = key.replace(/bohali/g, 'baholi');
             key = key.replace(/jhandolla/g, 'jadola');
-            // 4. Strip all non-alphanumeric characters (spaces, hyphens, etc.)
+            
             const fuzzyKey = key.replace(/[^a-z0-9]/gi, '');
 
             const standardNames = {
@@ -155,11 +448,8 @@ Schema structure:
                 'bhoresaidan': 'Vill Bhore Saidan'
             };
 
-            if (standardNames[fuzzyKey]) {
-                return standardNames[fuzzyKey];
-            }
+            if (standardNames[fuzzyKey]) return standardNames[fuzzyKey];
 
-            // Fallback to standardizing prefix to "Vill "
             const villageRegex = /^(?:village|vill\s*\.?|v\.?p\.?o\s*\.?)\s+/i;
             if (villageRegex.test(val)) {
                 const rawName = val.replace(villageRegex, '').trim();
@@ -172,17 +462,10 @@ Schema structure:
         const replaceRules = (str) => {
             if (!str || typeof str !== 'string') return '';
             let cleaned = str.trim();
-            
-            // Sec -> Sector
             cleaned = cleaned.replace(/\bsec\b/gi, 'Sector');
             cleaned = cleaned.replace(/\bsect\b/gi, 'Sector');
-            
-            // Ph -> Phase
             cleaned = cleaned.replace(/\bph\b/gi, 'Phase');
-            
-            // Lmk -> Landmark
             cleaned = cleaned.replace(/\blmk\b/gi, 'Landmark');
-            
             return cleaned.trim();
         };
 
@@ -190,36 +473,18 @@ Schema structure:
             if (!state) return '';
             const normalized = state.trim().toLowerCase();
             const statesMap = {
-                'hr': 'Haryana',
-                'haryana': 'Haryana',
-                'up': 'Uttar Pradesh',
-                'uttar pradesh': 'Uttar Pradesh',
-                'uttar pardesh': 'Uttar Pradesh',
-                'dl': 'Delhi',
-                'delhi': 'Delhi',
-                'dehli': 'Delhi',
-                'wb': 'West Bengal',
-                'west bengal': 'West Bengal',
-                'paschim bangal': 'West Bengal',
-                'uk': 'Uttarakhand',
-                'uttarakhand': 'Uttarakhand',
-                'uttrakhand': 'Uttarakhand',
-                'pb': 'Punjab',
-                'punjab': 'Punjab',
-                'rj': 'Rajasthan',
-                'rajasthan': 'Rajasthan',
-                'rajsthan': 'Rajasthan',
-                'chandigarh ut': 'Chandigarh',
-                'chandigarh': 'Chandigarh',
-                'hp': 'Himachal Pradesh',
-                'himachal pradesh': 'Himachal Pradesh',
-                'himachal pardesh': 'Himachal Pradesh',
-                'mh': 'Maharashtra',
-                'maharastra': 'Maharashtra',
-                'ka': 'Karnataka',
-                'karnatka': 'Karnataka',
-                'tn': 'Tamil Nadu',
-                'tamilnadu': 'Tamil Nadu'
+                'hr': 'Haryana', 'haryana': 'Haryana',
+                'up': 'Uttar Pradesh', 'uttar pradesh': 'Uttar Pradesh', 'uttar pardesh': 'Uttar Pradesh',
+                'dl': 'Delhi', 'delhi': 'Delhi', 'dehli': 'Delhi',
+                'wb': 'West Bengal', 'west bengal': 'West Bengal', 'paschim bangal': 'West Bengal',
+                'uk': 'Uttarakhand', 'uttarakhand': 'Uttarakhand', 'uttrakhand': 'Uttarakhand',
+                'pb': 'Punjab', 'punjab': 'Punjab',
+                'rj': 'Rajasthan', 'rajasthan': 'Rajasthan', 'rajsthan': 'Rajasthan',
+                'chandigarh ut': 'Chandigarh', 'chandigarh': 'Chandigarh',
+                'hp': 'Himachal Pradesh', 'himachal pradesh': 'Himachal Pradesh', 'himachal pardesh': 'Himachal Pradesh',
+                'mh': 'Maharashtra', 'maharastra': 'Maharashtra',
+                'ka': 'Karnataka', 'karnatka': 'Karnataka',
+                'tn': 'Tamil Nadu', 'tamilnadu': 'Tamil Nadu'
             };
             return statesMap[normalized] || state.trim();
         };
@@ -230,19 +495,12 @@ Schema structure:
             let normalized = val.toLowerCase();
 
             const spellingMap = {
-                'gurgaon': 'Gurugram',
-                'sonepat': 'Sonipat',
-                'yamuna nagar': 'Yamunanagar',
-                'yamun nagar': 'Yamunanagar',
-                'hissar': 'Hisar',
-                'ambala city': 'Ambala',
-                'ambala cantt': 'Ambala',
-                'chandigarh, india': 'Chandigarh'
+                'gurgaon': 'Gurugram', 'sonepat': 'Sonipat', 'yamuna nagar': 'Yamunanagar',
+                'yamun nagar': 'Yamunanagar', 'hissar': 'Hisar', 'ambala city': 'Ambala',
+                'ambala cantt': 'Ambala', 'chandigarh, india': 'Chandigarh'
             };
 
-            if (spellingMap[normalized]) {
-                return { city: spellingMap[normalized], extraLocation: '', extraTehsil: '' };
-            }
+            if (spellingMap[normalized]) return { city: spellingMap[normalized], extraLocation: '', extraTehsil: '' };
 
             const subCityMap = {
                 'pehowa': { district: 'Kurukshetra', field: 'tehsil' },
@@ -304,14 +562,10 @@ Schema structure:
         }
         
         let finalLocation = cleanLocation(replaceRules(parsed.location || parsed.area));
-        if (cityInfo.extraLocation) {
-            finalLocation = cleanLocation(cityInfo.extraLocation);
-        }
+        if (cityInfo.extraLocation) finalLocation = cleanLocation(cityInfo.extraLocation);
 
         let finalTehsil = replaceRules(parsed.tehsil);
-        if (cityInfo.extraTehsil) {
-            finalTehsil = cityInfo.extraTehsil;
-        }
+        if (cityInfo.extraTehsil) finalTehsil = cityInfo.extraTehsil;
 
         return {
             houseNo: cleanHouseNo(parsed.houseNo),
@@ -322,68 +576,39 @@ Schema structure:
             pincode: parsed.pincode || '',
             state: cleanedState,
             city: cityInfo.city || replaceRules(parsed.city),
-            country: parsed.country || 'India'
+            country: parsed.country || 'India',
+            postOffice: parsed.postOffice || ''
         };
     }
 
-    /**
-     * Cleans AI output and parses JSON safely.
-     */
     _cleanAndParseJSON(text) {
-        if (!text) return this._getEmptyAddress();
-        
+        if (!text) return null;
         let cleaned = text.trim();
-        // Remove markdown JSON codeblock markers if present
-        if (cleaned.startsWith('```')) {
-            cleaned = cleaned.replace(/^```(json)?/i, '').replace(/```$/i, '').trim();
-        }
-
+        if (cleaned.startsWith('```')) cleaned = cleaned.replace(/^```(json)?/i, '').replace(/```$/i, '').trim();
         try {
             const parsed = JSON.parse(cleaned);
-            // Ensure all fields exist
             return {
-                houseNo: parsed.houseNo || '',
+                houseNo: parsed.houseNo || parsed.houseNumber || '',
                 street: parsed.street || '',
                 area: parsed.area || '',
                 location: parsed.location || '',
                 tehsil: parsed.tehsil || '',
+                city: parsed.city || '',
+                postOffice: parsed.postOffice || '',
                 pincode: parsed.pincode || '',
                 state: parsed.state || '',
                 country: parsed.country || 'India'
             };
         } catch (e) {
-            console.error(`[AddressParsingService] JSON parsing failed. Content was: "${cleaned}"`, e.message);
-            
-            // Regex fallback if JSON parsing failed completely
-            const extractField = (field) => {
-                const regex = new RegExp(`"${field}"\\s*:\\s*"([^"]*)"`, 'i');
-                const match = cleaned.match(regex);
-                return match ? match[1] : '';
-            };
-
-            return {
-                houseNo: extractField('houseNo'),
-                street: extractField('street'),
-                area: extractField('area'),
-                location: extractField('location'),
-                tehsil: extractField('tehsil'),
-                pincode: extractField('pincode'),
-                state: extractField('state'),
-                country: extractField('country') || 'India'
-            };
+            console.error(`[AddressParsingService] JSON parsing failed: "${cleaned}"`);
+            return null;
         }
     }
 
     _getEmptyAddress() {
         return {
-            houseNo: '',
-            street: '',
-            area: '',
-            location: '',
-            tehsil: '',
-            pincode: '',
-            state: '',
-            country: 'India'
+            houseNo: '', street: '', area: '', location: '', tehsil: '',
+            pincode: '', state: '', city: '', country: 'India', postOffice: ''
         };
     }
 }
