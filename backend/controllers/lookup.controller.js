@@ -1,5 +1,8 @@
 import mongoose from "mongoose";
 import Lookup from "../models/Lookup.js";
+import Lead from "../models/Lead.js";
+import Contact from "../models/Contact.js";
+import Inventory from "../models/Inventory.js";
 
 
 export const getLookups = async (req, res) => {
@@ -19,9 +22,9 @@ export const getLookups = async (req, res) => {
             return res.json({ status: "success", data: lookupsByIds });
         }
 
-        // 🚀 SENIOR OPTIMIZATION: Prevent "Massive Dump" (1900+ records) if type is missing or malformed
-        if (!lookup_type || lookup_type === 'undefined' || lookup_type === 'null') {
-            console.warn(`[LOOKUP_FETCH] Blocked unfiltered request (type: ${lookup_type}) to prevent server overload.`);
+        // 🚀 SENIOR OPTIMIZATION: Prevent "Massive Dump" if both type and parent_lookup_id are missing
+        if ((!lookup_type || lookup_type === 'undefined' || lookup_type === 'null') && !parent_lookup_id) {
+            console.warn(`[LOOKUP_FETCH] Blocked unfiltered request to prevent server overload.`);
             return res.json({ status: "success", data: [] });
         }
 
@@ -55,6 +58,38 @@ export const getLookups = async (req, res) => {
             .sort({ order: 1, lookup_value: 1 })
             .lean();
 
+        // 🚀 ENTERPRISE HEALING: If parent_lookup_value is missing/null but parent_lookup_id is present, resolve it dynamically
+        const parentIdsToResolve = lookups
+            .filter(l => l.parent_lookup_id && !l.parent_lookup_value)
+            .map(l => l.parent_lookup_id);
+
+        if (parentIdsToResolve.length > 0) {
+            const parents = await Lookup.find({ _id: { $in: parentIdsToResolve } })
+                .select('_id lookup_value')
+                .lean();
+            const parentMap = {};
+            parents.forEach(p => {
+                parentMap[String(p._id)] = p.lookup_value;
+            });
+
+            // Update in-memory returned list and write-back to MongoDB in background to fix database permanently
+            const writeBackOps = [];
+            lookups.forEach(l => {
+                if (l.parent_lookup_id && !l.parent_lookup_value) {
+                    const resolvedName = parentMap[String(l.parent_lookup_id)];
+                    if (resolvedName) {
+                        l.parent_lookup_value = resolvedName;
+                        writeBackOps.push(
+                            Lookup.updateOne({ _id: l._id }, { $set: { parent_lookup_value: resolvedName } })
+                        );
+                    }
+                }
+            });
+            if (writeBackOps.length > 0) {
+                Promise.all(writeBackOps).catch(err => console.error("[HEAL_DB] Background update failed:", err));
+            }
+        }
+
         console.log(`[LOOKUP_FETCH] Success: Found ${lookups.length} records for ${lookup_type}`);
         res.json({ status: "success", data: lookups });
     } catch (error) {
@@ -71,6 +106,12 @@ export const getLookups = async (req, res) => {
  */
 export const addLookup = async (req, res) => {
     try {
+        if (req.body.parent_lookup_id) {
+            const parent = await Lookup.findById(req.body.parent_lookup_id);
+            if (parent) {
+                req.body.parent_lookup_value = parent.lookup_value;
+            }
+        }
         const lookup = await Lookup.create(req.body);
         res.status(201).json({ status: "success", data: lookup });
     } catch (error) {
@@ -196,8 +237,24 @@ export const importLookups = async (req, res) => {
 export const updateLookup = async (req, res) => {
     try {
         const { id } = req.params;
-        const lookup = await Lookup.findByIdAndUpdate(id, req.body, { new: true });
+        const lookup = await Lookup.findById(id);
         if (!lookup) return res.status(404).json({ status: "error", message: "Lookup not found" });
+
+        // 1. If parent_lookup_id is updated, sync the new parent_lookup_value
+        if (req.body.parent_lookup_id && String(req.body.parent_lookup_id) !== String(lookup.parent_lookup_id)) {
+            const parent = await Lookup.findById(req.body.parent_lookup_id);
+            if (parent) {
+                req.body.parent_lookup_value = parent.lookup_value;
+            }
+        }
+
+        // 2. If the current lookup is renamed, update the parent_lookup_value reference in all child lookups
+        if (req.body.lookup_value && req.body.lookup_value !== lookup.lookup_value) {
+            await Lookup.updateMany({ parent_lookup_id: id }, { parent_lookup_value: req.body.lookup_value });
+        }
+
+        Object.assign(lookup, req.body);
+        await lookup.save();
         res.json({ status: "success", data: lookup });
     } catch (error) {
         res.status(500).json({ status: "error", message: error.message });
@@ -268,3 +325,149 @@ export const checkDuplicatesImport = async (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 };
+
+/**
+ * @desc    Merge a duplicate lookup or Move (re-parent) a lookup
+ * @route   POST /lookups/merge-or-move
+ * @access  Private
+ */
+export const mergeOrMoveLookup = async (req, res) => {
+    try {
+        const { action, sourceId, targetId } = req.body;
+        if (!action || !sourceId || !targetId) {
+            return res.status(400).json({ status: "error", message: "Missing required parameters: action, sourceId, targetId" });
+        }
+
+        if (!mongoose.Types.ObjectId.isValid(sourceId) || !mongoose.Types.ObjectId.isValid(targetId)) {
+            return res.status(400).json({ status: "error", message: "Invalid sourceId or targetId format" });
+        }
+
+        const sourceLookup = await Lookup.findById(sourceId);
+        if (!sourceLookup) {
+            return res.status(404).json({ status: "error", message: "Source lookup not found" });
+        }
+
+        if (action === 'move') {
+            const targetParent = await Lookup.findById(targetId);
+            if (!targetParent) {
+                return res.status(404).json({ status: "error", message: "Target parent lookup not found" });
+            }
+
+            sourceLookup.parent_lookup_id = targetParent._id;
+            sourceLookup.parent_lookup_value = targetParent.lookup_value;
+            await sourceLookup.save();
+
+            console.log(`[LOOKUPS] Moved lookup ${sourceLookup._id} ("${sourceLookup.lookup_value}") under parent ${targetParent._id} ("${targetParent.lookup_value}")`);
+            return res.json({ status: "success", message: `Successfully moved "${sourceLookup.lookup_value}" under parent "${targetParent.lookup_value}"` });
+        }
+
+        if (action === 'merge') {
+            const targetLookup = await Lookup.findById(targetId);
+            if (!targetLookup) {
+                return res.status(404).json({ status: "error", message: "Target lookup not found" });
+            }
+
+            if (sourceLookup.lookup_type !== targetLookup.lookup_type) {
+                // Special exception: Allow Location to merge into Tehsil (re-link to Tehsil and clear Location field in Contacts)
+                if (sourceLookup.lookup_type === 'Location' && targetLookup.lookup_type === 'Tehsil') {
+                    // Update child lookups pointing to the source location as parent
+                    await Lookup.updateMany(
+                        { parent_lookup_id: sourceLookup._id },
+                        { $set: { parent_lookup_id: targetLookup._id, parent_lookup_value: targetLookup.lookup_value } }
+                    );
+
+                    const Contact = mongoose.model('Contact');
+                    // Update Contacts: personalAddress set tehsil=target, location=null
+                    await Contact.updateMany(
+                        { "personalAddress.location": sourceLookup._id },
+                        { $set: { "personalAddress.tehsil": targetLookup._id, "personalAddress.location": null } }
+                    );
+                    // correspondenceAddress
+                    await Contact.updateMany(
+                        { "correspondenceAddress.location": sourceLookup._id },
+                        { $set: { "correspondenceAddress.tehsil": targetLookup._id, "correspondenceAddress.location": null } }
+                    );
+
+                    // Delete source lookup
+                    await Lookup.deleteOne({ _id: sourceLookup._id });
+
+                    console.log(`[LOOKUPS] Merged Location ${sourceLookup._id} ("${sourceLookup.lookup_value}") into Tehsil ${targetLookup._id} ("${targetLookup.lookup_value}")`);
+                    return res.json({ status: "success", message: `Successfully merged Location "${sourceLookup.lookup_value}" into Tehsil "${targetLookup.lookup_value}" and re-linked contacts.` });
+                }
+                
+                return res.status(400).json({ status: "error", message: `Cannot merge different lookup types: "${sourceLookup.lookup_type}" and "${targetLookup.lookup_type}"` });
+            }
+
+            // Standard merge of same types (State->State, City->City, Location->Location, etc.)
+            
+            // 1. Update parent ID of any child lookups pointing to source
+            await Lookup.updateMany(
+                { parent_lookup_id: sourceLookup._id },
+                { $set: { parent_lookup_id: targetLookup._id, parent_lookup_value: targetLookup.lookup_value } }
+            );
+
+            // 2. Update Contacts
+            const Contact = mongoose.model('Contact');
+            const contactFields = ['location', 'tehsil', 'postOffice', 'city', 'state', 'pincode', 'country', 'locality', 'area'];
+            for (const field of contactFields) {
+                await Contact.updateMany(
+                    { [`personalAddress.${field}`]: sourceLookup._id },
+                    { $set: { [`personalAddress.${field}`]: targetLookup._id } }
+                );
+                await Contact.updateMany(
+                    { [`correspondenceAddress.${field}`]: sourceLookup._id },
+                    { $set: { [`correspondenceAddress.${field}`]: targetLookup._id } }
+                );
+            }
+
+            // 3. Update Leads
+            const Lead = mongoose.model('Lead');
+            const leadFields = ['location', 'locPincode', 'requirement', 'subRequirement', 'budget', 'source', 'subSource', 'campaign', 'status', 'stage', 'sequence'];
+            for (const field of leadFields) {
+                await Lead.updateMany(
+                    { [field]: sourceLookup._id },
+                    { $set: { [field]: targetLookup._id } }
+                );
+            }
+
+            const arrayLeadFields = ['propertyType', 'subType', 'unitType', 'sizeType', 'facing', 'roadWidth', 'direction'];
+            for (const field of arrayLeadFields) {
+                await Lead.updateMany(
+                    { [field]: sourceLookup._id },
+                    { $set: { [`${field}.$`]: targetLookup._id } }
+                );
+            }
+
+            // 4. Update Inventory
+            const Inventory = mongoose.model('Inventory');
+            const inventoryAddrFields = ['city', 'tehsil', 'state', 'postOffice', 'pincode', 'locality', 'location', 'area', 'country'];
+            for (const field of inventoryAddrFields) {
+                await Inventory.updateMany(
+                    { [`address.${field}`]: sourceLookup._id },
+                    { $set: { [`address.${field}`]: targetLookup._id } }
+                );
+            }
+
+            const inventoryCatFields = ['category', 'subCategory', 'unitType', 'sizeConfig', 'status', 'sizeType', 'facing', 'direction', 'roadWidth', 'orientation', 'builtupType'];
+            for (const field of inventoryCatFields) {
+                await Inventory.updateMany(
+                    { [field]: sourceLookup._id },
+                    { $set: { [field]: targetLookup._id } }
+                );
+            }
+
+            // 5. Delete source lookup
+            await Lookup.deleteOne({ _id: sourceLookup._id });
+
+            console.log(`[LOOKUPS] Merged ${sourceLookup.lookup_type} ${sourceLookup._id} ("${sourceLookup.lookup_value}") into ${targetLookup._id} ("${targetLookup.lookup_value}")`);
+            return res.json({ status: "success", message: `Successfully merged "${sourceLookup.lookup_value}" into "${targetLookup.lookup_value}" across all records.` });
+        }
+
+        return res.status(400).json({ status: "error", message: `Unsupported action: "${action}"` });
+
+    } catch (error) {
+        console.error("[LOOKUPS_MERGE_MOVE_ERROR]", error);
+        res.status(500).json({ status: "error", message: error.message });
+    }
+};
+

@@ -12,6 +12,8 @@ import SmsLog from "../src/modules/sms/smsLog.model.js";
 import { googleSyncQueue } from "../src/queues/queueManager.js";
 import { getVisibilityFilter } from "../utils/visibility.js";
 import { resolveLookup, resolveHierarchicalAddress } from "../utils/lookupResolver.js";
+import AddressParsingService from '../services/AddressParsingService.js';
+
 
 const populateFields = [
     { path: 'owner', select: 'fullName email name' },
@@ -889,18 +891,49 @@ export const importContacts = async (req, res, next) => {
                     delete newItem.email;
                 }
 
+                let hNo = item.hNo || item['H No'] || item['House Number'] || item['House No'] || '';
+                let street = item.street || item['Street'] || item['Road'] || '';
+                let area = item.area || item.location || item['Area'] || item['Location'] || item['Locality'] || '';
+                let city = item.city || item['City'] || '';
+                let state = item.state || item['State'] || '';
+                let country = item.country || item['Country'] || 'India';
+                let pincode = item.pinCode || item.pincode || item['Pin Code'] || item['Pincode'] || item['Zip'] || '';
+
+                let fullAddress = item.address || item.fullAddress || item['Address'] || item['Full Address'] || '';
+                
+                // Fallback: If no explicit fullAddress is mapped, check if 'street' contains the full address string
+                if (!fullAddress && !hNo && street && AddressParsingService.shouldParse(street)) {
+                    fullAddress = street;
+                    street = '';
+                }
+
+                if ((!hNo || !street) && fullAddress && String(fullAddress).trim()) {
+                    try {
+                        const parsed = await AddressParsingService.parseAddress(String(fullAddress).trim());
+                        hNo = parsed.houseNo || hNo;
+                        street = parsed.street || street;
+                        area = parsed.area || area;
+                        city = parsed.tehsil || city;
+                        state = parsed.state || state;
+                        pincode = parsed.pincode || pincode;
+                    } catch (parseErr) {
+                        console.error("[CONTACT_IMPORT] Address parse fallback failed:", parseErr.message);
+                    }
+                }
+
                 // Resolve Address Hierarchically to IDs
                 const resolvedAddr = await resolveHierarchicalAddress({
-                    hNo: item.hNo || item['H No'] || item['House Number'] || item['House No'] || '',
-                    street: item.street || item['Street'] || item['Road'] || '',
-                    area: item.area || item.location || item['Area'] || item['Location'] || item['Locality'],
-                    city: item.city || item['City'],
-                    state: item.state || item['State'],
-                    country: item.country || item['Country'] || 'India',
-                    pincode: item.pinCode || item.pincode || item['Pin Code'] || item['Pincode'] || item['Zip']
+                    hNo,
+                    street,
+                    area,
+                    city,
+                    state,
+                    country,
+                    pincode
                 });
                 
                 newItem.personalAddress = resolvedAddr;
+
 
                 // Clean up flat fields from newItem
                 const addressFields = ['hNo', 'street', 'area', 'city', 'tehsil', 'postOffice', 'state', 'country', 'pinCode', 'pincode', 'location', 'assign', 'Assign', 'team', 'Team', 'visibility', 'Visibility', 'Owner'];

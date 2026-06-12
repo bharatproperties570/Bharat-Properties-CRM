@@ -8,6 +8,8 @@ import Deal from "../models/Deal.js";
 import { paginate } from "../utils/pagination.js";
 import { createCompanySchema, updateCompanySchema } from "../validations/company.validation.js";
 import { getVisibilityFilter } from "../utils/visibility.js";
+import AddressParsingService from '../services/AddressParsingService.js';
+
 
 const populateFields = [
     { path: 'companyType', select: 'lookup_value' },
@@ -292,7 +294,8 @@ export const importCompanies = async (req, res) => {
         const restructuredData = [];
         const errorDetails = [];
 
-        data.forEach((item, index) => {
+        for (let index = 0; index < data.length; index++) {
+            const item = data[index];
             try {
                 if (!item.name || !item.name.trim()) {
                     errorDetails.push({
@@ -300,7 +303,36 @@ export const importCompanies = async (req, res) => {
                         name: 'N/A',
                         reason: "Company Name is required"
                     });
-                    return;
+                    continue;
+                }
+
+                let reg_hNo = item.reg_hNo || '';
+                let reg_street = item.reg_street || '';
+                let reg_city = item.reg_city || '';
+                let reg_state = item.reg_state || '';
+                let reg_country = item.reg_country || 'India';
+                let reg_pinCode = item.reg_pinCode || item.reg_pincode || '';
+
+                let fullAddress = item.address || item.fullAddress || item['Address'] || item['Full Address'] || item.reg_address || item.registered_address || '';
+                
+                // Fallback: If no explicit fullAddress is mapped, check if 'reg_street' contains the full address string
+                if (!fullAddress && !reg_hNo && reg_street && AddressParsingService.shouldParse(reg_street)) {
+                    fullAddress = reg_street;
+                    reg_street = '';
+                }
+
+                if ((!reg_hNo || !reg_street) && fullAddress && String(fullAddress).trim()) {
+                    try {
+                        const parsed = await AddressParsingService.parseAddress(String(fullAddress).trim());
+                        reg_hNo = parsed.houseNo || reg_hNo;
+                        reg_street = parsed.street || reg_street;
+                        reg_city = parsed.tehsil || reg_city;
+                        reg_state = parsed.state || reg_state;
+                        reg_country = parsed.country || reg_country;
+                        reg_pinCode = parsed.pincode || reg_pinCode;
+                    } catch (parseErr) {
+                        console.error("[COMPANY_IMPORT] Address parse fallback failed:", parseErr.message);
+                    }
                 }
 
                 const rawCompany = {
@@ -319,12 +351,12 @@ export const importCompanies = async (req, res) => {
                     visibleTo: item.visibleTo || 'Everyone',
                     addresses: {
                         registeredOffice: {
-                            hNo: item.reg_hNo,
-                            street: item.reg_street,
-                            city: item.reg_city,
-                            state: item.reg_state,
-                            country: item.reg_country,
-                            pinCode: item.reg_pinCode
+                            hNo: reg_hNo,
+                            street: reg_street,
+                            city: reg_city,
+                            state: reg_state,
+                            country: reg_country,
+                            pinCode: reg_pinCode
                         }
                     }
                 };
@@ -337,7 +369,7 @@ export const importCompanies = async (req, res) => {
                     reason: err.message || "Data processing error"
                 });
             }
-        });
+        }
 
         let successCount = 0;
         let failedCount = errorDetails.length;

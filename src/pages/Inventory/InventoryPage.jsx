@@ -229,6 +229,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                     setIsFilterPanelOpen={() => setIsFilterPanelOpen(true)}
                     activeFiltersCount={renderValue(Object.keys(filters).length)}
                     onShowAll={handleShowAll}
+                    onNavigate={onNavigate}
                 />
 
                 {viewMode === 'list' && (

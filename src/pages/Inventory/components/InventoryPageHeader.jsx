@@ -1,6 +1,6 @@
 import React from 'react';
 
-const InventoryPageHeader = ({ viewMode, setViewMode, setIsFilterPanelOpen, activeFiltersCount, onShowAll }) => {
+const InventoryPageHeader = ({ viewMode, setViewMode, setIsFilterPanelOpen, activeFiltersCount, onShowAll, onNavigate }) => {
     return (
         <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0', paddingBottom: '10px' }}>
             <div
@@ -29,6 +29,12 @@ const InventoryPageHeader = ({ viewMode, setViewMode, setIsFilterPanelOpen, acti
                         onClick={() => setViewMode('map')}
                     >
                         <i className="fas fa-map-marked-alt"></i> Map View
+                    </button>
+                    <button
+                        className="view-toggle-btn"
+                        onClick={() => onNavigate && onNavigate('inventory-analytics')}
+                    >
+                        <i className="fas fa-chart-pie"></i> Analytics
                     </button>
                 </div>
                 <button

@@ -8,7 +8,6 @@ import { generateCSV, downloadFile } from "../../../utils/dataManagementUtils";
 const TABS = [
   { id: "Professional", label: "Professional", type: "hierarchy" },
   { id: "Document", label: "Document", type: "hierarchy" },
-  { id: "Address", label: "Address", type: "hierarchy" },
   { id: "Education", label: "Education", type: "hierarchy" }, // NEW: Education Hierarchy
   { id: "Other", label: "Other", type: "flat" },
 ];
@@ -22,18 +21,6 @@ const HIERARCHY_CONFIG = {
   Document: [ // Document Category -> Document Type
     { title: "Document Category", lookup_type: "Document-Category" },
     { title: "Document Type", lookup_type: "Document-Type" },
-  ],
-  Address: [
-    { title: "Country", lookup_type: "Country" },
-    { title: "State", lookup_type: "State" },
-    { title: "City", lookup_type: "City" },
-    {
-      title: "Location / Tehsil",
-      lookup_type: "Location", // Default type
-      mixed_types: ["Location", "Tehsil"] // Supports both
-    },
-    { title: "Post Office", lookup_type: "PostOffice" },
-    { title: "Pin Code", lookup_type: "Pincode" },
   ],
   Education: [ // Education Level -> Degree
     { title: "Education Level", lookup_type: "Education-Level" },
@@ -201,9 +188,283 @@ const ContactSettingsPage = () => {
   const [flatActiveSection, setFlatActiveSection] = useState(null);
   const [flatItems, setFlatItems] = useState([]);
 
+  // Address Workspace States
+  const [countries, setCountries] = useState([]);
+  const [addressStatesList, setAddressStatesList] = useState([]);
+  const [addressCitiesList, setAddressCitiesList] = useState([]);
+  const [selectedCountryId, setSelectedCountryId] = useState("");
+  const [selectedStateId, setSelectedStateId] = useState("");
+  const [selectedCityId, setSelectedCityId] = useState("");
+  const [selectedPostOfficeId, setSelectedPostOfficeId] = useState("unassigned");
+  const [activeChildTab, setActiveChildTab] = useState("Location");
+
+  const [locationsList, setLocationsList] = useState([]);
+  const [tehsilsList, setTehsilsList] = useState([]);
+  const [postOfficesList, setPostOfficesList] = useState([]);
+  const [pincodesList, setPincodesList] = useState([]);
+
+  const [childLoading, setChildLoading] = useState(false);
+  const [draggedItem, setDraggedItem] = useState(null);
+  const [dragOverItemId, setDragOverItemId] = useState(null);
+
   const showToast = (message, type = "success") => {
     setNotification({ show: true, message, type });
   };
+
+  // Workspace API Fetch Functions
+  const fetchCountries = async () => {
+    try {
+      const res = await api.get("/lookups?lookup_type=Country");
+      if (res.data.status === "success") {
+        let list = res.data.data;
+        if (list.length === 0) {
+          const seedRes = await api.post("/lookups", { lookup_type: "Country", lookup_value: "India" });
+          if (seedRes.data.status === "success") {
+            list = [seedRes.data.data];
+          }
+        }
+        setCountries(list);
+        if (list.length > 0 && !selectedCountryId) {
+          setSelectedCountryId(list[0]._id);
+        }
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const fetchStatesList = async () => {
+    try {
+      const res = await api.get("/lookups?lookup_type=State");
+      if (res.data.status === "success") {
+        setAddressStatesList(res.data.data);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const fetchCitiesList = async (stateId) => {
+    try {
+      const res = await api.get(`/lookups?lookup_type=City&parent_lookup_id=${stateId}`);
+      if (res.data.status === "success") {
+        setAddressCitiesList(res.data.data);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const fetchCityChildrenList = async (cityId) => {
+    try {
+      setChildLoading(true);
+      const res = await api.get(`/lookups?parent_lookup_id=${cityId}`);
+      if (res.data.status === "success") {
+        const fetched = res.data.data;
+        setLocationsList(fetched.filter(item => item.lookup_type === "Location"));
+        setTehsilsList(fetched.filter(item => item.lookup_type === "Tehsil"));
+        setPostOfficesList(fetched.filter(item => item.lookup_type === "PostOffice"));
+        
+        if (selectedPostOfficeId === "unassigned") {
+          setPincodesList(fetched.filter(item => item.lookup_type === "Pincode"));
+        } else {
+          fetchPincodesForPO(selectedPostOfficeId);
+        }
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setChildLoading(false);
+    }
+  };
+
+  const fetchPincodesForPO = async (poId) => {
+    if (poId === "unassigned") {
+      if (selectedCityId) {
+        const res = await api.get(`/lookups?parent_lookup_id=${selectedCityId}`);
+        if (res.data.status === "success") {
+          setPincodesList(res.data.data.filter(item => item.lookup_type === "Pincode"));
+        }
+      }
+      return;
+    }
+    try {
+      setChildLoading(true);
+      const res = await api.get(`/lookups?parent_lookup_id=${poId}`);
+      if (res.data.status === "success") {
+        setPincodesList(res.data.data.filter(item => item.lookup_type === "Pincode"));
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setChildLoading(false);
+    }
+  };
+
+  const refreshAddressWorkspace = () => {
+    fetchCountries();
+    fetchStatesList();
+    if (selectedStateId) fetchCitiesList(selectedStateId);
+    if (selectedCityId) fetchCityChildrenList(selectedCityId);
+  };
+
+  // Drag & Drop confirmation dialogues
+  const confirmMove = async (source, target) => {
+    const result = await Swal.fire({
+      title: 'Confirm Hierarchy Adjustment',
+      text: `Move "${source.lookup_value}" (${source.lookup_type}) under parent "${target.lookup_value}" (${target.lookup_type})?`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Yes, Move',
+      cancelButtonText: 'Cancel'
+    });
+
+    if (!result.isConfirmed) return;
+
+    try {
+      const res = await api.post('/lookups/merge-or-move', {
+        action: 'move',
+        sourceId: source._id,
+        targetId: target._id
+      });
+      if (res.data.status === 'success') {
+        showToast(`Successfully moved "${source.lookup_value}" under "${target.lookup_value}"`);
+        refreshAddressWorkspace();
+      } else {
+        showToast(res.data.message || 'Move operation failed', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Error occurred during move', 'error');
+    }
+  };
+
+  const confirmMerge = async (source, target) => {
+    const result = await Swal.fire({
+      title: 'Confirm Duplicate Merge',
+      html: `
+        <div style="background-color: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 12px; color: #b45309; font-size: 0.85rem; text-align: left; margin-bottom: 15px;">
+          <strong>⚠️ WARNING:</strong> Merging is permanent! This will merge <strong>"${source.lookup_value}"</strong> into <strong>"${target.lookup_value}"</strong>. All contacts, leads, properties, and child lookups will be re-linked before deletion.
+        </div>
+        <p>Merge duplicate lookup <strong>"${source.lookup_value}"</strong> into <strong>"${target.lookup_value}"</strong>?</p>
+      `,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#dc2626',
+      confirmButtonText: 'Yes, Merge'
+    });
+
+    if (!result.isConfirmed) return;
+
+    try {
+      const res = await api.post('/lookups/merge-or-move', {
+        action: 'merge',
+        sourceId: source._id,
+        targetId: target._id
+      });
+      if (res.data.status === 'success') {
+        showToast(res.data.message || 'Merged successfully');
+        refreshAddressWorkspace();
+      } else {
+        showToast(res.data.message || 'Merge operation failed', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Error occurred during merge', 'error');
+    }
+  };
+
+  // Drag & Drop HTML5 handlers
+  const handleDragStart = (e, item) => {
+    setDraggedItem(item);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', item._id);
+  };
+
+  const handleDragOver = (e, targetItem, targetType) => {
+    e.preventDefault();
+    if (!draggedItem) return;
+    if (targetItem._id !== draggedItem._id) {
+      setDragOverItemId(targetItem._id);
+    }
+  };
+
+  const handleDragLeave = () => {
+    setDragOverItemId(null);
+  };
+
+  const handleDrop = async (e, targetItem, targetType) => {
+    e.preventDefault();
+    setDragOverItemId(null);
+    if (!draggedItem) return;
+
+    const sourceId = draggedItem._id;
+    const sourceType = draggedItem.lookup_type;
+    const targetId = targetItem._id;
+
+    if (sourceType === targetType) {
+      if (sourceId === targetId) return;
+      confirmMerge(draggedItem, targetItem);
+      return;
+    }
+
+    if (sourceType === 'Location' && targetType === 'Tehsil') {
+      confirmMerge(draggedItem, targetItem);
+      return;
+    }
+
+    let isValidMove = false;
+    if (sourceType === 'State' && targetType === 'Country') isValidMove = true;
+    else if (sourceType === 'City' && targetType === 'State') isValidMove = true;
+    else if (['Location', 'Tehsil', 'PostOffice'].includes(sourceType) && targetType === 'City') isValidMove = true;
+    else if (sourceType === 'Pincode' && targetType === 'PostOffice') isValidMove = true;
+
+    if (isValidMove) {
+      confirmMove(draggedItem, targetItem);
+    } else {
+      showToast(`Invalid move: Cannot drop ${sourceType} onto ${targetType}`, 'error');
+    }
+  };
+
+  // State workspace navigation handlers
+  const handleStateWorkspaceClick = (stateId) => {
+    setSelectedStateId(stateId);
+    setSelectedCityId("");
+    setAddressCitiesList([]);
+    setLocationsList([]);
+    setTehsilsList([]);
+    setPostOfficesList([]);
+    setPincodesList([]);
+    if (stateId) {
+      fetchCitiesList(stateId);
+    }
+  };
+
+  const handleCityWorkspaceClick = (cityId) => {
+    setSelectedCityId(cityId);
+    setSelectedPostOfficeId("unassigned");
+    setLocationsList([]);
+    setTehsilsList([]);
+    setPostOfficesList([]);
+    setPincodesList([]);
+    if (cityId) {
+      fetchCityChildrenList(cityId);
+    }
+  };
+
+  // Watchers to trigger load
+  useEffect(() => {
+    if (activeTab === "Address") {
+      fetchCountries();
+      fetchStatesList();
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab === "Address" && selectedCityId && activeChildTab === "Pincode") {
+      fetchPincodesForPO(selectedPostOfficeId);
+    }
+  }, [selectedPostOfficeId, activeChildTab]);
 
   // ---------------- EXPORT HANDLERS ----------------
   const handleExportHierarchy = (items, title) => {
@@ -486,6 +747,336 @@ const ContactSettingsPage = () => {
 
   // ---------------- RENDERERS ----------------
 
+  const renderAddressWorkspace = () => {
+    const filteredStates = selectedCountryId 
+        ? addressStatesList.filter(s => String(s.parent_lookup_id) === String(selectedCountryId) || !s.parent_lookup_id)
+        : addressStatesList;
+
+    return (
+      <div className="workspace-columns" style={{ height: "calc(100vh - 250px)", minHeight: "550px" }}>
+        {/* 1. Countries */}
+        <div className="workspace-column">
+          <div className="column-header">
+            <h3>1. Countries</h3>
+            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              <button
+                onClick={() => handleExportHierarchy(countries, "Country")}
+                style={{ border: "none", background: "transparent", color: "#10b981", cursor: "pointer" }}
+                title="Download list"
+              >
+                <i className="fas fa-download"></i>
+              </button>
+              <button
+                onClick={() => handleAdd({ title: "Country", lookup_type: "Country" }, null, () => fetchCountries())}
+                style={{ border: "none", background: "#e2e8f0", color: "#475569", borderRadius: "4px", width: "24px", height: "24px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+              >
+                <i className="fas fa-plus" style={{ fontSize: "0.7rem" }}></i>
+              </button>
+            </div>
+          </div>
+          <div className="column-body">
+            {countries.map(c => (
+              <div 
+                key={c._id}
+                className={`workspace-card country-card ${selectedCountryId === c._id ? 'selected' : ''} ${dragOverItemId === c._id ? 'drop-target-hover' : ''}`}
+                onClick={() => setSelectedCountryId(c._id)}
+                onDragOver={(e) => handleDragOver(e, c, 'Country')}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, c, 'Country')}
+              >
+                <span className="card-value">{c.lookup_value}</span>
+                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                  <i className="fas fa-edit" style={{ cursor: "pointer", fontSize: "0.8rem", opacity: 0.5 }} onClick={(e) => { e.stopPropagation(); handleEdit(c, { title: "Country", lookup_type: "Country" }, () => fetchCountries()); }}></i>
+                  <i className="fas fa-trash" style={{ cursor: "pointer", fontSize: "0.8rem", color: "#ef4444", opacity: 0.5 }} onClick={(e) => { e.stopPropagation(); handleDelete(c, () => fetchCountries()); }}></i>
+                  <span className="card-hint">Drop States</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* 2. States */}
+        <div className="workspace-column">
+          <div className="column-header">
+            <h3>2. States</h3>
+            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              <button
+                onClick={() => handleExportHierarchy(filteredStates, "State")}
+                style={{ border: "none", background: "transparent", color: "#10b981", cursor: "pointer" }}
+                title="Download list"
+              >
+                <i className="fas fa-download"></i>
+              </button>
+              <button
+                onClick={() => handleAdd({ title: "State", lookup_type: "State" }, selectedCountryId, () => fetchStatesList())}
+                disabled={!selectedCountryId}
+                style={{ border: "none", background: "#e2e8f0", color: "#475569", borderRadius: "4px", width: "24px", height: "24px", cursor: selectedCountryId ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", opacity: selectedCountryId ? 1 : 0.5 }}
+              >
+                <i className="fas fa-plus" style={{ fontSize: "0.7rem" }}></i>
+              </button>
+            </div>
+          </div>
+          <div className="column-body">
+            {filteredStates.length === 0 ? (
+              <div className="column-empty">No states found</div>
+            ) : (
+              filteredStates.map(s => (
+                <div 
+                  key={s._id}
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, s)}
+                  onDragOver={(e) => handleDragOver(e, s, 'State')}
+                  onDragLeave={handleDragLeave}
+                  onDrop={(e) => handleDrop(e, s, 'State')}
+                  className={`workspace-card state-card ${selectedStateId === s._id ? 'selected' : ''} ${dragOverItemId === s._id ? (draggedItem?.lookup_type === 'State' ? 'merge-target-hover' : 'drop-target-hover') : ''}`}
+                  onClick={() => handleStateWorkspaceClick(s._id)}
+                >
+                  <div className="card-drag-handle">⋮⋮</div>
+                  <div className="card-content">
+                    <span className="card-value">{s.lookup_value}</span>
+                    <span className="card-hint-sub">Parent: {s.parent_lookup_value || 'None'}</span>
+                  </div>
+                  <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                    <i className="fas fa-edit" style={{ cursor: "pointer", fontSize: "0.8rem", opacity: 0.5 }} onClick={(e) => { e.stopPropagation(); handleEdit(s, { title: "State", lookup_type: "State" }, () => fetchStatesList()); }}></i>
+                    <i className="fas fa-trash" style={{ cursor: "pointer", fontSize: "0.8rem", color: "#ef4444", opacity: 0.5 }} onClick={(e) => { e.stopPropagation(); handleDelete(s, () => { fetchStatesList(); if (selectedStateId === s._id) setSelectedStateId(''); }); }}></i>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* 3. Cities */}
+        <div className="workspace-column">
+          <div className="column-header">
+            <h3>3. Cities</h3>
+            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              <button
+                onClick={() => handleExportHierarchy(addressCitiesList, "City")}
+                style={{ border: "none", background: "transparent", color: "#10b981", cursor: "pointer" }}
+                title="Download list"
+              >
+                <i className="fas fa-download"></i>
+              </button>
+              <button
+                onClick={() => handleAdd({ title: "City", lookup_type: "City" }, selectedStateId, () => fetchCitiesList(selectedStateId))}
+                disabled={!selectedStateId}
+                style={{ border: "none", background: "#e2e8f0", color: "#475569", borderRadius: "4px", width: "24px", height: "24px", cursor: selectedStateId ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", opacity: selectedStateId ? 1 : 0.5 }}
+              >
+                <i className="fas fa-plus" style={{ fontSize: "0.7rem" }}></i>
+              </button>
+            </div>
+          </div>
+          <div className="column-body">
+            {!selectedStateId ? (
+              <div className="column-empty">Select a state to view cities</div>
+            ) : addressCitiesList.length === 0 ? (
+              <div className="column-empty">No cities found</div>
+            ) : (
+              addressCitiesList.map(c => (
+                <div 
+                  key={c._id}
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, c)}
+                  onDragOver={(e) => handleDragOver(e, c, 'City')}
+                  onDragLeave={handleDragLeave}
+                  onDrop={(e) => handleDrop(e, c, 'City')}
+                  className={`workspace-card city-card ${selectedCityId === c._id ? 'selected' : ''} ${dragOverItemId === c._id ? (draggedItem?.lookup_type === 'City' ? 'merge-target-hover' : 'drop-target-hover') : ''}`}
+                  onClick={() => handleCityWorkspaceClick(c._id)}
+                >
+                  <div className="card-drag-handle">⋮⋮</div>
+                  <div className="card-content">
+                    <span className="card-value">{c.lookup_value}</span>
+                    <span className="card-hint-sub">Parent: {c.parent_lookup_value || 'None'}</span>
+                  </div>
+                  <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                    <i className="fas fa-edit" style={{ cursor: "pointer", fontSize: "0.8rem", opacity: 0.5 }} onClick={(e) => { e.stopPropagation(); handleEdit(c, { title: "City", lookup_type: "City" }, () => fetchCitiesList(selectedStateId)); }}></i>
+                    <i className="fas fa-trash" style={{ cursor: "pointer", fontSize: "0.8rem", color: "#ef4444", opacity: 0.5 }} onClick={(e) => { e.stopPropagation(); handleDelete(c, () => { fetchCitiesList(selectedStateId); if (selectedCityId === c._id) setSelectedCityId(''); }); }}></i>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* 4. Children */}
+        <div className="workspace-column children-column">
+          <div className="column-header-tabs" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ display: "flex", gap: "4px", flex: 1 }}>
+              {['Location', 'Tehsil', 'PostOffice', 'Pincode'].map((tab) => (
+                <button
+                  key={tab}
+                  className={`tab-btn-mini ${activeChildTab === tab ? 'active' : ''}`}
+                  onClick={() => setActiveChildTab(tab)}
+                  disabled={!selectedCityId}
+                  style={{ padding: "6px" }}
+                >
+                  {tab === 'PostOffice' ? 'P.O.' : tab + 's'}
+                </button>
+              ))}
+            </div>
+            {selectedCityId && (
+              <div style={{ display: "flex", gap: "6px", marginLeft: "6px" }}>
+                <button
+                  onClick={() => {
+                    const getList = () => {
+                      if (activeChildTab === "Location") return locationsList;
+                      if (activeChildTab === "Tehsil") return tehsilsList;
+                      if (activeChildTab === "PostOffice") return postOfficesList;
+                      return pincodesList;
+                    };
+                    handleExportHierarchy(getList(), activeChildTab);
+                  }}
+                  style={{ border: "none", background: "transparent", color: "#10b981", cursor: "pointer" }}
+                  title="Download list"
+                >
+                  <i className="fas fa-download"></i>
+                </button>
+                <button
+                  onClick={() => {
+                    const lookupType = activeChildTab === "PostOffice" ? "PostOffice" : activeChildTab === "Pincode" ? "Pincode" : activeChildTab;
+                    const parentId = (activeChildTab === "Pincode" && selectedPostOfficeId !== "unassigned") ? selectedPostOfficeId : selectedCityId;
+                    handleAdd({ title: activeChildTab, lookup_type: lookupType }, parentId, () => fetchCityChildrenList(selectedCityId));
+                  }}
+                  style={{ border: "none", background: "#e2e8f0", color: "#475569", borderRadius: "4px", width: "24px", height: "24px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                >
+                  <i className="fas fa-plus" style={{ fontSize: "0.7rem" }}></i>
+                </button>
+              </div>
+            )}
+          </div>
+          
+          <div className="column-body">
+            {childLoading ? (
+              <div className="column-loader">Loading lookups...</div>
+            ) : !selectedCityId ? (
+              <div className="column-empty">Select a city to view lookups</div>
+            ) : (
+              <>
+                {activeChildTab === 'Location' && (
+                  locationsList.length === 0 ? <div className="column-empty">No locations found</div> :
+                  locationsList.map(item => (
+                    <div 
+                      key={item._id}
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, item)}
+                      onDragOver={(e) => handleDragOver(e, item, 'Location')}
+                      onDragLeave={handleDragLeave}
+                      onDrop={(e) => handleDrop(e, item, 'Location')}
+                      className={`workspace-card child-card ${dragOverItemId === item._id ? 'merge-target-hover' : ''}`}
+                    >
+                      <div className="card-drag-handle">⋮⋮</div>
+                      <span className="card-value" style={{ flex: 1 }}>{item.lookup_value}</span>
+                      <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                        <i className="fas fa-edit" style={{ cursor: "pointer", fontSize: "0.8rem", opacity: 0.5 }} onClick={(e) => { e.stopPropagation(); handleEdit(item, { title: "Location", lookup_type: "Location" }, () => fetchCityChildrenList(selectedCityId)); }}></i>
+                        <i className="fas fa-trash" style={{ cursor: "pointer", fontSize: "0.8rem", color: "#ef4444", opacity: 0.5 }} onClick={(e) => { e.stopPropagation(); handleDelete(item, () => fetchCityChildrenList(selectedCityId)); }}></i>
+                      </div>
+                    </div>
+                  ))
+                )}
+
+                {activeChildTab === 'Tehsil' && (
+                  tehsilsList.length === 0 ? <div className="column-empty">No tehsils found</div> :
+                  tehsilsList.map(item => (
+                    <div 
+                      key={item._id}
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, item)}
+                      onDragOver={(e) => handleDragOver(e, item, 'Tehsil')}
+                      onDragLeave={handleDragLeave}
+                      onDrop={(e) => handleDrop(e, item, 'Tehsil')}
+                      className={`workspace-card child-card ${dragOverItemId === item._id ? 'merge-target-hover' : ''}`}
+                    >
+                      <div className="card-drag-handle">⋮⋮</div>
+                      <span className="card-value" style={{ flex: 1 }}>{item.lookup_value}</span>
+                      <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                        <i className="fas fa-edit" style={{ cursor: "pointer", fontSize: "0.8rem", opacity: 0.5 }} onClick={(e) => { e.stopPropagation(); handleEdit(item, { title: "Tehsil", lookup_type: "Tehsil" }, () => fetchCityChildrenList(selectedCityId)); }}></i>
+                        <i className="fas fa-trash" style={{ cursor: "pointer", fontSize: "0.8rem", color: "#ef4444", opacity: 0.5 }} onClick={(e) => { e.stopPropagation(); handleDelete(item, () => fetchCityChildrenList(selectedCityId)); }}></i>
+                      </div>
+                    </div>
+                  ))
+                )}
+
+                {activeChildTab === 'PostOffice' && (
+                  postOfficesList.length === 0 ? <div className="column-empty">No post offices found</div> :
+                  postOfficesList.map(item => (
+                    <div 
+                      key={item._id}
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, item)}
+                      onDragOver={(e) => handleDragOver(e, item, 'PostOffice')}
+                      onDragLeave={handleDragLeave}
+                      onDrop={(e) => handleDrop(e, item, 'PostOffice')}
+                      className={`workspace-card child-card ${dragOverItemId === item._id ? 'merge-target-hover' : ''}`}
+                    >
+                      <div className="card-drag-handle">⋮⋮</div>
+                      <span className="card-value" style={{ flex: 1 }}>{item.lookup_value}</span>
+                      <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                        <i className="fas fa-edit" style={{ cursor: "pointer", fontSize: "0.8rem", opacity: 0.5 }} onClick={(e) => { e.stopPropagation(); handleEdit(item, { title: "Post Office", lookup_type: "PostOffice" }, () => fetchCityChildrenList(selectedCityId)); }}></i>
+                        <i className="fas fa-trash" style={{ cursor: "pointer", fontSize: "0.8rem", color: "#ef4444", opacity: 0.5 }} onClick={(e) => { e.stopPropagation(); handleDelete(item, () => fetchCityChildrenList(selectedCityId)); }}></i>
+                      </div>
+                    </div>
+                  ))
+                )}
+
+                {activeChildTab === 'Pincode' && (
+                  <div className="pincode-split-layout">
+                    <div className="po-selector-sublist">
+                      <label>Select Post Office Target</label>
+                      <div 
+                        className={`po-sub-card ${selectedPostOfficeId === 'unassigned' ? 'selected' : ''}`}
+                        onClick={() => setSelectedPostOfficeId('unassigned')}
+                      >
+                        Direct City Pincodes
+                      </div>
+                      {postOfficesList.map(po => (
+                        <div 
+                          key={po._id}
+                          onClick={() => setSelectedPostOfficeId(po._id)}
+                          onDragOver={(e) => handleDragOver(e, po, 'PostOffice')}
+                          onDragLeave={handleDragLeave}
+                          onDrop={(e) => handleDrop(e, po, 'PostOffice')}
+                          className={`po-sub-card ${selectedPostOfficeId === po._id ? 'selected' : ''} ${dragOverItemId === po._id ? 'drop-target-hover' : ''}`}
+                        >
+                          📬 {po.lookup_value}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="pincode-sublist">
+                      {pincodesList.length === 0 ? (
+                        <div className="column-empty">No pincodes. Drag pincodes onto a post office.</div>
+                      ) : (
+                        pincodesList.map(item => (
+                          <div 
+                            key={item._id}
+                            draggable
+                            onDragStart={(e) => handleDragStart(e, item)}
+                            onDragOver={(e) => handleDragOver(e, item, 'Pincode')}
+                            onDragLeave={handleDragLeave}
+                            onDrop={(e) => handleDrop(e, item, 'Pincode')}
+                            className={`workspace-card pincode-card ${dragOverItemId === item._id ? 'merge-target-hover' : ''}`}
+                          >
+                            <div className="card-drag-handle">⋮⋮</div>
+                            <span className="card-value" style={{ flex: 1 }}>{item.lookup_value}</span>
+                            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                              <i className="fas fa-edit" style={{ cursor: "pointer", fontSize: "0.8rem", opacity: 0.5 }} onClick={(e) => { e.stopPropagation(); handleEdit(item, { title: "Pin Code", lookup_type: "Pincode" }, () => fetchPincodesForPO(selectedPostOfficeId)); }}></i>
+                              <i className="fas fa-trash" style={{ cursor: "pointer", fontSize: "0.8rem", color: "#ef4444", opacity: 0.5 }} onClick={(e) => { e.stopPropagation(); handleDelete(item, () => fetchPincodesForPO(selectedPostOfficeId)); }}></i>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ---------------- RENDERERS ----------------
   const renderHierarchyView = () => {
     const levels = HIERARCHY_CONFIG[activeTab];
     if (!levels) return null;

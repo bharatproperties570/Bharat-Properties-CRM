@@ -1,5 +1,5 @@
 import express from "express";
-import { getLookups, addLookup, updateLookup, deleteLookup, importLookups, checkDuplicatesImport } from "../controllers/lookup.controller.js";
+import { getLookups, addLookup, updateLookup, deleteLookup, importLookups, checkDuplicatesImport, mergeOrMoveLookup } from "../controllers/lookup.controller.js";
 import { authenticate } from "../src/middlewares/auth.middleware.js";
 
 const router = express.Router();
@@ -11,6 +11,7 @@ router.use(authenticate);
 router.get("/", getLookups);
 router.post("/import", importLookups);
 router.post("/check-duplicates", checkDuplicatesImport);
+router.post("/merge-or-move", mergeOrMoveLookup);
 router.post("/", addLookup);
 router.put("/:id", updateLookup);
 router.delete("/:id", deleteLookup);

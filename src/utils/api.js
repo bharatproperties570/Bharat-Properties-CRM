@@ -61,9 +61,11 @@ const FINAL_VITE_API_URL_PROD = typeof rawProdApiUrl === 'string' ? rawProdApiUr
 
 // Detect if running on production host
 let hostProdOverride = false;
+let isLocalhost = false;
 if (typeof window !== 'undefined' && window.location && window.location.hostname) {
-  hostProdOverride = window.location.hostname.includes('bharatproperties.co') ||
-                     window.location.hostname.includes('vercel.app');
+  const hostname = window.location.hostname;
+  hostProdOverride = hostname.includes('bharatproperties.co') || hostname.includes('vercel.app');
+  isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.') || hostname.startsWith('10.');
 }
 const finalProd = isProd || hostProdOverride;
 
@@ -72,9 +74,10 @@ const finalProd = isProd || hostProdOverride;
 // 2. Production: STABLE_TUNNEL_URL directly (skip Vercel proxy — saves 1 hop)
 const tempApiUrl = finalProd
     ? STABLE_TUNNEL_URL           // Always direct to backend in production
-    : (FINAL_VITE_API_URL || STABLE_TUNNEL_URL);
+    : (isLocalhost ? 'http://localhost:4000/api' : (FINAL_VITE_API_URL || STABLE_TUNNEL_URL));
 
 export const API_BASE_URL = typeof tempApiUrl === 'string' ? tempApiUrl : String(tempApiUrl || '');
+
 export const BASE_BACKEND_URL = API_BASE_URL.replace(/\/api$/, '');
 
 export const fixMediaUrl = (url) => {
@@ -352,6 +355,7 @@ export const lookupsAPI = {
     update: (id, data) => apiRequest(`/lookups/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id) => apiRequest(`/lookups/${id}`, { method: 'DELETE' }),
     bulkCreate: (data) => apiRequest('/lookups/bulk', { method: 'POST', body: JSON.stringify(data) }),
+    mergeOrMove: (data) => apiRequest('/lookups/merge-or-move', { method: 'POST', body: JSON.stringify(data) }),
 };
 
 // Custom Fields API

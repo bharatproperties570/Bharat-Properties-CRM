@@ -14,6 +14,7 @@ const BookingPage = lazy(() => import('../pages/Booking/BookingPage'));
 const InventoryPage = lazy(() => import('../pages/Inventory/InventoryPage'));
 const InventoryDetailPage = lazy(() => import('../pages/Inventory/InventoryDetailPage'));
 const InventoryMatchingPage = lazy(() => import('../pages/Inventory/views/InventoryMatchingPage'));
+const InventoryAnalyticsPage = lazy(() => import('../pages/Inventory/InventoryAnalyticsPage'));
 const MarketingOverviewPage = lazy(() => import('../pages/Marketing/MarketingOverviewPage'));
 const ProfilePage = lazy(() => import('../pages/Profile/ProfilePage'));
 const ProjectsPage = lazy(() => import('../pages/Projects/ProjectsPage'));
@@ -25,6 +26,7 @@ const DealIntakePage = lazy(() => import('../pages/Deals/views/DealIntakePage'))
 const DealMatchingPage = lazy(() => import('../pages/Deals/views/DealMatchingPage'));
 const LeadMatchingPage = lazy(() => import('../pages/Leads/views/LeadMatchingPage'));
 const DealDetailPage = lazy(() => import('../pages/Deals/DealDetailPage'));
+const DealAnalyticsPage = lazy(() => import('../pages/Deals/DealAnalyticsPage'));
 const ProjectDetailPage = lazy(() => import('../pages/Projects/ProjectDetailPage'));
 const CompanyDetailPage = lazy(() => import('../pages/Company/CompanyDetailPage'));
 const GoogleCallback = lazy(() => import('../pages/Settings/GoogleCallback'));
@@ -85,6 +87,8 @@ const AppRouter = ({ currentView, currentContactId, onNavigate, onEditContact, o
                 return <LeadsPage onAddActivity={onAddActivity} onEdit={onEditContact} onNavigate={onNavigate} />;
             case 'deals':
                 return <DealsPage onNavigate={onNavigate} onAddActivity={onAddActivity} />;
+            case 'deal-analytics':
+                return <DealAnalyticsPage onNavigate={onNavigate} />;
             case 'deal-matching':
                 return <DealMatchingPage onNavigate={onNavigate} dealId={currentContactId} />;
             case 'inventory-matching':
@@ -119,6 +123,8 @@ const AppRouter = ({ currentView, currentContactId, onNavigate, onEditContact, o
                 />;
             case 'inventory':
                 return <InventoryPage onNavigate={onNavigate} onAddActivity={onAddActivity} />;
+            case 'inventory-analytics':
+                return <InventoryAnalyticsPage onNavigate={onNavigate} />;
             case 'inventory-detail':
                 return <InventoryDetailPage
                     inventoryId={currentContactId}

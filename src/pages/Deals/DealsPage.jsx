@@ -503,6 +503,12 @@ function DealsPage({ onNavigate, onAddActivity }) {
                             >
                                 <i className="fas fa-map-marked-alt"></i> Map View
                             </button>
+                            <button
+                                className="view-toggle-btn"
+                                onClick={() => onNavigate('deal-analytics')}
+                            >
+                                <i className="fas fa-chart-line"></i> Analytics
+                            </button>
                         </div>
                         <button
                             className="btn-outline"

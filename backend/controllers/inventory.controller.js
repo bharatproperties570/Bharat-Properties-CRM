@@ -21,6 +21,8 @@ import { resolveLookup, resolveHierarchicalAddress } from "../utils/lookupResolv
 import Deal from "../models/Deal.js"; // Explicitly load to prevent registration errors
 import { syncDocumentsToContact } from "../utils/sync.js";
 import { createNotification } from "./notification.controller.js";
+import AddressParsingService from '../services/AddressParsingService.js';
+
 
 
 const escapeRegExp = (string) => {
@@ -2349,18 +2351,47 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                 let ownerId = null;
                 const activeModule = module || 'propertyOwners';
 
-                const hNo = String(ownerHNo || '').trim();
-                const locality = String(ownerLocality || '').trim();
+                let hNo = String(ownerHNo || '').trim();
+                let street = String(ownerStreet || '').trim();
+                let locality = String(ownerLocality || '').trim();
+                let area = String(ownerArea || '').trim();
+                let city = String(ownerCity || '').trim();
+                let state = String(ownerState || '').trim();
+                let pincode = String(ownerPinCode || '').trim();
+
+                let fullAddress = row.address || row.ownerAddress || row.fullAddress || row['Full Address'] || row['Address'] || '';
                 
+                // Fallback: If no explicit fullAddress is mapped, check if 'street' contains the full address string
+                if (!fullAddress && !hNo && street && AddressParsingService.shouldParse(street)) {
+                    fullAddress = street;
+                    street = '';
+                }
+
+                if ((!hNo || !street) && fullAddress && String(fullAddress).trim()) {
+                    try {
+                        const parsed = await AddressParsingService.parseAddress(String(fullAddress).trim());
+                        hNo = parsed.houseNo || hNo;
+                        street = parsed.street || street;
+                        area = parsed.area || area;
+                        locality = parsed.location || parsed.area || locality;
+                        city = parsed.tehsil || city;
+                        state = parsed.state || state;
+                        pincode = parsed.pincode || pincode;
+                    } catch (parseErr) {
+                        console.error("[BULK_OWNER_UPDATE] Address parse fallback failed:", parseErr.message);
+                    }
+                }
+
                 const personalAddress = {
                     hNo: hNo || '',
-                    street: String(ownerStreet || '').trim() || '',
+                    street: street || '',
                     location: locality || '',
-                    area: String(ownerArea || '').trim() || '',
-                    city: String(ownerCity || '').trim() || '',
-                    state: String(ownerState || '').trim() || '',
-                    pincode: String(ownerPinCode || '').trim() || ''
+                    area: area || '',
+                    city: city || '',
+                    state: state || '',
+                    pincode: pincode || ''
                 };
+
 
                 // 2. Resolve/Create Owner (With Legal Identity & Assignment)
                 if (activeModule === 'propertyOwners') {

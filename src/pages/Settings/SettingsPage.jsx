@@ -47,6 +47,7 @@ import AiAgentsSettingsPage from './views/AiAgentsSettingsPage';
 import SiteVisitSettingsPage from './views/SiteVisitSettingsPage';
 import CustomFormsSettingsPage from './views/CustomFormsSettingsPage';
 import DiscoverySettingsPage from './views/DiscoverySettingsPage';
+import AddressMasterSettingsPage from './views/AddressMasterSettingsPage';
 
 
 // --- Sub-Components (Defined Outside to prevent re-creation crashes) ---
@@ -923,7 +924,7 @@ const SettingsPage = () => {
 
     const sidebarSections = [
         { title: 'Manage', items: [{ id: 'users', label: 'Users' }, { id: 'notifications', label: 'Notifications' }, { id: 'sales-goals', label: 'Sales goals' }] },
-        { title: 'Data', items: [{ id: 'import', label: 'Import' }, { id: 'export', label: 'Export' }, { id: 'forms', label: 'Forms' }, { id: 'discovery', label: 'Google Discovery' }, { id: 'enrichment', label: 'Prospecting and enrichment' }, { id: 'duplicate-mgt', label: 'Duplicate Management' }] },
+        { title: 'Data', items: [{ id: 'import', label: 'Import' }, { id: 'export', label: 'Export' }, { id: 'forms', label: 'Forms' }, { id: 'address-master', label: 'Address Master' }, { id: 'discovery', label: 'Google Discovery' }, { id: 'enrichment', label: 'Prospecting and enrichment' }, { id: 'duplicate-mgt', label: 'Duplicate Management' }] },
         { title: 'Communication channels', items: [{ id: 'email', label: 'Email' }, { id: 'calls', label: 'Calls' }, { id: 'messaging', label: 'Messaging' }, { id: 'feedback-templates', label: 'Message Templates' }] },
         { title: 'Customize', items: [{ id: 'company-c', label: 'Company' }, { id: 'project-c', label: 'Project' }, { id: 'leads-c', label: 'Leads' }, { id: 'contacts-c', label: 'Contacts' }, { id: 'properties-c', label: 'Properties' }, { id: 'parsing-rules', label: 'Parsing Rules' }, { id: 'post-sales', label: 'Post Sales' }, { id: 'deal-details', label: 'Deals' }, { id: 'task-c', label: 'Activities' }] },
         { title: 'Integrations', items: [{ id: 'integrations', label: 'Integrations' }, { id: 'ai-agents', label: 'AI Agent Hub' }, { id: 'api', label: 'API' }] },
@@ -1167,6 +1168,8 @@ const SettingsPage = () => {
                         <AutomatedActionsSettingsPage />
                     ) : activeTab === 'import' ? (
                         <ImportDataPage />
+                    ) : activeTab === 'address-master' ? (
+                        <AddressMasterSettingsPage />
                     ) : activeTab === 'parsing-rules' ? (
                         <ParsingRulesPage />
                     ) : activeTab === 'discovery' ? (

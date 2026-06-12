@@ -18,6 +18,8 @@ import Inventory from "../models/Inventory.js";
 import AiAgent from '../models/AiAgent.js';
 import UnifiedAIService from '../services/UnifiedAIService.js';
 import { getBulkExactMatchCounts } from './deal.controller.js';
+import AddressParsingService from '../services/AddressParsingService.js';
+
 const escapeRegExp = (string) => {
     if (!string) return '';
     return String(string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -1377,13 +1379,45 @@ export const importLeads = async (req, res, next) => {
                     projectName: item.projectName ? (Array.isArray(item.projectName) ? item.projectName : [item.projectName]) : [],
 
                     // Location Fields
-                    locCity: item.locCity || item.city,
-                    locArea: item.locArea || item.area,
+                    locCity: (() => {
+                        let val = item.locCity || item.city || '';
+                        return val;
+                    })(),
+                    locArea: (() => {
+                        let val = item.locArea || item.area || '';
+                        return val;
+                    })(),
                     locBlock: item.locBlock ? (Array.isArray(item.locBlock) ? item.locBlock : [item.locBlock]) : [],
-                    locPincode: item.locPincode || item.locPinCode || item.pinCode || item.pincode,
-                    locState: item.locState || item.state,
-                    locCountry: item.locCountry || item.country,
-                    searchLocation: item.searchLocation,
+                    locPincode: item.locPincode || item.locPinCode || item.pinCode || item.pincode || '',
+                    locState: item.locState || item.state || '',
+                    locCountry: item.locCountry || item.country || 'India',
+                    searchLocation: item.searchLocation || '',
+                };
+
+                let fullAddress = item.address || item.fullAddress || item['Address'] || item['Full Address'] || '';
+                
+                // Fallback: If no explicit fullAddress is mapped, check if 'searchLocation' contains the full address string
+                if (!fullAddress && (!leadEntry.locArea || !leadEntry.locCity) && leadEntry.searchLocation && AddressParsingService.shouldParse(leadEntry.searchLocation)) {
+                    fullAddress = leadEntry.searchLocation;
+                    leadEntry.searchLocation = '';
+                }
+
+                if ((!leadEntry.locArea || !leadEntry.locCity) && fullAddress && String(fullAddress).trim()) {
+                    try {
+                        const parsed = await AddressParsingService.parseAddress(String(fullAddress).trim());
+                        leadEntry.locCity = parsed.tehsil || leadEntry.locCity;
+                        leadEntry.locArea = parsed.area || parsed.location || leadEntry.locArea;
+                        leadEntry.locPincode = parsed.pincode || leadEntry.locPincode;
+                        leadEntry.locState = parsed.state || leadEntry.locState;
+                        leadEntry.locCountry = parsed.country || leadEntry.locCountry;
+                        leadEntry.searchLocation = `${parsed.houseNo || ''} ${parsed.street || ''} ${parsed.area || ''}`.trim();
+                    } catch (parseErr) {
+                        console.error("[LEAD_IMPORT] Address parse fallback failed:", parseErr.message);
+                    }
+                }
+
+                Object.assign(leadEntry, {
+
 
                     // Property/Requirement Fields
                     budgetMin: Number(item.budgetMin) || undefined,
@@ -1409,7 +1443,7 @@ export const importLeads = async (req, res, next) => {
                     visibleTo: item.visibleTo || 'Everyone',
                     notes: item.notes || item.remarks,
                     tags: item.tags ? (Array.isArray(item.tags) ? item.tags : item.tags.split(',').map(t => t.trim())) : [],
-                };
+                });
 
                 // Inject "Import" tag
                 if (!leadEntry.tags.includes('Import')) leadEntry.tags.push('Import');

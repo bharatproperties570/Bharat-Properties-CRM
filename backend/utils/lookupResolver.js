@@ -79,9 +79,28 @@ export const resolveHierarchicalAddress = async (addr) => {
     const cityId = await resolveLookup('City', addr.city, stateId);
     if (cityId) resolved.city = cityId;
 
-    // 4. Location / Area Resolution
-    // User Specification: 'location' is ID, 'area' is Text
-    const locationVal = addr.location || addr.locality || addr.sector || addr.area;
+    // 4. Location / Area Resolution (Priority: Sector/Village/Locality -> Location Lookup ID)
+    let locationVal = null;
+    let backupAreaVal = '';
+
+    const rawArea = addr.area || '';
+    const rawLoc = addr.location || addr.locality || '';
+    const rawSector = addr.sector || '';
+
+    if (/sector|sec\b/i.test(rawArea)) {
+        locationVal = rawArea;
+        backupAreaVal = rawLoc;
+    } else if (/sector|sec\b/i.test(rawSector)) {
+        locationVal = rawSector;
+        backupAreaVal = rawLoc;
+    } else if (/village|vpo\b/i.test(rawLoc)) {
+        locationVal = rawLoc;
+        backupAreaVal = rawArea;
+    } else {
+        locationVal = addr.location || addr.locality || addr.sector || addr.area;
+        backupAreaVal = (locationVal === addr.area) ? (addr.location || addr.locality || '') : (addr.area || '');
+    }
+
     if (locationVal) {
         const locationId = await resolveLookup('Location', locationVal, cityId);
         if (locationId) {
@@ -90,7 +109,7 @@ export const resolveHierarchicalAddress = async (addr) => {
         }
     }
     // Keep 'area' as raw text string
-    resolved.area = addr.area || locationVal || '';
+    resolved.area = backupAreaVal || addr.area || '';
 
     // 5. Tehsil (ID)
     if (addr.tehsil) {
