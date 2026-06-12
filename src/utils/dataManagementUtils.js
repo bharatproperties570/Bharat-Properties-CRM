@@ -41,6 +41,7 @@ export const MODULE_CONFIG = {
             { key: 'owner', label: 'Owner' },
 
             // Address Details (Personal)
+            { key: 'fullAddress', label: 'Full Address (Auto Parse)' },
             { key: 'hNo', label: 'House No' },
             { key: 'street', label: 'Street' },
             { key: 'area', label: 'Area' },
@@ -85,6 +86,7 @@ export const MODULE_CONFIG = {
             { key: 'visibleTo', label: 'Visible To' },
 
             // Requirement Details
+            { key: 'fullAddress', label: 'Full Address (Auto Parse)' },
             { key: 'requirement', label: 'Requirement (Buy/Rent)' },
             { key: 'propertyType', label: 'Property Type' },
             { key: 'purpose', label: 'Purpose' },
@@ -188,6 +190,7 @@ export const MODULE_CONFIG = {
             { key: 'furnishedItems', label: 'Furnished Items' },
 
             // Location Details
+            { key: 'fullAddress', label: 'Full Unit Address (Auto Parse)' },
             { key: 'lat', label: 'Latitude' },
             { key: 'lng', label: 'Longitude' },
             { key: 'country', label: 'Country' },
@@ -268,6 +271,7 @@ export const MODULE_CONFIG = {
             { key: 'visibleTo', label: 'Visible To' },
 
             // Registered Office
+            { key: 'reg_address', label: 'Reg Office Full Address (Auto Parse)' },
             { key: 'reg_hNo', label: 'Reg Office House No' },
             { key: 'reg_street', label: 'Reg Office Street' },
             { key: 'reg_city', label: 'Reg Office City' },
@@ -359,6 +363,7 @@ export const MODULE_CONFIG = {
             { key: 'ownerEmail', label: 'Owner Email', sample: 'john@example.com' },
             
             // Structured Permanent Address
+            { key: 'ownerAddress', label: 'Full Owner Address (Auto Parse)', sample: 'H-123, Sector 15, Gurugram' },
             { key: 'ownerHNo', label: 'House Number', sample: 'H-123' },
             { key: 'ownerStreet', label: 'Street', sample: 'Main Market Road' },
             { key: 'ownerLocality', label: 'Locality/Sector', sample: 'Sector 15' },
