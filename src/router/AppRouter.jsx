@@ -7,6 +7,7 @@ const ContactsPage = lazy(() => import('../pages/Contacts/ContactsPage'));
 const LeadsPage = lazy(() => import('../pages/Leads/LeadsPage'));
 // FormsPage removed
 const DealsPage = lazy(() => import('../pages/Deals/DealsPage'));
+const LeadAnalyticsPage = lazy(() => import('../pages/Leads/LeadAnalyticsPage'));
 const CompanyPage = lazy(() => import('../pages/Company/CompanyPage'));
 const AccountPage = lazy(() => import('../pages/Account/AccountPage'));
 const ActivitiesPage = lazy(() => import('../pages/Activities/ActivitiesPage'));
@@ -85,6 +86,8 @@ const AppRouter = ({ currentView, currentContactId, onNavigate, onEditContact, o
                 />;
             case 'leads':
                 return <LeadsPage onAddActivity={onAddActivity} onEdit={onEditContact} onNavigate={onNavigate} />;
+            case 'lead-analytics':
+                return <LeadAnalyticsPage onNavigate={onNavigate} />;
             case 'deals':
                 return <DealsPage onNavigate={onNavigate} onAddActivity={onAddActivity} />;
             case 'deal-analytics':

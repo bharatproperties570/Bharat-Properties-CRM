@@ -580,6 +580,17 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                             {viewMode === 'list' ? 'Card' : 'List'}
                         </button>
 
+                        {/* Analytics Button */}
+                        <button
+                            className="btn-outline"
+                            onClick={() => onNavigate && onNavigate('lead-analytics')}
+                            title="Lead Intelligence Analytics"
+                            style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#8b5cf6', borderColor: '#8b5cf6', background: 'rgba(139,92,246,0.06)' }}
+                        >
+                            <i className="fas fa-chart-line"></i>
+                            Analytics
+                        </button>
+
                         {/* Filter Button with Active State Indicator */}
                         <button
                             className="btn-outline"
