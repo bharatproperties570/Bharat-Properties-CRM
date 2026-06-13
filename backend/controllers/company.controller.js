@@ -309,6 +309,7 @@ export const importCompanies = async (req, res) => {
                 let reg_hNo = item.reg_hNo || '';
                 let reg_street = item.reg_street || '';
                 let reg_city = item.reg_city || '';
+                let reg_tehsil = item.reg_tehsil || '';
                 let reg_state = item.reg_state || '';
                 let reg_country = item.reg_country || 'India';
                 let reg_pinCode = item.reg_pinCode || item.reg_pincode || '';
@@ -326,7 +327,8 @@ export const importCompanies = async (req, res) => {
                         const parsed = await AddressParsingService.parseAddress(String(fullAddress).trim());
                         reg_hNo = parsed.houseNo || reg_hNo;
                         reg_street = parsed.street || reg_street;
-                        reg_city = parsed.tehsil || reg_city;
+                        reg_city = parsed.city || reg_city;
+                        reg_tehsil = parsed.tehsil || reg_tehsil;
                         reg_state = parsed.state || reg_state;
                         reg_country = parsed.country || reg_country;
                         reg_pinCode = parsed.pincode || reg_pinCode;
@@ -354,6 +356,7 @@ export const importCompanies = async (req, res) => {
                             hNo: reg_hNo,
                             street: reg_street,
                             city: reg_city,
+                            tehsil: reg_tehsil,
                             state: reg_state,
                             country: reg_country,
                             pinCode: reg_pinCode

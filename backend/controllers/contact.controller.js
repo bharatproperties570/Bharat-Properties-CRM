@@ -895,6 +895,7 @@ export const importContacts = async (req, res, next) => {
                 let street = item.street || item['Street'] || item['Road'] || '';
                 let area = item.area || item.location || item['Area'] || item['Location'] || item['Locality'] || '';
                 let city = item.city || item['City'] || '';
+                let tehsil = item.tehsil || item['Tehsil'] || '';
                 let state = item.state || item['State'] || '';
                 let country = item.country || item['Country'] || 'India';
                 let pincode = item.pinCode || item.pincode || item['Pin Code'] || item['Pincode'] || item['Zip'] || '';
@@ -913,7 +914,8 @@ export const importContacts = async (req, res, next) => {
                         hNo = parsed.houseNo || hNo;
                         street = parsed.street || street;
                         area = parsed.area || area;
-                        city = parsed.tehsil || city;
+                        city = parsed.city || city;
+                        tehsil = parsed.tehsil || tehsil;
                         state = parsed.state || state;
                         pincode = parsed.pincode || pincode;
                     } catch (parseErr) {
@@ -927,6 +929,7 @@ export const importContacts = async (req, res, next) => {
                     street,
                     area,
                     city,
+                    tehsil,
                     state,
                     country,
                     pincode

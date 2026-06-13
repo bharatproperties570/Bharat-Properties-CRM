@@ -2145,6 +2145,67 @@ export const checkDuplicatesImport = async (req, res) => {
 };
 
 /**
+ * @desc    Auto-resolve Address Conflicts via AI
+ * @route   POST /inventory/bulk-auto-resolve
+ * @access  Private
+ */
+export const autoResolveConflicts = async (req, res) => {
+    try {
+        const { conflicts } = req.body;
+        if (!conflicts || !Array.isArray(conflicts)) {
+            return res.status(400).json({ success: false, message: "Conflicts array is required" });
+        }
+
+        const resolutions = {};
+        let resolvedCount = 0;
+        let manualCount = 0;
+
+        for (const conflict of conflicts) {
+            // Only process data mismatch conflicts
+            if (conflict.type === 'ownership' && conflict.existing?.owners) {
+                // Skip true ownership conflicts
+                continue;
+            }
+
+            if (conflict.diffs && conflict.diffs.length > 0) {
+                const aiDecisions = await AddressParsingService.evaluateConflictViaAI(
+                    conflict.diffs, 
+                    conflict.existing, 
+                    conflict.incoming
+                );
+
+                if (Object.keys(aiDecisions).length > 0) {
+                    resolutions[conflict.rowKey] = {
+                        ownership: 'FIELD_LEVEL',
+                        fields: aiDecisions
+                    };
+                    
+                    // Check if AI resolved all fields
+                    const totalAddressDiffs = conflict.diffs.filter(d => ['Address PINCODE', 'Address STATE', 'Address CITY', 'Address AREA', 'Address LOCATION', 'Address STREET'].includes(d.field)).length;
+                    const aiDecidedCount = Object.keys(aiDecisions).filter(k => aiDecisions[k] === 'KEEP' || aiDecisions[k] === 'UPDATE').length;
+                    
+                    if (aiDecidedCount > 0) {
+                        resolvedCount++;
+                    }
+                }
+            }
+        }
+
+        res.status(200).json({
+            success: true,
+            resolutions,
+            summary: {
+                resolvedCount,
+                manualCount: conflicts.length - resolvedCount
+            }
+        });
+    } catch (error) {
+        console.error('[Bulk Auto-Resolve] Error:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
  * @desc    Bulk update property owners and associates
  * @route   POST /inventory/bulk-update-owners
  * @access  Private
@@ -2258,8 +2319,9 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
             const rawTeam = row.team || row.Team || row.assignment?.team;
             const rawVisibleTo = row.visibleTo || row.visible_to || row.Visibility || row.visibility || row.VisibleTo || row.assignment?.visibleTo || 'Everyone';
 
-            // Row Identifier for resolutions
-            const rowKey = `row_${i}`;
+            // Row Identifier for resolutions (Handle chunked imports using _rowIdx)
+            const absoluteRowIdx = row._rowIdx !== undefined ? row._rowIdx : i;
+            const rowKey = `row_${absoluteRowIdx}`;
 
             try {
                 // 1. Find Inventory Record (Resilient Matching)
@@ -2356,25 +2418,36 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                 let locality = String(ownerLocality || '').trim();
                 let area = String(ownerArea || '').trim();
                 let city = String(ownerCity || '').trim();
+                let tehsil = String(row.tehsil || row['Tehsil'] || row.ownerTehsil || '').trim();
                 let state = String(ownerState || '').trim();
                 let pincode = String(ownerPinCode || '').trim();
 
                 let fullAddress = row.address || row.ownerAddress || row.fullAddress || row['Full Address'] || row['Address'] || '';
                 
-                // Fallback: If no explicit fullAddress is mapped, check if 'street' contains the full address string
-                if (!fullAddress && !hNo && street && AddressParsingService.shouldParse(street)) {
-                    fullAddress = street;
-                    street = '';
-                }
+                // 🚀 [HARDENED ENTERPRISE LOOPHOLE FIX]
+                // Force ALL mapped fields through the AddressParsingService to enforce strict taxonomy.
+                const combinedAddressToParse = [hNo, street, area, locality, city, tehsil, state, pincode, fullAddress]
+                    .filter(Boolean)
+                    .join(', ');
 
-                if ((!hNo || !street) && fullAddress && String(fullAddress).trim()) {
+                if (combinedAddressToParse) {
                     try {
-                        const parsed = await AddressParsingService.parseAddress(String(fullAddress).trim());
+                        const parsed = await AddressParsingService.parseAddress(combinedAddressToParse);
+                        
+                        // Override raw mapped fields with strictly validated Master Data fields
                         hNo = parsed.houseNo || hNo;
                         street = parsed.street || street;
                         area = parsed.area || area;
                         locality = parsed.location || parsed.area || locality;
-                        city = parsed.tehsil || city;
+                        
+                        // Enforce Thanesar -> Kurukshetra mappings
+                        if (parsed.city) {
+                            city = parsed.city;
+                        }
+                        if (parsed.tehsil) {
+                            tehsil = parsed.tehsil;
+                        }
+
                         state = parsed.state || state;
                         pincode = parsed.pincode || pincode;
                     } catch (parseErr) {
@@ -2388,6 +2461,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                     location: locality || '',
                     area: area || '',
                     city: city || '',
+                    tehsil: tehsil || '',
                     state: state || '',
                     pincode: pincode || ''
                 };
@@ -2405,7 +2479,9 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
 
                     if (!mobile) results.noMobileCount++;
 
-                    const resolution = resolutions[rowKey]?.owner; 
+                    // Resolution key: frontend stores resolutions as { rowKey: { 'ownership': 'ACTION' } } or { rowKey: { 'owner': 'ACTION' } }
+                    // Support both for backward compat
+                    const resolution = resolutions?.[rowKey]?.owner || resolutions?.[rowKey]?.ownership;
                     const compositeKey = `${name}|${fatherName}|${hNo}|${locality}`.toLowerCase();
 
                     if (mobile && contactCache.has(mobile)) {
@@ -2418,7 +2494,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                         results.duplicates.push({ name: 'Cached Contact (Identity)', mobile: 'In-File Duplicate' });
                     } else {
                         // 🚀 [HARDENED] Search for existing contact (Mobile first, then Legal Identity)
-                        let contactByMobile = mobile ? await Contact.findOne({ 'phones.number': mobile }) : null;
+                        let contactByMobile = mobile ? await Contact.findOne({ 'phones.number': mobile }).populate('personalAddress.location') : null;
                         
                         // 🚀 [HARDENED] Name Normalization for matching (Strip Sh., Shri, Late, Mr. etc)
                         const normalizeName = (n) => String(n || '').replace(/^(Sh\.|Shri|Sh|Mr\.|Mr|Mrs\.|Mrs|Late|Lt\.)\s+/i, '').trim();
@@ -2426,7 +2502,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                         const normFather = normalizeName(fatherName);
 
                         let contactByLegal = null;
-                        if (normName) {
+                        if (normName && !contactByMobile) {
                             const legalQuery = { 
                                 name: { $regex: new RegExp(`^\\s*(${escapeRegExp(name)}|${escapeRegExp(normName)})\\s*$`, 'i') }
                             };
@@ -2434,23 +2510,20 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                             // 🚀 [SENIOR] Tier 2 & 3 Matching logic
                             const matchConditions = [];
                             
-                            // Condition A: Name + exact Father Name match
                             if (normFather) {
                                 matchConditions.push({ fatherName: { $regex: new RegExp(`^\\s*(${escapeRegExp(fatherName)}|${escapeRegExp(normFather)})\\s*$`, 'i') } });
                             }
                             
-                            // Condition B: Name + Address match (If FatherName is missing or mismatches)
                             if (hNo || locality || ownerCity) {
                                 const addrConditions = [];
                                 if (hNo) addrConditions.push({ 'personalAddress.hNo': { $regex: new RegExp(`^\\s*${escapeRegExp(hNo)}\\s*$`, 'i') } });
                                 if (locality) {
-                                    const resolvedLocId = await cachedResolveLookup('Area', locality);
+                                    const resolvedLocId = await cachedResolveLookup('Area', locality) || await cachedResolveLookup('Location', locality);
                                     if (resolvedLocId) addrConditions.push({ 'personalAddress.location': resolvedLocId });
                                 }
                                 if (ownerCity) addrConditions.push({ 'personalAddress.city': { $regex: new RegExp(`^\\s*${escapeRegExp(ownerCity)}\\s*$`, 'i') } });
                                 
                                 if (addrConditions.length > 0) {
-                                    // Combine address conditions with AND because we want all provided address parts to match for it to be considered a duplicate
                                     matchConditions.push({ $and: addrConditions });
                                 }
                             }
@@ -2459,182 +2532,85 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                                 legalQuery.$or = matchConditions;
                                 contactByLegal = await Contact.findOne(legalQuery).populate('personalAddress.location');
                             } else if (!mobile) {
-                                // 🚀 [FIXED] If no mobile, no father name, no address provided, fallback to matching just by name
-                                // The user explicitly wants intra-database duplicates to be matched even if only name is provided
                                 contactByLegal = await Contact.findOne(legalQuery).populate('personalAddress.location');
                             }
                         }
 
                         const existingContact = contactByMobile || contactByLegal;
 
-                        // Evaluate Diffs FIRST to determine if it's a Perfect Match or a Conflict
+                        // Evaluate Ownership Conflict skipping early
+                        const resolution = resolutions?.[rowKey]?.owner || resolutions?.[rowKey]?.ownership;
+                        if (resolution === 'SKIP_ROW') {
+                            results.errors.push({ row: i + 1, item: unitNo, reason: "Row skipped by user resolution choice" });
+                            continue;
+                        }
+
                         if (existingContact) {
-                            const diffs = [];
-                            if (name && existingContact.name !== name) diffs.push({ field: 'Name', old: existingContact.name, new: name });
-                            if (fatherName && existingContact.fatherName !== fatherName) diffs.push({ field: 'Father Name', old: existingContact.fatherName, new: fatherName });
-                            const addrFields = ['hNo', 'street', 'location', 'area', 'city', 'state', 'pincode'];
-                            addrFields.forEach(f => {
-                                const newVal = personalAddress[f];
-                                const oldVal = existingContact.personalAddress?.[f];
-                                const oldDisplayVal = (f === 'location' && oldVal?.lookup_value) ? oldVal.lookup_value : oldVal;
-                                if (newVal && String(oldDisplayVal || '').trim() !== String(newVal).trim()) {
-                                    diffs.push({ field: `Address ${f.toUpperCase()}`, old: oldDisplayVal, new: newVal });
+                            // 🚀 [ENTERPRISE] Auto-Merge Logic (No Data Mismatch Conflict UI)
+                            if (!dryRun) {
+                                let needsSave = false;
+
+                                if (name && existingContact.name !== name) {
+                                    existingContact.name = name;
+                                    needsSave = true;
                                 }
-                            });
-
-                            if (alternateMobile) {
-                                const hasAlt = existingContact.phones && existingContact.phones.some(p => p.number === alternateMobile);
-                                if (!hasAlt) {
-                                    diffs.push({ field: 'Alternate Mobile', old: 'N/A', new: alternateMobile });
+                                if (fatherName && existingContact.fatherName !== fatherName) {
+                                    existingContact.fatherName = fatherName;
+                                    needsSave = true;
                                 }
-                            }
 
-                            // Route ONLY actual data mismatches to Conflict UI
-                            if (diffs.length > 0) {
-                                // CASE: Conflict Detected (Allow Edit/Merge for all mobile matches)
-                                if (!resolution) {
-                                    // 🚀 [ENTERPRISE] Enrich identity conflict with full side-by-side data
-                                    results.conflicts.push({
-                                        row: i + 1, rowKey, type: 'owner', unitNo: inventory?.unitNo || unitNo,
-                                        projectName: inventory?.projectName,
-                                        block: inventory?.block,
-                                        mobile: mobile || 'N/A',
-                                        // Incoming data (CSV)
-                                        incoming: {
-                                            name, fatherName,
-                                            mobile: mobile || 'N/A',
-                                            hNo, locality
-                                        },
-                                        // Existing data (System)
-                                        existing: {
-                                            contactId: existingContact._id?.toString(),
-                                            name: existingContact.name,
-                                            fatherName: existingContact.fatherName,
-                                            mobile: existingContact.phones?.[0]?.number || 'N/A',
-                                            hNo: existingContact.personalAddress?.hNo,
-                                            locality: existingContact.personalAddress?.location?.lookup_value || existingContact.personalAddress?.location
-                                        },
-                                        // Legacy fields kept for backward compat
-                                        providedName: name, providedFatherName: fatherName,
-                                        providedHNo: hNo, providedLoc: locality,
-                                        existingName: existingContact.name, existingFatherName: existingContact.fatherName,
-                                        existingHNo: existingContact.personalAddress?.hNo,
-                                        existingLoc: existingContact.personalAddress?.location?.lookup_value || existingContact.personalAddress?.location,
-                                        reason: 'Data Mismatch (' + diffs.map(d => d.field).join(', ') + ')'
-                                    });
-                                    ownerId = "CONFLICT_PENDING";
-                                } else {
-                                    // Handle Conflict Resolutions
-                                    if (resolution === 'SKIP_ROW') {
-                                        results.errors.push({ row: i + 1, item: unitNo, reason: "Row skipped by user resolution choice" });
-                                        continue;
-                                    }
-                                    if (resolution === 'UPDATE_SYSTEM') {
-                                        if (name) existingContact.name = name;
-                                        if (fatherName) existingContact.fatherName = fatherName;
-                                        const resolvedAddress = await resolveHierarchicalAddress(personalAddress);
-                                        existingContact.personalAddress = { ...(existingContact.personalAddress?.toObject?.() || existingContact.personalAddress || {}), ...resolvedAddress };
-                                        existingContact.markModified('personalAddress');
-                                        Object.assign(existingContact, assignmentUpdate);
-                                        if (!existingContact.tags) existingContact.tags = [];
-                                        [ 'Property Owner', propertyTag ].forEach(t => { if (!existingContact.tags.includes(t)) existingContact.tags.push(t); });
-                                        
-                                        if (alternateMobile) {
-                                            if (!existingContact.phones) existingContact.phones = [];
-                                            const hasAlt = existingContact.phones.some(p => p.number === alternateMobile);
-                                            if (!hasAlt) {
-                                                existingContact.phones.push({ number: alternateMobile, type: 'Alternate' });
-                                            }
-                                        }
-
-                                        await existingContact.save();
-                                        ownerId = existingContact._id;
-                                        results.contactsFound++;
-                                        results.duplicates.push({ name: existingContact.name, mobile: mobile || existingContact.phones?.[0]?.number, _id: existingContact._id });
-                                    } else if (resolution === 'KEEP_SYSTEM') {
-                                        ownerId = existingContact._id;
-                                        results.contactsFound++;
-                                        results.duplicates.push({ name: existingContact.name, mobile: mobile || existingContact.phones?.[0]?.number, _id: existingContact._id });
-                                    } else if (resolution === 'CREATE_NEW') {
-                                        const resolvedAddress = await resolveHierarchicalAddress(personalAddress);
-                                        
-                                        const newPhones = [];
-                                        if (mobile) newPhones.push({ number: mobile, type: 'Personal' });
-                                        if (alternateMobile && alternateMobile !== mobile) newPhones.push({ number: alternateMobile, type: 'Alternate' });
-
-                                        const newContact = await Contact.create({
-                                            name: name || 'Unknown Owner', fatherName: fatherName,
-                                            phones: newPhones,
-                                            emails: email ? [{ address: email, type: 'Personal' }] : [],
-                                            personalAddress: resolvedAddress, ...assignmentUpdate, source: commonSource,
-                                            tags: ['Property Owner', propertyTag]
-                                        });
-                                        ownerId = newContact._id;
-                                        results.contactsCreated++;
-                                    } else if (resolution === 'CUSTOM_MERGE') {
-                                        const customData = resolutions[rowKey]?.customData || {};
-                                        if (customData.name) existingContact.name = customData.name;
-                                        if (customData.fatherName) existingContact.fatherName = customData.fatherName;
-                                        
-                                        const addressToResolve = customData.personalAddress ? { ...personalAddress, ...customData.personalAddress } : personalAddress;
-                                        const resolvedAddress = await resolveHierarchicalAddress(addressToResolve);
-                                        existingContact.personalAddress = { ...(existingContact.personalAddress?.toObject?.() || existingContact.personalAddress || {}), ...resolvedAddress };
-                                        existingContact.markModified('personalAddress');
-                                        
-                                        Object.assign(existingContact, assignmentUpdate);
-                                        if (!existingContact.tags) existingContact.tags = [];
-                                        [ 'Property Owner', propertyTag ].forEach(t => { if (!existingContact.tags.includes(t)) existingContact.tags.push(t); });
-                                        
-                                        if (alternateMobile) {
-                                            if (!existingContact.phones) existingContact.phones = [];
-                                            const hasAlt = existingContact.phones.some(p => p.number === alternateMobile);
-                                            if (!hasAlt) {
-                                                existingContact.phones.push({ number: alternateMobile, type: 'Alternate' });
-                                            }
-                                        }
-                                        
-                                        await existingContact.save();
-                                        ownerId = existingContact._id;
-                                        results.contactsFound++;
-                                        results.duplicates.push({ name: existingContact.name, mobile: mobile || existingContact.phones?.[0]?.number, _id: existingContact._id });
+                                if (alternateMobile) {
+                                    if (!existingContact.phones) existingContact.phones = [];
+                                    const hasAlt = existingContact.phones.some(p => p.number === alternateMobile);
+                                    if (!hasAlt) {
+                                        existingContact.phones.push({ type: 'Alternate', number: alternateMobile });
+                                        needsSave = true;
                                     }
                                 }
-                            } else {
-                                // CASE: Perfect Match (No Diffs at all)
-                                ownerId = existingContact._id;
-                                results.contactsFound++;
-                                results.duplicates.push({ name: existingContact.name, mobile: mobile || existingContact.phones?.[0]?.number, _id: existingContact._id });
 
-                                if (!dryRun) {
-                                    if (!existingContact.tags) existingContact.tags = [];
-                                    [ 'Property Owner', propertyTag ].forEach(t => {
-                                        if (!existingContact.tags.includes(t)) existingContact.tags.push(t);
-                                    });
-                                    Object.assign(existingContact, assignmentUpdate);
+                                const resolvedAddress = await resolveHierarchicalAddress(personalAddress);
+                                if (!existingContact.personalAddress) existingContact.personalAddress = {};
+                                
+                                const addrFields = ['hNo', 'street', 'area', 'city', 'state', 'pincode'];
+                                addrFields.forEach(f => {
+                                    if (resolvedAddress[f] && existingContact.personalAddress[f] !== resolvedAddress[f]) {
+                                        existingContact.personalAddress[f] = resolvedAddress[f];
+                                        needsSave = true;
+                                    }
+                                });
+                                
+                                if (resolvedAddress.location && (!existingContact.personalAddress.location || existingContact.personalAddress.location.toString() !== resolvedAddress.location.toString())) {
+                                    existingContact.personalAddress.location = resolvedAddress.location;
+                                    needsSave = true;
+                                }
+
+                                if (needsSave) {
+                                    existingContact.markModified('personalAddress');
                                     await existingContact.save();
                                 }
                             }
-                        }
-                        // CASE: New Contact
-                        else {
+                            
+                            ownerId = existingContact._id.toString();
+                            results.contactsFound++;
+                            results.duplicates.push({ name: existingContact.name, mobile: mobile || existingContact.phones?.[0]?.number, _id: existingContact._id });
+                        } else {
                             if (dryRun) {
                                 ownerId = "SIMULATED_ID";
                                 results.contactsCreated++;
                             } else {
-                                        const resolvedAddress = await resolveHierarchicalAddress(personalAddress);
+                                const resolvedAddress = await resolveHierarchicalAddress(personalAddress);
+                                const newPhones = [];
+                                if (mobile) newPhones.push({ number: mobile, type: 'Personal' });
+                                if (alternateMobile && alternateMobile !== mobile) newPhones.push({ number: alternateMobile, type: 'Alternate' });
 
-                                        const newPhones = [];
-                                        if (mobile) newPhones.push({ number: mobile, type: 'Personal' });
-                                        if (alternateMobile && alternateMobile !== mobile) newPhones.push({ number: alternateMobile, type: 'Alternate' });
-
-                                        const newContact = await Contact.create({
-                                            name: name || 'Unknown Owner', fatherName: fatherName,
-                                            phones: newPhones,
-                                            emails: email ? [{ address: email, type: 'Personal' }] : [],
-                                            personalAddress: resolvedAddress, ...assignmentUpdate, source: commonSource,
-                                            tags: ['Property Owner', propertyTag]
-                                        });
-                                ownerId = newContact._id;
+                                const newContact = await Contact.create({
+                                    name: name || 'Unknown Owner', fatherName: fatherName,
+                                    phones: newPhones,
+                                    emails: email ? [{ address: email, type: 'Personal' }] : [],
+                                    personalAddress: resolvedAddress, ...assignmentUpdate, source: commonSource,
+                                    tags: ['Property Owner', propertyTag]
+                                });
+                                ownerId = newContact._id.toString();
                                 results.contactsCreated++;
                             }
                         }
@@ -2652,7 +2628,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
 
                         // 🚀 [NEW] Ownership Conflict Detection
                         if (existingOwnerIds.length > 0 && !existingOwnerIds.includes(ownerId.toString())) {
-                            const resolution = resolutions[rowKey]?.ownership;
+                            const resolution = resolutions?.[rowKey]?.ownership || resolutions?.[rowKey]?.owner;
 
                             if (!resolution) {
                                 // 🚀 [ENTERPRISE] Enrich conflict with full side-by-side data for UI comparison
@@ -2850,6 +2826,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                 // 🚀 [SENIOR] Track success for Audit Trail
                 results.successLogs = results.successLogs || [];
                 results.successLogs.push({
+                    rowKey: rowKey,
                     unitNo: unitNo,
                     project: projectName,
                     block: block,
@@ -2862,18 +2839,19 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
             }
         }
 
+        const conflictPendingCount = (results.successLogs || []).filter(l => l.status === 'Conflict Pending').length;
         res.status(200).json({
             success: true,
             message: dryRun ? 'Validation complete.' : 'Bulk update complete.',
-            successCount: results.inventoryMatched,
+            successCount: results.inventoryMatched - conflictPendingCount,
             newCount: results.contactsCreated,
             updatedCount: results.contactsFound,
             noMobileCount: results.noMobileCount,
             conflictCount: results.conflicts.length,
             conflicts: results.conflicts,
             plannedUpdates: results.plannedUpdates,
-            duplicates: results.duplicates || [], // 🚀 Return matches for UI transparency
-            notFound: results.notFound || [], // 🚀 [ENTERPRISE] Unit not found rows for inline fix UI
+            duplicates: results.duplicates || [],
+            notFound: results.notFound || [],
             successLogs: results.successLogs,
             errors: results.errors
         });

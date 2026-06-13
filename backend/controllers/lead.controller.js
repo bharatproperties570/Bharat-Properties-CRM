@@ -1405,7 +1405,7 @@ export const importLeads = async (req, res, next) => {
                 if ((!leadEntry.locArea || !leadEntry.locCity) && fullAddress && String(fullAddress).trim()) {
                     try {
                         const parsed = await AddressParsingService.parseAddress(String(fullAddress).trim());
-                        leadEntry.locCity = parsed.tehsil || leadEntry.locCity;
+                        leadEntry.locCity = parsed.city || leadEntry.locCity;
                         leadEntry.locArea = parsed.area || parsed.location || leadEntry.locArea;
                         leadEntry.locPincode = parsed.pincode || leadEntry.locPincode;
                         leadEntry.locState = parsed.state || leadEntry.locState;
