@@ -33,6 +33,9 @@ const AddressMasterSettingsPage = () => {
     // Modals & Actions
     const [showMoveModal, setShowMoveModal] = useState(false);
     const [showMergeModal, setShowMergeModal] = useState(false);
+    const [showActionChoiceModal, setShowActionChoiceModal] = useState(false);
+    const [actionChoices, setActionChoices] = useState([]);
+    const [dropTargetItem, setDropTargetItem] = useState(null);
     const [selectedItem, setSelectedItem] = useState(null);
     const [moveTargetParentId, setMoveTargetParentId] = useState('');
     const [moveTargetParentName, setMoveTargetParentName] = useState('');
@@ -347,6 +350,48 @@ const AddressMasterSettingsPage = () => {
         setDragOverItemId(null);
     };
 
+    const getDropActions = (sourceType, targetType) => {
+        const actions = [];
+        if (sourceType === targetType) {
+            actions.push({ label: `Merge INTO ${targetType}`, action: 'merge' });
+        }
+        
+        if (targetType === 'State' && (sourceType === 'State' || sourceType === 'City')) {
+            if (sourceType !== 'City') actions.push({ label: `Convert to City`, action: 'convert', newType: 'City' });
+            else actions.push({ label: `Move as City`, action: 'move' });
+        }
+
+        if (targetType === 'City') {
+            if (sourceType === 'City') {
+                actions.push({ label: `Convert to Tehsil`, action: 'convert', newType: 'Tehsil' });
+                actions.push({ label: `Convert to Location`, action: 'convert', newType: 'Location' });
+                actions.push({ label: `Convert to PostOffice`, action: 'convert', newType: 'PostOffice' });
+            } else {
+                const possibleChildren = ['Tehsil', 'Location', 'PostOffice'];
+                if (possibleChildren.includes(sourceType)) {
+                    possibleChildren.forEach(pt => {
+                        if (sourceType === pt) actions.push({ label: `Move as ${pt}`, action: 'move' });
+                        else actions.push({ label: `Convert to ${pt}`, action: 'convert', newType: pt });
+                    });
+                }
+            }
+        }
+
+        if (targetType === 'Tehsil' && sourceType === 'Location') {
+            actions.push({ label: `Merge INTO Tehsil`, action: 'merge' });
+        }
+
+        if (targetType === 'Country' && sourceType === 'State') {
+            actions.push({ label: `Move as State`, action: 'move' });
+        }
+
+        if (targetType === 'PostOffice' && sourceType === 'Pincode') {
+            actions.push({ label: `Move as Pincode`, action: 'move' });
+        }
+        
+        return actions;
+    };
+
     const handleDrop = async (e, targetItem, targetType) => {
         e.preventDefault();
         setDragOverItemId(null);
@@ -356,42 +401,68 @@ const AddressMasterSettingsPage = () => {
         const sourceType = draggedItem.lookup_type;
         const targetId = targetItem._id;
 
-        // 1. Merge same types (e.g. Haryana into Punjab, Sector 3 into Sector 3 Dupe)
-        if (sourceType === targetType) {
-            if (sourceId === targetId) return; // Ignore dropping on self
-            setSelectedItem(draggedItem);
-            setMergeTargetItemId(targetId);
-            setShowMergeModal(true);
+        if (sourceId === targetId) return; // Ignore dropping on self
+
+        const actions = getDropActions(sourceType, targetType);
+
+        if (actions.length === 0) {
+            showMessage(`Invalid move: Cannot drop ${sourceType} onto ${targetType}`, 'error');
             return;
         }
+
+        setSelectedItem(draggedItem);
+        setDropTargetItem(targetItem);
 
         // Special Location into Tehsil Merge Override
         if (sourceType === 'Location' && targetType === 'Tehsil') {
-            setSelectedItem(draggedItem);
             setMergeTargetItemId(targetId);
             setShowMergeModal(true);
             return;
         }
-
-        // 2. Parent-Child Moving/Reparenting rules
-        let isValidMove = false;
-        if (sourceType === 'State' && targetType === 'Country') {
-            isValidMove = true;
-        } else if (sourceType === 'City' && targetType === 'State') {
-            isValidMove = true;
-        } else if ((sourceType === 'Location' || sourceType === 'Tehsil' || sourceType === 'PostOffice') && targetType === 'City') {
-            isValidMove = true;
-        } else if (sourceType === 'Pincode' && targetType === 'PostOffice') {
-            isValidMove = true;
-        }
-
-        if (isValidMove) {
-            setSelectedItem(draggedItem);
+        
+        if (actions.length === 1 && actions[0].action === 'merge') {
+            setMergeTargetItemId(targetId);
+            setShowMergeModal(true);
+        } else if (actions.length === 1 && actions[0].action === 'move') {
             setMoveTargetParentId(targetId);
             setMoveTargetParentName(targetItem.lookup_value);
             setShowMoveModal(true);
         } else {
-            showMessage(`Invalid move: Cannot drop ${sourceType} onto ${targetType}`, 'error');
+            setActionChoices(actions);
+            setShowActionChoiceModal(true);
+        }
+    };
+
+    // Execute Convert API call
+    const executeConvert = async (newType) => {
+        try {
+            setActionLoading(true);
+            const payload = {
+                action: 'convert',
+                sourceId: selectedItem._id,
+                targetId: dropTargetItem._id,
+                newType: newType
+            };
+            const res = await lookupsAPI.mergeOrMove(payload);
+            if (res.status === 'success') {
+                showMessage(`Successfully converted "${selectedItem.lookup_value}" to ${newType} under "${dropTargetItem.lookup_value}"`);
+                setShowActionChoiceModal(false);
+                
+                // Refresh affected column view
+                if (selectedItem.lookup_type === 'State' || newType === 'State') await loadAllStates();
+                if (selectedItem.lookup_type === 'City' || newType === 'City') {
+                    if (selectedStateId) handleStateClick(selectedStateId);
+                } else {
+                    if (selectedCityId) await loadCityChildren(selectedCityId);
+                }
+            } else {
+                showMessage(res.message || 'Conversion operation failed', 'error');
+            }
+        } catch (err) {
+            console.error(err);
+            showMessage(err.message || 'Error occurred during conversion', 'error');
+        } finally {
+            setActionLoading(false);
         }
     };
 
@@ -882,6 +953,45 @@ const AddressMasterSettingsPage = () => {
                             >
                                 {actionLoading ? 'Merging...' : 'Confirm & Merge'}
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ACTION CHOICE MODAL */}
+            {showActionChoiceModal && selectedItem && dropTargetItem && (
+                <div className="master-modal-overlay">
+                    <div className="master-modal">
+                        <h3>Select Drop Action</h3>
+                        <p>You dropped <strong>"{selectedItem.lookup_value}"</strong> ({selectedItem.lookup_type}) onto <strong>"{dropTargetItem.lookup_value}"</strong> ({dropTargetItem.lookup_type}).</p>
+                        
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '20px' }}>
+                            {actionChoices.map((choice, idx) => (
+                                <button 
+                                    key={idx}
+                                    className={`modal-btn ${choice.action === 'merge' ? 'danger-confirm-btn' : 'confirm-btn'}`}
+                                    onClick={() => {
+                                        if (choice.action === 'merge') {
+                                            setShowActionChoiceModal(false);
+                                            setMergeTargetItemId(dropTargetItem._id);
+                                            setShowMergeModal(true);
+                                        } else if (choice.action === 'move') {
+                                            setShowActionChoiceModal(false);
+                                            setMoveTargetParentId(dropTargetItem._id);
+                                            setMoveTargetParentName(dropTargetItem.lookup_value);
+                                            setShowMoveModal(true);
+                                        } else if (choice.action === 'convert') {
+                                            executeConvert(choice.newType);
+                                        }
+                                    }}
+                                >
+                                    {choice.label}
+                                </button>
+                            ))}
+                        </div>
+
+                        <div className="modal-buttons" style={{ marginTop: '20px' }}>
+                            <button className="modal-btn cancel-btn" onClick={() => setShowActionChoiceModal(false)}>Cancel</button>
                         </div>
                     </div>
                 </div>

@@ -30,7 +30,8 @@ class AddressParsingService {
             cities: new Map(),
             tehsils: new Map(),
             locations: new Map(),
-            states: new Map()
+            states: new Map(),
+            idToLookup: new Map()
         };
 
         // --- KEYWORDS & MAPPINGS ---
@@ -66,11 +67,10 @@ class AddressParsingService {
             'pipli': 'Thanesar'
         };
 
-        this.regexHouseNo = /^(?:House\s*No\.?|H\.?No\.?|Plot\s*No\.?|SCO\s*No\.?|SCO|Booth\s*No\.?|Booth|Shop\s*No\.?|Flat\s*No\.?|Flat|Apartment\s*No\.?|Unit\s*No\.?|Khasra\s*No\.?)\s*[:#-]?\s*([A-Za-z0-9-/]+)/i;
         this.regexStreet = /(?:Road|Street|Gali|Lane|Marg|Chowk|Near\s+[^,]+|Opposite\s+[^,]+|Opp\.\s+[^,]+|Behind\s+[^,]+|Beside\s+[^,]+|c\/o\s+[^,]+)/i;
         this.regexArea = /(?:Ward\s*No\.?\s*[0-9]+|[^,]*Colony|[^,]*Enclave|[^,]*Nagar|[^,]*Vihar|[^,]*Extension|Phase\s*[0-9A-Za-z]+|Block\s*[0-9A-Za-z]+|Pocket\s*[0-9A-Za-z]+|Tower\s*[0-9A-Za-z]+|[^,]*Apartment|[^,]*Society)/i;
         this.regexLocation = /(?:VPO\s+[^,]+|Village\s+[^,]+|Vill\s+[^,]+|Sector\s*[0-9A-Za-z]+|Sec\s*[0-9A-Za-z]+|Urban\s+Estate|Industrial\s+Area|Model\s+Town|HUDA\s+Sector\s*[0-9A-Za-z]+|HSVP\s+Sector\s*[0-9A-Za-z]+)/i;
-        this.regexPincode = /\b([1-9][0-9]{5})\b/;
+        this.regexPincode = /\b([0-9]{6})\b/;
     }
 
     async initializeMasterData() {
@@ -99,6 +99,8 @@ class AddressParsingService {
                 if (l.lookup_type === 'Tehsil') this.masterCache.tehsils.set(val, l.lookup_value);
                 if (l.lookup_type === 'Location') this.masterCache.locations.set(val, l.lookup_value);
                 if (l.lookup_type === 'State') this.masterCache.states.set(val, l.lookup_value);
+                
+                this.masterCache.idToLookup.set(l._id.toString(), l);
             });
             
             console.log(`[AddressParsingService] Master Data Cache Loaded: ${this.masterCache.cities.size} Cities, ${this.masterCache.tehsils.size} Tehsils, ${this.masterCache.locations.size} Locations.`);
@@ -146,6 +148,20 @@ class AddressParsingService {
                 }
             }
 
+            // Phase 1 Enrichment: Master Data Traversal
+            normalized = await this._enrichFromMasterData(normalized);
+
+            // Phase 2 Enrichment: AI Internet/Knowledge-base Search
+            if (!normalized.pincode || !normalized.city || !normalized.state || !normalized.tehsil) {
+                normalized = await this._enrichFromAILLM(normalized);
+            }
+
+            // Phase 3: Master Data Alignment (Fix field types based on Master Data globally)
+            normalized = await this._alignFieldsWithMasterData(normalized);
+
+            // Phase 4: Auto-Learn to Master Data
+            await this._syncToMasterData(normalized);
+
             this.cache.set(normalizedKey, normalized);
             return normalized;
         } catch (error) {
@@ -173,10 +189,92 @@ class AddressParsingService {
         return results;
     }
 
+    _extractHouseNoAndClean(rawAddress) {
+        const rules = [
+            // STRATEGY 1: Direct H.NO patterns
+            /(?:R\/O|C\/O|VPO|AT|PROF)?\s*(?:H\.?\s*N[OO]\.?|HOUSE\s*NO\.?)\s*[-:,\s]*([0-9]+[A-Z/.\\-]*)/i,
+            // STRATEGY 2: KOTHI NO., FLAT NO., UNIT NO., Q.NO.
+            /(?:KOTHI|FLAT|UNIT|Q|PLOT|SCO|BOOTH|SHOP|KHASRA|APARTMENT)\.?\s*N[OO]\.?\s*[-:,\s]*([0-9]+[A-Z/.\\-]*)/i,
+            // STRATEGY 3: Letter-Number at Start
+            /^([A-Z]-?\d+[A-Z]?)\s+(?:SECTOR|URBAN|ESTATE)/i,
+            // STRATEGY 4: Numbers Before SECTOR/ROAD
+            /,\s*([0-9]+[A-Z]?)\s*(?:SECTOR|ROAD|LANE|STREET)/i,
+            // STRATEGY 5: After C/O Person Name
+            /C\/O\s+[A-Z\s]+\s+([0-9]+[A-Z/.\\-]*)(?:\s+SECTOR|\s+URBAN)/i,
+            // STRATEGY 6: Number-Letter Combos
+            /\b([0-9]+\s*[-/]?\s*[A-Z]+)\s+(?:SECTOR|URBAN|ESTATE)/i,
+            // STRATEGY 7: Hyphenated Numbers (Slash Format)
+            /\b([0-9]+\/[0-9A-Z]+)\s+(?:SECTOR|URBAN)/i,
+            // STRATEGY 8: Numbers Before U/E or U.E
+            /\b([0-9]+[A-Z]?)\s+(?:U\.E|U\/E|URBAN\s+ESTATE)/i,
+            // STRATEGY 9: "SECTOR N, NO M" Pattern
+            /SECTOR\s+\d+\s*,\s*(?:NO|NUMBER|#)\.?\s*([0-9]+[A-Z]?)/i,
+            // STRATEGY 10: Number at Start Before Comma
+            /^([0-9]+[A-Z]?)\s*,\s*(?:SECTOR|URBAN)/i,
+            // STRATEGY 11: Standalone Numbers (LAST RESORT)
+            /\b([0-9]{2,4})\b(?:\s+(?:SECTOR|URBAN|ESTATE|DISTT))/i
+        ];
+
+        let extracted = '';
+        let cleanedAddress = rawAddress;
+
+        for (let i = 0; i < rules.length; i++) {
+            const match = rawAddress.match(rules[i]);
+            if (match && match[1]) {
+                let rawVal = match[1].trim();
+                
+                let cleanedVal = rawVal.replace(/[^A-Za-z0-9/-]/g, '');
+                cleanedVal = cleanedVal.replace(/(?:SECTOR|URBAN|ESTATE|DISTT|HOUSE|NO|HNO)\b/ig, '');
+
+                if (/\d/.test(cleanedVal)) {
+                    extracted = cleanedVal;
+                    if (i === 0 || i === 1) {
+                        cleanedAddress = rawAddress.replace(match[0], ' ');
+                    } else if (i === 8) { 
+                        cleanedAddress = rawAddress.replace(match[0], match[0].replace(match[1], ' '));
+                    } else {
+                        cleanedAddress = rawAddress.replace(match[1], ' ');
+                    }
+                    break;
+                }
+            }
+        }
+        return { houseNo: extracted, cleanedAddress: cleanedAddress };
+    }
+
+    _extractPostOfficeAndClean(rawAddress) {
+        const regex = /(?:P\.O|V\.P\.O|VPO|POST\s+OFFICE)\.?\s+([A-Za-z\s]+?)(?:\s*[-,]|DISTT|DISTRICT|TEHSIL|TEH|$)/i;
+        const match = rawAddress.match(regex);
+        let extracted = '';
+        let cleanedAddress = rawAddress;
+
+        if (match && match[1]) {
+            extracted = match[1].trim();
+            // Remove just the extracted part from the address, or remove the entire match depending on context.
+            // But since VPO is often combined with the village name, we should remove the match so it doesn't pollute.
+            cleanedAddress = rawAddress.replace(match[0], ' ');
+        }
+
+        return { postOffice: extracted, cleanedAddress: cleanedAddress };
+    }
+
     _applyMasterRules(rawAddress) {
         const result = this._getEmptyAddress();
         
-        let remainingTokens = rawAddress.split(',').map(t => t.trim()).filter(t => t.length > 0);
+        let { houseNo, cleanedAddress } = this._extractHouseNoAndClean(rawAddress);
+        if (houseNo) result.houseNo = houseNo;
+        
+        const poData = this._extractPostOfficeAndClean(cleanedAddress);
+        if (poData.postOffice) {
+            result.postOffice = poData.postOffice;
+            // Also assign it to location if location isn't set, as VPO implies Village
+            if (/V\.?P\.?O/i.test(cleanedAddress)) {
+                result.location = 'Vill ' + poData.postOffice;
+            }
+        }
+        cleanedAddress = poData.cleanedAddress;
+        
+        let remainingTokens = cleanedAddress.split(',').map(t => t.trim()).filter(t => t.length > 0);
         let unassignedTokens = [];
 
         // SAS Nagar -> Mohali
@@ -185,23 +283,46 @@ class AddressParsingService {
             return token;
         });
 
-        // VPO
+        // District
         remainingTokens = remainingTokens.map(token => {
-            const vpoMatch = token.match(/^VPO\s+(.+)/i);
-            if (vpoMatch) {
-                result.location = vpoMatch[1].trim();
-                result.postOffice = vpoMatch[1].trim();
-                return null;
+            const distMatch = token.match(/\b(?:Distt|District|Dist)\.?\s+([A-Za-z]+)\b/i);
+            if (distMatch) {
+                const extractedCity = distMatch[1].trim();
+                result.city = extractedCity;
+                
+                // Auto-map state based on extracted city
+                const lowerCity = extractedCity.toLowerCase();
+                for (const mappedCity of Object.keys(this.statesMapping)) {
+                    if (lowerCity.includes(mappedCity) && !result.state) {
+                        result.state = this.statesMapping[mappedCity];
+                        break;
+                    }
+                }
+                
+                const newToken = token.replace(distMatch[0], '').trim();
+                return newToken.length > 0 ? newToken : null;
             }
             return token;
         }).filter(Boolean);
 
-        // Vill
+        // Tehsil
         remainingTokens = remainingTokens.map(token => {
-            const villMatch = token.match(/^(?:Village|Vill)\s+(.+)/i);
+            const tehsilMatch = token.match(/\b(?:Tehsil|Teh|Tq)\.?\s+([A-Za-z]+)\b/i);
+            if (tehsilMatch) {
+                result.tehsil = tehsilMatch[1].trim();
+                const newToken = token.replace(tehsilMatch[0], '').trim();
+                return newToken.length > 0 ? newToken : null;
+            }
+            return token;
+        }).filter(Boolean);
+
+        // Vill (if not caught by VPO)
+        remainingTokens = remainingTokens.map(token => {
+            const villMatch = token.match(/^(?:Village|Vill)\s+([A-Za-z\s]+)/i);
             if (villMatch) {
-                result.location = villMatch[1].trim();
-                return null;
+                if (!result.location) result.location = 'Vill ' + villMatch[1].trim();
+                const newToken = token.replace(villMatch[0], '').trim();
+                return newToken.length > 0 ? newToken : null;
             }
             return token;
         }).filter(Boolean);
@@ -222,12 +343,12 @@ class AddressParsingService {
             let matched = false;
             const lowerToken = token.toLowerCase();
 
-            // House No
+            // House No fallback (if not caught by 11 strategies)
             if (!result.houseNo) {
-                const hnMatch = token.match(this.regexHouseNo);
+                const hnMatch = token.match(/^(?:House\s*No\.?|H\.?No\.?|Plot\s*No\.?|SCO\s*No\.?|SCO|Booth\s*No\.?|Booth|Shop\s*No\.?|Flat\s*No\.?|Flat|Apartment\s*No\.?|Unit\s*No\.?|Khasra\s*No\.?)\s*[:#-]?\s*([A-Za-z0-9-/]+)/i);
                 if (hnMatch) {
-                    result.houseNo = hnMatch[0].trim();
-                    const remainder = token.replace(this.regexHouseNo, '').trim();
+                    result.houseNo = hnMatch[1].replace(/[^A-Za-z0-9/-]/g, '').trim();
+                    const remainder = token.replace(hnMatch[0], '').trim();
                     if (remainder.length > 0) unassignedTokens.push(remainder);
                     matched = true;
                     return null;
@@ -375,7 +496,7 @@ Rules you MUST follow:
 1. "houseNo": Flat/house/plot/shop number, building/apartment name, block, phase.
 2. "street": Street name, road, lane, landmark, near-by reference. Also put 'c/o', 'Opposite', 'Behind' ONLY here.
 3. "area": Put terms like 'Ward No', 'Colony', 'Phase' ONLY here.
-4. "location": If the word starts with 'Village' or 'VPO', put it here.
+4. "location": If the word starts with 'Village' or 'VPO' or is a village name, put it here and ALWAYS prepend "Vill " to it (e.g., "Vill Sham Garh").
 5. "city": If you see 'SAS Nagar', output 'Mohali'.
 6. Do NOT drop any text. If a text does not fit any logical field, append it to 'street' or 'area'.
 7. "pincode": Extract the 6 digit pincode.
@@ -525,7 +646,7 @@ Schema structure:
                 'khekra': { district: 'Baghpat', field: 'location' },
                 'dwarka': { district: 'Delhi', field: 'location' },
                 'rohini': { district: 'Delhi', field: 'location' },
-                'nilokheri': { district: 'Karnal', field: 'location' },
+                'nilokheri': { district: 'Karnal', field: 'tehsil' },
                 'assandh': { district: 'Karnal', field: 'tehsil' },
                 'dhand': { district: 'Kaithal', field: 'location' },
                 'narwana': { district: 'Jind', field: 'tehsil' },
@@ -563,6 +684,14 @@ Schema structure:
         
         let finalLocation = cleanLocation(replaceRules(parsed.location || parsed.area));
         if (cityInfo.extraLocation) finalLocation = cleanLocation(cityInfo.extraLocation);
+
+        if (finalLocation && /^(?:VPO|Village|Vill)\s+/i.test(finalLocation) && !/^Vill\s/i.test(finalLocation)) {
+            finalLocation = finalLocation.replace(/^(?:VPO|Village|Vill)\s+/i, 'Vill ');
+        } else if (finalLocation && /village|gaon|vpo|vill/i.test(finalLocation) && !/^Vill\s/i.test(finalLocation)) {
+            if (!/^Vill\s/i.test(finalLocation)) {
+                finalLocation = 'Vill ' + finalLocation.replace(/village|gaon|vpo|vill/ig, '').trim();
+            }
+        }
 
         let finalTehsil = replaceRules(parsed.tehsil);
         if (cityInfo.extraTehsil) finalTehsil = cityInfo.extraTehsil;
@@ -602,6 +731,298 @@ Schema structure:
         } catch (e) {
             console.error(`[AddressParsingService] JSON parsing failed: "${cleaned}"`);
             return null;
+        }
+    }
+
+    async _enrichFromMasterData(normalized) {
+        if (!this.masterDataInitialized || !this.masterCache.idToLookup) return normalized;
+
+        const findLookupValue = (val, map) => {
+            if (!val) return null;
+            const normalizedVal = val.toLowerCase().trim();
+            for (const [_, lookupObj] of this.masterCache.idToLookup.entries()) {
+                if (lookupObj.lookup_value.toLowerCase().trim() === normalizedVal) {
+                    return lookupObj;
+                }
+            }
+            return null;
+        };
+
+        let startNode = null;
+        if (normalized.location) startNode = findLookupValue(normalized.location, this.masterCache.locations);
+        if (!startNode && normalized.tehsil) startNode = findLookupValue(normalized.tehsil, this.masterCache.tehsils);
+        if (!startNode && normalized.city) startNode = findLookupValue(normalized.city, this.masterCache.cities);
+
+        if (startNode) {
+            // Re-align the field type of the startNode itself
+            const actualType = startNode.lookup_type.toLowerCase();
+            if (['city', 'tehsil', 'location', 'state'].includes(actualType)) {
+                normalized[actualType] = startNode.lookup_value;
+            }
+
+            // Pull Pincode from Address Master if missing
+            if (!normalized.pincode) {
+                if (startNode.code && /^[0-9]{6}$/.test(startNode.code)) {
+                    normalized.pincode = startNode.code;
+                } else if (startNode.metadata && startNode.metadata.pincode) {
+                    normalized.pincode = startNode.metadata.pincode;
+                }
+            }
+
+            let currentNode = startNode;
+            while (currentNode && currentNode.parent_lookup_id) {
+                const parentId = currentNode.parent_lookup_id.toString();
+                const parentNode = this.masterCache.idToLookup.get(parentId);
+                if (!parentNode) break;
+
+                // Check parent for Pincode if still missing
+                if (!normalized.pincode) {
+                    if (parentNode.code && /^[0-9]{6}$/.test(parentNode.code)) {
+                        normalized.pincode = parentNode.code;
+                    } else if (parentNode.metadata && parentNode.metadata.pincode) {
+                        normalized.pincode = parentNode.metadata.pincode;
+                    }
+                }
+
+                if (parentNode.lookup_type === 'Tehsil' && !normalized.tehsil) {
+                    normalized.tehsil = parentNode.lookup_value;
+                } else if (parentNode.lookup_type === 'City' && !normalized.city) {
+                    normalized.city = parentNode.lookup_value;
+                } else if (parentNode.lookup_type === 'State' && !normalized.state) {
+                    normalized.state = parentNode.lookup_value;
+                }
+                currentNode = parentNode;
+            }
+        }
+        return normalized;
+    }
+
+    async _alignFieldsWithMasterData(normalized) {
+        if (!this.masterDataInitialized || !this.masterCache.idToLookup) return normalized;
+
+        const checkAndMove = (fieldVal, currentField) => {
+            if (!fieldVal) return;
+            const val = fieldVal.toLowerCase().trim();
+            // Search all Master Data globally
+            let foundNode = null;
+            for (const [_, lookupObj] of this.masterCache.idToLookup.entries()) {
+                if (lookupObj.lookup_value.toLowerCase().trim() === val) {
+                    foundNode = lookupObj;
+                    break;
+                }
+            }
+
+            if (foundNode && foundNode.lookup_type.toLowerCase() !== currentField.toLowerCase()) {
+                // Value exists in Master Data under a DIFFERENT type. Let's move it to correct field.
+                const correctField = foundNode.lookup_type.toLowerCase();
+                
+                if (['city', 'tehsil', 'location', 'state'].includes(correctField)) {
+                    normalized[correctField] = foundNode.lookup_value;
+                    // Clear the wrong field ONLY IF it currently holds this exact value
+                    if (normalized[currentField] === fieldVal) {
+                        normalized[currentField] = '';
+                    }
+                }
+            }
+        };
+
+        // Align each field. We must copy values to avoid overwriting during checks
+        const origCity = normalized.city;
+        const origTehsil = normalized.tehsil;
+        const origLocation = normalized.location;
+        const origState = normalized.state;
+
+        checkAndMove(origCity, 'city');
+        checkAndMove(origTehsil, 'tehsil');
+        checkAndMove(origLocation, 'location');
+        checkAndMove(origState, 'state');
+
+        return normalized;
+    }
+
+    async _enrichFromAILLM(normalized) {
+        // If we don't even have a location or street, AI won't be able to infer anything useful.
+        if (!normalized.location && !normalized.street && !normalized.area) return normalized;
+
+        const systemPrompt = `You are an expert Indian Geography and Real Estate Assistant.
+Your task is to enrich partial address data by finding missing geographic details (Tehsil, City/District, State, Pincode) using your knowledge base.
+You will be given a JSON object with partial address data.
+Respond ONLY with a valid JSON object containing the ENRICHED fields merged with the ORIGINAL fields. Do not add explanations.
+Ensure that:
+1. 'city' represents the District.
+2. 'tehsil' represents the Tehsil/Taluka/Mandal.
+3. 'pincode' is a 6-digit Indian Pincode.
+4. 'state' is the Indian state.
+5. If the location is a village, ALWAYS prepend 'Vill ' to its name (e.g. 'Vill Sham Garh').
+If you cannot confidently determine a missing field, leave it empty.`;
+
+        const userPrompt = `Partial Address JSON:\n${JSON.stringify(normalized, null, 2)}`;
+
+        try {
+            console.log(`[AddressParsingService] Enriching address via AI LLM...`);
+            const rawResponse = await UnifiedAIService.generate(userPrompt, { systemPrompt, temperature: 0.1 });
+            const aiEnriched = this._cleanAndParseJSON(rawResponse);
+            
+            if (aiEnriched) {
+                // Merge AI findings into our normalized object, prioritizing existing data
+                normalized.location = normalized.location || aiEnriched.location || '';
+                normalized.tehsil = normalized.tehsil || aiEnriched.tehsil || '';
+                normalized.city = normalized.city || aiEnriched.city || '';
+                normalized.state = normalized.state || aiEnriched.state || '';
+                normalized.pincode = normalized.pincode || aiEnriched.pincode || '';
+                if (!normalized.country || normalized.country === 'India') {
+                     normalized.country = aiEnriched.country || 'India';
+                }
+
+                // Enforce Vill prefix logic
+                if (normalized.location && /^(?:VPO|Village|Vill)\s+/i.test(normalized.location) && !/^Vill\s/i.test(normalized.location)) {
+                    normalized.location = normalized.location.replace(/^(?:VPO|Village|Vill)\s+/i, 'Vill ');
+                } else if (normalized.location && /village|gaon|vpo|vill/i.test(normalized.location) && !/^Vill\s/i.test(normalized.location)) {
+                    // Fallback to prepend Vill if it's not at the start but contains village keywords
+                    if (!/^Vill\s/i.test(normalized.location)) {
+                        normalized.location = 'Vill ' + normalized.location.replace(/village|gaon|vpo|vill/ig, '').trim();
+                    }
+                }
+            }
+        } catch (error) {
+            console.error(`[AddressParsingService] AI Enrichment failed:`, error.message);
+        }
+        
+        return normalized;
+    }
+
+    async _syncToMasterData(normalized) {
+        if (!this.masterDataInitialized || mongoose.connection.readyState !== 1) return;
+
+        let stateId = null, cityId = null, tehsilId = null, locationId = null;
+
+        const escapeRegex = (string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+        const getOrCreate = async (type, value, map, parentId, parentValue) => {
+            if (!value) return null;
+            const normalizedVal = value.toLowerCase().trim();
+
+            // 1. Check memory cache first
+            for (const [_, lookupObj] of this.masterCache.idToLookup.entries()) {
+                if (lookupObj.lookup_type === type && lookupObj.lookup_value.toLowerCase().trim() === normalizedVal) {
+                    return lookupObj._id;
+                }
+            }
+
+            // 2. Concurrency Control: Check if it's already pending creation by another concurrent request
+            const pendingKey = `${type}_${normalizedVal}`;
+            if (!this._pendingCreations) this._pendingCreations = new Map();
+            if (this._pendingCreations.has(pendingKey)) {
+                return await this._pendingCreations.get(pendingKey);
+            }
+
+            // 3. Create the promise to handle DB lookup and insert
+            const creationPromise = (async () => {
+                const Lookup = getLookupModel();
+                // Check DB
+                let existing = await Lookup.findOne({
+                    lookup_type: type,
+                    lookup_value: { $regex: new RegExp(`^${escapeRegex(value.trim())}$`, 'i') }
+                }).lean();
+
+                if (!existing) {
+                    existing = await Lookup.create({
+                        lookup_type: type,
+                        lookup_value: value.trim(),
+                        parent_lookup_id: parentId || null,
+                        parent_lookup_value: parentValue || null,
+                        isActive: true
+                    });
+                    console.log(`[AddressParsingService] Auto-learned new ${type}: ${value}`);
+                }
+
+                // Update caches
+                this.masterCache.idToLookup.set(existing._id.toString(), existing);
+                if (type === 'State') this.masterCache.states.set(normalizedVal, existing.lookup_value);
+                if (type === 'City') this.masterCache.cities.set(normalizedVal, existing.lookup_value);
+                if (type === 'Tehsil') this.masterCache.tehsils.set(normalizedVal, existing.lookup_value);
+                if (type === 'Location') this.masterCache.locations.set(normalizedVal, existing.lookup_value);
+
+                return existing._id;
+            })();
+
+            this._pendingCreations.set(pendingKey, creationPromise);
+            const resultId = await creationPromise;
+            // Clean up the pending queue after resolution
+            this._pendingCreations.delete(pendingKey);
+            return resultId;
+        };
+
+        try {
+            stateId = await getOrCreate('State', normalized.state, this.masterCache.states, null, null);
+            cityId = await getOrCreate('City', normalized.city, this.masterCache.cities, stateId, normalized.state);
+            tehsilId = await getOrCreate('Tehsil', normalized.tehsil, this.masterCache.tehsils, cityId || stateId, normalized.city || normalized.state);
+            locationId = await getOrCreate('Location', normalized.location, this.masterCache.locations, tehsilId || cityId || stateId, normalized.tehsil || normalized.city || normalized.state);
+        
+            // Auto-update Pincode in Master Data if we have it and the lowest level node doesn't
+            if (normalized.pincode) {
+                const targetId = locationId || tehsilId || cityId;
+                if (targetId) {
+                    const targetNode = this.masterCache.idToLookup.get(targetId.toString());
+                    if (targetNode && (!targetNode.code || !/^[0-9]{6}$/.test(targetNode.code))) {
+                        targetNode.code = normalized.pincode;
+                        await getLookupModel().updateOne({ _id: targetId }, { $set: { code: normalized.pincode } });
+                        console.log(`[AddressParsingService] Auto-updated Pincode ${normalized.pincode} for ${targetNode.lookup_value}`);
+                    }
+                }
+            }
+        } catch (error) {
+            console.error(`[AddressParsingService] Auto-Learn Failed:`, error.message);
+        }
+    }
+
+    async evaluateConflictViaAI(diffs, existingAddress, incomingAddress) {
+        // Prepare data for LLM
+        const addressFields = ['Address PINCODE', 'Address STATE', 'Address CITY', 'Address AREA', 'Address LOCATION', 'Address STREET'];
+        const targetDiffs = diffs.filter(d => addressFields.includes(d.field));
+        
+        if (targetDiffs.length === 0) return {}; // No address fields to auto-resolve
+
+        const systemPrompt = `You are an expert Indian Address Verification System.
+Your job is to resolve data conflicts between an existing 'System' address and an incoming 'CSV' address.
+You must analyze the conflicting fields and decide which one is correct based on real-world Indian geography (e.g., verifying if a Pincode matches a City, or if a State matches a City).
+
+Rules:
+1. Return a valid JSON object ONLY. Do not include any explanations or markdown formatting like \`\`\`json.
+2. The JSON keys must be the exact field names provided in the conflict list.
+3. The JSON values must be either "KEEP" (if System is correct/better), "UPDATE" (if CSV is correct/better), or "MANUAL" (if you cannot confidently decide or both are wrong).
+4. If one value is empty/null and the other is a valid real-world value, choose the valid one.
+5. If both are valid but represent the same place (e.g., "Sec 7" vs "Sector 7"), prefer "KEEP" to avoid unnecessary updates.
+6. A 6-digit Indian Pincode is better than no pincode.
+7. Treat "Tehsil", "Taluka", and "Mandal" as equivalent concepts.
+
+Example Output:
+{
+  "Address PINCODE": "UPDATE",
+  "Address CITY": "KEEP",
+  "Address LOCATION": "MANUAL"
+}`;
+
+        const userPrompt = `
+System Address (Current):
+${JSON.stringify(existingAddress || {}, null, 2)}
+
+CSV Address (Incoming):
+${JSON.stringify(incomingAddress || {}, null, 2)}
+
+Conflicting Fields to Resolve:
+${JSON.stringify(targetDiffs, null, 2)}
+
+Based on the full context of both addresses, output the JSON resolution mapping.`;
+
+        try {
+            console.log(`[AddressParsingService] Auto-resolving ${targetDiffs.length} address conflicts via AI LLM...`);
+            const rawResponse = await UnifiedAIService.generate(userPrompt, { systemPrompt, temperature: 0.1 });
+            const decisionMap = this._cleanAndParseJSON(rawResponse);
+            return decisionMap || {};
+        } catch (error) {
+            console.error(`[AddressParsingService] AI Conflict Resolution failed:`, error.message);
+            return {};
         }
     }
 

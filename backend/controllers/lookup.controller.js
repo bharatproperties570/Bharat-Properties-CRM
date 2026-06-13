@@ -347,18 +347,88 @@ export const mergeOrMoveLookup = async (req, res) => {
             return res.status(404).json({ status: "error", message: "Source lookup not found" });
         }
 
-        if (action === 'move') {
+        if (action === 'move' || action === 'convert') {
             const targetParent = await Lookup.findById(targetId);
             if (!targetParent) {
                 return res.status(404).json({ status: "error", message: "Target parent lookup not found" });
             }
 
+            const oldType = sourceLookup.lookup_type;
+            const newType = (action === 'convert' && req.body.newType) ? req.body.newType : oldType;
+            
+            const typeToFieldMap = {
+                'City': 'city',
+                'Tehsil': 'tehsil',
+                'Location': 'location',
+                'State': 'state',
+                'PostOffice': 'postOffice',
+                'Pincode': 'pincode',
+                'Country': 'country'
+            };
+
+            const oldField = typeToFieldMap[oldType];
+            const newField = typeToFieldMap[newType];
+            const parentField = typeToFieldMap[targetParent.lookup_type];
+
+            if (!oldField || !newField) {
+                return res.status(400).json({ status: "error", message: `Unsupported lookup type` });
+            }
+
+            // 1. Update sourceLookup Type and Parent
+            sourceLookup.lookup_type = newType;
             sourceLookup.parent_lookup_id = targetParent._id;
             sourceLookup.parent_lookup_value = targetParent.lookup_value;
             await sourceLookup.save();
 
-            console.log(`[LOOKUPS] Moved lookup ${sourceLookup._id} ("${sourceLookup.lookup_value}") under parent ${targetParent._id} ("${targetParent.lookup_value}")`);
-            return res.json({ status: "success", message: `Successfully moved "${sourceLookup.lookup_value}" under parent "${targetParent.lookup_value}"` });
+            // 2. Re-parent children if converting types that affect hierarchy
+            if (oldType === 'City' && (newType === 'Tehsil' || newType === 'Location' || newType === 'PostOffice')) {
+                await Lookup.updateMany(
+                    { parent_lookup_id: sourceLookup._id },
+                    { $set: { parent_lookup_id: targetParent._id, parent_lookup_value: targetParent.lookup_value } }
+                );
+            } else if (oldType === 'State' && newType === 'City') {
+                await Lookup.updateMany(
+                    { parent_lookup_id: sourceLookup._id },
+                    { $set: { parent_lookup_id: targetParent._id, parent_lookup_value: targetParent.lookup_value } }
+                );
+            }
+
+            // 3. Migrate CRM Data to fix hierarchy consistency
+            const Contact = mongoose.model('Contact');
+            const Lead = mongoose.model('Lead');
+            const Inventory = mongoose.model('Inventory');
+
+            const updateAddressHierarchies = async (Model, prefix = '') => {
+                const oldF = prefix ? `${prefix}.${oldField}` : oldField;
+                const newF = prefix ? `${prefix}.${newField}` : newField;
+                const parentF = prefix && parentField ? `${prefix}.${parentField}` : parentField;
+
+                const updateObj = { [newF]: sourceLookup._id };
+                if (parentField) updateObj[parentF] = targetParent._id;
+                if (oldField !== newField && oldField !== parentField) updateObj[oldF] = null;
+
+                await Model.updateMany({ [oldF]: sourceLookup._id }, { $set: updateObj });
+            };
+
+            await updateAddressHierarchies(Contact, 'personalAddress');
+            await updateAddressHierarchies(Contact, 'correspondenceAddress');
+            await updateAddressHierarchies(Inventory, 'address');
+
+            // Leads
+            const leadOldField = oldField === 'pincode' ? 'locPincode' : oldField;
+            const leadNewField = newField === 'pincode' ? 'locPincode' : newField;
+            if (leadOldField === 'location' || leadOldField === 'locPincode') {
+                const leadUpdate = {};
+                if (leadNewField === 'location' || leadNewField === 'locPincode') leadUpdate[leadNewField] = sourceLookup._id;
+                if (leadOldField !== leadNewField) leadUpdate[leadOldField] = null;
+                if (Object.keys(leadUpdate).length > 0) {
+                    await Lead.updateMany({ [leadOldField]: sourceLookup._id }, { $set: leadUpdate });
+                }
+            }
+
+            const actionText = action === 'convert' ? 'Converted' : 'Moved';
+            console.log(`[LOOKUPS] ${actionText} ${oldType} ${sourceLookup._id} ("${sourceLookup.lookup_value}") to ${newType} under ${targetParent._id}`);
+            return res.json({ status: "success", message: `Successfully ${actionText.toLowerCase()} "${sourceLookup.lookup_value}" to ${newType} under "${targetParent.lookup_value}".` });
         }
 
         if (action === 'merge') {

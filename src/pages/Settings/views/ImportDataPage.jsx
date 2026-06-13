@@ -31,6 +31,7 @@ const ImportDataPage = () => {
     const [plannedUpdates, setPlannedUpdates] = useState([]);
     const [resolutions, setResolutions] = useState({});
     const [isAnalyzing, setIsAnalyzing] = useState(false);
+    
     const [expandedConflictRow, setExpandedConflictRow] = useState(null); // rowKey of expanded card
     const [notFound, setNotFound] = useState([]); // unit-not-found rows
     const [unitOverrides, setUnitOverrides] = useState({}); // { rowKey: inventoryId } manual unit match
@@ -277,11 +278,9 @@ const ImportDataPage = () => {
                     noMobileItems: response.data.noMobileCount || 0
                 });
                 
-                // Default resolutions
+                // Default resolutions - set EMPTY so user must explicitly choose
                 const initialResolutions = {};
-                (response.data.conflicts || []).forEach(c => {
-                    initialResolutions[c.rowKey] = { [c.type]: c.type === 'ownership' ? 'SKIP_UPDATE' : 'KEEP_SYSTEM' };
-                });
+                // Do NOT pre-set any resolution - user must click and choose
                 setResolutions(initialResolutions);
                 setPlannedUpdates(response.data.plannedUpdates || []);
                 setDuplicates(response.data.duplicates || []); // 🚀 Store matches for transparency
@@ -306,6 +305,34 @@ const ImportDataPage = () => {
             ...prev,
             [rowKey]: { ...prev[rowKey], [type]: action }
         }));
+    };
+
+    // Field-level resolution: sets per-field choice { rowKey: { fields: { fieldName: 'KEEP'|'UPDATE' }, ownership: 'ACTION' } }
+    const handleFieldResolutionChange = (rowKey, fieldName, choice) => {
+        setResolutions(prev => ({
+            ...prev,
+            [rowKey]: {
+                ...prev[rowKey],
+                fields: {
+                    ...(prev[rowKey]?.fields || {}),
+                    [fieldName]: choice
+                }
+            }
+        }));
+    };
+
+    // Mark entire conflict as confirmed after field-level selections
+    const confirmFieldResolutions = (rowKey, conflictType) => {
+        setResolutions(prev => ({
+            ...prev,
+            [rowKey]: {
+                ...prev[rowKey],
+                [conflictType]: 'FIELD_LEVEL',  // Signal to backend: per-field decisions
+                confirmedAt: new Date().toISOString()
+            }
+        }));
+        setExpandedConflictRow(null);
+        toast.success('Resolution saved! Fields updated as per your choices.');
     };
 
     const handleImport = async (mode = 'ALL') => {
@@ -337,7 +364,7 @@ const ImportDataPage = () => {
             if (module === 'propertyOwners' && mode !== 'ALL') {
                 transformedData = rawTransformed.filter(item => {
                     const hasMobile = !!String(item.ownerMobile || '').trim();
-                    const hasConflict = conflicts.some(c => c.mobile === String(item.ownerMobile || '').trim());
+                    const hasConflict = conflicts.some(c => c.rowKey === `row_${item._rowIdx}`);
                     
                     if (mode === 'NEW_ONLY') return hasMobile && !hasConflict;
                     if (mode === 'UPDATE_ONLY') return hasMobile && hasConflict;
@@ -368,12 +395,35 @@ const ImportDataPage = () => {
             let aggregatedErrors = [];
             let aggregatedSuccess = [];
 
-            // [SENIOR] Conflict Validation before Import
+            // [ENTERPRISE] Conflict Validation before Import
             if (module === 'propertyOwners') {
-                const unresolved = conflicts.filter(c => !resolutions[c.rowKey]?.owner);
+                const unresolved = conflicts.filter(c => {
+                    const res = resolutions[c.rowKey];
+                    if (!res) return true; // No resolution at all
+
+                    const ownershipAction = res['ownership'] || res['owner'];
+                    if (!ownershipAction) return true; // No top-level action chosen
+
+                    // For FIELD_LEVEL: ensure every conflicting field has been decided
+                    if (ownershipAction === 'FIELD_LEVEL') {
+                        const totalDiffFields = c.diffs?.length || 0;
+                        const decidedFields = Object.keys(res.fields || {}).filter(f => res.fields[f]).length;
+                        return decidedFields < totalDiffFields; // still unresolved if any field undecided
+                    }
+
+                    return false; // Has a valid top-level action (SKIP_UPDATE / REPLACE_OWNER etc)
+                });
                 if (unresolved.length > 0 && mode !== 'NEW_ONLY') {
                     setImporting(false);
-                    return toast.error(`Please resolve all ${unresolved.length} conflicts before proceeding.`);
+                    const details = unresolved.map(c => {
+                        const res = resolutions[c.rowKey];
+                        const decided = Object.keys(res?.fields || {}).filter(f => res.fields[f]).length;
+                        const total = c.diffs?.length || 0;
+                        return res?.ownership === 'FIELD_LEVEL'
+                            ? `Unit ${c.unitNo}: ${decided}/${total} fields decided`
+                            : `Unit ${c.unitNo}: no resolution chosen`;
+                    }).join(', ');
+                    return toast.error(`⚠️ ${unresolved.length} conflict(s) still pending — ${details}`);
                 }
             }
 
@@ -844,10 +894,55 @@ const ImportDataPage = () => {
                                                                     <td style={{ padding: '10px 16px', color: '#475569' }}>{mobile}</td>
                                                                     <td style={{ padding: '10px 16px' }}>
                                                                         {isConflict ? (
-                                                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '3px 10px', borderRadius: '20px', background: '#fef2f2', color: '#dc2626', fontSize: '0.75rem', fontWeight: 700 }}>
-                                                                                <i className="fas fa-exclamation-triangle"></i>
-                                                                                {conflict.type === 'ownership' ? 'Owner Conflict' : 'Data Mismatch'}
-                                                                            </span>
+                                                                            (() => {
+                                                                                const res = resolutions[rowKey];
+                                                                                const ownershipAction = res?.ownership || res?.owner;
+                                                                                const isFieldLevel = ownershipAction === 'FIELD_LEVEL';
+                                                                                const fieldChoices = res?.fields || {};
+                                                                                const totalDiffs = conflict.diffs?.length || 0;
+                                                                                const decidedCount = Object.keys(fieldChoices).filter(f => fieldChoices[f]).length;
+
+                                                                                if (ownershipAction && !isFieldLevel) {
+                                                                                    // Ownership resolution (Skip/Replace/Add Co-Owner)
+                                                                                    return (
+                                                                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '3px 10px', borderRadius: '20px', background: '#e0e7ff', color: '#4f46e5', fontSize: '0.75rem', fontWeight: 700 }}>
+                                                                                            <i className="fas fa-check-double"></i>
+                                                                                            {ownershipAction.replace(/_/g, ' ')}
+                                                                                        </span>
+                                                                                    );
+                                                                                }
+
+                                                                                if (isFieldLevel) {
+                                                                                    const allDone = decidedCount >= totalDiffs && totalDiffs > 0;
+                                                                                    return (
+                                                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                                                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '3px 10px', borderRadius: '20px', background: allDone ? '#e0e7ff' : '#fef9ec', color: allDone ? '#4f46e5' : '#92400e', fontSize: '0.75rem', fontWeight: 700 }}>
+                                                                                                <i className={`fas ${allDone ? 'fa-check-double' : 'fa-spinner'}`}></i>
+                                                                                                {allDone ? 'Field-Level Resolved' : `${decidedCount}/${totalDiffs} fields decided`}
+                                                                                            </span>
+                                                                                            {Object.keys(fieldChoices).length > 0 && (
+                                                                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px' }}>
+                                                                                                    {Object.entries(fieldChoices).map(([f, v]) => (
+                                                                                                        <span key={f} style={{ fontSize: '0.65rem', padding: '1px 6px', borderRadius: '10px', fontWeight: 700, background: v === 'UPDATE' ? '#dcfce7' : '#dbeafe', color: v === 'UPDATE' ? '#166534' : '#1e40af' }}>
+                                                                                                            {f.replace('Address ', '')}: {v === 'UPDATE' ? '↑CSV' : '✓SYS'}
+                                                                                                        </span>
+                                                                                                    ))}
+                                                                                                </div>
+                                                                                            )}
+                                                                                        </div>
+                                                                                    );
+                                                                                }
+
+                                                                                // Unresolved
+                                                                                return (
+                                                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                                                                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '3px 10px', borderRadius: '20px', background: '#fef2f2', color: '#dc2626', fontSize: '0.75rem', fontWeight: 700 }}>
+                                                                                            <i className="fas fa-exclamation-triangle"></i>
+                                                                                            Owner Conflict
+                                                                                        </span>
+                                                                                    </div>
+                                                                                );
+                                                                            })()
                                                                         ) : (
                                                                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '3px 10px', borderRadius: '20px', background: '#f0fdf4', color: '#16a34a', fontSize: '0.75rem', fontWeight: 700 }}>
                                                                                 <i className="fas fa-check-circle"></i> Ready
@@ -855,15 +950,21 @@ const ImportDataPage = () => {
                                                                         )}
                                                                     </td>
                                                                     <td style={{ padding: '10px 16px' }}>
-                                                                        {isConflict ? (
-                                                                            <button
-                                                                                onClick={() => setExpandedConflictRow(isExpanded ? null : rowKey)}
-                                                                                style={{ padding: '6px 14px', borderRadius: '6px', border: `1px solid ${isExpanded ? '#fca5a5' : '#e2e8f0'}`, background: isExpanded ? '#fef2f2' : '#f8fafc', color: isExpanded ? '#dc2626' : '#475569', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
-                                                                            >
-                                                                                <i className={`fas ${isExpanded ? 'fa-chevron-up' : 'fa-balance-scale'}`}></i>
-                                                                                {isExpanded ? 'Collapse' : 'Resolve Conflict'}
-                                                                            </button>
-                                                                        ) : (
+                                                                            {isConflict ? (
+                                                                                <button
+                                                                                    onClick={() => setExpandedConflictRow(isExpanded ? null : rowKey)}
+                                                                                    style={{ padding: '6px 14px', borderRadius: '6px', border: `1px solid ${isExpanded ? '#fca5a5' : '#e2e8f0'}`, background: isExpanded ? '#fef2f2' : (resolutions[rowKey]?.[conflict.type] ? '#e0e7ff' : '#f8fafc'), color: isExpanded ? '#dc2626' : (resolutions[rowKey]?.[conflict.type] ? '#4f46e5' : '#475569'), fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+                                                                                >
+                                                                                    <i className={`fas ${isExpanded ? 'fa-chevron-up' : (resolutions[rowKey]?.[conflict.type] ? 'fa-edit' : 'fa-balance-scale')}`}></i>
+                                                                                    {(() => {
+                                                                                        if (isExpanded) return 'Collapse';
+                                                                                        
+                                                                                        
+                                                                                        
+                                                                                        return resolutions[rowKey]?.[conflict.type] ? 'Edit Resolution' : 'Resolve Conflict';
+                                                                                    })()}
+                                                                                </button>
+                                                                            ) : (
                                                                             <span style={{ color: '#94a3b8', fontSize: '0.8rem', fontStyle: 'italic' }}>No action needed</span>
                                                                         )}
                                                                     </td>
@@ -872,13 +973,31 @@ const ImportDataPage = () => {
                                                                     <tr key={`${rowKey}-card`}>
                                                                         <td colSpan={6} style={{ padding: '0 16px 16px', background: '#fff7f7' }}>
                                                                             <div style={{ border: '2px solid #fecaca', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 4px 16px rgba(220,38,38,0.08)' }}>
-                                                                                <div style={{ background: '#fef2f2', padding: '14px 20px', borderBottom: '1px solid #fecaca', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                                                                    <i className="fas fa-exclamation-triangle" style={{ color: '#dc2626', fontSize: '1.1rem' }}></i>
-                                                                                    <div>
-                                                                                        <div style={{ fontWeight: 700, color: '#991b1b', fontSize: '0.95rem' }}>
-                                                                                            {conflict.type === 'ownership' ? `Ownership Conflict — Unit ${conflict.unitNo}` : `Data Mismatch — ${conflict.reason}`}
+                                                                                {/* CONFLICT DETAILS HEADER - Enterprise Grade */}
+                                                                                <div style={{ background: '#fef2f2', padding: '14px 20px', borderBottom: '1px solid #fecaca' }}>
+                                                                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                                                                                        <i className="fas fa-exclamation-triangle" style={{ color: '#dc2626', fontSize: '1.1rem', marginTop: '2px', flexShrink: 0 }}></i>
+                                                                                        <div style={{ flex: 1 }}>
+                                                                                            <div style={{ fontWeight: 700, color: '#991b1b', fontSize: '0.95rem', marginBottom: '4px' }}>
+                                                                                                {conflict.type === 'ownership' && conflict.incoming && conflict.existing?.owners
+                                                                                                    ? `⚔️ Ownership Conflict — Unit ${conflict.unitNo}`
+                                                                                                    : `📋 Data Mismatch — Unit ${conflict.unitNo}`
+                                                                                                }
+                                                                                            </div>
+                                                                                            <div style={{ fontSize: '0.8rem', color: '#b91c1c', fontWeight: 600 }}>
+                                                                                                {conflict.reason}
+                                                                                            </div>
+                                                                                            {conflict.diffs && conflict.diffs.length > 0 && (
+                                                                                                <div style={{ marginTop: '8px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                                                                                    {conflict.diffs.map((d, di) => (
+                                                                                                        <span key={di} style={{ padding: '2px 8px', background: '#fca5a5', color: '#7f1d1d', borderRadius: '4px', fontSize: '0.72rem', fontWeight: 700 }}>
+                                                                                                            {d.field}: "{d.old || '—'}" → "{d.new}"
+                                                                                                        </span>
+                                                                                                    ))}
+                                                                                                </div>
+                                                                                            )}
+                                                                                            <div style={{ fontSize: '0.75rem', color: '#b91c1c', marginTop: '4px' }}>{conflict.projectName} {conflict.block ? `/ ${conflict.block}` : ''}</div>
                                                                                         </div>
-                                                                                        <div style={{ fontSize: '0.75rem', color: '#b91c1c', marginTop: '2px' }}>{conflict.projectName} {conflict.block ? `/ ${conflict.block}` : ''}</div>
                                                                                     </div>
                                                                                 </div>
                                                                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0' }}>
@@ -891,12 +1010,16 @@ const ImportDataPage = () => {
                                                                                         </div>
                                                                                         <table style={{ width: '100%', fontSize: '0.82rem', borderCollapse: 'collapse' }}>
                                                                                             <tbody>
-                                                                                                {[['Name', conflict.incoming?.name], ['Father Name', conflict.incoming?.fatherName], ['Mobile', conflict.incoming?.mobile], ['House No', conflict.incoming?.hNo], ['Locality', conflict.incoming?.locality]].filter(([,v]) => v).map(([label, value]) => (
+                                                                                                {[['Name', conflict.incoming?.name, conflict.existing?.name], ['Father Name', conflict.incoming?.fatherName, conflict.existing?.fatherName], ['Mobile', conflict.incoming?.mobile, conflict.existing?.mobile], ['House No', conflict.incoming?.hNo, conflict.existing?.hNo], ['Locality', conflict.incoming?.locality, conflict.existing?.locality]].filter(([,v]) => v).map(([label, value, existingValue]) => {
+                                                                                                    const isDiff = conflict.type !== 'ownership' && String(value || '').trim().toLowerCase() !== String(existingValue || '').trim().toLowerCase();
+                                                                                                    return (
                                                                                                     <tr key={label}>
                                                                                                         <td style={{ padding: '5px 0', color: '#64748b', fontWeight: 600, width: '40%' }}>{label}</td>
-                                                                                                        <td style={{ padding: '5px 0', color: '#1e293b', fontWeight: 500 }}>{value || '—'}</td>
+                                                                                                        <td style={{ padding: '5px 0', color: '#1e293b', fontWeight: 500 }}>
+                                                                                                            {isDiff ? <span style={{ background: '#fef08a', color: '#854d0e', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>{value || '—'}</span> : (value || '—')}
+                                                                                                        </td>
                                                                                                     </tr>
-                                                                                                ))}
+                                                                                                )})}
                                                                                             </tbody>
                                                                                         </table>
                                                                                     </div>
@@ -921,57 +1044,20 @@ const ImportDataPage = () => {
                                                                                         ) : (
                                                                                             <table style={{ width: '100%', fontSize: '0.82rem', borderCollapse: 'collapse' }}>
                                                                                                 <tbody>
-                                                                                                    {[['Name', conflict.existing?.name], ['Father Name', conflict.existing?.fatherName], ['Mobile', conflict.existing?.mobile], ['House No', conflict.existing?.hNo], ['Locality', conflict.existing?.locality]].filter(([,v]) => v).map(([label, value]) => (
-                                                                                                        <tr key={label}>
-                                                                                                            <td style={{ padding: '5px 0', color: '#64748b', fontWeight: 600, width: '40%' }}>{label}</td>
-                                                                                                            <td style={{ padding: '5px 0', color: '#1e293b', fontWeight: 500 }}>{value || '—'}</td>
-                                                                                                        </tr>
-                                                                                                    ))}
+                                                                                                    {[['Name', conflict.existing?.name, conflict.incoming?.name], ['Father Name', conflict.existing?.fatherName, conflict.incoming?.fatherName], ['Mobile', conflict.existing?.mobile, conflict.incoming?.mobile], ['House No', conflict.existing?.hNo, conflict.incoming?.hNo], ['Locality', conflict.existing?.locality, conflict.incoming?.locality]].filter(([,v]) => v).map(([label, value, incomingValue]) => {
+                                                                                                        const isDiff = String(value || '').trim().toLowerCase() !== String(incomingValue || '').trim().toLowerCase();
+                                                                                                        return (
+                                                                                                                                <tr key={label}>
+                                                                                                                                    <td style={{ padding: '5px 0', color: '#64748b', fontWeight: 600, width: '40%' }}>{label}</td>
+                                                                                                                                    <td style={{ padding: '5px 0', color: '#1e293b', fontWeight: 500 }}>
+                                                                                                                                        {isDiff ? <span style={{ background: '#fef08a', color: '#854d0e', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>{value || '—'}</span> : (value || '—')}
+                                                                                                                                    </td>
+                                                                                                                                </tr>
+                                                                                                                            );
+                                                                                                                        })}
                                                                                                 </tbody>
                                                                                             </table>
                                                                                         )}
-                                                                                    </div>
-                                                                                </div>
-                                                                                <div style={{ padding: '16px 20px', borderTop: '1px solid #fecaca', background: '#fff' }}>
-                                                                                    <div style={{ fontWeight: 700, color: '#1e293b', marginBottom: '12px', fontSize: '0.9rem' }}>What should we do?</div>
-                                                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                                                                        {(conflict.type === 'ownership' ? [
-                                                                                            { value: 'SKIP_UPDATE', label: 'Skip — Keep existing owner (no changes)', icon: 'fa-ban', color: '#6b7280' },
-                                                                                            { value: 'REPLACE_OWNER', label: 'Replace — Transfer ownership to new person from CSV', icon: 'fa-exchange-alt', color: '#dc2626' },
-                                                                                            { value: 'ADD_CO_OWNER', label: 'Add as Co-Owner — Both will jointly own the unit', icon: 'fa-user-plus', color: '#2563eb' },
-                                                                                        ] : [
-                                                                                            { value: 'KEEP_SYSTEM', label: 'Keep System Data — Ignore CSV changes for this contact', icon: 'fa-database', color: '#6b7280' },
-                                                                                            { value: 'UPDATE_SYSTEM', label: 'Update System — Apply CSV data to existing contact', icon: 'fa-edit', color: '#2563eb' },
-                                                                                            { value: 'CREATE_NEW', label: 'Create New — Add CSV person as a separate new contact', icon: 'fa-user-plus', color: '#16a34a' },
-                                                                                            { value: 'SKIP_ROW', label: 'Skip Row — Discard this CSV row entirely', icon: 'fa-trash-alt', color: '#ef4444' },
-                                                                                        ]).map(opt => {
-                                                                                            const currentVal = resolutions[rowKey]?.[conflict.type];
-                                                                                            const isSelected = currentVal === opt.value;
-                                                                                            return (
-                                                                                                <label key={opt.value} style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '10px 14px', borderRadius: '8px', border: `2px solid ${isSelected ? opt.color : '#e2e8f0'}`, background: isSelected ? `${opt.color}0d` : '#fafafa', cursor: 'pointer', transition: 'all 0.2s' }}>
-                                                                                                    <input
-                                                                                                        type="radio"
-                                                                                                        name={`conflict_${rowKey}`}
-                                                                                                        value={opt.value}
-                                                                                                        checked={isSelected}
-                                                                                                        onChange={() => handleResolutionChange(rowKey, conflict.type, opt.value)}
-                                                                                                        style={{ marginTop: '2px', accentColor: opt.color }}
-                                                                                                    />
-                                                                                                    <div>
-                                                                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontWeight: 700, fontSize: '0.85rem', color: isSelected ? opt.color : '#374151' }}>
-                                                                                                            <i className={`fas ${opt.icon}`}></i>
-                                                                                                            {opt.label.split('—')[0]}
-                                                                                                        </div>
-                                                                                                        <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>{opt.label.split('—')[1]}</div>
-                                                                                                    </div>
-                                                                                                </label>
-                                                                                            );
-                                                                                        })}
-                                                                                    </div>
-                                                                                    <div style={{ marginTop: '12px', textAlign: 'right' }}>
-                                                                                        <button onClick={() => setExpandedConflictRow(null)} style={{ padding: '7px 18px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#f8fafc', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', color: '#475569' }}>
-                                                                                            Done — Collapse
-                                                                                        </button>
                                                                                     </div>
                                                                                 </div>
                                                                             </div>
@@ -1307,7 +1393,11 @@ const ImportDataPage = () => {
                                                             <td style={{ padding: '12px' }}>
                                                                 {log.status === 'Conflict Pending' && (
                                                                     <button
-                                                                        onClick={() => { setStep(4); setTimeout(() => conflictSectionRef.current?.scrollIntoView({ behavior: 'smooth' }), 100); }}
+                                                                        onClick={() => { 
+                                                                            setStep(4); 
+                                                                            if (log.rowKey) setExpandedConflictRow(log.rowKey);
+                                                                            setTimeout(() => conflictSectionRef.current?.scrollIntoView({ behavior: 'smooth' }), 100); 
+                                                                        }}
                                                                         style={{ padding: '4px 12px', borderRadius: '6px', border: '1px solid #fca5a5', background: '#fef2f2', color: '#dc2626', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' }}
                                                                     >
                                                                         <i className="fas fa-arrow-left"></i> Resolve Now
