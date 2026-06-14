@@ -269,9 +269,9 @@ const InventoryTable = ({
      
                                          if (!val || val === '-' || val === 'None') return null;
                                         return (
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem', fontWeight: 800, color: '#1e293b' }}>
-                                                <i className="fas fa-compass" style={{ fontSize: '0.9rem', color: '#4f46e5' }}></i>
-                                                {renderValue(val)}
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem', fontWeight: 800, color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                <i className="fas fa-compass" style={{ fontSize: '0.9rem', color: '#4f46e5', flexShrink: 0 }}></i>
+                                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{renderValue(val)}</span>
                                             </div>
                                         );
                                     })()}
@@ -279,9 +279,9 @@ const InventoryTable = ({
                                         const dir = resolveInventoryLookup(item.direction, 'Direction');
                                         if (!dir) return null;
                                         return (
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.72rem', color: '#64748b', fontWeight: 700 }}>
-                                                <i className="fas fa-location-arrow" style={{ fontSize: '0.75rem', color: '#94a3b8' }}></i>
-                                                {renderValue(dir)}
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.72rem', color: '#64748b', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                <i className="fas fa-location-arrow" style={{ fontSize: '0.75rem', color: '#94a3b8', flexShrink: 0 }}></i>
+                                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{renderValue(dir)}</span>
                                             </div>
                                         );
                                     })()}
@@ -289,9 +289,9 @@ const InventoryTable = ({
                                         const rw = resolveInventoryLookup(item.roadWidth, 'RoadWidth') || item.roadWidth;
                                         if (!rw) return null;
                                         return (
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.72rem', color: '#64748b', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                                                <i className="fas fa-road" style={{ fontSize: '0.8rem', color: '#f59e0b' }}></i>
-                                                {renderValue(rw)}
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.72rem', color: '#64748b', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                <i className="fas fa-road" style={{ fontSize: '0.8rem', color: '#f59e0b', flexShrink: 0 }}></i>
+                                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{renderValue(rw)}</span>
                                             </div>
                                         );
                                     })()}

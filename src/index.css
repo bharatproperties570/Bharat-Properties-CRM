@@ -824,16 +824,19 @@ body {
 .list-item.inventory-list-grid,
 .list-header.inventory-list-grid {
     display: grid;
-    grid-template-columns: 40px minmax(160px, 1.1fr) minmax(300px, 1.3fr) minmax(160px, 0.7fr) minmax(150px, 0.8fr) minmax(140px, 0.8fr) 280px minmax(150px, 1fr);
+    grid-template-columns: 40px minmax(115px, 0.8fr) minmax(250px, 1.1fr) minmax(170px, 0.9fr) minmax(220px, 1.2fr) minmax(160px, 1.0fr) 230px minmax(150px, 1fr);
     align-items: center;
-    gap: 1.8rem;
+    gap: 1.0rem;
 }
 
 .inventory-list-grid > *:nth-child(4),
 .inventory-list-grid > *:nth-child(5),
-.inventory-list-grid > *:nth-child(6),
+.inventory-list-grid > *:nth-child(6) {
+    padding-left: 0.5rem; /* Shift Orientation, Owner, and Associate left */
+}
+
 .inventory-list-grid > *:nth-child(7) {
-    padding-left: 2.5rem; /* Shift Orientation, Owner, Associate, and Status columns right */
+    padding-left: 2.5rem; /* Shift Interaction/Status column right */
 }
 
 

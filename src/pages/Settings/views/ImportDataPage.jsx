@@ -1060,6 +1060,45 @@ const ImportDataPage = () => {
                                                                                         )}
                                                                                     </div>
                                                                                 </div>
+                                                                                <div style={{ background: '#f8fafc', padding: '14px 20px', borderTop: '1px solid #fecaca', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                                                                    <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#475569' }}>
+                                                                                        How would you like to resolve this conflict?
+                                                                                    </div>
+                                                                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                                                                        <button 
+                                                                                            onClick={() => {
+                                                                                                handleResolutionChange(rowKey, conflict.type, 'REPLACE_OWNER');
+                                                                                                toast.success("Resolution saved: Keep New (CSV)");
+                                                                                                setExpandedConflictRow(null);
+                                                                                            }}
+                                                                                            style={{ padding: '6px 14px', borderRadius: '6px', border: '1px solid #3b82f6', background: resolutions[rowKey]?.[conflict.type] === 'REPLACE_OWNER' ? '#3b82f6' : '#fff', color: resolutions[rowKey]?.[conflict.type] === 'REPLACE_OWNER' ? '#fff' : '#3b82f6', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}
+                                                                                        >
+                                                                                            Keep New (CSV)
+                                                                                        </button>
+                                                                                        <button 
+                                                                                            onClick={() => {
+                                                                                                handleResolutionChange(rowKey, conflict.type, 'SKIP_UPDATE');
+                                                                                                toast.success("Resolution saved: Keep Existing (CRM)");
+                                                                                                setExpandedConflictRow(null);
+                                                                                            }}
+                                                                                            style={{ padding: '6px 14px', borderRadius: '6px', border: '1px solid #10b981', background: resolutions[rowKey]?.[conflict.type] === 'SKIP_UPDATE' ? '#10b981' : '#fff', color: resolutions[rowKey]?.[conflict.type] === 'SKIP_UPDATE' ? '#fff' : '#10b981', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}
+                                                                                        >
+                                                                                            Keep Existing (CRM)
+                                                                                        </button>
+                                                                                        {conflict.type === 'ownership' && (
+                                                                                            <button 
+                                                                                                onClick={() => {
+                                                                                                    handleResolutionChange(rowKey, conflict.type, 'APPEND');
+                                                                                                    toast.success("Resolution saved: Keep Both");
+                                                                                                    setExpandedConflictRow(null);
+                                                                                                }}
+                                                                                                style={{ padding: '6px 14px', borderRadius: '6px', border: '1px solid #f59e0b', background: resolutions[rowKey]?.[conflict.type] === 'APPEND' ? '#f59e0b' : '#fff', color: resolutions[rowKey]?.[conflict.type] === 'APPEND' ? '#fff' : '#f59e0b', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}
+                                                                                            >
+                                                                                                Keep Both
+                                                                                            </button>
+                                                                                        )}
+                                                                                    </div>
+                                                                                </div>
                                                                             </div>
                                                                         </td>
                                                                     </tr>

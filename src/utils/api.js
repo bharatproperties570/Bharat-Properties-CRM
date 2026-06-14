@@ -11,14 +11,18 @@ export const getEnvVar = (name) => {
             const val = process.env[name];
             if (typeof val !== 'undefined') return val;
         }
-    } catch (e) {}
+    } catch (e) {
+        // ignore
+    }
 
     // Priority 2: window._env_ (common fallback)
     try {
         if (typeof window !== 'undefined' && window._env_ && window._env_[name] !== undefined) {
             return window._env_[name];
         }
-    } catch (e) {}
+    } catch (e) {
+        // ignore
+    }
     
     return undefined;
 };
@@ -34,12 +38,16 @@ export const safeStorage = {
     setItem: (key, value) => {
         try {
             if (typeof localStorage !== 'undefined' && localStorage) localStorage.setItem(key, value);
-        } catch (e) {}
+        } catch (e) {
+            // ignore
+        }
     },
     removeItem: (key) => {
         try {
             if (typeof localStorage !== 'undefined' && localStorage) localStorage.removeItem(key);
-        } catch (e) {}
+        } catch (e) {
+            // ignore
+        }
     }
 };
 
@@ -57,7 +65,7 @@ let VITE_API_URL_PROD = '';
 const rawViteApiUrl = getEnvVar('VITE_API_URL') || VITE_API_URL;
 const rawProdApiUrl = getEnvVar('VITE_API_URL_PROD') || VITE_API_URL_PROD;
 const FINAL_VITE_API_URL = typeof rawViteApiUrl === 'string' ? rawViteApiUrl : '';
-const FINAL_VITE_API_URL_PROD = typeof rawProdApiUrl === 'string' ? rawProdApiUrl : '';
+
 
 // Detect if running on production host
 let hostProdOverride = false;
