@@ -824,9 +824,9 @@ body {
 .list-item.inventory-list-grid,
 .list-header.inventory-list-grid {
     display: grid;
-    grid-template-columns: 40px minmax(115px, 0.8fr) minmax(250px, 1.1fr) minmax(170px, 0.9fr) minmax(220px, 1.2fr) minmax(160px, 1.0fr) 230px minmax(150px, 1fr);
+    grid-template-columns: 30px minmax(145px, 1.0fr) minmax(240px, 1.1fr) minmax(170px, 0.9fr) minmax(220px, 1.2fr) minmax(160px, 1.0fr) 220px minmax(150px, 1fr);
     align-items: center;
-    gap: 1.0rem;
+    gap: 0.9rem;
 }
 
 .inventory-list-grid > *:nth-child(4),
