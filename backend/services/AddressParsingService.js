@@ -137,7 +137,10 @@ class AddressParsingService {
         }
 
         try {
-            let structured = this._applyMasterRules(rawAddress);
+            // Strip R/O, C/O, S/O, W/O, D/O prefixes
+            const cleanedRawAddress = rawAddress.replace(/^(?:R\/O|C\/O|W\/O|S\/O|D\/O)\s*[-:]?\s*/i, '').trim();
+            
+            let structured = this._applyMasterRules(cleanedRawAddress);
             let normalized = this._normalizeStructuredAddress(structured);
             
             if (!normalized.city && !normalized.location && !normalized.tehsil) {
@@ -243,7 +246,7 @@ class AddressParsingService {
     }
 
     _extractPostOfficeAndClean(rawAddress) {
-        const regex = /(?:P\.O|V\.P\.O|VPO|POST\s+OFFICE)\.?\s+([A-Za-z\s]+?)(?:\s*[-,]|DISTT|DISTRICT|TEHSIL|TEH|$)/i;
+        const regex = /(?:P\.?\s*O\.?|V\.?\s*P\.?\s*O\.?|POST\s+OFFICE)\s+([A-Za-z\s]+?)(?:\s*[-,]|DISTT|DISTRICT|TEHSIL|TEH|$)/i;
         const match = rawAddress.match(regex);
         let extracted = '';
         let cleanedAddress = rawAddress;
@@ -273,8 +276,13 @@ class AddressParsingService {
             }
         }
         cleanedAddress = poData.cleanedAddress;
-        
-        let remainingTokens = cleanedAddress.split(',').map(t => t.trim()).filter(t => t.length > 0);
+        let remainingTokens = cleanedAddress.split(',').map(t => {
+            let token = t.trim();
+            // Clean leading/trailing punctuation except specific chars
+            token = token.replace(/^[^a-zA-Z0-9(]+/, '').replace(/[^a-zA-Z0-9)]+$/, '');
+            return token.trim();
+        }).filter(t => t.length > 0);
+
         let unassignedTokens = [];
 
         // SAS Nagar -> Mohali
@@ -285,9 +293,21 @@ class AddressParsingService {
 
         // District
         remainingTokens = remainingTokens.map(token => {
-            const distMatch = token.match(/\b(?:Distt|District|Dist)\.?\s+([A-Za-z]+)\b/i);
+            const distMatch = token.match(/\b(?:Distt|District|Dist)\.?\s+([A-Za-z\s]+)\b/i);
             if (distMatch) {
-                const extractedCity = distMatch[1].trim();
+                let extractedCity = distMatch[1].trim();
+                
+                // Cross-reference with master data to fix casing
+                if (this.masterDataInitialized) {
+                    const lowerCity = extractedCity.toLowerCase();
+                    for (const [key, cityVal] of this.masterCache.cities.entries()) {
+                        if (key === lowerCity) {
+                            extractedCity = cityVal;
+                            break;
+                        }
+                    }
+                }
+                
                 result.city = extractedCity;
                 
                 // Auto-map state based on extracted city
@@ -307,9 +327,22 @@ class AddressParsingService {
 
         // Tehsil
         remainingTokens = remainingTokens.map(token => {
-            const tehsilMatch = token.match(/\b(?:Tehsil|Teh|Tq)\.?\s+([A-Za-z]+)\b/i);
+            const tehsilMatch = token.match(/\b(?:Tehsil|Teh|Tq)\.?\s+([A-Za-z\s]+)\b/i);
             if (tehsilMatch) {
-                result.tehsil = tehsilMatch[1].trim();
+                let extractedTehsil = tehsilMatch[1].trim();
+                
+                // Cross-reference with master data to fix casing
+                if (this.masterDataInitialized) {
+                    const lowerTehsil = extractedTehsil.toLowerCase();
+                    for (const [key, tehsilVal] of this.masterCache.tehsils.entries()) {
+                        if (key === lowerTehsil) {
+                            extractedTehsil = tehsilVal;
+                            break;
+                        }
+                    }
+                }
+                
+                result.tehsil = extractedTehsil;
                 const newToken = token.replace(tehsilMatch[0], '').trim();
                 return newToken.length > 0 ? newToken : null;
             }
@@ -341,7 +374,31 @@ class AddressParsingService {
         // Token Iteration
         remainingTokens = remainingTokens.map(token => {
             let matched = false;
-            const lowerToken = token.toLowerCase();
+
+            // Check if token ends with a known master city (Glued token split)
+            if (this.masterDataInitialized && !result.city) {
+                const lowerForSplit = token.toLowerCase();
+                for (const [key, cityVal] of this.masterCache.cities.entries()) {
+                    if (lowerForSplit.endsWith(` ${key}`)) {
+                        result.city = cityVal;
+                        token = token.slice(0, -(key.length + 1)).trim();
+                        break;
+                    }
+                }
+            }
+            
+            // Check if token ends with a known state (Glued token split)
+            const lowerForStateSplit = token.toLowerCase();
+            const knownStatesArray = ['haryana', 'punjab', 'chandigarh', 'delhi', 'uttar pradesh', 'himachal pradesh', 'uttarakhand', 'maharashtra', 'karnataka', 'tamil nadu', 'rajasthan', 'west bengal'];
+            for (const known of knownStatesArray) {
+                if (lowerForStateSplit.endsWith(` ${known}`)) {
+                    if (!result.state) result.state = known;
+                    token = token.slice(0, -(known.length + 1)).trim();
+                    break;
+                }
+            }
+
+            let lowerToken = token.toLowerCase();
 
             // House No fallback (if not caught by 11 strategies)
             if (!result.houseNo) {
@@ -373,10 +430,23 @@ class AddressParsingService {
                 }
             }
 
+            // Urban Estate explicitly goes to Area
+            if (/\b(?:U\/?\.?E\.?|Urban\s+Estate)\b/i.test(token)) {
+                if (!result.area) result.area = 'Urban Estate';
+                else result.area += `, Urban Estate`;
+                token = token.replace(/\b(?:U\/?\.?E\.?|Urban\s+Estate)\b/ig, '').trim();
+                if (!token) return null;
+                lowerToken = token.toLowerCase();
+            }
+
             // Location Regex
             if (token.match(this.regexLocation)) {
-                if (!result.location) result.location = token;
-                else result.location += `, ${token}`;
+                let formattedLoc = token.replace(/\b(?:Sec-?\.?\s*)(\d+[A-Za-z]?)(?:-?[A-Za-z])?\b/ig, (match, p1) => {
+                    return match.replace(/Sec-?\.?\s*/i, 'Sector ');
+                });
+                
+                if (!result.location) result.location = formattedLoc;
+                else result.location += `, ${formattedLoc}`;
                 matched = true;
                 return null;
             }
@@ -396,8 +466,8 @@ class AddressParsingService {
             // Check Hardcoded States Mapping for City
             let cityMatched = false;
             for (const city of Object.keys(this.statesMapping)) {
-                if (lowerToken.includes(city)) {
-                    if (!result.city) result.city = token; // Keep original casing
+                if (lowerToken === city) {
+                    if (!result.city) result.city = city; // Fixed: use city name instead of whole token
                     matched = true;
                     cityMatched = true;
                     if (!result.state) result.state = this.statesMapping[city];
@@ -476,14 +546,18 @@ class AddressParsingService {
         if (!result.country) result.country = 'India';
 
         if (unassignedTokens.length > 0) {
-            if (unassignedTokens.length > 0 && !result.houseNo && /^[\d\w-]+$/.test(unassignedTokens[0])) {
-                result.houseNo = unassignedTokens.shift();
+            if (unassignedTokens.length > 0 && !result.houseNo) {
+                const first = unassignedTokens[0];
+                if (/\d/.test(first) || /^[A-Z]-[A-Z0-9]+$/i.test(first) || first.length <= 3) {
+                    result.houseNo = unassignedTokens.shift();
+                }
             }
 
             unassignedTokens.forEach(token => {
-                if (!result.area) result.area = token;
+                if (!result.location) result.location = token;
+                else if (!result.area) result.area = token;
                 else if (!result.street) result.street = token;
-                else result.area += `, ${token}`; 
+                else result.location += `, ${token}`; 
             });
         }
 
@@ -495,13 +569,13 @@ class AddressParsingService {
 Rules you MUST follow:
 1. "houseNo": Flat/house/plot/shop number, building/apartment name, block, phase.
 2. "street": Street name, road, lane, landmark, near-by reference. Also put 'c/o', 'Opposite', 'Behind' ONLY here.
-3. "area": Put terms like 'Ward No', 'Colony', 'Phase' ONLY here.
-4. "location": If the word starts with 'Village' or 'VPO' or is a village name, put it here and ALWAYS prepend "Vill " to it (e.g., "Vill Sham Garh").
-5. "city": If you see 'SAS Nagar', output 'Mohali'.
+3. "area": Put terms like 'Ward No', 'Colony', 'Phase', 'Urban Estate', 'U/E' ONLY here.
+4. "location": If the word starts with 'Village' or 'VPO' or is a village name, put it here and ALWAYS prepend "Vill " to it. Standardize Sector to "Sector X".
+5. "city": If you see 'SAS Nagar', output 'Mohali'. Only actual Cities/Districts go here.
 6. Do NOT drop any text. If a text does not fit any logical field, append it to 'street' or 'area'.
-7. "pincode": Extract the 6 digit pincode.
-8. "tehsil", "state", "country": Output accordingly. "country" defaults to "India".
-9. "postOffice": Determine if possible based on VPO keywords.
+7. "pincode": Extract the 6 digit pincode. If missing but Post Office is known, output the accurate pincode for that PO.
+8. "tehsil", "state", "country": Output accordingly. Words prefixed with Teh/Tehsil/Tq MUST be assigned to 'tehsil', never to 'city'. "country" defaults to "India".
+9. "postOffice": If you detect 'PO', 'P.O.', 'P. O.', or 'Post Office', extract it. Fix spelling mistakes for PO and Tehsil based on standard Indian postal data priority.
 
 You MUST respond ONLY with a valid JSON object matching the schema. No explanations, no markdown wrappers, no backticks.
 Schema structure:
@@ -850,10 +924,11 @@ You will be given a JSON object with partial address data.
 Respond ONLY with a valid JSON object containing the ENRICHED fields merged with the ORIGINAL fields. Do not add explanations.
 Ensure that:
 1. 'city' represents the District.
-2. 'tehsil' represents the Tehsil/Taluka/Mandal.
-3. 'pincode' is a 6-digit Indian Pincode.
+2. 'tehsil' represents the Tehsil/Taluka/Mandal. Do NOT assign known Tehsils to the 'city' field.
+3. 'pincode' is a 6-digit Indian Pincode. If 'pincode' is missing but 'postOffice' or 'location' is known, search your knowledge base and accurately fill the 'pincode'.
 4. 'state' is the Indian state.
 5. If the location is a village, ALWAYS prepend 'Vill ' to its name (e.g. 'Vill Sham Garh').
+6. Correct any spelling mistakes in Post Office or Tehsil names based on official Indian postal records.
 If you cannot confidently determine a missing field, leave it empty.`;
 
         const userPrompt = `Partial Address JSON:\n${JSON.stringify(normalized, null, 2)}`;
