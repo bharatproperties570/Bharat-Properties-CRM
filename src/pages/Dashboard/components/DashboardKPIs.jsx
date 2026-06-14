@@ -44,60 +44,22 @@ const DashboardKPIs = ({ metrics, formatters }) => {
     const { fmtNum, fmtCr } = formatters;
 
     return (
-        <div className="kpi-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px', marginBottom: '24px' }}>
-            <KpiCard
-                title="Total Intelligence"
-                value={fmtNum(totalLeads)}
-                subtitle="Captured all-time"
-                icon="fas fa-brain"
-                color="#6366f1"
-                trend={trends.leads}
-            />
-            <KpiCard
-                title="Hot Prospects"
-                value={fmtNum(hotLeads)}
-                subtitle="High conversion potential"
-                icon="fas fa-fire-alt"
-                color="#f43f5e"
-                trend={trends.deals}
-            />
-            <KpiCard
-                title="Active Pipeline"
-                value={fmtNum(totalDeals)}
-                subtitle="Deals in movement"
-                icon="fas fa-project-diagram"
-                color="#10b981"
-                trend={trends.deals}
-            />
-            <KpiCard
-                title="Asset Inventory"
-                value={fmtNum(totalInventory)}
-                subtitle="Ready for matching"
-                icon="fas fa-cube"
-                color="#8b5cf6"
-            />
-            <KpiCard
-                title="Lead Revival"
-                value={fmtNum(reengagedCount)}
-                subtitle="Dormant leads re-engaged"
-                icon="fas fa-bolt"
-                color="#06b6d4"
-            />
-            <KpiCard
-                title="Revenue Performance"
-                value={fmtCr(perf?.mtdCommission || 0)}
-                subtitle="MTD Secured Revenue"
-                icon="fas fa-hand-holding-usd"
-                color="#10b981"
-                trend={trends.revenue}
-            />
-            <KpiCard
-                title="Critical Action"
-                value={fmtNum(nfaCount)}
-                subtitle="Leads with no future actions"
-                icon="fas fa-radiation"
-                color="#f59e0b"
-            />
+        <div className="kpi-grid" style={{ 
+            display: 'flex', 
+            overflowX: 'auto', 
+            gap: '16px', 
+            marginBottom: '24px',
+            paddingBottom: '8px', /* For scrollbar space */
+            scrollbarWidth: 'thin',
+            scrollbarColor: 'var(--an-border) transparent'
+        }}>
+            <div style={{ minWidth: '220px', flex: 1 }}><KpiCard title="Total Intelligence" value={fmtNum(totalLeads)} subtitle="Captured all-time" icon="fas fa-brain" color="#6366f1" trend={trends.leads} /></div>
+            <div style={{ minWidth: '220px', flex: 1 }}><KpiCard title="Hot Prospects" value={fmtNum(hotLeads)} subtitle="High conversion potential" icon="fas fa-fire-alt" color="#f43f5e" trend={trends.deals} /></div>
+            <div style={{ minWidth: '220px', flex: 1 }}><KpiCard title="Active Pipeline" value={fmtNum(totalDeals)} subtitle="Deals in movement" icon="fas fa-project-diagram" color="#10b981" trend={trends.deals} /></div>
+            <div style={{ minWidth: '220px', flex: 1 }}><KpiCard title="Asset Inventory" value={fmtNum(totalInventory)} subtitle="Ready for matching" icon="fas fa-cube" color="#8b5cf6" /></div>
+            <div style={{ minWidth: '220px', flex: 1 }}><KpiCard title="Lead Revival" value={fmtNum(reengagedCount)} subtitle="Dormant leads re-engaged" icon="fas fa-bolt" color="#06b6d4" /></div>
+            <div style={{ minWidth: '220px', flex: 1 }}><KpiCard title="Revenue Performance" value={fmtCr(perf?.mtdCommission || 0)} subtitle="MTD Secured Revenue" icon="fas fa-hand-holding-usd" color="#10b981" trend={trends.revenue} /></div>
+            <div style={{ minWidth: '220px', flex: 1 }}><KpiCard title="Critical Action" value={fmtNum(nfaCount)} subtitle="Leads with no future actions" icon="fas fa-radiation" color="#f59e0b" /></div>
         </div>
     );
 };

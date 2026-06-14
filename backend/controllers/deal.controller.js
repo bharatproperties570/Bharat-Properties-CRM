@@ -1214,7 +1214,7 @@ export const getDeals = async (req, res) => {
         };
 
         const dealListPopulateFields = [
-            { path: 'inventoryId', select: 'projectName unitNo unitNumber block city location area size sizeUnit sizeLabel sizeConfig unitSpecification latitude longitude lat lng' },
+            { path: 'inventoryId', select: 'projectName unitNo unitNumber block city location area size sizeUnit sizeLabel sizeConfig unitSpecification latitude longitude lat lng builtUpArea builtupType ageOfConstruction constructionAge' },
             { path: 'projectId', select: 'name latitude longitude lat lng' },
             { path: 'owner', select: 'name phones', model: 'Contact' },
             { path: 'assignedTo', select: 'fullName name email' },

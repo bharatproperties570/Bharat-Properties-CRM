@@ -2,12 +2,14 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { api } from '../../utils/api';
 import { formatIndianCurrency } from '../../utils/numberToWords';
 import { useTheme } from '../../context/ThemeContext';
+import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
   AreaChart, Area, CartesianGrid
 } from 'recharts';
 import './DealAnalyticsPage.css';
+import MarketPriceTrendChart from '../../components/charts/MarketPriceTrendChart';
 
 // ── Constants ───────────────────────────────────────────────────
 const DEAL_STAGES = ['Open', 'Quote', 'Negotiation', 'Booked', 'Closed Won', 'Closed Lost', 'Stalled', 'Cancelled'];
@@ -92,6 +94,7 @@ const KPICard = ({ icon, iconBg, label, value, sub, trend, trendDir, color }) =>
 // ── Main Component ───────────────────────────────────────────────
 const DealAnalyticsPage = ({ onNavigate }) => {
   const { isDark } = useTheme();
+  const { sizes, getLookupValue } = usePropertyConfig();
   const tickColor   = isDark ? '#64748b' : '#94a3b8';
   const gridStroke  = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)';
   const Tip = (props) => <CustomTooltip {...props} isDark={isDark} />;
@@ -531,6 +534,11 @@ const DealAnalyticsPage = ({ onNavigate }) => {
               )}
             </div>
           </div>
+        </div>
+
+        {/* ── SECTION 3.5: Market Unit Price Trend ── */}
+        <div className="analytics-section" style={{ marginTop: '20px' }}>
+          <MarketPriceTrendChart deals={filteredDeals} sizes={sizes} getLookupValue={getLookupValue} isDark={isDark} />
         </div>
 
         {/* ── SECTION 4: Intent + Deal Type + Market Gap ── */}

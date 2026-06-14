@@ -57,6 +57,7 @@ export const useDashboardData = () => {
     const suggestions = d.autoSuggestions || {};
     const actFeed = d.recentActivityFeed || [];
     const recentDeals = d.recentDeals || [];
+    const priceTrendDeals = d.priceTrendDeals || [];
     const trends = d.trends || { leads: 0, deals: 0, revenue: 0, inventory: 0 };
     const leadSourceStats = useMemo(() => d.leadSourceStats || [], [d.leadSourceStats]);
     const reengagedCount = d.reengagedCount || 0;
@@ -154,7 +155,7 @@ export const useDashboardData = () => {
             availability, mtdVisits, mtdBookings,
             leads, deals, inventory, agenda, allAlerts,
             allSuggestions, actFeed, recentDeals, leadSourceStats,
-            trends
+            trends, priceTrendDeals
         },
         charts: {
             leadTrendChart,

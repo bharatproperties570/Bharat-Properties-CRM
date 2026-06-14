@@ -441,6 +441,13 @@ export const getDashboardStats = async (req, res) => {
             { type: 'optimization', text: 'Site visits are peaking on Saturdays. Adjust roster accordingly.' }
         ];
 
+        // ━━ 8. PRICE TREND ANALYTICS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // Lightweight fetch of all deals for dynamic frontend price trend aggregation
+        const priceTrendDeals = await Deal.find({ ...baseDealQuery })
+            .select('price closedPrice size sizeUnit sizeConfig stage location propertyType category createdAt inventoryId unitSpecification')
+            .populate('inventoryId', 'builtUpArea builtupType ageOfConstruction constructionAge unitSpecification area size sizeUnit')
+            .lean();
+
         // ━━ COMPOSE FINAL RESPONSE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         const dashboardData = {
             // KPIs
@@ -526,7 +533,10 @@ export const getDashboardStats = async (req, res) => {
                 stage: d.stage,
                 value: d.price,
                 updatedAt: d.updatedAt || d.stageChangedAt
-            }))
+            })),
+
+            // Deals for Price Trend
+            priceTrendDeals
         };
 
         // Optional: Cache background-calculated KPIs for 1 min (User-specific)

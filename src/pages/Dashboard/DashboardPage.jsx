@@ -9,9 +9,14 @@ import DashboardSidebar from './components/DashboardSidebar';
 
 import AIIntelligenceWidget from '../../components/AIIntelligenceWidget';
 import MarketPulseWidget from '../../components/MarketPulseWidget';
+import MarketPriceTrendChart from '../../components/charts/MarketPriceTrendChart';
 import { useDashboardData } from '../../hooks/useDashboardData';
+import { usePropertyConfig } from '../../context/PropertyConfigContext';
+import { useTheme } from '../../context/ThemeContext';
 
 const DashboardPage = ({ onNavigate }) => {
+    const { isDark } = useTheme();
+    const { sizes, getLookupValue } = usePropertyConfig();
     const {
         selectedFilter,
         setSelectedFilter,
@@ -187,14 +192,29 @@ const DashboardPage = ({ onNavigate }) => {
                 </div>
             </div>
 
+            {/* Dashboard KPIs (Full Width Row) */}
+            <DashboardKPIs metrics={metrics} formatters={formatters} />
+
             <div className="dashboard-grid-root" style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '32px' }}>
                 <div style={{ minWidth: 0 }}>
+                    {/* Market Price Trend Chart at the top of left column */}
                     <div style={{ marginBottom: '32px' }}>
-                        <AIIntelligenceWidget />
+                        <MarketPriceTrendChart 
+                            deals={metrics.priceTrendDeals} 
+                            sizes={sizes} 
+                            getLookupValue={getLookupValue} 
+                            isDark={isDark} 
+                        />
                     </div>
-                    <DashboardKPIs metrics={metrics} formatters={formatters} />
+                    
+                    {/* Acquisition & Revenue */}
                     <LeadAcquisitionPanel charts={charts} metrics={metrics} formatters={formatters} />
                     <RevenuePanel charts={charts} metrics={metrics} formatters={formatters} />
+                    
+                    {/* Intelligence & Pulse */}
+                    <div style={{ marginTop: '32px' }}>
+                        <AIIntelligenceWidget />
+                    </div>
                     <div style={{ marginTop: '32px' }}>
                         <MarketPulseWidget />
                     </div>
