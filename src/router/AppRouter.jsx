@@ -61,7 +61,7 @@ const AppRouter = ({ currentView, currentContactId, onNavigate, onEditContact, o
     const renderContent = () => {
         switch (currentView) {
             case 'dashboard':
-                return <DashboardPage />;
+                return <DashboardPage onNavigate={onNavigate} />;
             case 'contacts':
                 return <ContactsPage onEdit={onEditContact} onAddActivity={onAddActivity} onNavigate={onNavigate} />;
             case 'contact-detail':
