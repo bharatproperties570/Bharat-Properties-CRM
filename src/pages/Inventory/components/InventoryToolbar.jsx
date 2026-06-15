@@ -39,7 +39,7 @@ const InventoryToolbar = ({
     const getSelectedProperty = () => inventoryItems.find(p => p._id === selectedIds[0]);
 
     return (
-        <div className="toolbar-container" style={{ position: 'sticky', top: 0, zIndex: 1000, padding: '5px 2rem', borderBottom: '1px solid #eef2f5', minHeight: '45px', display: 'flex', alignItems: 'center', background: '#fff' }}>
+        <div className="toolbar-container" style={{ position: 'sticky', top: 0, zIndex: 1000, padding: '5px 2rem', borderBottom: '1px solid var(--border-color)', minHeight: '45px', display: 'flex', alignItems: 'center', background: 'var(--bg-card)' }}>
             {selectedIds.length > 0 ? (
                 <div className="action-panel" style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%', overflowX: 'auto', paddingTop: '4px', paddingBottom: '2px' }}>
                     <div className="selection-count" style={{ marginRight: '10px', fontWeight: 600, color: 'var(--primary-color)', whiteSpace: 'nowrap' }}>
@@ -136,11 +136,11 @@ const InventoryToolbar = ({
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
                         <div style={{ fontSize: '0.8rem', color: '#68737d', fontWeight: 600 }}>
-                            Total: <strong style={{ color: '#0f172a' }}>{renderValue(totalRecords)} Properties</strong>
+                            Total: <strong style={{ color: 'var(--text-main)' }}>{renderValue(totalRecords)} Properties</strong>
                         </div>
-                        <div style={{ display: "flex", alignItems: "center", gap: "10px", fontSize: "0.8rem", color: "#64748b", fontWeight: 600 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "10px", fontSize: "0.8rem", color: 'var(--text-muted)', fontWeight: 600 }}>
                             <span>Show:</span>
-                            <select value={recordsPerPage} onChange={(e) => setRecordsPerPage(Number(e.target.value))} style={{ padding: "4px 12px", border: "1px solid #e2e8f0", borderRadius: "6px", fontSize: "0.8rem", fontWeight: 700, color: "#0f172a", outline: "none", cursor: "pointer", background: "#f8fafc" }}>
+                            <select value={recordsPerPage} onChange={(e) => setRecordsPerPage(Number(e.target.value))} style={{ padding: "4px 12px", border: '1px solid var(--border-color)', borderRadius: "6px", fontSize: "0.8rem", fontWeight: 700, color: 'var(--text-main)', outline: "none", cursor: "pointer", background: 'var(--bg-gray)' }}>
                                 {[10, 25, 50, 100, 300, 500, 750, 1000].map(v => <option key={v} value={v}>{v}</option>)}
                             </select>
                         </div>
@@ -152,7 +152,7 @@ const InventoryToolbar = ({
                                     className="pagination-btn"
                                     style={{ 
                                         display: 'flex', alignItems: 'center', gap: '6px', 
-                                        padding: '6px 12px', border: '1px solid #e2e8f0', borderRight: 'none', 
+                                        padding: '6px 12px', border: '1px solid var(--border-color)', borderRight: 'none', 
                                         borderRadius: '6px 0 0 6px', 
                                         background: (currentPage <= 1 || loading) ? '#f8fafc' : '#fff', 
                                         fontSize: '0.75rem', fontWeight: 700, 
@@ -163,7 +163,7 @@ const InventoryToolbar = ({
                                 >
                                     <i className="fas fa-chevron-left" style={{ fontSize: '0.65rem' }}></i> Prev
                                 </button>
-                                <div style={{ padding: '6px 15px', border: '1px solid #e2e8f0', background: '#fff', fontSize: '0.8rem', fontWeight: 700, color: '#0f172a', minWidth: '55px', textAlign: 'center' }}>
+                                <div style={{ padding: '6px 15px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-main)', minWidth: '55px', textAlign: 'center' }}>
                                     {renderValue(currentPage)} / {renderValue(totalPages) || 1}
                                 </div>
                                 <button 
@@ -172,7 +172,7 @@ const InventoryToolbar = ({
                                     className="pagination-btn"
                                     style={{ 
                                         display: 'flex', alignItems: 'center', gap: '6px', 
-                                        padding: '6px 12px', border: '1px solid #e2e8f0', borderLeft: 'none', 
+                                        padding: '6px 12px', border: '1px solid var(--border-color)', borderLeft: 'none', 
                                         borderRadius: '0 6px 6px 0', 
                                         background: (currentPage >= totalPages || loading) ? '#f8fafc' : '#fff', 
                                         fontSize: '0.75rem', fontWeight: 700, 
@@ -192,7 +192,7 @@ const InventoryToolbar = ({
                                         style={{ 
                                             display: 'flex', alignItems: 'center', justifyContent: 'center', 
                                             width: '32px', height: '32px', borderRadius: '8px',
-                                            border: '1px solid #e2e8f0',
+                                            border: '1px solid var(--border-color)',
                                             background: isSortOpen ? 'var(--primary-color)' : '#fff',
                                             color: isSortOpen ? '#fff' : '#64748b',
                                             cursor: 'pointer', transition: 'all 0.2s'
@@ -210,11 +210,11 @@ const InventoryToolbar = ({
                                             />
                                             <ul className="shadow-lg border-0" style={{ 
                                                 position: 'absolute', top: '100%', right: 0, zIndex: 999,
-                                                backgroundColor: '#fff', borderRadius: '16px', padding: '10px', 
+                                                backgroundColor: 'var(--bg-card)', borderRadius: '16px', padding: '10px', 
                                                 minWidth: '220px', marginTop: '8px', listStyle: 'none',
-                                                border: '1px solid #eef2f5'
+                                                border: '1px solid var(--border-color)'
                                             }}>
-                                                <li><h6 style={{ fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', color: '#94a3b8', padding: '10px 15px', margin: 0 }}>Advanced Sort</h6></li>
+                                                <li><h6 style={{ fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-muted)', padding: '10px 15px', margin: 0 }}>Advanced Sort</h6></li>
                                                 {[
                                                     { label: 'Unit Sequence', by: 'unitNo', order: 1, icon: 'fa-sort-numeric-down' },
                                                     { label: 'Sector/Locality', by: 'address.locality', order: 1, icon: 'fa-map-marker-alt' },

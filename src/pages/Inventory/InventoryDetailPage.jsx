@@ -147,14 +147,14 @@ export default function InventoryDetailPage({ inventoryId, onBack, onAddActivity
 
     if (loading || !inventory) {
         return (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#f8fafc' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: 'var(--bg-gray)' }}>
                 <div className="loader"></div>
             </div>
         );
     }
 
     return (
-        <div style={{ background: '#f8fafc', height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ background: 'var(--bg-gray)', height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <style>
                 {`
                     :root {
@@ -209,7 +209,7 @@ export default function InventoryDetailPage({ inventoryId, onBack, onAddActivity
                 <div className="no-scrollbar" style={{ flex: '0 0 400px', display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto', paddingBottom: '20px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                         <i className="fas fa-microchip" style={{ color: '#4f46e5' }}></i>
-                        <span style={{ fontSize: '0.7rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Technical & Location intelligence</span>
+                        <span style={{ fontSize: '0.7rem', fontWeight: 900, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Technical & Location intelligence</span>
                     </div>
 
                     {(() => {
@@ -243,19 +243,19 @@ export default function InventoryDetailPage({ inventoryId, onBack, onAddActivity
                 </div>
 
                 {/* COLUMN 2: CENTER - INTERACTION INTELLIGENCE */}
-                <div className="no-scrollbar" style={{ flex: '1', display: 'flex', flexDirection: 'column', background: '#f8fafc', overflowY: 'auto', minWidth: '0', position: 'relative', paddingBottom: '20px' }}>
+                <div className="no-scrollbar" style={{ flex: '1', display: 'flex', flexDirection: 'column', background: 'var(--bg-gray)', overflowY: 'auto', minWidth: '0', position: 'relative', paddingBottom: '20px' }}>
                     <div className="glass-card" style={{ 
-                        background: '#fff',
+                        background: 'var(--bg-card)',
                         borderRadius: '16px',
-                        border: '1px solid #e2e8f0',
+                        border: '1px solid var(--border-color)',
                         boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)',
                         display: 'flex',
                         flexDirection: 'column',
                         minHeight: '100%'
                     }}>
-                        <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', background: '#fff', display: 'flex', alignItems: 'center', gap: '8px', borderTopLeftRadius: '16px', borderTopRightRadius: '16px' }}>
+                        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-card)', display: 'flex', alignItems: 'center', gap: '8px', borderTopLeftRadius: '16px', borderTopRightRadius: '16px' }}>
                             <i className="fas fa-bolt" style={{ color: '#4f46e5' }}></i>
-                            <span style={{ fontSize: '0.75rem', fontWeight: 900, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Interaction Intelligence</span>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 900, color: 'var(--text-main)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Interaction Intelligence</span>
                         </div>
                         <div style={{ padding: '20px', flex: 1 }}>
                             {(() => {
@@ -303,7 +303,7 @@ export default function InventoryDetailPage({ inventoryId, onBack, onAddActivity
                 <div className="no-scrollbar" style={{ flex: '0 0 400px', display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto', paddingBottom: '20px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                         <i className="fas fa-users-viewfinder" style={{ color: '#4f46e5' }}></i>
-                        <span style={{ fontSize: '0.7rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Leads & Ownership</span>
+                        <span style={{ fontSize: '0.7rem', fontWeight: 900, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Leads & Ownership</span>
                     </div>
 
                     <MatchedLeadsCard 

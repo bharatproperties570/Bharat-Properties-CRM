@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTheme } from '../../context/ThemeContext';
 import ReactApexChart from 'react-apexcharts';
 import { api } from '../../utils/api';
 
@@ -6,6 +7,7 @@ const fmt = (n) => new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).
 const fmtCurr = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);
 
 export default function BookingAnalytics() {
+    const { isDark } = useTheme();
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
 
@@ -26,7 +28,7 @@ export default function BookingAnalytics() {
     }, []);
 
     if (loading) {
-        return <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>Loading analytics...</div>;
+        return <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading analytics...</div>;
     }
 
     if (!stats) {
@@ -75,26 +77,26 @@ export default function BookingAnalytics() {
     };
 
     return (
-        <div style={{ padding: '24px 32px', background: '#f8fafc', minHeight: '100%' }}>
-            <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#0f172a', marginBottom: '24px' }}>Analytics & Intelligence</h2>
+        <div style={{ padding: '24px 32px', background: 'var(--bg-gray)', minHeight: '100%' }}>
+            <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '24px' }}>Analytics & Intelligence</h2>
             
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px', marginBottom: '24px' }}>
-                <div style={{ background: '#fff', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-                    <h3 style={{ fontSize: '0.85rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '16px' }}>Deal Pipeline Funnel</h3>
+                <div style={{ background: 'var(--bg-card)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                    <h3 style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '16px' }}>Deal Pipeline Funnel</h3>
                     <div style={{ height: '280px' }}>
                         <ReactApexChart options={funnelOptions} series={funnelSeries} type="bar" height="100%" />
                     </div>
                 </div>
 
-                <div style={{ background: '#fff', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-                    <h3 style={{ fontSize: '0.85rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '16px' }}>Commission Health</h3>
+                <div style={{ background: 'var(--bg-card)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                    <h3 style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '16px' }}>Commission Health</h3>
                     <div style={{ height: '280px' }}>
                         <ReactApexChart options={commOptions} series={commSeries} type="donut" height="100%" />
                     </div>
                 </div>
 
-                <div style={{ background: '#fff', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-                    <h3 style={{ fontSize: '0.85rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '16px' }}>Portfolio Risk Profile</h3>
+                <div style={{ background: 'var(--bg-card)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                    <h3 style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '16px' }}>Portfolio Risk Profile</h3>
                     <div style={{ height: '280px' }}>
                         <ReactApexChart options={healthOptions} series={healthSeries} type="pie" height="100%" />
                     </div>
@@ -102,23 +104,23 @@ export default function BookingAnalytics() {
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-                <div style={{ background: '#fff', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-                    <h3 style={{ fontSize: '0.85rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '16px' }}>Financial Summary</h3>
+                <div style={{ background: 'var(--bg-card)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                    <h3 style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '16px' }}>Financial Summary</h3>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                        <div style={{ padding: '16px', background: '#f8fafc', borderRadius: '8px' }}>
-                            <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>Total Pipeline Value</div>
-                            <div style={{ fontSize: '1.25rem', color: '#0f172a', fontWeight: 800 }}>{fmtCurr(stats.totalPipelineValue)}</div>
+                        <div style={{ padding: '16px', background: 'var(--bg-gray)', borderRadius: '8px' }}>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Total Pipeline Value</div>
+                            <div style={{ fontSize: '1.25rem', color: 'var(--text-main)', fontWeight: 800 }}>{fmtCurr(stats.totalPipelineValue)}</div>
                         </div>
-                        <div style={{ padding: '16px', background: '#f8fafc', borderRadius: '8px' }}>
-                            <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>Total Paid Value</div>
+                        <div style={{ padding: '16px', background: 'var(--bg-gray)', borderRadius: '8px' }}>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Total Paid Value</div>
                             <div style={{ fontSize: '1.25rem', color: '#10b981', fontWeight: 800 }}>{fmtCurr(stats.totalPaidValue)}</div>
                         </div>
-                        <div style={{ padding: '16px', background: '#f8fafc', borderRadius: '8px' }}>
-                            <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>Average Deal Size</div>
+                        <div style={{ padding: '16px', background: 'var(--bg-gray)', borderRadius: '8px' }}>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Average Deal Size</div>
                             <div style={{ fontSize: '1.25rem', color: '#0ea5e9', fontWeight: 800 }}>{fmtCurr(stats.totalPipelineValue / (stats.activeBookings || 1))}</div>
                         </div>
-                        <div style={{ padding: '16px', background: '#f8fafc', borderRadius: '8px' }}>
-                            <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>Total Commission (Est)</div>
+                        <div style={{ padding: '16px', background: 'var(--bg-gray)', borderRadius: '8px' }}>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Total Commission (Est)</div>
                             <div style={{ fontSize: '1.25rem', color: '#8b5cf6', fontWeight: 800 }}>{fmtCurr(stats.totalCommission)}</div>
                         </div>
                     </div>

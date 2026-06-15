@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { useTheme } from '../../context/ThemeContext';
 import PipelineDashboard from '../../components/PipelineDashboard';
 import Swal from 'sweetalert2';
 import { api, enrichmentAPI } from '../../utils/api';
@@ -38,6 +39,8 @@ import { useInvalidateLeads } from '../../utils/crmHooks';
 
 
 function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
+    const { isDark } = useTheme();
+
     console.log("[Leads Audit] LeadsPage rendering...");
     const {
         scoringAttributes,
@@ -501,7 +504,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
             cancelButtonText: 'Cancel',
             confirmButtonColor: '#ef4444',
             denyButtonColor: '#f97316',
-            cancelButtonColor: '#64748b',
+            cancelButtoncolor: 'var(--text-muted)',
         });
 
         if (result.isDismissed) return;
@@ -560,9 +563,9 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                 width: '38px',
                                 height: '38px',
                                 padding: 0,
-                                backgroundColor: showDormant ? '#1e293b' : 'transparent',
+                                backgroundColor: showDormant ? 'var(--primary-color)' : 'transparent',
                                 color: showDormant ? '#fff' : 'inherit',
-                                borderColor: showDormant ? '#1e293b' : '#cbd5e1',
+                                borderColor: showDormant ? 'var(--primary-color)' : 'var(--border-color)',
                                 borderRadius: '10px'
                             }}
                         >
@@ -616,7 +619,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                 {/* Content Body */}
                 <div className="content-body" style={{ display: 'flex', flexDirection: 'column', height: 'auto', overflow: 'visible', paddingTop: 0, position: 'relative' }}>
                     {/* Toolbar - Sticky 45px */}
-                    <div className="toolbar-container" style={{ position: 'sticky', top: 0, zIndex: 1000, padding: '5px 2rem', minHeight: '45px', display: 'flex', alignItems: 'center', borderBottom: '1px solid #eef2f5', background: '#fff' }}>
+                    <div className="toolbar-container" style={{ position: 'sticky', top: 0, zIndex: 1000, padding: '5px 2rem', minHeight: '45px', display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-card)' }}>
                         {selectedCount > 0 ? (
                             <div className="action-panel" style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%', overflowX: 'auto', paddingTop: '4px', paddingBottom: '2px' }}>
                                 <div className="selection-count" style={{ marginRight: '10px', fontWeight: 600, color: 'var(--primary-color)', whiteSpace: 'nowrap' }}>
@@ -1101,7 +1104,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                     <div className="stat-group">UNASSIGNED <span className="stat-val-bold" style={{ color: '#2ecc71' }}>2</span></div>
                     <div className="stat-group">UNTOUCHED <span className="stat-val-bold" style={{ color: '#f59e0b' }}>4</span></div>
                     <div className="stat-group">NO FOLLOWUP <span className="stat-val-bold" style={{ color: '#ef4444' }}>12</span></div>
-                    <div className="stat-group">DORMANT <span className="stat-val-bold" style={{ color: '#94a3b8' }}>15</span></div>
+                    <div className="stat-group">DORMANT <span className="stat-val-bold" style={{ color: 'var(--text-muted)' }}>15</span></div>
                     <div className="stat-group">RETURNING <span className="stat-val-bold" style={{ color: '#3b82f6' }}>9</span></div>
                 </div>
             </footer>
@@ -1235,15 +1238,15 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                     style={{ position: 'fixed', top: activeScorePopover.y, left: activeScorePopover.x, zIndex: 2000, background: 'rgba(30, 41, 59, 0.95)', backdropFilter: 'blur(12px)', color: '#fff', padding: '16px', borderRadius: '12px', boxShadow: '0 10px 25px rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', minWidth: '240px' }}
                     onMouseLeave={() => setActiveScorePopover(null)}
                 >
-                    <div style={{ fontSize: '0.7rem', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '10px', letterSpacing: '0.5px' }}>Lead Scoring Hub</div>
+                    <div style={{ fontSize: '0.7rem', fontWeight: 900, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '10px', letterSpacing: '0.5px' }}>Lead Scoring Hub</div>
 
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '10px' }}>
                         <div>
-                            <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>TOTAL SCORE</div>
-                            <div style={{ fontSize: '1.2rem', fontWeight: 900, color: '#3b82f6' }}>{activeScorePopover.scoring.total}<span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>/100</span></div>
+                            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>TOTAL SCORE</div>
+                            <div style={{ fontSize: '1.2rem', fontWeight: 900, color: '#3b82f6' }}>{activeScorePopover.scoring.total}<span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>/100</span></div>
                         </div>
                         <div style={{ textAlign: 'right' }}>
-                            <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>INTENT</div>
+                            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>INTENT</div>
                             <div style={{ fontSize: '0.9rem', fontWeight: 900, color: '#10b981' }}>{activeScorePopover.scoring.temperature.label}</div>
                         </div>
                     </div>
@@ -1280,7 +1283,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                             )}
                             <div style={{ marginTop: '8px' }}>
                                 {activeScorePopover.ai.fullExplanation.map((exp, idx) => (
-                                    <div key={idx} style={{ fontSize: '0.65rem', color: '#94a3b8', display: 'flex', gap: '5px', marginBottom: '3px' }}>
+                                    <div key={idx} style={{ fontSize: '0.65rem', color: 'var(--text-muted)', display: 'flex', gap: '5px', marginBottom: '3px' }}>
                                         <i className="fas fa-check" style={{ color: '#10b981', marginTop: '2px' }}></i>
                                         <span>{exp}</span>
                                     </div>
@@ -1300,16 +1303,16 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
 
                     return (
                         <div
-                            style={{ position: 'fixed', top: activeMatchPopover.y, left: activeMatchPopover.x, zIndex: 2000, background: '#fff', color: '#0f172a', padding: '16px', borderRadius: '12px', boxShadow: '0 10px 40px rgba(0,0,0,0.15)', border: '1px solid #e2e8f0', minWidth: '320px' }}
+                            style={{ position: 'fixed', top: activeMatchPopover.y, left: activeMatchPopover.x, zIndex: 2000, background: 'var(--bg-card)', color: 'var(--text-main)', padding: '16px', borderRadius: '12px', boxShadow: '0 10px 40px rgba(0,0,0,0.15)', border: '1px solid var(--border-color)', minWidth: '320px' }}
                             onMouseLeave={() => setActiveMatchPopover(null)}
                         >
-                            <div style={{ fontSize: '0.7rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', marginBottom: '12px', letterSpacing: '0.5px', display: 'flex', justifyContent: 'space-between' }}>
+                            <div style={{ fontSize: '0.7rem', fontWeight: 900, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '12px', letterSpacing: '0.5px', display: 'flex', justifyContent: 'space-between' }}>
                                 <span>Top 5 Matches (AI Engine)</span>
                                 {loadingMatches ? <span className="loading-dots">Updating</span> : <span style={{ color: 'var(--primary-color)' }}>{previewMatches.length} Found</span>}
                             </div>
 
                             {loadingMatches ? (
-                                <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '0.8rem' }}>
+                                <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
                                     <div className="loading-spinner" style={{ margin: '0 auto 10px' }}></div>
                                     Syncing with engine...
                                 </div>
@@ -1322,12 +1325,12 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                             onClick={() => onNavigate('lead-matching', currentLead._id)}
                                             style={{ display: 'flex', gap: '12px', alignItems: 'center', padding: '8px', borderRadius: '8px', marginBottom: '4px', cursor: 'pointer', transition: 'all 0.2s' }}
                                         >
-                                            <div style={{ width: '50px', height: '40px', borderRadius: '6px', overflow: 'hidden', background: '#f1f5f9', flexShrink: 0 }}>
+                                            <div style={{ width: '50px', height: '40px', borderRadius: '6px', overflow: 'hidden', background: 'var(--bg-gray)', flexShrink: 0 }}>
                                                 <img src={item.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                             </div>
                                             <div style={{ flex: 1, minWidth: 0 }}>
                                                 <div style={{ fontWeight: 800, fontSize: '0.75rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{typeof (item.propertyType || item.type) === 'object' ? ((item.propertyType || item.type).lookup_value || (item.propertyType || item.type).name) : (getLookupValue('PropertyType', item.propertyType || item.type) || (item.propertyType || item.type))} at {typeof item.location === 'object' ? (item.location.lookup_value || item.location.name) : (getLookupValue('Location', item.location) || item.location)}</div>
-                                                <div style={{ fontSize: '0.65rem', color: '#64748b' }}>₹{renderValue(item.price)} • {renderValue(item.size)}</div>
+                                                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>₹{renderValue(item.price)} • {renderValue(item.size)}</div>
                                             </div>
                                             <div style={{ background: item.matchPercentage > 80 ? '#dcfce7' : '#fef3c7', color: item.matchPercentage > 80 ? '#166534' : '#92400e', padding: '2px 6px', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 900, flexShrink: 0 }}>
                                                 {item.matchPercentage}%
@@ -1336,7 +1339,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                     ))}
 
                                     {previewMatches.length === 0 && (
-                                        <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '0.8rem' }}>
+                                        <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
                                             No direct matches found. Try adjusting lead criteria.
                                         </div>
                                     )}
@@ -1349,7 +1352,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                             >
                                 Open Professional Matching Center
                             </button>
-                            <style>{`.match-item-hover:hover { background: #f8fafc; transform: translateX(4px); }`}</style>
+                            <style>{`.match-item-hover:hover { background: var(--bg-gray); transform: translateX(4px); }`}</style>
                         </div>
                     );
                 })()
@@ -1524,7 +1527,7 @@ const LeadItem = React.memo(function LeadItem({
                                     e.preventDefault();
                                     if (onNavigate) onNavigate('contact-detail', lead._id);
                                 }}
-                                style={{ color: '#0f172a', fontWeight: 800, fontSize: '0.95rem', textDecoration: 'none', display: 'block' }}
+                                style={{ color: 'var(--text-main)', fontWeight: 800, fontSize: '0.95rem', textDecoration: 'none', display: 'block' }}
                             >
                                 {lead.name}
                             </a>
@@ -1562,7 +1565,7 @@ const LeadItem = React.memo(function LeadItem({
                                         <i className="fas fa-check-circle"></i> CONVERTED
                                     </span>
                                 ) : (
-                                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569' }}><i className="fas fa-mobile-alt" style={{ marginRight: '6px', width: '12px' }}></i>{lead.mobile}</div>
+                                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}><i className="fas fa-mobile-alt" style={{ marginRight: '6px', width: '12px' }}></i>{lead.mobile}</div>
                                 )
                             )}
                             {(() => {
@@ -1602,7 +1605,7 @@ const LeadItem = React.memo(function LeadItem({
                         contentEditable
                         suppressContentEditableWarning
                         onBlur={() => showToast(`Requirement updated for ${lead.name}`)}
-                        style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.8rem', textTransform: 'capitalize', outline: 'none', padding: '2px 0' }}
+                        style={{ fontWeight: 800, color: 'var(--text-main)', fontSize: '0.8rem', textTransform: 'capitalize', outline: 'none', padding: '2px 0' }}
                     >{intent}</div>
                     <div style={{ marginTop: '4px', fontSize: '0.7rem' }}>
                         <span
@@ -1620,15 +1623,15 @@ const LeadItem = React.memo(function LeadItem({
 
             <div className="col-budget">
                 <div style={{ lineHeight: 1.4 }}>
-                    <div style={{ fontSize: '0.7rem', fontWeight: 800, color: '#475569', marginBottom: '2px', textTransform: 'uppercase' }}>
+                    <div style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--text-muted)', marginBottom: '2px', textTransform: 'uppercase' }}>
                         {fullPropertyType || "Any Property"}
                     </div>
                     <div style={{ fontWeight: 900, color: '#059669', fontSize: '0.9rem' }}>
                         {lead.budgetDisplay}
                     </div>
                     {lead.reqDisplay?.sizeType && (
-                        <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 800, marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <i className="fas fa-bed" style={{ color: '#94a3b8' }}></i>
+                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 800, marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <i className="fas fa-bed" style={{ color: 'var(--text-muted)' }}></i>
                             {lead.reqDisplay.sizeType}
                         </div>
                     )}
@@ -1636,21 +1639,21 @@ const LeadItem = React.memo(function LeadItem({
             </div>
 
             <div className="col-location">
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '0.75rem', fontWeight: 600, color: '#1e293b' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-main)' }}>
                     {lead.projectName && (
-                        <div style={{ color: '#0f172a', fontWeight: 800 }}>
-                           <i className="fas fa-building" style={{ marginRight: '6px', color: '#64748b', fontSize: '0.65rem' }}></i>
+                        <div style={{ color: 'var(--text-main)', fontWeight: 800 }}>
+                           <i className="fas fa-building" style={{ marginRight: '6px', color: 'var(--text-muted)', fontSize: '0.65rem' }}></i>
                            {renderValue(lead.projectName)}
                         </div>
                     )}
                     {(lead.locHNo || lead.locStreet) && (
                         <div style={{ color: '#334155', fontSize: '0.7rem' }}>
-                            <i className="fas fa-home" style={{ marginRight: '6px', color: '#94a3b8', fontSize: '0.65rem' }}></i>
+                            <i className="fas fa-home" style={{ marginRight: '6px', color: 'var(--text-muted)', fontSize: '0.65rem' }}></i>
                             {[lead.locHNo, lead.locStreet].map(v => renderValue(v)).filter(Boolean).join(', ')}
                         </div>
                     )}
                     {(lead.locArea || lead.locationLines?.area || lead.searchLocation) && (
-                        <div style={{ color: '#64748b', fontSize: '0.7rem' }}>
+                        <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>
                            <i className="fas fa-map-marker-alt" style={{ marginRight: '6px', color: '#ef4444', fontSize: '0.65rem' }}></i>
                            {renderValue(lead.locArea) || renderValue(lead.locationLines?.area) || renderValue(lead.searchLocation)}
                         </div>
@@ -1688,9 +1691,9 @@ const LeadItem = React.memo(function LeadItem({
                         {(lead.sourceLabel || lead.source) && (
                             <span style={{
                                 display: 'inline-flex', alignItems: 'center', gap: '3px',
-                                background: '#f1f5f9',
-                                color: '#475569',
-                                border: '1px solid #e2e8f0',
+                                background: 'var(--bg-gray)',
+                                color: 'var(--text-muted)',
+                                border: '1px solid var(--border-color)',
                                 borderRadius: '4px',
                                 padding: '1px 5px',
                                 fontSize: '0.55rem',
@@ -1714,19 +1717,19 @@ const LeadItem = React.memo(function LeadItem({
                         if (activity) {
                             return (
                                 <div style={{
-                                    background: '#f8fafc',
-                                    border: '1px solid #e2e8f0',
+                                    background: 'var(--bg-gray)',
+                                    border: '1px solid var(--border-color)',
                                     borderRadius: '6px',
                                     padding: '4px 8px',
                                     fontSize: '0.7rem',
-                                    color: '#475569',
+                                    color: 'var(--text-muted)',
                                     fontWeight: 700
                                 }}>
                                     LAST: {renderValue(activity.type).toUpperCase()}
                                 </div>
                             );
                         }
-                        return <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>No activities</span>;
+                        return <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>No activities</span>;
                     })()}
                     
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -1753,7 +1756,7 @@ const LeadItem = React.memo(function LeadItem({
                                     }}>
                                         <i className={`fas ${act.icon}`}></i>
                                     </div>
-                                    <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#475569' }}>{count}</span>
+                                    <span style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--text-muted)' }}>{count}</span>
                                 </div>
                             );
                         })}
@@ -1767,21 +1770,21 @@ const LeadItem = React.memo(function LeadItem({
                         width: '28px', 
                         height: '28px', 
                         fontSize: '0.7rem', 
-                        background: '#f1f5f9', 
-                        color: '#64748b', 
+                        background: 'var(--bg-gray)', 
+                        color: 'var(--text-muted)', 
                         borderRadius: '50%', 
                         display: 'flex', 
                         alignItems: 'center', 
                         justifyContent: 'center',
                         fontWeight: 700,
-                        border: '1px solid #e2e8f0'
+                        border: '1px solid var(--border-color)'
                     }}>
                         {getInitials(lead.owner || 'U')}
                     </div>
                     <div style={{ textAlign: 'right', lineHeight: 1.2 }}>
-                        <div style={{ fontSize: '0.75rem', fontWeight: 900, color: '#0f172a' }}>{getUserName(lead.assignment?.assignedTo || lead.owner)}</div>
-                        <div style={{ fontSize: '0.6rem', color: '#64748b', fontWeight: 700 }}>{getTeamName(lead.assignment?.team || lead.team)}</div>
-                        <div style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600, marginTop: '2px' }}>
+                        <div style={{ fontSize: '0.75rem', fontWeight: 900, color: 'var(--text-main)' }}>{getUserName(lead.assignment?.assignedTo || lead.owner)}</div>
+                        <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', fontWeight: 700 }}>{getTeamName(lead.assignment?.team || lead.team)}</div>
+                        <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', fontWeight: 600, marginTop: '2px' }}>
                             {lead.updatedAt ? new Date(lead.updatedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' }) + ' ' + new Date(lead.updatedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) : ''}
                         </div>
                     </div>
@@ -1835,7 +1838,7 @@ const LeadCard = React.memo(function LeadCard({
     return (
         <div
             style={{
-                backgroundColor: '#fff',
+                backgroundColor: 'var(--bg-card)',
                 borderRadius: '12px',
                 border: isSelected ? '2px solid var(--primary-color)' : '1px solid #e2e8f0',
                 padding: '16px',
@@ -1887,14 +1890,14 @@ const LeadCard = React.memo(function LeadCard({
                         </div>
                     </div>
                     <div>
-                        <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '1rem' }}>{lead.name}</div>
-                        <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{lead.mobile}</div>
+                        <div style={{ fontWeight: 700, color: 'var(--text-main)', fontSize: '1rem' }}>{lead.name}</div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{lead.mobile}</div>
                     </div>
                 </div>
                 <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(lead._id)} style={{ width: '18px', height: '18px', cursor: 'pointer' }} />
             </div>
 
-            <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '8px', marginBottom: '12px' }}>
+            <div style={{ background: 'var(--bg-gray)', padding: '10px', borderRadius: '8px', marginBottom: '12px' }}>
                 {(() => {
                     const siteVisit = (lead.activities || []).find(a =>
                         (a.type === 'Site Visit' || a.subject?.toLowerCase().includes('site visit')) &&
@@ -1960,8 +1963,8 @@ const LeadCard = React.memo(function LeadCard({
                     })()}
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem', marginTop: '6px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.7rem', color: '#64748b', fontWeight: 800 }}>
-                         <i className="fas fa-bed" style={{ color: '#94a3b8' }}></i>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 800 }}>
+                         <i className="fas fa-bed" style={{ color: 'var(--text-muted)' }}></i>
                          {lead.reqDisplay?.sizeType || 'Any Size'}
                     </div>
                     <span style={{ fontWeight: 800, color: '#059669', fontSize: '0.85rem' }}>
@@ -1995,7 +1998,7 @@ const LeadCard = React.memo(function LeadCard({
                         );
                     })()}
                 </div>
-                <span style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
                     <i className="fas fa-bullhorn" style={{ fontSize: '0.65rem', opacity: 0.7 }}></i>
                     {String(lead.sourceLabel || renderValue(getLookupValue('Source', lead.source), null) || lead.source || "DIRECT").toUpperCase()}
                 </span>
@@ -2003,15 +2006,15 @@ const LeadCard = React.memo(function LeadCard({
 
             <div style={{ padding: '10px 0', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <div className="avatar-circle" style={{ width: '28px', height: '28px', fontSize: '0.7rem', background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b' }}>
+                    <div className="avatar-circle" style={{ width: '28px', height: '28px', fontSize: '0.7rem', background: 'var(--bg-gray)', border: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>
                         {getInitials(getUserName(lead.rawOwner || lead.owner))}
                     </div>
                     <div style={{ lineHeight: 1.2 }}>
-                        <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>{getUserName(lead.assignment?.assignedTo || lead.owner)}</div>
-                        <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 700 }}>{getTeamName(lead.assignment?.team || lead.team)}</div>
+                        <div style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--text-main)' }}>{getUserName(lead.assignment?.assignedTo || lead.owner)}</div>
+                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 700 }}>{getTeamName(lead.assignment?.team || lead.team)}</div>
                     </div>
                 </div>
-                <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600 }}>
+                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600 }}>
                     {lead.updatedAt ? new Date(lead.updatedAt).toLocaleDateString() : ''}
                 </div>
             </div>

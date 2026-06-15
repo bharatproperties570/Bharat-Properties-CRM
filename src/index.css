@@ -1973,7 +1973,7 @@ body {
 .pipeline-dashboard {
     display: flex;
     padding: 0;
-    background: #fff;
+    background: var(--bg-card);
     border-bottom: 1px solid var(--border-color);
     /* overflow-x: auto; REMOVED to allow dropdowns */
     gap: 0;
@@ -1987,13 +1987,13 @@ body {
     justify-content: center;
     padding: 1rem 1rem 1rem 2.5rem;
     /* Extra left padding for arrow tail */
-    background: #fff;
+    background: var(--bg-gray);
     min-width: 180px;
     height: 70px;
     border: none;
     border-radius: 0;
     box-shadow: none;
-    color: #333;
+    color: var(--text-main);
     transition: all 0.2s;
     overflow: visible;
     /* CRITICAL for dropdown */
@@ -2023,7 +2023,7 @@ body {
     height: 100%;
     transform: skewX(-20deg);
     /* The arrow slant */
-    background: #fff;
+    background: var(--bg-gray);
     border-right: 1px solid #ccc;
     z-index: 10;
 }
@@ -2038,7 +2038,7 @@ body {
     margin-right: -15px;
     /* Overlap */
     padding-left: 30px;
-    background: #f8fafc;
+    background: var(--bg-gray);
 }
 
 .pipeline-item:first-child {
@@ -2048,7 +2048,7 @@ body {
 }
 
 .pipeline-item:hover {
-    background: #eef2f6;
+    background: var(--contact-row-hover);
     transform: none;
     /* remove lift */
     box-shadow: none;
@@ -2065,7 +2065,7 @@ body {
 .pipeline-label {
     font-size: 0.75rem;
     font-weight: 800;
-    color: #1a1f23;
+    color: var(--text-main);
     text-transform: uppercase;
 }
 
@@ -2134,8 +2134,8 @@ body {
 /* ✅ System dark mode — only applies when user hasn't explicitly chosen light */
 /* html[data-theme="light"] is excluded so manual light mode always wins */
 @media (prefers-color-scheme: dark) {
-  html:not([data-theme="light"]) :root,
-  html:not([data-theme="light"]):root {
+  html.dark-mode :root,
+  html.dark-mode:root {
     --bg-light: #111827;
     --bg-gray: #1f2937;
     --text-main: #f9fafb;
@@ -2147,32 +2147,7 @@ body {
     --header-bg-translucent: rgba(17, 24, 39, 0.7);
   }
 
-  html:not([data-theme="light"]) .search-min {
-    background: var(--bg-gray);
-    border-color: var(--border-color);
-  }
-
-  html:not([data-theme="light"]) .search-input-premium {
-    background: var(--bg-gray);
-    border-color: var(--border-color);
-    color: var(--text-main);
-  }
-
-  html:not([data-theme="light"]) .search-input-premium::placeholder {
-    color: var(--text-muted);
-  }
-
-  html:not([data-theme="light"]) .search-min input {
-    color: var(--text-main);
-  }
-
-  html:not([data-theme="light"]) .search-clear-btn {
-    color: var(--text-muted);
-  }
-
-  html:not([data-theme="light"]) .search-spinner {
-    border-top-color: var(--text-muted);
-  }
+  
 }
 
 /* ✅ Force light mode variables when explicitly selected — overrides everything */
@@ -2359,7 +2334,7 @@ html[data-theme="light"] {
 
 /* Enhanced Footer Stats */
 .footer-stats-bar {
-    background: #fff;
+    background: var(--bg-card);
     border-top: 1px solid var(--border-color);
     padding: 12px 2rem;
     display: flex;
@@ -2372,7 +2347,7 @@ html[data-theme="light"] {
 .stat-group {
     font-size: 0.7rem;
     font-weight: 800;
-    color: #1a1f23;
+    color: var(--text-main);
     text-transform: uppercase;
     letter-spacing: 0.5px;
     display: flex;
@@ -3159,10 +3134,10 @@ html[data-theme="light"] {
 /* View Toggle Switch */
 .view-toggle-group {
     display: flex;
-    background: #f1f5f9;
+    background: var(--bg-gray);
     padding: 3px;
     border-radius: 8px;
-    border: 1px solid #e2e8f0;
+    border: 1px solid var(--border-color);
 }
 
 .view-toggle-btn {
@@ -3170,7 +3145,7 @@ html[data-theme="light"] {
     border-radius: 6px;
     font-size: 0.75rem;
     font-weight: 700;
-    color: #64748b;
+    color: var(--text-muted);
     border: none;
     background: transparent;
     cursor: pointer;
@@ -3181,7 +3156,7 @@ html[data-theme="light"] {
 }
 
 .view-toggle-btn.active {
-    background: white;
+    background: var(--bg-card);
     color: var(--primary-color);
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 }
@@ -3451,3 +3426,28 @@ html[data-theme="light"] {
 .map-property-card:active {
     transform: translateY(0);
 }
+
+/* Global Dark Mode Search Overrides */
+
+html.dark-mode .search-min {
+  background: var(--bg-gray);
+  border-color: var(--border-color);
+}
+html.dark-mode .search-input-premium {
+  background: var(--bg-gray);
+  border-color: var(--border-color);
+  color: var(--text-main);
+}
+html.dark-mode .search-input-premium::placeholder {
+  color: var(--text-muted);
+}
+html.dark-mode .search-min input {
+  color: var(--text-main);
+}
+html.dark-mode .search-clear-btn {
+  color: var(--text-muted);
+}
+html.dark-mode .search-spinner {
+  border-top-color: var(--text-muted);
+}
+

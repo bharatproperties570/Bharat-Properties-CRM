@@ -4,7 +4,7 @@ import { useTheme } from '../../context/ThemeContext';
 import {
   BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, Tooltip, ResponsiveContainer,
-  AreaChart, Area, CartesianGrid, LineChart, Line
+  AreaChart, Area, CartesianGrid, LineChart, Line, Legend
 } from 'recharts';
 import './InventoryAnalyticsPage.css';
 
@@ -345,14 +345,62 @@ const InventoryAnalyticsPage = ({ onNavigate }) => {
     const map = {};
     filtered.forEach(i => {
       (i.history || []).forEach(h => {
-        const result = h.details?.result;
-        if (result) map[result] = (map[result] || 0) + 1;
+        const result = h.details?.result || (h.note && h.note.includes(' - ') ? h.note.split(' - ')[0].replace(/\(.*?\)/g, '').trim() : null);
+        const reason = h.details?.reason || (h.note && h.note.includes('(') && h.note.includes(')') ? h.note.substring(h.note.indexOf('(')+1, h.note.indexOf(')')) : 'Unspecified');
+        if (result) {
+          if (!map[result]) map[result] = { name: result, total: 0 };
+          map[result].total++;
+          map[result][reason] = (map[result][reason] || 0) + 1;
+        }
       });
     });
-    const colors = ['#10b981','#3b82f6','#f59e0b','#ef4444','#8b5cf6','#ec4899','#14b8a6'];
-    return Object.entries(map).sort((a,b) => b[1]-a[1]).slice(0, 8)
-      .map(([name, count], i) => ({ name, count, color: colors[i % colors.length] }));
+    return Object.values(map)
+      .sort((a,b) => b.total - a.total);
   }, [filtered]);
+
+  const feedbackReasons = useMemo(() => {
+    const reasons = new Set();
+    feedbackData.forEach(item => {
+      Object.keys(item).forEach(k => {
+        if (k !== 'name' && k !== 'total') reasons.add(k);
+      });
+    });
+    return Array.from(reasons);
+  }, [feedbackData]);
+
+  const recentFeedbacks = useMemo(() => {
+    const fbs = [];
+    filtered.forEach(i => {
+      (i.history || []).forEach(h => {
+        let text = h.details?.feedback;
+        let result = h.details?.result;
+        let reason = h.details?.reason;
+        let owner = h.details?.owner || h.actor || 'Owner';
+
+        if (!text && h.note && h.note.includes(' - ')) {
+           const parts = h.note.split(' - ');
+           text = parts.slice(1).join(' - ').trim();
+           if (!result) result = parts[0].replace(/\(.*?\)/g, '').trim();
+           if (!reason) reason = parts[0].includes('(') ? parts[0].substring(parts[0].indexOf('(')+1, parts[0].indexOf(')')) : 'Unspecified';
+        }
+        
+        if (text && text.trim().length > 0 && text !== 'No additional notes') {
+          fbs.push({
+            unitNo: i.unitNo || 'Unknown',
+            result: result || 'Feedback',
+            reason: reason || 'Unspecified',
+            text: text,
+            owner: owner,
+            date: new Date(h.date || h.createdAt || new Date()).getTime()
+          });
+        }
+      });
+    });
+    return fbs.sort((a,b) => b.date - a.date).slice(0, 5);
+  }, [filtered]);
+  
+  // Vibrant palette for reasons
+  const REASON_COLORS = ['#3b82f6', '#ec4899', '#f59e0b', '#10b981', '#8b5cf6', '#14b8a6', '#f97316', '#6366f1', '#eab308'];
 
   // ── Stale Alert Badge ─────────────────────────────────────
   const getStaleBadge = (days) => {
@@ -710,26 +758,64 @@ const InventoryAnalyticsPage = ({ onNavigate }) => {
             </div>
 
             {/* Feedback Outcomes */}
-            <div className="inv-chart-card">
+            <div className="inv-chart-card" style={{gridColumn:'1 / -1'}}>
               <div className="inv-chart-header">
-                <div className="inv-chart-title"><i className="fas fa-comments" /> Owner Feedback Outcomes</div>
+                <div className="inv-chart-title"><i className="fas fa-comments" /> Owner Feedback Outcomes (with Reason Breakdown)</div>
                 <span className="inv-chart-badge">{kpis.withFeedback} contacted</span>
               </div>
-              {loading ? <Skeleton height={250}/> : feedbackData.length === 0 ? (
-                <div className="inv-empty"><i className="fas fa-comment-slash"/><p>No feedback data recorded yet</p></div>
-              ) : (
-                <ResponsiveContainer width="100%" height={230}>
-                  <BarChart data={feedbackData} layout="vertical" barSize={14}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} horizontal={false}/>
-                    <XAxis type="number" tick={{fill:tickColor,fontSize:10}} axisLine={false} tickLine={false}/>
-                    <YAxis type="category" dataKey="name" width={110} tick={{fill:tickColor,fontSize:10}} axisLine={false} tickLine={false}/>
-                    <Tooltip content={<TipT/>}/>
-                    <Bar dataKey="count" name="Count" radius={[0,4,4,0]}>
-                      {feedbackData.map((e,i)=><Cell key={i} fill={e.color}/>)}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
+              
+              <div style={{display:'grid', gridTemplateColumns:'1fr 350px', gap:'1.5rem', marginTop:'1rem'}}>
+                {/* Left Side: Stacked Bar Chart */}
+                <div style={{minHeight: 250}}>
+                  {loading ? <Skeleton height={250}/> : feedbackData.length === 0 ? (
+                    <div className="inv-empty"><i className="fas fa-comment-slash"/><p>No feedback data recorded yet</p></div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={Math.max(280, feedbackData.length * 35)}>
+                      <BarChart data={feedbackData} layout="vertical" barSize={20}>
+                        <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} horizontal={false}/>
+                        <XAxis type="number" tick={{fill:tickColor,fontSize:10}} axisLine={false} tickLine={false}/>
+                        <YAxis type="category" dataKey="name" width={120} tick={{fill:tickColor,fontSize:10}} axisLine={false} tickLine={false}/>
+                        <Tooltip contentStyle={{background:'var(--an-bg-card)', border:'1px solid var(--an-border)', borderRadius:8}} itemStyle={{fontSize:'0.8rem'}} />
+                        <Legend wrapperStyle={{fontSize:'0.75rem', paddingTop:10}} />
+                        {feedbackReasons.map((reason, i) => (
+                          <Bar key={reason} dataKey={reason} stackId="a" fill={REASON_COLORS[i % REASON_COLORS.length]} radius={[0, 0, 0, 0]} />
+                        ))}
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+
+                {/* Right Side: Voice of the Owner Feed */}
+                <div style={{display:'flex', flexDirection:'column', gap:'0.75rem', borderLeft:'1px dashed var(--an-border)', paddingLeft:'1.5rem'}}>
+                  <div style={{fontSize:'0.8rem', fontWeight:600, color:'var(--an-text-main)', textTransform:'uppercase', letterSpacing:'0.5px'}}>
+                    <i className="fas fa-microphone-alt" style={{marginRight:6, color:'#f59e0b'}}/> Voice of the Owner
+                  </div>
+                  {recentFeedbacks.length === 0 ? (
+                    <div className="inv-empty" style={{height:'100%', minHeight:100}}><p style={{fontSize:'0.8rem'}}>No recent qualitative feedback.</p></div>
+                  ) : (
+                    <div style={{display:'flex', flexDirection:'column', gap:'0.5rem', overflowY:'auto', maxHeight:250, paddingRight:5}}>
+                      {recentFeedbacks.map((fb, idx) => (
+                        <div key={idx} style={{background:'rgba(255,255,255,0.02)', border:'1px solid var(--an-border)', padding:'10px 12px', borderRadius:6}}>
+                          <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4}}>
+                            <span style={{fontSize:'0.75rem', fontWeight:700, color:'var(--an-primary)'}}>{fb.unitNo}</span>
+                            <span style={{fontSize:'0.65rem', color:'var(--an-text-muted)'}}>{new Date(fb.date).toLocaleDateString()}</span>
+                          </div>
+                          <div style={{fontSize:'0.7rem', color:'var(--an-text-main)', marginBottom:6}}>
+                            <span style={{background:'rgba(255,255,255,0.05)', padding:'2px 6px', borderRadius:4, marginRight:6}}>{fb.result}</span>
+                            {fb.reason && fb.reason !== 'Unspecified' && <span style={{color:'var(--an-text-muted)'}}>({fb.reason})</span>}
+                          </div>
+                          <div style={{fontSize:'0.8rem', color:'var(--an-text-main)', fontStyle:'italic', lineHeight:1.4}}>
+                            "{fb.text}"
+                          </div>
+                          <div style={{fontSize:'0.65rem', color:'var(--an-text-muted)', marginTop:6, textAlign:'right'}}>
+                            - {fb.owner}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </div>

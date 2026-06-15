@@ -3,6 +3,7 @@
  * 100% backend-live · No mock data · Light + Dark theme · Real message dispatch
  */
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import { useTheme } from '../../context/ThemeContext';
 import { activitiesAPI, emailAPI, conversationAPI, api, googleSettingsAPI, BASE_BACKEND_URL } from '../../utils/api';
 import ComposeEmailModal from './components/ComposeEmailModal';
 import ViewEmailModal from './components/ViewEmailModal';
@@ -56,8 +57,8 @@ function initials(n='') { return n.split(' ').slice(0,2).map(w=>w[0]).join('').t
 
 /* ══════════════════════════════════════════════════════════════════════════ */
 export default function CommunicationPage() {
-    const [theme,       setTheme]       = useState('light'); // 'light' | 'dark'
-    const T = theme === 'dark' ? DARK : LIGHT;
+    const { isDark } = useTheme();
+    const T = isDark ? DARK : LIGHT;
 
     const [channel,     setChannel]     = useState('all');
     const [subTab,      setSubTab]      = useState('all');   // all | matched | unmatched
@@ -342,7 +343,7 @@ export default function CommunicationPage() {
     };
 
     /* ══════════════════════════ RENDER ══════════════════════════════════════ */
-    const isDark = theme === 'dark';
+    
 
     return (
         <div style={{ background: T.bg, height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden', fontFamily:"'Inter', sans-serif", color: T.text, transition:'background 0.3s, color 0.3s' }}>
@@ -425,12 +426,7 @@ export default function CommunicationPage() {
 
 
                     {/* Theme toggle */}
-                    <button onClick={() => setTheme(t => t==='dark'?'light':'dark')} title="Toggle theme" style={{
-                        padding:'7px 12px', borderRadius:'9px', border:`1px solid ${T.border}`,
-                        background: T.badge, color: T.text2, cursor:'pointer', fontSize:'1rem',
-                    }}>
-                        {isDark ? '☀️' : '🌙'}
-                    </button>
+                    
 
                     {/* Compose */}
                     <button onClick={() => setComposing(true)} style={{

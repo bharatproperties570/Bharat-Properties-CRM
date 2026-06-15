@@ -71,11 +71,11 @@ const OwnerSuggestionSection = ({ inventory, onRefresh }) => {
     if (loading) return (
         <div className="glass-card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div style={{ width: '30px', height: '30px', background: '#f1f5f9', borderRadius: '8px', animation: 'pulse 1.5s infinite' }}></div>
-                <div style={{ height: '14px', width: '120px', background: '#f1f5f9', borderRadius: '4px', animation: 'pulse 1.5s infinite' }}></div>
+                <div style={{ width: '30px', height: '30px', background: 'var(--bg-gray)', borderRadius: '8px', animation: 'pulse 1.5s infinite' }}></div>
+                <div style={{ height: '14px', width: '120px', background: 'var(--bg-gray)', borderRadius: '4px', animation: 'pulse 1.5s infinite' }}></div>
             </div>
             {[1, 2].map(i => (
-                <div key={i} style={{ height: '60px', background: '#f8fafc', borderRadius: '12px', animation: 'pulse 1.5s infinite' }}></div>
+                <div key={i} style={{ height: '60px', background: 'var(--bg-gray)', borderRadius: '12px', animation: 'pulse 1.5s infinite' }}></div>
             ))}
         </div>
     );
@@ -90,9 +90,9 @@ const OwnerSuggestionSection = ({ inventory, onRefresh }) => {
         return (
             <div key={contact._id} style={{ 
                 padding: '12px', 
-                background: '#fff', 
+                background: 'var(--bg-card)', 
                 borderRadius: '16px', 
-                border: '1px solid #f1f5f9',
+                border: '1px solid var(--border-color)',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '12px',
@@ -103,23 +103,23 @@ const OwnerSuggestionSection = ({ inventory, onRefresh }) => {
                     width: '36px', 
                     height: '36px', 
                     borderRadius: '10px', 
-                    background: '#f8fafc',
+                    background: 'var(--bg-gray)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     fontSize: '0.75rem',
                     fontWeight: 900,
-                    color: '#64748b',
-                    border: '1px solid #e2e8f0'
+                    color: 'var(--text-muted)',
+                    border: '1px solid var(--border-color)'
                 }}>
                     {getInitials(contact.name)}
                 </div>
                 
                 <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 850, color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 850, color: 'var(--text-main)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {contact.name}
                     </p>
-                    <p style={{ margin: 0, fontSize: '0.62rem', color: '#94a3b8', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <p style={{ margin: 0, fontSize: '0.62rem', color: 'var(--text-muted)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         <i className="fas fa-map-marker-alt" style={{ fontSize: '0.55rem' }}></i>
                         <span>{addrStr}</span>
                     </p>
@@ -173,8 +173,8 @@ const OwnerSuggestionSection = ({ inventory, onRefresh }) => {
                         <i className="fas fa-lightbulb" style={{ color: '#4f46e5', fontSize: '0.9rem' }}></i>
                     </div>
                     <div>
-                        <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 900, color: '#0f172a' }}>Owner Suggestions</h3>
-                        <p style={{ margin: 0, fontSize: '0.6rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Intelligence Match</p>
+                        <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 900, color: 'var(--text-main)' }}>Owner Suggestions</h3>
+                        <p style={{ margin: 0, fontSize: '0.6rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Intelligence Match</p>
                     </div>
                 </div>
                 {suggestions.length > 0 && (
@@ -185,18 +185,18 @@ const OwnerSuggestionSection = ({ inventory, onRefresh }) => {
             </div>
 
             {suggestions.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '20px 10px', background: '#f8fafc', borderRadius: '16px', border: '1px dashed #e2e8f0' }}>
-                    <i className="fas fa-search-location" style={{ fontSize: '1.2rem', color: '#cbd5e1', marginBottom: '8px' }}></i>
-                    <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>No potential owner matches found in this location.</p>
-                    <p style={{ margin: '4px 0 0 0', fontSize: '0.6rem', color: '#94a3b8', fontWeight: 500 }}>Matching is based on Unit No & City intelligence.</p>
+                <div style={{ textAlign: 'center', padding: '20px 10px', background: 'var(--bg-gray)', borderRadius: '16px', border: '1px dashed #e2e8f0' }}>
+                    <i className="fas fa-search-location" style={{ fontSize: '1.2rem', color: 'var(--text-muted)', marginBottom: '8px' }}></i>
+                    <p style={{ margin: 0, fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>No potential owner matches found in this location.</p>
+                    <p style={{ margin: '4px 0 0 0', fontSize: '0.6rem', color: 'var(--text-muted)', fontWeight: 500 }}>Matching is based on Unit No & City intelligence.</p>
                 </div>
             ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                     {highConfidence.length > 0 ? (
                         highConfidence.map(renderContact)
                     ) : (
-                        <div style={{ textAlign: 'center', padding: '16px', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #e2e8f0', marginBottom: '8px' }}>
-                            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>No exact or fuzzy unit matches found.</p>
+                        <div style={{ textAlign: 'center', padding: '16px', background: 'var(--bg-gray)', borderRadius: '12px', border: '1px dashed #e2e8f0', marginBottom: '8px' }}>
+                            <p style={{ margin: 0, fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>No exact or fuzzy unit matches found.</p>
                         </div>
                     )}
 
@@ -208,23 +208,23 @@ const OwnerSuggestionSection = ({ inventory, onRefresh }) => {
                                     width: '100%',
                                     padding: '8px 12px',
                                     background: showLocationMatches ? '#f1f5f9' : '#fff',
-                                    border: '1px solid #e2e8f0',
+                                    border: '1px solid var(--border-color)',
                                     borderRadius: '10px',
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'space-between',
                                     cursor: 'pointer',
-                                    color: '#475569',
+                                    color: 'var(--text-muted)',
                                     fontSize: '0.7rem',
                                     fontWeight: 700,
                                     transition: 'all 0.2s'
                                 }}
                             >
                                 <span>
-                                    <i className="fas fa-map-marked-alt" style={{ marginRight: '6px', color: '#94a3b8' }}></i>
+                                    <i className="fas fa-map-marked-alt" style={{ marginRight: '6px', color: 'var(--text-muted)' }}></i>
                                     Show Location-Based Options ({locationMatches.length})
                                 </span>
-                                <i className={`fas fa-chevron-${showLocationMatches ? 'up' : 'down'}`} style={{ color: '#94a3b8', fontSize: '0.6rem' }}></i>
+                                <i className={`fas fa-chevron-${showLocationMatches ? 'up' : 'down'}`} style={{ color: 'var(--text-muted)', fontSize: '0.6rem' }}></i>
                             </button>
                             
                             {showLocationMatches && (

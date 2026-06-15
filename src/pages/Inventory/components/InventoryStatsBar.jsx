@@ -3,7 +3,7 @@ import { renderValue } from '../../../utils/renderUtils';
 
 const InventoryStatsBar = ({ statusFilter, setStatusFilter, activeCount, inactiveCount, setCurrentPage, onNavigate }) => {
     return (
-        <div className="inventory-stats-row" style={{ padding: '8px 25px', display: 'flex', alignItems: 'center', justifyContent: 'flex-start', background: '#fff', borderBottom: '1px solid #f1f5f9' }}>
+        <div className="inventory-stats-row" style={{ padding: '8px 25px', display: 'flex', alignItems: 'center', justifyContent: 'flex-start', background: 'var(--bg-card)', borderBottom: '1px solid var(--border-color)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0' }}>
                 {/* INACTIVE TAB */}
                 <div
@@ -15,8 +15,8 @@ const InventoryStatsBar = ({ statusFilter, setStatusFilter, activeCount, inactiv
                         padding: '10px 25px 10px 20px',
                         cursor: 'pointer',
                         backgroundColor: statusFilter === 'InActive' ? '#f1f5f9' : '#fff',
-                        color: '#64748b',
-                        border: '1px solid #e2e8f0',
+                        color: 'var(--text-muted)',
+                        border: '1px solid var(--border-color)',
                         borderRight: 'none',
                         fontWeight: 800,
                         fontSize: '0.75rem',
@@ -44,7 +44,7 @@ const InventoryStatsBar = ({ statusFilter, setStatusFilter, activeCount, inactiv
                         cursor: 'pointer',
                         backgroundColor: statusFilter === 'Active' ? '#f1f5f9' : '#fff',
                         color: statusFilter === 'Active' ? '#10b981' : '#64748b',
-                        border: '1px solid #e2e8f0',
+                        border: '1px solid var(--border-color)',
                         marginLeft: '-10px',
                         fontWeight: 800,
                         fontSize: '0.75rem',

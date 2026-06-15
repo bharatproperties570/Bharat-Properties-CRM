@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useTheme } from '../../context/ThemeContext';
 import { useUserContext } from '../../context/UserContext';
 import { api } from '../../utils/api';
 // import { getInitials } from '../../utils/helpers';
@@ -279,7 +280,7 @@ function ProjectsPage({ onNavigate }) {
                         <span style={{
                             position: 'absolute', top: '-5px', right: '-5px',
                             width: '10px', height: '10px', background: 'red', borderRadius: '50%',
-                            border: '2px solid #fff', boxShadow: '0 0 5px rgba(255,0,0,0.3)'
+                            border: '2px solid var(--bg-card)', boxShadow: '0 0 5px rgba(255,0,0,0.3)'
                         }}></span>
                     )}
                 </button>
@@ -293,9 +294,9 @@ function ProjectsPage({ onNavigate }) {
             <div className="content-body" style={{ paddingTop: 0 }}>
                 <div style={{ height: 'calc(100vh - 160px)', position: 'relative', margin: '0', display: 'flex' }}>
                     {/* Sidebar List */}
-                    <div style={{ width: '350px', background: '#fff', borderRight: '1px solid #e2e8f0', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-                        <div style={{ padding: '15px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
-                            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
+                    <div style={{ width: '350px', background: 'var(--bg-card)', borderRight: '1px solid var(--border-color)', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+                        <div style={{ padding: '15px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-gray)' }}>
+                            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '8px' }}>
                                 <i className="fas fa-map-pin" style={{ color: '#ef4444', marginRight: '6px' }}></i>
                                 Projects by Location ({projectsData.length})
                             </div>
@@ -305,19 +306,19 @@ function ProjectsPage({ onNavigate }) {
                             {projectsData.map(project => (
                                 <div
                                     key={project._id}
-                                    style={{ padding: '15px', borderBottom: '1px solid #f1f5f9', cursor: 'pointer', transition: 'background 0.2s' }}
-                                    onMouseOver={e => e.currentTarget.style.background = '#f8fafc'}
-                                    onMouseOut={e => e.currentTarget.style.background = '#fff'}
+                                    style={{ padding: '15px', borderBottom: '1px solid var(--border-color)', cursor: 'pointer', transition: 'background 0.2s' }}
+                                    onMouseOver={e => e.currentTarget.style.background = 'var(--bg-gray)'}
+                                    onMouseOut={e => e.currentTarget.style.background = 'transparent'}
                                     onClick={() => onNavigate('project-detail', project._id)}
                                 >
                                     <div style={{ display: 'flex', gap: '12px' }}>
-                                        <div style={{ width: '50px', height: '50px', background: '#f1f5f9', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                            <i className="fas fa-building" style={{ color: '#cbd5e1' }}></i>
+                                        <div style={{ width: '50px', height: '50px', background: 'var(--bg-gray)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                            <i className="fas fa-building" style={{ color: 'var(--text-muted)' }}></i>
                                         </div>
                                         <div>
-                                            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#1e293b' }}>{project.name}</div>
-                                            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{project.locationSearch || project.address?.location || 'No Location'}</div>
-                                            <span style={{ fontSize: '0.65rem', background: '#ecfdf5', color: '#059669', padding: '2px 6px', borderRadius: '4px', fontWeight: 600, marginTop: '4px', display: 'inline-block' }}>Active</span>
+                                            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-main)' }}>{project.name}</div>
+                                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{project.locationSearch || project.address?.location || 'No Location'}</div>
+                                            <span style={{ fontSize: '0.65rem', background: isDark ? 'rgba(16, 185, 129, 0.15)' : '#ecfdf5', color: isDark ? '#34d399' : '#059669', padding: '2px 6px', borderRadius: '4px', fontWeight: 600, marginTop: '4px', display: 'inline-block' }}>Active</span>
                                         </div>
                                     </div>
                                 </div>
@@ -333,9 +334,9 @@ function ProjectsPage({ onNavigate }) {
                         />
 
                         {/* Map Controls Overlay (Optional extras if needed, but ProfessionalMap handles zoom/controls) */}
-                        <div style={{ position: 'absolute', top: '20px', left: '20px', background: 'rgba(255,255,255,0.9)', padding: '10px 15px', borderRadius: '8px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', backdropFilter: 'blur(4px)', zIndex: 1 }}>
-                            <div style={{ fontWeight: 700, color: '#1e293b' }}><i className="fas fa-info-circle" style={{ color: '#3b82f6', marginRight: '8px' }}></i> Map View Active</div>
-                             <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Displaying {projectsData.length} projects</div>
+                        <div style={{ position: 'absolute', top: '20px', left: '20px', background: 'var(--header-bg-translucent)', padding: '10px 15px', borderRadius: '8px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', backdropFilter: 'blur(4px)', zIndex: 1 }}>
+                            <div style={{ fontWeight: 700, color: 'var(--text-main)' }}><i className="fas fa-info-circle" style={{ color: '#3b82f6', marginRight: '8px' }}></i> Map View Active</div>
+                             <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Displaying {projectsData.length} projects</div>
                         </div>
                     </div>
                 </div>
@@ -351,7 +352,7 @@ function ProjectsPage({ onNavigate }) {
 
                     <div className="content-body" style={{ overflowY: 'visible', paddingTop: 0 }}>
                         {/* Toolbar - Sticky 45px */}
-                        <div className="toolbar-container" style={{ position: 'sticky', top: 0, zIndex: 1000, padding: '5px 2rem', borderBottom: '1px solid #eef2f5', minHeight: '45px', display: 'flex', alignItems: 'center', background: '#fff' }}>
+                        <div className="toolbar-container" style={{ position: 'sticky', top: 0, zIndex: 1000, padding: '5px 2rem', borderBottom: '1px solid var(--border-color)', minHeight: '45px', display: 'flex', alignItems: 'center', background: 'var(--bg-card)' }}>
                             {selectedIds.length > 0 ? (
                                 <div className="action-panel" style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%', overflowX: 'auto', paddingTop: '4px', paddingBottom: '2px' }}>
                                     <div className="selection-count" style={{ marginRight: '10px', fontWeight: 600, color: 'var(--primary-color)', whiteSpace: 'nowrap' }}>
@@ -362,7 +363,7 @@ function ProjectsPage({ onNavigate }) {
                                     {selectedIds.length === 1 && (
                                         <>
                                             <button className="action-btn" title="Add Price" onClick={handlePriceClick}><i className="fas fa-rupee-sign"></i> Price</button>
-                                            <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px' }}></div>
+                                            <div style={{ width: '1px', height: '24px', background: 'var(--border-color)', margin: '0 4px' }}></div>
                                             <PermissionGate module="projects" action="edit">
                                                 <button className="action-btn" title="Edit Project" onClick={handleEditProject}><i className="fas fa-edit"></i> Edit</button>
                                             </PermissionGate>
@@ -370,7 +371,7 @@ function ProjectsPage({ onNavigate }) {
                                             <button className="action-btn" title="Preview"><i className="fas fa-eye"></i> Preview</button>
                                             <button className="action-btn" title="Matched Leads"><i className="fas fa-handshake"></i> Matches</button>
 
-                                            <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px' }}></div>
+                                            <div style={{ width: '1px', height: '24px', background: 'var(--border-color)', margin: '0 4px' }}></div>
 
                                             <button className="action-btn" title="Publish on Website"><i className="fas fa-globe"></i> Publish</button>
                                         </>
@@ -382,7 +383,7 @@ function ProjectsPage({ onNavigate }) {
                                     {/* Single Selection Only (Uploads) */}
                                     {selectedIds.length === 1 && (
                                         <>
-                                            <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px' }}></div>
+                                            <div style={{ width: '1px', height: '24px', background: 'var(--border-color)', margin: '0 4px' }}></div>
                                             <button className="action-btn" title="Upload Files" onClick={handleUploadClick}><i className="fas fa-cloud-upload-alt"></i> Upload</button>
                                             <button className="action-btn" title="Manage Documents" onClick={handleDocumentClick}><i className="fas fa-file-alt"></i> Document</button>
                                         </>
@@ -410,17 +411,17 @@ function ProjectsPage({ onNavigate }) {
                                     </div>
 
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                                        <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                                             Showing: <strong>{projectsData.length}</strong> / <strong>{totalRecords}</strong>
                                         </div>
 
                                         {/* Records Per Page */}
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: '#64748b' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                                             <span>Show:</span>
                                             <select
                                                 value={recordsPerPage}
                                                 onChange={handleRecordsPerPageChange}
-                                                style={{ padding: "4px 8px", border: "1px solid #e2e8f0", borderRadius: "6px", fontSize: "0.8rem", fontWeight: 600, color: "#0f172a", outline: "none", cursor: "pointer", background: '#f8fafc' }}
+                                                style={{ padding: "4px 8px", border: '1px solid var(--border-color)', borderRadius: "6px", fontSize: "0.8rem", fontWeight: 600, color: 'var(--text-main)', outline: "none", cursor: "pointer", background: 'var(--bg-gray)' }}
                                             >
                                                 {[10, 25, 50, 100, 300, 500, 750, 1000].map(v => <option key={v} value={v}>{v}</option>)}
                                             </select>
@@ -431,17 +432,17 @@ function ProjectsPage({ onNavigate }) {
                                             <button
                                                 onClick={goToPreviousPage}
                                                 disabled={currentPage === 1}
-                                                style={{ padding: "6px 12px", border: "1px solid #e2e8f0", borderRadius: "6px", background: currentPage === 1 ? "#f8fafc" : "#fff", color: currentPage === 1 ? "#cbd5e1" : "#0f172a", cursor: currentPage === 1 ? "not-allowed" : "pointer", fontSize: "0.75rem", fontWeight: 600 }}
+                                                style={{ padding: "6px 12px", border: '1px solid var(--border-color)', borderRadius: "6px", background: currentPage === 1 ? 'var(--bg-gray)' : 'var(--bg-card)', color: currentPage === 1 ? 'var(--text-muted)' : 'var(--text-main)', cursor: currentPage === 1 ? "not-allowed" : "pointer", fontSize: "0.75rem", fontWeight: 600 }}
                                             >
                                                 <i className="fas fa-chevron-left"></i> Prev
                                             </button>
-                                            <span style={{ fontSize: "0.8rem", fontWeight: 600, color: "#0f172a", minWidth: "80px", textAlign: "center" }}>
+                                            <span style={{ fontSize: "0.8rem", fontWeight: 600, color: 'var(--text-main)', minWidth: "80px", textAlign: "center" }}>
                                                 {currentPage} / {totalPages || 1}
                                             </span>
                                             <button
                                                 onClick={goToNextPage}
                                                 disabled={currentPage >= totalPages}
-                                                style={{ padding: "6px 12px", border: "1px solid #e2e8f0", borderRadius: "6px", background: currentPage >= totalPages ? "#f8fafc" : "#fff", color: currentPage >= totalPages ? "#cbd5e1" : "#0f172a", cursor: currentPage >= totalPages ? "not-allowed" : "pointer", fontSize: "0.75rem", fontWeight: 600 }}
+                                                style={{ padding: "6px 12px", border: '1px solid var(--border-color)', borderRadius: "6px", background: currentPage >= totalPages ? 'var(--bg-gray)' : 'var(--bg-card)', color: currentPage >= totalPages ? 'var(--text-muted)' : 'var(--text-main)', cursor: currentPage >= totalPages ? "not-allowed" : "pointer", fontSize: "0.75rem", fontWeight: 600 }}
                                             >
                                                 Next <i className="fas fa-chevron-right"></i>
                                             </button>
@@ -453,8 +454,8 @@ function ProjectsPage({ onNavigate }) {
                                                     style={{ 
                                                         display: 'flex', alignItems: 'center', justifyContent: 'center', 
                                                         width: '32px', height: '32px', borderRadius: '8px',
-                                                        border: '1px solid #e2e8f0',
-                                                        background: isSortOpen ? 'var(--primary-color)' : '#fff',
+                                                        border: '1px solid var(--border-color)',
+                                                        background: isSortOpen ? 'var(--primary-color)' : 'var(--bg-card)',
                                                         color: isSortOpen ? '#fff' : '#64748b',
                                                         cursor: 'pointer', transition: 'all 0.2s'
                                                     }}
@@ -466,8 +467,8 @@ function ProjectsPage({ onNavigate }) {
                                                 {isSortOpen && (
                                                     <React.Fragment>
                                                         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 998 }} onClick={() => setIsSortOpen(false)} />
-                                                        <ul className="shadow-lg border-0" style={{ position: 'absolute', top: '100%', right: 0, zIndex: 999, backgroundColor: '#fff', borderRadius: '16px', padding: '10px', minWidth: '220px', marginTop: '8px', listStyle: 'none', border: '1px solid #eef2f5' }}>
-                                                            <li><h6 style={{ fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', color: '#94a3b8', padding: '10px 15px', margin: 0 }}>Advanced Sort</h6></li>
+                                                        <ul className="shadow-lg border-0" style={{ position: 'absolute', top: '100%', right: 0, zIndex: 999, backgroundColor: 'var(--bg-card)', borderRadius: '16px', padding: '10px', minWidth: '220px', marginTop: '8px', listStyle: 'none', border: '1px solid var(--border-color)' }}>
+                                                            <li><h6 style={{ fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-muted)', padding: '10px 15px', margin: 0 }}>Advanced Sort</h6></li>
                                                             {[
                                                                 { label: 'A-Z Name', by: 'name', order: 1, icon: 'fa-sort-alpha-down' },
                                                                 { label: 'Newest Created', by: 'createdAt', order: -1, icon: 'fa-calendar-plus' },
@@ -479,7 +480,7 @@ function ProjectsPage({ onNavigate }) {
                                                                 <li key={opt.label}>
                                                                     <button 
                                                                         className={`d-flex align-items-center gap-3`} 
-                                                                        style={{ width: '100%', border: 'none', textAlign: 'left', borderRadius: '10px', padding: '10px 15px', fontSize: '0.85rem', fontWeight: sortConfig.label === opt.label ? 700 : 500, color: sortConfig.label === opt.label ? '#fff' : '#1e293b', background: sortConfig.label === opt.label ? 'var(--primary-color)' : 'transparent', cursor: 'pointer', marginBottom: '2px', transition: 'all 0.2s' }}
+                                                                        style={{ width: '100%', border: 'none', textAlign: 'left', borderRadius: '10px', padding: '10px 15px', fontSize: '0.85rem', fontWeight: sortConfig.label === opt.label ? 700 : 500, color: sortConfig.label === opt.label ? '#fff' : 'var(--text-main)', background: sortConfig.label === opt.label ? 'var(--primary-color)' : 'transparent', cursor: 'pointer', marginBottom: '2px', transition: 'all 0.2s' }}
                                                                         onClick={() => {
                                                                             console.log(`[ProjectSort] Changing sort to: ${opt.label} (${opt.by})`);
                                                                             setSortConfig(opt);
@@ -504,7 +505,7 @@ function ProjectsPage({ onNavigate }) {
                         </div>
 
                         {/* Header */}
-                        <div className="list-header project-list-grid" style={{ position: 'sticky', top: '45px', zIndex: 99, padding: '15px 1.5rem', background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                        <div className="list-header project-list-grid" style={{ position: 'sticky', top: '45px', zIndex: 99, padding: '15px 1.5rem', background: 'var(--bg-gray)', borderBottom: '2px solid var(--border-color)' }}>
                             <div><input type="checkbox" /></div>
                             <div>Project Identity</div>
                             <div>Location & Area</div>
@@ -530,12 +531,12 @@ function ProjectsPage({ onNavigate }) {
                                 }, {})
                             ).map(([teamGroup, projects]) => (
                                 <div key={teamGroup} className="list-group">
-                                    <div className="group-header" style={{ padding: '12px 2rem', background: '#f8fafc', letterSpacing: '0.05em', fontWeight: 800, fontSize: '0.7rem', color: '#475569', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                        <i className="fas fa-users" style={{ color: '#94a3b8', fontSize: '0.9rem' }}></i>
-                                        {teamGroup.toUpperCase()} <span style={{ marginLeft: '4px', background: '#e2e8f0', color: '#475569', padding: '2px 8px', borderRadius: '12px', fontSize: '0.65rem', fontWeight: 700 }}>{projects.length} UNITS</span>
+                                    <div className="group-header" style={{ padding: '12px 2rem', background: 'var(--bg-gray)', letterSpacing: '0.05em', fontWeight: 800, fontSize: '0.7rem', color: 'var(--text-muted)', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        <i className="fas fa-users" style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}></i>
+                                        {teamGroup.toUpperCase()} <span style={{ marginLeft: '4px', background: 'var(--bg-gray)', color: 'var(--text-main)', border: '1px solid var(--border-color)', padding: '2px 8px', borderRadius: '12px', fontSize: '0.65rem', fontWeight: 700 }}>{projects.length} UNITS</span>
                                     </div>
                                     {projects.map((project) => (
-                                        <div key={project._id} className="list-item project-list-grid" style={{ padding: '15px 1.5rem', borderBottom: '1px solid #f1f5f9', transition: 'all 0.2s ease' }}>
+                                        <div key={project._id} className="list-item project-list-grid" style={{ padding: '15px 1.5rem', borderBottom: '1px solid var(--border-color)', transition: 'all 0.2s ease' }}>
                                             <input
                                                 type="checkbox"
                                                 className="item-check"
@@ -556,7 +557,7 @@ function ProjectsPage({ onNavigate }) {
                                                         {project.name}
                                                     </div>
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
-                                                        <span style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>ID: PRJ-{project._id}</span>
+                                                        <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>ID: PRJ-{project._id}</span>
                                                         <i className="fas fa-check-circle" style={{ color: 'var(--primary-color)', fontSize: '0.7rem' }} title="Verified Project"></i>
                                                     </div>
                                                 </div>
@@ -565,7 +566,7 @@ function ProjectsPage({ onNavigate }) {
                                             {/* Col 3: Location */}
                                             <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
                                                 <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.8rem', marginTop: '3px' }}></i>
-                                                <div className="address-clamp" style={{ fontSize: '0.8rem', color: '#475569', lineHeight: '1.4', fontWeight: 500 }}>
+                                                <div className="address-clamp" style={{ fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: '1.4', fontWeight: 500 }}>
                                                     {project.locationSearch || project.address?.location || 'No Location Details'}
                                                 </div>
                                             </div>
@@ -576,7 +577,7 @@ function ProjectsPage({ onNavigate }) {
                                                     <span key={i} className="tag-blue" style={{ fontSize: '0.65rem', padding: '2px 8px' }}>
                                                         {typeof block === 'object' ? block.name : block}
                                                     </span>
-                                                )) : <span style={{ color: '#94a3b8', fontSize: '0.75rem', fontStyle: 'italic' }}>Open Campus</span>}
+                                                )) : <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', fontStyle: 'italic' }}>Open Campus</span>}
                                             </div>
 
                                             {/* Col 5: Category (Separated) */}
@@ -590,10 +591,10 @@ function ProjectsPage({ onNavigate }) {
                                             {/* Col 6: Status */}
                                             <div>
                                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                                    <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0f172a', textTransform: 'uppercase' }}>
+                                                    <div style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-main)', textTransform: 'uppercase' }}>
                                                         {getLookupValue('ProjectStatus', project.status) || 'N/A'}
                                                     </div>
-                                                    <div className="progress-bar-bg" style={{ width: '100%', height: '4px', background: '#e2e8f0', borderRadius: '2px' }}>
+                                                    <div className="progress-bar-bg" style={{ width: '100%', height: '4px', background: 'var(--border-color)', borderRadius: '2px' }}>
                                                         <div style={{
                                                             width: getLookupValue('ProjectStatus', project.status) === 'Ready to Move' ? '100%' :
                                                                 getLookupValue('ProjectStatus', project.status) === 'Under Construction' ? '65%' : '20%',
@@ -602,7 +603,7 @@ function ProjectsPage({ onNavigate }) {
                                                             borderRadius: '2px'
                                                         }}></div>
                                                     </div>
-                                                    <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600 }}>
+                                                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600 }}>
                                                         {getLookupValue('ProjectStatus', project.status) === 'Ready to Move' ? '100% Complete' :
                                                             getLookupValue('ProjectStatus', project.status) === 'Under Construction' ? '65% Complete' : 'Planned'}
                                                     </div>
@@ -613,10 +614,10 @@ function ProjectsPage({ onNavigate }) {
                                             <div className="col-assignment">
                                                 <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', height: '100%', gap: '4px' }}>
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                        <i className="fas fa-users" style={{ fontSize: '0.75rem', color: '#64748b' }}></i>
-                                                        <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>{getTeamName(project.team || project.assignment?.team)}</div>
+                                                        <i className="fas fa-users" style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}></i>
+                                                        <div style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--text-main)' }}>{getTeamName(project.team || project.assignment?.team)}</div>
                                                     </div>
-                                                    <div style={{ fontSize: '0.62rem', color: '#94a3b8', display: 'flex', alignItems: 'center' }}>
+                                                    <div style={{ fontSize: '0.62rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center' }}>
                                                         <i className="far fa-clock" style={{ fontSize: '0.6rem', marginRight: '4px' }}></i>
                                                         {project.createdAt ? new Date(project.createdAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : (project.date || 'N/A')}
                                                     </div>
@@ -636,7 +637,7 @@ function ProjectsPage({ onNavigate }) {
             )}
 
             <footer className="summary-footer" style={{ height: '60px', padding: '0 2rem' }}>
-                <div className="summary-label" style={{ background: '#334155', color: '#fff', padding: '4px 12px', borderRadius: '6px', fontSize: '0.7rem' }}>LIVE SUMMARY</div>
+                <div className="summary-label" style={{ background: 'var(--text-main)', color: 'var(--bg-card)', padding: '4px 12px', borderRadius: '6px', fontSize: '0.7rem' }}>LIVE SUMMARY</div>
                 <div style={{ display: 'flex', gap: '15px' }}>
                     <div className="stat-pill">
                         <span style={{ color: '#6366f1' }}><i className="fas fa-th-list"></i> TOTAL</span>

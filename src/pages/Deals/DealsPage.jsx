@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, Suspense, lazy } from 'react';
+import { useTheme } from '../../context/ThemeContext';
 import { useUserContext } from '../../context/UserContext';
 import { getInitials } from '../../utils/helpers';
 const AddDealModal = lazy(() => import('../../components/AddDealModal'));
@@ -38,8 +39,8 @@ const DealStageChip = ({ stage }) => {
         'Negotiation': { color: '#f59e0b', prob: 70 },
         'Closed Won': { color: '#10b981', prob: 100 },
         'Closed Lost': { color: '#ef4444', prob: 0 },
-        'Closed': { color: '#64748b', prob: 100 },
-        'Cancelled': { color: '#64748b', prob: 0 },
+        'Closed': { color: 'var(--text-muted)', prob: 100 },
+        'Cancelled': { color: 'var(--text-muted)', prob: 0 },
         'Stalled': { color: '#f43f5e', prob: 20 },
         'Booked': { color: '#10b981', prob: 90 },
     };
@@ -61,6 +62,7 @@ const DealStageChip = ({ stage }) => {
 };
 
 function DealsPage({ onNavigate, onAddActivity }) {
+    const { isDark } = useTheme();
     const { teams, users } = useUserContext();
     const { startCall } = useCall();
     const { getLookupValue, sizes } = usePropertyConfig();
@@ -478,15 +480,15 @@ function DealsPage({ onNavigate, onAddActivity }) {
             <div className="view-scroll-wrapper">
                 <div className="page-header">
                     <div className="page-title-group" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <div style={{ width: '40px', height: '40px', background: '#eff6ff', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <div style={{ width: '40px', height: '40px', background: isDark ? 'rgba(59, 130, 246, 0.15)' : '#eff6ff', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             <i className="fas fa-handshake" style={{ color: '#2563eb', fontSize: '1.2rem' }}></i>
                         </div>
                         <div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>Deals</h1>
-                                <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#64748b', background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px' }}>Sales Operations</span>
+                                <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-main)', margin: 0 }}>Deals</h1>
+                                <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', background: 'var(--bg-gray)', padding: '2px 8px', borderRadius: '4px' }}>Sales Operations</span>
                             </div>
-                            <p style={{ fontSize: '0.85rem', color: '#64748b', margin: '2px 0 0 0' }}>Manage your property transactions pipeline</p>
+                            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: '2px 0 0 0' }}>Manage your property transactions pipeline</p>
                         </div>
                     </div>
                     <div className="header-actions" style={{ display: 'flex', gap: '12px' }}>
@@ -520,7 +522,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                 <span style={{
                                     position: 'absolute', top: '-5px', right: '-5px',
                                     width: '10px', height: '10px', background: 'red', borderRadius: '50%',
-                                    border: '2px solid #fff', boxShadow: '0 0 5px rgba(255,0,0,0.3)'
+                                    border: '2px solid var(--bg-card)', boxShadow: '0 0 5px rgba(255,0,0,0.3)'
                                 }}></span>
                             )}
                         </button>
@@ -533,7 +535,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
 
                 <div className="content-body" style={{ overflowY: 'visible', paddingTop: 0 }}>
                     {/* Toolbar */}
-                    <div className="toolbar-container" style={{ position: 'sticky', top: 0, zIndex: 1000, padding: '5px 2rem', borderBottom: '1px solid #eef2f5', minHeight: '45px', display: 'flex', alignItems: 'center', background: '#fff' }}>
+                    <div className="toolbar-container" style={{ position: 'sticky', top: 0, zIndex: 1000, padding: '5px 2rem', borderBottom: '1px solid var(--border-color)', minHeight: '45px', display: 'flex', alignItems: 'center', background: 'var(--bg-card)' }}>
                         {selectedIds.length > 0 ? (
                             <div className="action-panel" style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%', overflowX: 'auto', paddingTop: '4px', paddingBottom: '2px' }}>
                                 <div className="selection-count" style={{ marginRight: '10px', fontWeight: 600, color: 'var(--primary-color)', whiteSpace: 'nowrap' }}>
@@ -576,7 +578,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                         >
                                             <i className="fas fa-phone-alt" style={{ transform: 'scaleX(-1) rotate(5deg)' }}></i> Call
                                         </button>
-                                        <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px' }}></div>
+                                        <div style={{ width: '1px', height: '24px', background: 'var(--border-color)', margin: '0 4px' }}></div>
                                         <button className="action-btn" title="View/Edit Quote" onClick={handleQuoteClick}><i className="fas fa-file-invoice-dollar"></i> Quote</button>
 
                                         <button
@@ -596,7 +598,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                         <button
                                             className="action-btn"
                                             title="Book Deal"
-                                            style={{ background: '#ecfdf5', color: '#059669', borderColor: '#d1fae5' }}
+                                            style={{ background: isDark ? 'rgba(16, 185, 129, 0.15)' : '#ecfdf5', color: isDark ? '#34d399' : '#059669', borderColor: isDark ? '#059669' : '#d1fae5' }}
                                             onClick={() => setIsAddBookingOpen(true)}
                                         >
                                             <i className="fas fa-bookmark"></i> Book
@@ -891,9 +893,9 @@ function DealsPage({ onNavigate, onAddActivity }) {
                     )}
 
                     {currentView === 'list' ? (
-                        <div className="list-content" style={{ height: 'calc(100vh - 250px)', overflow: 'hidden', background: '#fafbfc' }}>
+                        <div className="list-content" style={{ height: 'calc(100vh - 250px)', overflow: 'hidden', background: 'var(--bg-card)' }}>
                             {filteredDeals.length === 0 ? (
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#94a3b8', fontSize: '0.9rem' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
                                     No deals found matching your criteria.
                                 </div>
                             ) : (
@@ -924,7 +926,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                             )}
                         </div>
                     ) : (
-                        <div id="deal-map-wrapper" className="map-view-container" style={{ height: isMapFullscreen ? '100vh' : 'calc(100vh - 250px)', width: isMapFullscreen ? '100vw' : 'auto', position: 'relative', margin: '0', display: 'flex', background: '#fff' }}>
+                        <div id="deal-map-wrapper" className="map-view-container" style={{ height: isMapFullscreen ? '100vh' : 'calc(100vh - 250px)', width: isMapFullscreen ? '100vw' : 'auto', position: 'relative', margin: '0', display: 'flex', background: 'var(--bg-card)' }}>
                             {/* Left Sidebar with Deals List */}
                             <div style={{ width: '320px', background: 'var(--contact-card-bg)', borderRight: '1px solid var(--border-color)', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
                                 <div style={{ flex: 1, overflowY: 'auto' }}>
@@ -971,7 +973,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                                     }}>
                                                         {idx + 1}
                                                     </div>
-                                                    <div style={{ fontSize: '0.7rem', fontWeight: 800, color: '#1e293b' }}>
+                                                    <div style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--text-main)' }}>
                                                         {deal.dealId || `#${String(deal._id).slice(-6).toUpperCase()}`}
                                                     </div>
                                                 </div>
@@ -990,12 +992,12 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                                 >
                                                     {deal.unitNo || 'UNIT'}
                                                 </div>
-                                                <div className="text-ellipsis" style={{ fontWeight: 800, color: '#1e293b', fontSize: '0.8rem' }}>
+                                                <div className="text-ellipsis" style={{ fontWeight: 800, color: 'var(--text-main)', fontSize: '0.8rem' }}>
                                                     {renderValue(deal.unitType) || 'Unit'}
                                                 </div>
                                             </div>
 
-                                            <div style={{ fontSize: '0.75rem', color: '#475569', marginBottom: '4px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '4px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                                                 <div style={{ fontWeight: 700 }}>
                                                     {renderValue(resolveDealLookup(deal.category, 'Category') || resolveDealLookup(deal.propertyType, 'PropertyType'), 'N/A')}
                                                     {deal.subCategory ? ` - ${renderValue(resolveDealLookup(deal.subCategory, 'SubCategory'))}` : ''}
@@ -1014,21 +1016,21 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                                 </div>
                                             </div>
 
-                                            <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px dashed #e2e8f0' }}>
+                                            <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: '1px dashed var(--border-color)' }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px' }}>
                                                     <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.7rem' }}></i>
-                                                    <span className="text-ellipsis" style={{ fontSize: '0.75rem', fontWeight: 700, color: '#0f172a' }}>
+                                                    <span className="text-ellipsis" style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-main)' }}>
                                                         {renderValue(resolveDealLookup(deal.location, 'Locality') || resolveDealLookup(deal.location, 'Area') || resolveDealLookup(deal.location, 'Location'))}
                                                     </span>
                                                 </div>
                                                 {(deal.projectName?.name || deal.projectName) && (
-                                                    <div style={{ fontSize: '0.7rem', color: '#64748b', marginBottom: '4px' }}>
+                                                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '4px' }}>
                                                         <i className="fas fa-building" style={{ marginRight: '4px', fontSize: '0.65rem' }}></i>
                                                         {renderValue(deal.projectName?.name || deal.projectName)}
                                                     </div>
                                                 )}
                                                 {deal.block && (
-                                                    <div style={{ display: 'inline-block', fontSize: '0.6rem', padding: '2px 8px', background: '#f1f5f9', color: '#475569', fontWeight: 800, borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                                                    <div style={{ display: 'inline-block', fontSize: '0.6rem', padding: '2px 8px', background: 'var(--bg-gray)', color: 'var(--text-muted)', fontWeight: 800, borderRadius: '4px', border: '1px solid var(--border-color)' }}>
                                                         BLOCK: {renderValue(deal.block?.name || deal.block)}
                                                     </div>
                                                 )}
@@ -1053,7 +1055,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                         <button 
                                             onClick={() => setIsFilterPanelOpen(true)}
                                             style={{
-                                            background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px',
+                                            background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '6px',
                                             padding: '8px 12px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer',
                                             boxShadow: '0 2px 4px rgba(0,0,0,0.1)', color: Object.keys(filters).length > 0 ? '#2563eb' : 'inherit'
                                         }}>
@@ -1064,7 +1066,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                     <button 
                                         onClick={toggleMapFullscreen}
                                         style={{
-                                        background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px',
+                                        background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '6px',
                                         padding: '8px 12px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer',
                                         boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
                                     }}>
@@ -1075,9 +1077,9 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                 <div style={{ 
                                     position: 'absolute', bottom: '20px', left: '20px', background: 'rgba(255, 255, 255, 0.95)',
                                     padding: '12px', borderRadius: '8px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
-                                    border: '1px solid #e2e8f0', fontSize: '0.75rem', zIndex: 10
+                                    border: '1px solid var(--border-color)', fontSize: '0.75rem', zIndex: 10
                                 }}>
-                                    <div style={{ fontWeight: 700, marginBottom: '8px', color: '#1e293b' }}>Map Legend</div>
+                                    <div style={{ fontWeight: 700, marginBottom: '8px', color: 'var(--text-main)' }}>Map Legend</div>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                             <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#ec4899' }}></div>
@@ -1091,8 +1093,8 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                             <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: '#f59e0b' }}></div>
                                             <span>Rent (Supply Pin)</span>
                                         </div>
-                                        <div style={{ marginTop: '4px', borderTop: '1px solid #e2e8f0', paddingTop: '4px' }}>
-                                            <i className="fas fa-search-plus" style={{ color: '#64748b' }}></i> <span style={{ color: '#64748b', fontSize: '0.7rem' }}>Zoom out to see Deal Clusters</span>
+                                        <div style={{ marginTop: '4px', borderTop: '1px solid var(--border-color)', paddingTop: '4px' }}>
+                                            <i className="fas fa-search-plus" style={{ color: 'var(--text-muted)' }}></i> <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>Zoom out to see Deal Clusters</span>
                                         </div>
                                     </div>
                                 </div>
@@ -1103,7 +1105,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                 </div>
             </div >
 
-            <Suspense fallback={<div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>Loading component...</div>}>
+            <Suspense fallback={<div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading component...</div>}>
                 <AddDealModal
                     isOpen={isAddModalOpen}
                     onClose={() => {
@@ -1249,7 +1251,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                             );
                         })
                     ) : (
-                        <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontStyle: 'italic' }}>Calculating distribution...</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>Calculating distribution...</div>
                     )}
                 </div>
             </footer>
@@ -1261,6 +1263,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
 // --- MEMOIZED COMPONENTS FOR PERFORMANCE ---
 
 const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLookupValue, resolveDealLookup, activeRowMenu, setActiveRowMenu, onAction, dealScores = {}, getUserName, getTeamName, sizes, style }) => {
+    const { isDark } = useTheme();
     
     const s = dealScores[deal._id];
     const scoreVal = s ? s.score : (deal.dealProbability || 0);
@@ -1367,12 +1370,12 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
                     >
                         {deal.unitNo || 'UNIT'}
                     </div>
-                    <div className="text-ellipsis" style={{ fontWeight: 800, color: '#1e293b', fontSize: '0.9rem' }}>
+                    <div className="text-ellipsis" style={{ fontWeight: 800, color: 'var(--text-main)', fontSize: '0.9rem' }}>
                         {renderValue(deal.unitType) || 'Unit'}
                     </div>
                 </div>
                 <div style={{ paddingLeft: '2px' }}>
-                    <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#1e293b', lineHeight: 1.1 }}>
+                    <div style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--text-main)', lineHeight: 1.1 }}>
                         {renderValue(resolveDealLookup(deal.category, 'Category') || resolveDealLookup(deal.propertyType, 'PropertyType'), 'N/A')}
                         {deal.subCategory ? ` - ${renderValue(resolveDealLookup(deal.subCategory, 'SubCategory'))}` : ''}
                     </div>
@@ -1393,30 +1396,30 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
             <div className="super-cell">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px' }}>
                     <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.75rem' }}></i>
-                    <span className="text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>{renderValue(resolveDealLookup(deal.location, 'Locality') || resolveDealLookup(deal.location, 'Area') || resolveDealLookup(deal.location, 'Location'))}</span>
+                    <span className="text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-main)' }}>{renderValue(resolveDealLookup(deal.location, 'Locality') || resolveDealLookup(deal.location, 'Area') || resolveDealLookup(deal.location, 'Location'))}</span>
                 </div>
                 {(deal.projectName?.name || deal.projectName) && (
-                    <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '4px' }}>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '4px' }}>
                         <i className="fas fa-building" style={{ marginRight: '4px', fontSize: '0.7rem' }}></i>
                         {renderValue(deal.projectName?.name || deal.projectName)}
                     </div>
                 )}
                 {deal.block && (
-                    <span className="verified-badge" style={{ fontSize: '0.58rem', padding: '2px 10px', background: '#f1f5f9', color: '#475569', fontWeight: 800 }}>BLOCK: {renderValue(deal.block?.name || deal.block)}</span>
+                    <span className="verified-badge" style={{ fontSize: '0.58rem', padding: '2px 10px', background: 'var(--bg-gray)', color: 'var(--text-muted)', fontWeight: 800 }}>BLOCK: {renderValue(deal.block?.name || deal.block)}</span>
                 )}
             </div>
 
             {/* Col 4: Match */}
-            <div style={{ lineHeight: 1.4, padding: '8px', background: '#f8fafc', borderRadius: '6px' }}>
-                <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.8rem', textTransform: 'capitalize', marginBottom: '4px' }}>{renderValue(resolveDealLookup(deal.intent, 'Intent'))}</div>
+            <div style={{ lineHeight: 1.4, padding: '8px', background: 'var(--bg-gray)', borderRadius: '6px' }}>
+                <div style={{ fontWeight: 800, color: 'var(--text-main)', fontSize: '0.8rem', textTransform: 'capitalize', marginBottom: '4px' }}>{renderValue(resolveDealLookup(deal.intent, 'Intent'))}</div>
                 <div style={{ fontSize: '0.7rem' }}>
                     <span style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: '#fff', fontWeight: 700, padding: '3px 10px', borderRadius: '12px', boxShadow: '0 2px 4px rgba(102, 126, 234, 0.3)' }}>{deal.matched} Matches</span>
                 </div>
             </div>
 
             {/* Col 5: Expectation */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', padding: '8px', background: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)', borderRadius: '6px' }}>
-                <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#15803d' }}>{formatIndianCurrency(deal.price)}</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', padding: '8px', background: isDark ? 'linear-gradient(135deg, rgba(21, 128, 61, 0.2) 0%, rgba(21, 128, 61, 0.1) 100%)' : 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)', borderRadius: '6px' }}>
+                <div style={{ fontSize: '0.95rem', fontWeight: 800, color: isDark ? '#4ade80' : '#15803d' }}>{formatIndianCurrency(deal.price)}</div>
                 
                 {(() => {
                     if (!deal.price) return null;
@@ -1427,7 +1430,7 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
                     
                     if (calcArea && calcArea > 0) {
                         return (
-                            <div style={{ fontSize: '0.65rem', color: '#16a34a', fontWeight: 700, marginBottom: '2px' }}>
+                            <div style={{ fontSize: '0.65rem', color: isDark ? '#4ade80' : '#16a34a', fontWeight: 700, marginBottom: '2px' }}>
                                 ₹{Math.round(deal.price / calcArea).toLocaleString('en-IN')}/{String(calcUnit).replace(/\s+/g, '').toLowerCase()}
                             </div>
                         );
@@ -1435,21 +1438,21 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
                     return null;
                 })()}
 
-                <div style={{ fontSize: '0.65rem', color: '#64748b', lineHeight: 1.2, fontStyle: 'italic', marginBottom: '4px' }}>
+                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', lineHeight: 1.2, fontStyle: 'italic', marginBottom: '4px' }}>
                     {deal.priceInWords || deal.priceWord || numberToIndianWords(deal.price)}
                 </div>
             </div>
 
             {/* Col 6: Owner Details */}
-            <div className="super-cell" style={{ background: '#fefce8', padding: '8px', borderRadius: '6px', borderLeft: '3px solid #eab308' }}>
-                <div className="text-ellipsis" style={{ fontWeight: 700, color: '#0f172a', fontSize: '0.8rem', marginBottom: '4px' }}>
+            <div className="super-cell" style={{ background: isDark ? 'rgba(234, 179, 8, 0.1)' : '#fefce8', padding: '8px', borderRadius: '6px', borderLeft: `3px solid ${isDark ? '#facc15' : '#eab308'}` }}>
+                <div className="text-ellipsis" style={{ fontWeight: 700, color: 'var(--text-main)', fontSize: '0.8rem', marginBottom: '4px' }}>
                     {renderValue(deal.owner?.name || deal.ownerName, 'Unknown')}
                 </div>
-                <div style={{ fontSize: '0.75rem', color: '#8e44ad', fontWeight: 600, marginBottom: '2px' }}>
+                <div style={{ fontSize: '0.75rem', color: isDark ? '#c084fc' : '#8e44ad', fontWeight: 600, marginBottom: '2px' }}>
                     <i className="fas fa-mobile-alt" style={{ marginRight: '4px' }}></i>
                     {renderValue(deal.owner?.phones?.[0]?.number || deal.owner?.mobile || deal.owner?.phone || deal.ownerPhone, 'N/A')}
                 </div>
-                <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
                     <i className="fas fa-envelope" style={{ marginRight: '4px' }}></i>
                     {renderValue(deal.owner?.emails?.[0]?.address || deal.owner?.email || deal.ownerEmail, 'N/A')}
                 </div>
@@ -1459,20 +1462,20 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
             <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
                 {(deal.associatedContact?.name || deal.associateName) ? (
                     <>
-                        <div style={{ fontWeight: 600, color: '#0f172a', fontSize: '0.8rem' }}>
+                        <div style={{ fontWeight: 600, color: 'var(--text-main)', fontSize: '0.8rem' }}>
                             {renderValue(deal.associatedContact?.name || deal.associateName)}
                         </div>
-                        <div style={{ fontSize: '0.75rem', color: '#8e44ad', fontWeight: 600 }}>
+                        <div style={{ fontSize: '0.75rem', color: isDark ? '#c084fc' : '#8e44ad', fontWeight: 600 }}>
                             <i className="fas fa-mobile-alt" style={{ marginRight: '4px' }}></i>
                             {renderValue(deal.associatedContact?.phones?.[0]?.number || deal.associatedContact?.mobile || deal.associatedContact?.phone || deal.associatePhone)}
                         </div>
-                        <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
                             <i className="fas fa-envelope" style={{ marginRight: '4px' }}></i>
                             {renderValue(deal.associatedContact?.emails?.[0]?.address || deal.associatedContact?.email || deal.associateEmail)}
                         </div>
                     </>
                 ) : (
-                    <div style={{ fontSize: '0.8rem', color: '#94a3b8', fontStyle: 'italic' }}>--</div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>--</div>
                 )}
             </div>
 
@@ -1483,16 +1486,16 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
                     <div style={{ 
                         display: 'inline-flex', alignItems: 'center', gap: '4px', 
                         fontSize: '0.6rem', fontWeight: 800, 
-                        color: s.marketGapPct > 0 ? '#ef4444' : s.marketGapPct < 0 ? '#10b981' : '#64748b', 
-                        background: s.marketGapPct > 0 ? '#fef2f2' : s.marketGapPct < 0 ? '#ecfdf5' : '#f1f5f9', 
-                        padding: '2px 6px', borderRadius: '4px', width: 'fit-content', border: `1px solid ${s.marketGapPct > 0 ? '#fecaca' : s.marketGapPct < 0 ? '#a7f3d0' : '#e2e8f0'}`
+                        color: s.marketGapPct > 0 ? '#ef4444' : s.marketGapPct < 0 ? '#10b981' : 'var(--text-muted)', 
+                        background: s.marketGapPct > 0 ? (isDark ? 'rgba(239, 68, 68, 0.15)' : '#fef2f2') : s.marketGapPct < 0 ? (isDark ? 'rgba(16, 185, 129, 0.15)' : '#ecfdf5') : 'var(--bg-gray)', 
+                        padding: '2px 6px', borderRadius: '4px', width: 'fit-content', border: `1px solid ${s.marketGapPct > 0 ? (isDark ? 'rgba(239, 68, 68, 0.3)' : '#fecaca') : s.marketGapPct < 0 ? (isDark ? 'rgba(16, 185, 129, 0.3)' : '#a7f3d0') : 'var(--border-color)'}`
                     }}>
                         {s.marketGapPct > 0 ? <i className="fas fa-arrow-up"></i> : s.marketGapPct < 0 ? <i className="fas fa-arrow-down"></i> : <i className="fas fa-minus"></i>}
                         {Math.abs(s.marketGapPct)}% {s.marketGapPct > 0 ? 'Premium' : s.marketGapPct < 0 ? 'Below Mkt' : 'Fair'}
                     </div>
                 )}
                 {deal.stageUpdatedAt && (
-                    <div style={{ fontSize: '0.62rem', color: '#94a3b8' }}>
+                    <div style={{ fontSize: '0.62rem', color: 'var(--text-muted)' }}>
                         <i className="fas fa-robot" style={{ marginRight: '3px', fontSize: '0.58rem' }} />
                         Auto · {new Date(deal.stageUpdatedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
                     </div>
@@ -1502,45 +1505,45 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
             {/* Col 9: Interaction */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 {deal.remarks ? (
-                    <div className="address-clamp" style={{ fontSize: '0.78rem', color: '#1e293b', fontWeight: 600, borderLeft: '2px solid #3b82f6', paddingLeft: '6px' }}>
+                    <div className="address-clamp" style={{ fontSize: '0.78rem', color: 'var(--text-main)', fontWeight: 600, borderLeft: '2px solid #3b82f6', paddingLeft: '6px' }}>
                         {deal.remarks}
                     </div>
                 ) : (
-                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontStyle: 'italic' }}>No Remarks</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>No Remarks</div>
                 )}
 
                 {deal.lastActivity ? (
-                    <div style={{ background: '#f8fafc', padding: '6px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ background: 'var(--bg-gray)', padding: '6px', borderRadius: '4px', border: '1px solid var(--border-color)' }}>
                         <div style={{ fontSize: '0.65rem', color: '#6366f1', fontWeight: 800, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '2px' }}>
                             <i className="fas fa-history" style={{ fontSize: '0.6rem' }}></i>
                             {renderValue(deal.lastActivity.type)}
                         </div>
-                        <div className="text-ellipsis" style={{ fontSize: '0.7rem', color: '#475569', fontWeight: 500 }}>
+                        <div className="text-ellipsis" style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 500 }}>
                             {renderValue(deal.lastActivity.content)}
                         </div>
-                        <div style={{ fontSize: '0.62rem', color: '#94a3b8', marginTop: '2px' }}>
+                        <div style={{ fontSize: '0.62rem', color: 'var(--text-muted)', marginTop: '2px' }}>
                             {new Date(deal.lastActivity.performedAt).toLocaleDateString()} {new Date(deal.lastActivity.performedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </div>
                     </div>
                 ) : (
-                    <div style={{ fontSize: '0.7rem', color: '#cbd5e1' }}>No Recent Activity</div>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>No Recent Activity</div>
                 )}
             </div>
 
             {/* Col 10: Assignment */}
             <div className="col-assignment" style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <div className="avatar-circle" style={{ width: '32px', height: '32px', fontSize: '0.8rem', background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b', flexShrink: 0 }}>
+                    <div className="avatar-circle" style={{ width: '32px', height: '32px', fontSize: '0.8rem', background: 'var(--bg-gray)', border: '1px solid var(--border-color)', color: 'var(--text-muted)', flexShrink: 0 }}>
                         {getInitials(getUserName(deal.assignedTo || deal.assigned))}
                     </div>
                     <div style={{ lineHeight: 1.2 }}>
-                        <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>
+                        <div style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--text-main)' }}>
                             {getUserName(deal.assignedTo || deal.assigned)}
                         </div>
-                        <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>
+                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600 }}>
                             {getTeamName(deal.team || deal.assignment?.team)}
                         </div>
-                        <div style={{ fontSize: '0.62rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
+                        <div style={{ fontSize: '0.62rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
                             <i className="far fa-clock" style={{ fontSize: '0.6rem' }}></i>
                             {new Date(deal.createdAt || deal.date || Date.now()).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
                         </div>

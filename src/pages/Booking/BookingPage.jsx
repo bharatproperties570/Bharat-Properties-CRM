@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { useTheme } from '../../context/ThemeContext';
 import AccountPage from '../Account/AccountPage';
 import AddBookingModal from '../../components/AddBookingModal';
 import PaymentScheduleDrawer from '../../components/PaymentScheduleDrawer';
@@ -9,6 +10,7 @@ import ClosingFormModal from '../../components/ClosingFormModal';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
 
 const BookingPage = ({ onNavigate, initialContextId }) => {
+    const { isDark } = useTheme();
     const { getLookupValue } = usePropertyConfig();
     // View State: 'deals' | 'ledger' | 'analytics'
     const [currentView, setCurrentView] = useState('deals');
@@ -306,34 +308,34 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
             case 'On Track': return '#10b981'; // Green
             case 'At Risk': return '#f59e0b'; // Yellow
             case 'Delayed': return '#ef4444'; // Red
-            default: return '#cbd5e1';
+            default: return isDark ? 'var(--border-color)' : '#cbd5e1';
         }
     };
 
     const getStageColor = (stage) => {
         switch (stage) {
-            case 'Pending': return { bg: '#fff7ed', text: '#c2410c', border: '#ffedd5' };
+            case 'Pending': return { bg: isDark ? 'rgba(234, 88, 12, 0.15)' : '#fff7ed', text: isDark ? '#fb923c' : '#c2410c', border: isDark ? '#ea580c' : '#ffedd5' };
             case 'Booked': return { bg: '#f0fdf4', text: '#15803d', border: '#bbf7d0' };
             case 'Agreement': return { bg: '#eff6ff', text: '#1d4ed8', border: '#bfdbfe' };
-            case 'Registry': return { bg: '#faf5ff', text: '#7e22ce', border: '#e9d5ff' };
+            case 'Registry': return { bg: isDark ? 'rgba(147, 51, 234, 0.15)' : '#faf5ff', text: isDark ? '#c084fc' : '#7e22ce', border: isDark ? '#9333ea' : '#e9d5ff' };
             case 'Cancelled': return { bg: '#fef2f2', text: '#b91c1c', border: '#fecaca' };
-            default: return { bg: '#f8fafc', text: '#64748b', border: '#e2e8f0' };
+            default: return { bg: isDark ? 'var(--bg-gray)' : '#f8fafc', text: isDark ? 'var(--text-muted)' : '#64748b', border: isDark ? 'var(--border-color)' : '#e2e8f0' };
         }
     };
 
     if (currentView === 'ledger') {
         return (
             <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-                <div style={{ background: '#fff', borderBottom: '1px solid #e2e8f0', padding: '10px 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ background: 'var(--bg-card)', borderBottom: '1px solid var(--border-color)', padding: '10px 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                        <button onClick={() => setCurrentView('deals')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}>
+                        <button onClick={() => setCurrentView('deals')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>
                             <i className="fas fa-arrow-left"></i> Back to Bookings
                         </button>
-                        <h2 style={{ fontSize: '1.1rem', margin: 0, fontWeight: 700, color: '#0f172a' }}>Financial Control Center</h2>
+                        <h2 style={{ fontSize: '1.1rem', margin: 0, fontWeight: 700, color: 'var(--text-main)' }}>Financial Control Center</h2>
                     </div>
-                    <div style={{ background: '#f1f5f9', padding: '4px', borderRadius: '8px', display: 'flex', gap: '4px' }}>
-                        <button onClick={() => setCurrentView('deals')} style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', background: 'transparent', color: '#64748b', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}>Bookings</button>
-                        <button onClick={() => setCurrentView('ledger')} style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', background: '#fff', color: '#0f172a', fontWeight: 600, fontSize: '0.85rem', boxShadow: '0 1px 2px rgba(0,0,0,0.05)', cursor: 'default' }}>Ledger</button>
+                    <div style={{ background: 'var(--bg-gray)', padding: '4px', borderRadius: '8px', display: 'flex', gap: '4px' }}>
+                        <button onClick={() => setCurrentView('deals')} style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', background: 'transparent', color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}>Bookings</button>
+                        <button onClick={() => setCurrentView('ledger')} style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', background: 'var(--bg-card)', color: 'var(--text-main)', fontWeight: 600, fontSize: '0.85rem', boxShadow: '0 1px 2px rgba(0,0,0,0.05)', cursor: 'default' }}>Ledger</button>
                     </div >
                 </div >
                 <div style={{ flex: 1, overflow: 'hidden' }}>
@@ -356,20 +358,20 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
     if (currentView === 'analytics') {
         return (
             <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-                <div style={{ background: '#fff', borderBottom: '1px solid #e2e8f0', padding: '10px 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ background: 'var(--bg-card)', borderBottom: '1px solid var(--border-color)', padding: '10px 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                        <button onClick={() => setCurrentView('deals')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}>
+                        <button onClick={() => setCurrentView('deals')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>
                             <i className="fas fa-arrow-left"></i> Back to Bookings
                         </button>
-                        <h2 style={{ fontSize: '1.1rem', margin: 0, fontWeight: 700, color: '#0f172a' }}>Post-Sale Analytics</h2>
+                        <h2 style={{ fontSize: '1.1rem', margin: 0, fontWeight: 700, color: 'var(--text-main)' }}>Post-Sale Analytics</h2>
                     </div>
-                    <div style={{ background: '#f1f5f9', padding: '4px', borderRadius: '8px', display: 'flex', gap: '4px' }}>
-                        <button onClick={() => setCurrentView('deals')} style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', background: 'transparent', color: '#64748b', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}>Bookings</button>
-                        <button onClick={() => setCurrentView('analytics')} style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', background: '#fff', color: '#0f172a', fontWeight: 600, fontSize: '0.85rem', boxShadow: '0 1px 2px rgba(0,0,0,0.05)', cursor: 'default' }}>Analytics</button>
-                        <button onClick={() => setCurrentView('ledger')} style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', background: 'transparent', color: '#64748b', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}>Ledger</button>
+                    <div style={{ background: 'var(--bg-gray)', padding: '4px', borderRadius: '8px', display: 'flex', gap: '4px' }}>
+                        <button onClick={() => setCurrentView('deals')} style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', background: 'transparent', color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}>Bookings</button>
+                        <button onClick={() => setCurrentView('analytics')} style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', background: 'var(--bg-card)', color: 'var(--text-main)', fontWeight: 600, fontSize: '0.85rem', boxShadow: '0 1px 2px rgba(0,0,0,0.05)', cursor: 'default' }}>Analytics</button>
+                        <button onClick={() => setCurrentView('ledger')} style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', background: 'transparent', color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}>Ledger</button>
                     </div >
                 </div >
-                <div style={{ flex: 1, overflow: 'auto', background: '#f8fafc' }}>
+                <div style={{ flex: 1, overflow: 'auto', background: 'var(--bg-gray)' }}>
                     <BookingAnalytics />
                 </div>
             </div >
@@ -377,24 +379,24 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
     }
 
     return (
-        <section className="main-content" style={{ background: '#f8fafc', height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-            <div style={{ background: '#fff', borderBottom: '1px solid #e2e8f0', padding: '20px 32px' }}>
+        <section className="main-content" style={{ background: 'var(--bg-gray)', height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ background: 'var(--bg-card)', borderBottom: '1px solid var(--border-color)', padding: '20px 32px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                     <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
                             <i className="fas fa-chart-line" style={{ color: '#6366f1', fontSize: '1.2rem' }}></i>
-                            <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>Post-Sale Command Center</h1>
+                            <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-main)', margin: 0 }}>Post-Sale Command Center</h1>
                         </div>
-                        <p style={{ margin: 0, color: '#64748b', fontSize: '0.9rem' }}>Track deals, monitor risks, and ensure timely closings.</p>
+                        <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem' }}>Track deals, monitor risks, and ensure timely closings.</p>
                     </div>
                     <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
                         {/* View Switcher — Bookings | Ledger | Analytics */}
-                        <div style={{ background: '#f1f5f9', padding: '4px', borderRadius: '10px', display: 'flex', gap: '2px' }}>
+                        <div style={{ background: 'var(--bg-gray)', padding: '4px', borderRadius: '10px', display: 'flex', gap: '2px' }}>
                             {[['deals','fa-list','Bookings'],['analytics','fa-chart-bar','Analytics'],['ledger','fa-wallet','Ledger']].map(([view, icon, label]) => (
                                 <button key={view} onClick={() => setCurrentView(view)} style={{
                                     padding: '7px 14px', borderRadius: '7px', border: 'none',
-                                    background: currentView === view ? '#fff' : 'transparent',
-                                    color: currentView === view ? '#4f46e5' : '#64748b',
+                                    background: currentView === view ? 'var(--bg-card)' : 'transparent',
+                                    color: currentView === view ? isDark ? '#818cf8' : '#4f46e5' : isDark ? 'var(--text-muted)' : '#64748b',
                                     fontWeight: currentView === view ? 700 : 600,
                                     fontSize: '0.82rem',
                                     boxShadow: currentView === view ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
@@ -426,34 +428,34 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                 {/* Active Filter Pills */}
                 {activeFilterCount > 0 && (
                     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center', paddingBottom: '4px' }}>
-                        <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: 700 }}>FILTERS:</span>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 700 }}>FILTERS:</span>
                         {activeFilters.status?.map(s => (
-                            <span key={s} onClick={() => { const nf = { ...activeFilters, status: activeFilters.status.filter(x => x !== s) }; setActiveFilters(nf); }} style={{ background: '#eef2ff', color: '#4f46e5', border: '1px solid #c7d2fe', borderRadius: '99px', padding: '2px 10px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>Status: {s} <i className="fas fa-times" style={{ fontSize: '0.6rem' }} /></span>
+                            <span key={s} onClick={() => { const nf = { ...activeFilters, status: activeFilters.status.filter(x => x !== s) }; setActiveFilters(nf); }} style={{ background: isDark ? 'rgba(79, 70, 229, 0.15)' : '#eef2ff', color: isDark ? '#818cf8' : '#4f46e5', border: '1px solid #c7d2fe', borderRadius: '99px', padding: '2px 10px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>Status: {s} <i className="fas fa-times" style={{ fontSize: '0.6rem' }} /></span>
                         ))}
                         {activeFilters.health?.map(h => (
-                            <span key={h} onClick={() => { const nf = { ...activeFilters, health: activeFilters.health.filter(x => x !== h) }; setActiveFilters(nf); }} style={{ background: '#f0fdf4', color: '#15803d', border: '1px solid #bbf7d0', borderRadius: '99px', padding: '2px 10px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>Health: {h} <i className="fas fa-times" style={{ fontSize: '0.6rem' }} /></span>
+                            <span key={h} onClick={() => { const nf = { ...activeFilters, health: activeFilters.health.filter(x => x !== h) }; setActiveFilters(nf); }} style={{ background: isDark ? 'rgba(34, 197, 94, 0.15)' : '#f0fdf4', color: '#15803d', border: '1px solid #bbf7d0', borderRadius: '99px', padding: '2px 10px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>Health: {h} <i className="fas fa-times" style={{ fontSize: '0.6rem' }} /></span>
                         ))}
-                        {activeFilters.project && <span onClick={() => setActiveFilters(p => ({...p, project: ''}))} style={{ background: '#f8fafc', color: '#475569', border: '1px solid #e2e8f0', borderRadius: '99px', padding: '2px 10px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>Project: {activeFilters.project} <i className="fas fa-times" style={{ fontSize: '0.6rem' }} /></span>}
-                        {(activeFilters.dateFrom || activeFilters.dateTo) && <span onClick={() => setActiveFilters(p => ({...p, dateFrom: '', dateTo: ''}))} style={{ background: '#f8fafc', color: '#475569', border: '1px solid #e2e8f0', borderRadius: '99px', padding: '2px 10px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><i className="fas fa-calendar" /> {activeFilters.dateFrom||'…'} → {activeFilters.dateTo||'…'} <i className="fas fa-times" style={{ fontSize: '0.6rem' }} /></span>}
-                        {(activeFilters.minValue || activeFilters.maxValue) && <span onClick={() => setActiveFilters(p => ({...p, minValue: '', maxValue: ''}))} style={{ background: '#f8fafc', color: '#475569', border: '1px solid #e2e8f0', borderRadius: '99px', padding: '2px 10px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>₹{activeFilters.minValue||'0'} – ₹{activeFilters.maxValue||'∞'} <i className="fas fa-times" style={{ fontSize: '0.6rem' }} /></span>}
+                        {activeFilters.project && <span onClick={() => setActiveFilters(p => ({...p, project: ''}))} style={{ background: 'var(--bg-gray)', color: 'var(--text-muted)', border: '1px solid var(--border-color)', borderRadius: '99px', padding: '2px 10px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>Project: {activeFilters.project} <i className="fas fa-times" style={{ fontSize: '0.6rem' }} /></span>}
+                        {(activeFilters.dateFrom || activeFilters.dateTo) && <span onClick={() => setActiveFilters(p => ({...p, dateFrom: '', dateTo: ''}))} style={{ background: 'var(--bg-gray)', color: 'var(--text-muted)', border: '1px solid var(--border-color)', borderRadius: '99px', padding: '2px 10px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><i className="fas fa-calendar" /> {activeFilters.dateFrom||'…'} → {activeFilters.dateTo||'…'} <i className="fas fa-times" style={{ fontSize: '0.6rem' }} /></span>}
+                        {(activeFilters.minValue || activeFilters.maxValue) && <span onClick={() => setActiveFilters(p => ({...p, minValue: '', maxValue: ''}))} style={{ background: 'var(--bg-gray)', color: 'var(--text-muted)', border: '1px solid var(--border-color)', borderRadius: '99px', padding: '2px 10px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>₹{activeFilters.minValue||'0'} – ₹{activeFilters.maxValue||'∞'} <i className="fas fa-times" style={{ fontSize: '0.6rem' }} /></span>}
                         <button onClick={() => setActiveFilters({})} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', padding: '2px 6px' }}>Clear all</button>
                     </div>
                 )}
             </div >
 
-            <div style={{ padding: '16px 32px', background: '#fff', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: '72px' }}>
+            <div style={{ padding: '16px 32px', background: 'var(--bg-card)', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: '72px' }}>
                 {selectedCount > 0 ? (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '16px', width: '100%', animation: 'fadeIn 0.2s ease-in-out' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginRight: '8px' }}>
                             <input type="checkbox" checked={selectedCount > 0} onChange={toggleSelectAll} style={{ width: '16px', height: '16px', cursor: 'pointer' }} />
                             <span style={{ fontWeight: 700, color: '#6366f1', fontSize: '0.9rem' }}>{selectedCount} Selected</span>
                         </div>
-                        <div style={{ height: '24px', width: '1px', background: '#e2e8f0' }}></div>
+                        <div style={{ height: '24px', width: '1px', background: isDark ? 'var(--border-color)' : '#e2e8f0' }}></div>
                         {selectedCount === 1 && (
                             <button
                                 onClick={() => handleViewLedger(selectedIds[0])}
                                 className="action-btn"
-                                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: '0.85rem', cursor: 'pointer' }}
+                                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: '0.85rem', cursor: 'pointer' }}
                             >
                                 <i className="fas fa-wallet" style={{ color: '#0ea5e9' }}></i> View Ledger
                             </button>
@@ -462,32 +464,32 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                         <button
                             className="action-btn"
                             title="Feedback/Close"
-                            style={{ background: '#f5f0ff', color: '#7e22ce', borderColor: '#e9d5ff' }}
+                            style={{ background: isDark ? 'rgba(147, 51, 234, 0.15)' : '#f5f0ff', color: isDark ? '#c084fc' : '#7e22ce', borderColor: isDark ? '#9333ea' : '#e9d5ff' }}
                             onClick={handleFeedbackClick}
                         >
                             <i className="fas fa-comment-alt"></i> Feedback
                         </button>
                         <button className="action-btn" title="Activities"><i className="fas fa-calendar-check"></i> Activities</button>
                         <div style={{ position: 'relative' }}>
-                            <button onClick={() => setShowDocOptions(!showDocOptions)} className="action-btn" style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: '0.85rem', cursor: 'pointer' }}>
+                            <button onClick={() => setShowDocOptions(!showDocOptions)} className="action-btn" style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: '0.85rem', cursor: 'pointer' }}>
                                 <i className="fas fa-file-contract"></i> Documents
                                 <i className={`fas fa-chevron-${showDocOptions ? 'up' : 'down'}`} style={{ fontSize: '0.7rem', marginLeft: '4px' }}></i>
                             </button>
                             {showDocOptions && (
-                                <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: '4px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 50, minWidth: '220px', overflow: 'hidden' }}>
-                                    <button onClick={() => handleGenerateDoc('Sale Agreement')} style={{ display: 'block', width: '100%', padding: '10px 16px', textAlign: 'left', border: 'none', background: '#fff', cursor: 'pointer', fontSize: '0.85rem', color: '#334155', borderBottom: '1px solid #f1f5f9', fontWeight: 600 }}>
+                                <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: '4px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 50, minWidth: '220px', overflow: 'hidden' }}>
+                                    <button onClick={() => handleGenerateDoc('Sale Agreement')} style={{ display: 'block', width: '100%', padding: '10px 16px', textAlign: 'left', border: 'none', background: 'var(--bg-card)', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--text-main)', borderBottom: '1px solid var(--border-color)', fontWeight: 600 }}>
                                         <i className="fas fa-file-contract" style={{ marginRight: '8px', color: '#3b82f6' }}></i> Detailed Sale Agreement
                                     </button>
-                                    <button onClick={() => handleGenerateDoc('Short Agreement')} style={{ display: 'block', width: '100%', padding: '10px 16px', textAlign: 'left', border: 'none', background: '#fff', cursor: 'pointer', fontSize: '0.85rem', color: '#334155', borderBottom: '1px solid #f1f5f9' }}>
+                                    <button onClick={() => handleGenerateDoc('Short Agreement')} style={{ display: 'block', width: '100%', padding: '10px 16px', textAlign: 'left', border: 'none', background: 'var(--bg-card)', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--text-main)', borderBottom: '1px solid var(--border-color)' }}>
                                         <i className="fas fa-file-signature" style={{ marginRight: '8px', color: '#6366f1' }}></i> Short Agreement
                                     </button>
-                                    <button onClick={() => handleGenerateDoc('Token Receipt')} style={{ display: 'block', width: '100%', padding: '10px 16px', textAlign: 'left', border: 'none', background: '#fff', cursor: 'pointer', fontSize: '0.85rem', color: '#334155', borderBottom: '1px solid #f1f5f9' }}>
+                                    <button onClick={() => handleGenerateDoc('Token Receipt')} style={{ display: 'block', width: '100%', padding: '10px 16px', textAlign: 'left', border: 'none', background: 'var(--bg-card)', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--text-main)', borderBottom: '1px solid var(--border-color)' }}>
                                         <i className="fas fa-receipt" style={{ marginRight: '8px', color: '#10b981' }}></i> Token Receipt
                                     </button>
-                                    <button onClick={() => handleGenerateDoc('Demand Letter')} style={{ display: 'block', width: '100%', padding: '10px 16px', textAlign: 'left', border: 'none', background: '#fff', cursor: 'pointer', fontSize: '0.85rem', color: '#334155', borderBottom: '1px solid #f1f5f9' }}>
+                                    <button onClick={() => handleGenerateDoc('Demand Letter')} style={{ display: 'block', width: '100%', padding: '10px 16px', textAlign: 'left', border: 'none', background: 'var(--bg-card)', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--text-main)', borderBottom: '1px solid var(--border-color)' }}>
                                         <i className="fas fa-envelope-open-text" style={{ marginRight: '8px', color: '#f59e0b' }}></i> Demand Letter
                                     </button>
-                                    <button onClick={() => handleGenerateDoc('Brokerage Invoice')} style={{ display: 'block', width: '100%', padding: '10px 16px', textAlign: 'left', border: 'none', background: '#fff', cursor: 'pointer', fontSize: '0.85rem', color: '#334155' }}>
+                                    <button onClick={() => handleGenerateDoc('Brokerage Invoice')} style={{ display: 'block', width: '100%', padding: '10px 16px', textAlign: 'left', border: 'none', background: 'var(--bg-card)', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--text-main)' }}>
                                         <i className="fas fa-file-invoice-dollar" style={{ marginRight: '8px', color: '#8b5cf6' }}></i> Brokerage Invoice
                                     </button>
                                 </div>
@@ -510,24 +512,24 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                                 />
                                 <i className={`fas fa-search search-icon-premium ${searchTerm ? 'active' : ''}`}></i>
                             </div>
-                            <div style={{ display: 'flex', gap: '2px', background: '#f1f5f9', padding: '4px', borderRadius: '8px' }}>
+                            <div style={{ display: 'flex', gap: '2px', background: 'var(--bg-gray)', padding: '4px', borderRadius: '8px' }}>
                                 {['All', 'Pending', 'Booked', 'Agreement', 'Registry', 'Cancelled'].map(tab => (
-                                    <button key={tab} onClick={() => setActiveTab(tab)} style={{ padding: '8px 16px', border: 'none', background: activeTab === tab ? '#fff' : 'transparent', color: activeTab === tab ? '#0f172a' : '#64748b', fontWeight: 700, borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', boxShadow: activeTab === tab ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', transition: 'all 0.2s' }}>{tab}</button>
+                                    <button key={tab} onClick={() => setActiveTab(tab)} style={{ padding: '8px 16px', border: 'none', background: activeTab === tab ? 'var(--bg-card)' : 'transparent', color: activeTab === tab ? 'var(--text-main)' : isDark ? 'var(--text-muted)' : '#64748b', fontWeight: 700, borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', boxShadow: activeTab === tab ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', transition: 'all 0.2s' }}>{tab}</button>
                                 ))}
                             </div>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                             <div style={{ fontSize: '0.85rem', color: '#68737d', fontWeight: 500 }}>Total: <strong>{totalRecords}</strong></div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: '#64748b' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                                 <span>Show:</span>
-                                <select value={recordsPerPage} onChange={handleRecordsPerPageChange} style={{ padding: "4px 8px", border: "1px solid #e2e8f0", borderRadius: "6px", fontSize: "0.8rem", fontWeight: 600, color: "#0f172a", outline: "none", cursor: "pointer", background: '#f8fafc' }}>
+                                <select value={recordsPerPage} onChange={handleRecordsPerPageChange} style={{ padding: "4px 8px", border: '1px solid var(--border-color)', borderRadius: "6px", fontSize: "0.8rem", fontWeight: 600, color: 'var(--text-main)', outline: "none", cursor: "pointer", background: 'var(--bg-gray)' }}>
                                     {[10, 25, 50, 100, 300, 500, 750, 1000].map(v => <option key={v} value={v}>{v}</option>)}
                                 </select>
                             </div>
                             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                                <button onClick={goToPreviousPage} disabled={currentPage === 1} style={{ padding: "6px 12px", border: "1px solid #e2e8f0", borderRadius: "6px", background: currentPage === 1 ? "#f8fafc" : "#fff", color: currentPage === 1 ? "#cbd5e1" : "#0f172a", cursor: currentPage === 1 ? "not-allowed" : "pointer", fontSize: "0.75rem", fontWeight: 600 }}><i className="fas fa-chevron-left"></i> Prev</button>
-                                <span style={{ fontSize: "0.8rem", fontWeight: 600, color: "#0f172a", minWidth: "80px", textAlign: "center" }}>{currentPage} / {totalPages || 1}</span>
-                                <button onClick={goToNextPage} disabled={currentPage >= totalPages} style={{ padding: "6px 12px", border: "1px solid #e2e8f0", borderRadius: "6px", background: currentPage >= totalPages ? "#f8fafc" : "#fff", color: currentPage >= totalPages ? "#cbd5e1" : "#0f172a", cursor: currentPage >= totalPages ? "not-allowed" : "pointer", fontSize: "0.75rem", fontWeight: 600 }}>Next <i className="fas fa-chevron-right"></i></button>
+                                <button onClick={goToPreviousPage} disabled={currentPage === 1} style={{ padding: "6px 12px", border: '1px solid var(--border-color)', borderRadius: "6px", background: currentPage === 1 ? "#f8fafc" : "#fff", color: currentPage === 1 ? "#cbd5e1" : "#0f172a", cursor: currentPage === 1 ? "not-allowed" : "pointer", fontSize: "0.75rem", fontWeight: 600 }}><i className="fas fa-chevron-left"></i> Prev</button>
+                                <span style={{ fontSize: "0.8rem", fontWeight: 600, color: 'var(--text-main)', minWidth: "80px", textAlign: "center" }}>{currentPage} / {totalPages || 1}</span>
+                                <button onClick={goToNextPage} disabled={currentPage >= totalPages} style={{ padding: "6px 12px", border: '1px solid var(--border-color)', borderRadius: "6px", background: currentPage >= totalPages ? "#f8fafc" : "#fff", color: currentPage >= totalPages ? "#cbd5e1" : "#0f172a", cursor: currentPage >= totalPages ? "not-allowed" : "pointer", fontSize: "0.75rem", fontWeight: 600 }}>Next <i className="fas fa-chevron-right"></i></button>
                             </div>
 
                             {/* Standardized Sort Icon */}
@@ -537,9 +539,9 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                                     style={{ 
                                         display: 'flex', alignItems: 'center', justifyContent: 'center', 
                                         width: '32px', height: '32px', borderRadius: '8px',
-                                        border: '1px solid #e2e8f0',
-                                        background: isSortOpen ? 'var(--primary-color)' : '#fff',
-                                        color: isSortOpen ? '#fff' : '#64748b',
+                                        border: '1px solid var(--border-color)',
+                                        background: isSortOpen ? 'var(--primary-color)' : 'var(--bg-card)',
+                                        color: isSortOpen ? 'var(--bg-card)' : isDark ? 'var(--text-muted)' : '#64748b',
                                         cursor: 'pointer', transition: 'all 0.2s'
                                     }}
                                     onClick={() => setIsSortOpen(!isSortOpen)}
@@ -555,11 +557,11 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                                         />
                                         <ul className="shadow-lg border-0" style={{ 
                                             position: 'absolute', top: '100%', right: 0, zIndex: 999,
-                                            backgroundColor: '#fff', borderRadius: '16px', padding: '10px', 
+                                            backgroundColor: 'var(--bg-card)', borderRadius: '16px', padding: '10px', 
                                             minWidth: '220px', marginTop: '8px', listStyle: 'none',
-                                            border: '1px solid #eef2f5'
+                                            border: '1px solid var(--border-color)'
                                         }}>
-                                            <li><h6 style={{ fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', color: '#94a3b8', padding: '10px 15px', margin: 0 }}>Advanced Sort</h6></li>
+                                            <li><h6 style={{ fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-muted)', padding: '10px 15px', margin: 0 }}>Advanced Sort</h6></li>
                                             {[
                                                 { label: 'Booking Date', by: 'bookingDate', order: -1, icon: 'fa-calendar-alt' },
                                                 { label: 'Agreement Date', by: 'agreementDate', order: -1, icon: 'fa-file-contract' },
@@ -576,7 +578,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                                                             padding: '10px 15px', 
                                                             fontSize: '0.85rem',
                                                             fontWeight: sortConfig.label === opt.label ? 700 : 500,
-                                                            color: sortConfig.label === opt.label ? '#fff' : '#1e293b',
+                                                            color: sortConfig.label === opt.label ? 'var(--bg-card)' : 'var(--text-main)',
                                                             background: sortConfig.label === opt.label ? 'var(--primary-color)' : 'transparent',
                                                             cursor: 'pointer',
                                                             marginBottom: '2px',
@@ -609,20 +611,20 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                     </div >
                 ) : (
                     <div style={{ flex: 1, overflow: 'auto', padding: '0px' }}>
-                        <div style={{ background: '#fff', borderTop: '1px solid #e2e8f0', overflow: 'hidden' }}>
+                        <div style={{ background: 'var(--bg-card)', borderTop: '1px solid var(--border-color)', overflow: 'hidden' }}>
                                 {/* Risk Alert Banner */}
                                 {stats.atRiskDeals > 0 && (
-                                    <div style={{ background: stats.criticalCount > 0 ? 'linear-gradient(135deg, #fef2f2, #fee2e2)' : 'linear-gradient(135deg, #fffbeb, #fef3c7)', padding: '12px 20px', display: 'flex', alignItems: 'center', gap: '12px', borderBottom: '1px solid #fecaca' }}>
+                                    <div style={{ background: stats.criticalCount > 0 ? isDark ? 'linear-gradient(135deg, rgba(239, 68, 68, 0.2), rgba(248, 113, 113, 0.1))' : 'linear-gradient(135deg, #fef2f2, #fee2e2)' : isDark ? 'linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(251, 191, 36, 0.1))' : 'linear-gradient(135deg, #fffbeb, #fef3c7)', padding: '12px 20px', display: 'flex', alignItems: 'center', gap: '12px', borderBottom: isDark ? '1px solid #ef4444' : '1px solid #fecaca' }}>
                                         <i className={`fas fa-${stats.criticalCount > 0 ? 'fire' : 'exclamation-triangle'}`} style={{ color: stats.criticalCount > 0 ? '#dc2626' : '#d97706', fontSize: '1rem' }} />
-                                        <span style={{ fontWeight: 700, color: stats.criticalCount > 0 ? '#991b1b' : '#92400e', fontSize: '0.85rem' }}>
+                                        <span style={{ fontWeight: 700, color: stats.criticalCount > 0 ? '#991b1b' : isDark ? '#fcd34d' : '#92400e', fontSize: '0.85rem' }}>
                                             {stats.criticalCount > 0 ? `🚨 ${stats.criticalCount} booking(s) CRITICAL` : `⚠️ ${stats.atRiskDeals} booking(s) at risk`} — review payment timelines
                                         </span>
-                                        <button onClick={() => { setActiveTab('All'); setActiveFilters(prev => ({ ...prev, health: ['At Risk', 'Delayed', 'Critical'] })); }} style={{ marginLeft: 'auto', fontSize: '0.78rem', padding: '4px 10px', background: '#fff', border: '1px solid #fecaca', borderRadius: '6px', color: '#dc2626', fontWeight: 600, cursor: 'pointer' }}>
+                                        <button onClick={() => { setActiveTab('All'); setActiveFilters(prev => ({ ...prev, health: ['At Risk', 'Delayed', 'Critical'] })); }} style={{ marginLeft: 'auto', fontSize: '0.78rem', padding: '4px 10px', background: 'var(--bg-card)', border: isDark ? '1px solid #ef4444' : '1px solid #fecaca', borderRadius: '6px', color: '#dc2626', fontWeight: 600, cursor: 'pointer' }}>
                                             View At Risk <i className="fas fa-arrow-right" />
                                         </button>
                                     </div>
                                 )}
-                            <div style={{ display: 'grid', gridTemplateColumns: '40px 1.5fr 1.2fr 2fr 1.5fr 2fr 1.2fr', background: '#f8fafc', padding: '16px 32px', borderBottom: '1px solid #e2e8f0', fontWeight: 600, color: '#475569', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '40px 1.5fr 1.2fr 2fr 1.5fr 2fr 1.2fr', background: 'var(--bg-gray)', padding: '16px 32px', borderBottom: '1px solid var(--border-color)', fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                                 <div><input type="checkbox" onChange={toggleSelectAll} checked={selectedIds.length === filteredData.length && filteredData.length > 0} /></div>
                                 <div>Booking & Status</div>
                                 <div>Health</div>
@@ -640,12 +642,12 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                                 const urgencyColor = { Low: '#10b981', Medium: '#f59e0b', High: '#ef4444', Critical: '#dc2626' };
 
                                 return (
-                                    <div key={item.id} style={{ display: 'grid', gridTemplateColumns: '40px 1.5fr 1.2fr 2fr 1.5fr 2fr 1.2fr', padding: '20px 32px', borderBottom: '1px solid #f1f5f9', alignItems: 'center', fontSize: '0.9rem', background: isSelected ? '#f0f9ff' : '#fff', transition: 'background 0.2s', cursor: 'pointer' }} onClick={() => toggleSelect(item.id)}>
+                                    <div key={item.id} style={{ display: 'grid', gridTemplateColumns: '40px 1.5fr 1.2fr 2fr 1.5fr 2fr 1.2fr', padding: '20px 32px', borderBottom: '1px solid var(--border-color)', alignItems: 'center', fontSize: '0.9rem', background: isSelected ? isDark ? 'rgba(14, 165, 233, 0.15)' : '#f0f9ff' : 'var(--bg-card)', transition: 'background 0.2s', cursor: 'pointer' }} onClick={() => toggleSelect(item.id)}>
                                         <div onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={isSelected} onChange={() => toggleSelect(item.id)} /></div>
                                         <div>
-                                            <div style={{ fontWeight: 700, color: '#0f172a', marginBottom: '4px' }}>{item.id}</div>
+                                            <div style={{ fontWeight: 700, color: 'var(--text-main)', marginBottom: '4px' }}>{item.id}</div>
                                             <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                                                <span style={{ background: item.dealType === 'Sell' || item.dealType === 'Sale' ? '#dbeafe' : '#fef3c7', color: item.dealType === 'Sell' || item.dealType === 'Sale' ? '#1e40af' : '#92400e', fontSize: '0.7rem', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>{item.dealType}</span>
+                                                <span style={{ background: item.dealType === 'Sell' || item.dealType === 'Sale' ? isDark ? 'rgba(59, 130, 246, 0.15)' : '#dbeafe' : isDark ? 'rgba(245, 158, 11, 0.15)' : '#fef3c7', color: item.dealType === 'Sell' || item.dealType === 'Sale' ? isDark ? '#93c5fd' : '#1e40af' : isDark ? '#fcd34d' : '#92400e', fontSize: '0.7rem', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>{item.dealType}</span>
                                                 <span style={{ background: stageStyle.bg, color: stageStyle.text, border: `1px solid ${stageStyle.border}`, fontSize: '0.7rem', padding: '2px 8px', borderRadius: '12px', fontWeight: 600 }}>{item.stage}</span>
                                             </div>
                                         </div>
@@ -658,33 +660,33 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                                         <div>
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                    <div style={{ width: '24px', height: '24px', background: '#e0e7ff', color: '#4338ca', borderRadius: '50%', fontSize: '0.7rem', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{item.customer.buyer.avatar}</div>
+                                                    <div style={{ width: '24px', height: '24px', background: isDark ? 'rgba(99, 102, 241, 0.15)' : '#e0e7ff', color: isDark ? '#818cf8' : '#4338ca', borderRadius: '50%', fontSize: '0.7rem', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{item.customer.buyer.avatar}</div>
                                                     <div>
-                                                        <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#1e293b' }}>{item.customer.buyer.name}</div>
-                                                        <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Buyer</div>
+                                                        <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)' }}>{item.customer.buyer.name}</div>
+                                                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Buyer</div>
                                                     </div>
                                                 </div>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: 0.8, borderTop: '1px dashed #e2e8f0', paddingTop: '4px' }}>
-                                                    <div style={{ width: '20px', height: '20px', background: '#f1f5f9', color: '#475569', borderRadius: '50%', fontSize: '0.6rem', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{item.customer.seller.avatar}</div>
+                                                    <div style={{ width: '20px', height: '20px', background: 'var(--bg-gray)', color: 'var(--text-muted)', borderRadius: '50%', fontSize: '0.6rem', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{item.customer.seller.avatar}</div>
                                                     <div>
-                                                        <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#475569' }}>{item.customer.seller.name}</div>
-                                                        <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>Seller</div>
+                                                        <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)' }}>{item.customer.seller.name}</div>
+                                                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Seller</div>
                                                     </div>
                                                 </div>
                                             </div>
                                         </div>
                                         <div>
-                                            <div style={{ fontWeight: 700, color: '#0f172a', marginBottom: '2px' }}>{item.property.unit}</div>
-                                            <div style={{ fontSize: '0.8rem', color: '#475569', marginBottom: '2px' }}>{item.property.project}</div>
+                                            <div style={{ fontWeight: 700, color: 'var(--text-main)', marginBottom: '2px' }}>{item.property.unit}</div>
+                                            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '2px' }}>{item.property.project}</div>
                                         </div>
                                         <div style={{ paddingRight: '20px' }}>
                                             <div style={{ marginBottom: '8px' }}>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: '#64748b', marginBottom: '2px' }}><span>Val: {formatCurrency(item.financials.dealValue)}</span><span>{Math.round(dealPaidPercent)}%</span></div>
-                                                <div style={{ width: '100%', height: '6px', background: '#e2e8f0', borderRadius: '3px' }}><div style={{ width: `${dealPaidPercent}%`, height: '100%', background: '#0ea5e9', borderRadius: '3px' }}></div></div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '2px' }}><span>Val: {formatCurrency(item.financials.dealValue)}</span><span>{Math.round(dealPaidPercent)}%</span></div>
+                                                <div style={{ width: '100%', height: '6px', background: isDark ? 'var(--border-color)' : '#e2e8f0', borderRadius: '3px' }}><div style={{ width: `${dealPaidPercent}%`, height: '100%', background: '#0ea5e9', borderRadius: '3px' }}></div></div>
                                             </div>
                                             <div>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: '#64748b', marginBottom: '2px' }}><span>Comm: {formatCurrency(item.financials.commissionTotal)}</span><span>{Math.round(commPaidPercent)}%</span></div>
-                                                <div style={{ width: '100%', height: '6px', background: '#e2e8f0', borderRadius: '3px' }}><div style={{ width: `${commPaidPercent}%`, height: '100%', background: '#10b981', borderRadius: '3px' }}></div></div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '2px' }}><span>Comm: {formatCurrency(item.financials.commissionTotal)}</span><span>{Math.round(commPaidPercent)}%</span></div>
+                                                <div style={{ width: '100%', height: '6px', background: isDark ? 'var(--border-color)' : '#e2e8f0', borderRadius: '3px' }}><div style={{ width: `${commPaidPercent}%`, height: '100%', background: '#10b981', borderRadius: '3px' }}></div></div>
                                             </div>
                                         </div>
                                         <div onClick={e => { e.stopPropagation(); setDrawerBooking(item); }} style={{ cursor: 'pointer' }}>
@@ -692,23 +694,23 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                                                 <div>
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
                                                         <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: urgencyColor[item.nextAction.urgency] || '#f59e0b', flexShrink: 0 }} />
-                                                        <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#334155', lineHeight: 1.3 }}>{item.nextAction.label}</span>
+                                                        <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-main)', lineHeight: 1.3 }}>{item.nextAction.label}</span>
                                                     </div>
                                                     {item.nextAction.dueDate && (
-                                                        <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginBottom: '6px' }}>
+                                                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '6px' }}>
                                                             <i className="fas fa-calendar" style={{ marginRight: '4px' }} />
                                                             {new Date(item.nextAction.dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
                                                         </div>
                                                     )}
-                                                    <button style={{ fontSize: '0.72rem', padding: '3px 8px', background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}>
+                                                    <button style={{ fontSize: '0.72rem', padding: '3px 8px', background: isDark ? 'rgba(59, 130, 246, 0.15)' : '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}>
                                                         <i className="fas fa-wallet" style={{ marginRight: '4px' }} /> View Payments
                                                     </button>
                                                 </div>
                                             ) : (
                                                 <div>
-                                                    <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>—</span>
+                                                    <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>—</span>
                                                     <br />
-                                                    <button style={{ marginTop: '4px', fontSize: '0.72rem', padding: '3px 8px', background: '#f8fafc', color: '#475569', border: '1px solid #e2e8f0', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}>
+                                                    <button style={{ marginTop: '4px', fontSize: '0.72rem', padding: '3px 8px', background: 'var(--bg-gray)', color: 'var(--text-muted)', border: '1px solid var(--border-color)', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}>
                                                         <i className="fas fa-wallet" style={{ marginRight: '4px' }} /> Payments
                                                     </button>
                                                 </div>
@@ -719,7 +721,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                             })}
                             {
                                 filteredData.length === 0 && (
-                                    <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
+                                    <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
                                         <i className="fas fa-inbox" style={{ fontSize: '2rem', marginBottom: '10px' }}></i>
                                         <p>No bookings found.</p>
                                     </div>
@@ -776,7 +778,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
 };
 
 const SummaryFooter = ({ stats, formatCurrency }) => (
-    <div style={{ background: '#fff', borderTop: '2px solid #e2e8f0', padding: '14px 32px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '24px', position: 'sticky', bottom: 0, zIndex: 10 }}>
+    <div style={{ background: 'var(--bg-card)', borderTop: '2px solid #e2e8f0', padding: '14px 32px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '24px', position: 'sticky', bottom: 0, zIndex: 10 }}>
         {[
             { label: 'Total Active Bookings', value: stats.totalDeals, subValue: null, color: '#10b981', icon: 'fa-home' },
             { label: 'Active Pipeline Value', value: formatCurrency(stats.totalValue), subValue: null, color: '#0ea5e9', icon: 'fa-rupee-sign' },
@@ -788,7 +790,7 @@ const SummaryFooter = ({ stats, formatCurrency }) => (
                     <i className={`fas ${stat.icon}`} style={{ color: stat.color, fontSize: '0.9rem' }} />
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{stat.label}</span>
+                    <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{stat.label}</span>
                     <span style={{ fontSize: '1.05rem', fontWeight: 800, color: stat.color, lineHeight: 1.2 }}>{stat.value}</span>
                     {stat.subValue && <span style={{ fontSize: '0.7rem', color: '#ef4444', fontWeight: 700 }}>{stat.subValue}</span>}
                 </div>

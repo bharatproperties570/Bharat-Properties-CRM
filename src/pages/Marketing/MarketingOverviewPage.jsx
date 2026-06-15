@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useTheme } from '../../context/ThemeContext';
 import { 
   LayoutDashboard, Calendar, BarChart3, Bot, Palette, 
   Target, Megaphone, Home, Settings, Search, 
@@ -152,7 +153,8 @@ export default function MarketingOverviewPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showNotifPanel, setShowNotifPanel] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [theme, setTheme] = useState('light');
+  const { isDark } = useTheme();
+  const theme = isDark ? 'dark' : 'light';
 
   // ══ LIVE API STATE (P1–P9) ══
   const [realStats, setRealStats] = useState({ totalCaptured: 0, hotLeads: 0, nurturedToday: 0, recentLeads: [], recentActivities: [] });
@@ -1050,14 +1052,7 @@ export default function MarketingOverviewPage() {
     });
   };
 
-  const toggleTheme = () => {
-    setTheme(prev => prev === 'dark' ? 'light' : 'dark');
-    toast.success(`${theme === 'dark' ? 'Light' : 'Dark'} Mode Activated`, { 
-      icon: theme === 'dark' ? '☀️' : '🌙',
-      style: { borderRadius: '10px', background: theme === 'dark' ? '#fff' : '#112244', color: theme === 'dark' ? '#07162B' : '#EEE8D8' } 
-    });
-  };
-
+  
   const saveToHistory = (text) => {
     setDesignerHistory(prev => {
       const newHist = [{ id: Date.now(), text, date: new Date().toLocaleTimeString() }, ...prev].slice(0, 10);
@@ -1595,13 +1590,7 @@ export default function MarketingOverviewPage() {
                <button className="util-icon-btn" aria-label="Notifications" onClick={() => setShowNotifPanel(!showNotifPanel)}>
                  <Bell size={16} />
                </button>
-               <button 
-                 className="util-icon-btn" 
-                 aria-label="Toggle Theme"
-                 onClick={toggleTheme}
-               >
-                 {theme === 'dark' ? <Sparkles size={16} /> : <Zap size={16} />}
-               </button>
+
                <button className="util-icon-btn" aria-label="Keyboard Shortcuts">
                  <Type size={16} />
                </button>
@@ -1682,13 +1671,7 @@ export default function MarketingOverviewPage() {
                     </span>
                   </div>
                   <div className="briefing-actions" style={{ display: 'flex', gap: '8px' }}>
-                    <button 
-                      className="tact-btn" 
-                      style={{ padding: '4px 12px', background: 'var(--navy)', color: 'var(--white)', border: '1px solid var(--gold)' }} 
-                      onClick={toggleTheme}
-                    >
-                      {theme === 'dark' ? '☀ Light Theme' : '🌙 Dark Theme'}
-                    </button>
+                    
                     <button 
                       className="tact-btn primary-gold" 
                       style={{ padding: '4px 12px' }} 

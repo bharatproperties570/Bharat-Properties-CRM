@@ -1,8 +1,10 @@
+import { useTheme } from '../../../context/ThemeContext';
 import { useUserContext } from '../../../context/UserContext';
 import { ACTIVITY_TYPES, ACTIVITY_STATUSES, PRIORITIES } from '../../../utils/activityFilterLogic';
 // Mock data removed
 
 const ActivityFilterPanel = ({ isOpen, onClose, filters, onFilterChange, onReset }) => {
+    const { isDark } = useTheme();
     const { users = [] } = useUserContext();
     // Local state for temporary filter changes before applying (if we wanted "Apply" button)
     // But we are doing real-time, so we might pass changes directly. 
@@ -34,27 +36,27 @@ const ActivityFilterPanel = ({ isOpen, onClose, filters, onFilterChange, onReset
             }}></div>
             <div className={`filter-panel ${isOpen ? 'open' : ''}`} style={{
                 position: 'fixed', top: 0, right: 0, bottom: 0,
-                width: '380px', backgroundColor: '#fff', boxShadow: '-4px 0 15px rgba(0,0,0,0.1)',
+                width: '380px', backgroundColor: 'var(--bg-card)', boxShadow: '-4px 0 15px rgba(0,0,0,0.1)',
                 zIndex: 1000, transform: isOpen ? 'translateX(0)' : 'translateX(100%)',
                 transition: 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
                 display: 'flex', flexDirection: 'column'
             }}>
                 {/* Header */}
                 <div style={{
-                    padding: '20px 24px', borderBottom: '1px solid #e2e8f0',
+                    padding: '20px 24px', borderBottom: '1px solid var(--border-color)',
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    background: '#fff'
+                    background: 'var(--bg-card)'
                 }}>
-                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <i className="fas fa-filter" style={{ color: '#64748b', fontSize: '1rem' }}></i> Filters
+                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <i className="fas fa-filter" style={{ color: 'var(--text-muted)', fontSize: '1rem' }}></i> Filters
                     </h3>
                     <button onClick={onClose} style={{
-                        background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer',
+                        background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer',
                         padding: '8px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
                         transition: 'background 0.2s'
                     }}
-                        onMouseOver={e => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.color = '#ef4444'; }}
-                        onMouseOut={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = '#94a3b8'; }}
+                        onMouseOver={e => { e.currentTarget.style.background = 'var(--bg-gray)'; e.currentTarget.style.color = 'var(--text-main)'; }}
+                        onMouseOut={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--text-muted)'; }}
                     >
                         <i className="fas fa-times" style={{ fontSize: '1.1rem' }}></i>
                     </button>
@@ -63,13 +65,13 @@ const ActivityFilterPanel = ({ isOpen, onClose, filters, onFilterChange, onReset
                 {/* Body */}
                 <div style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
                     {/* Activity Origin - NEW FOR ENTERPRISE SOURCE TRACKING */}
-                    <div style={{ marginBottom: '24px', padding: '16px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 800, color: '#0f172a', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    <div style={{ marginBottom: '24px', padding: '16px', background: 'var(--bg-gray)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                             Activity Origin
                         </label>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                             {['Manual Follow-up', 'Mobile Sync', 'System Automated'].map(source => (
-                                <label key={source} style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 600, color: '#334155' }}>
+                                <label key={source} style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)' }}>
                                     <input
                                         type="checkbox"
                                         checked={(filters.origin || []).includes(source)}
@@ -84,7 +86,7 @@ const ActivityFilterPanel = ({ isOpen, onClose, filters, onFilterChange, onReset
                                     />
                                     <div style={{ display: 'flex', flexDirection: 'column' }}>
                                         <span>{source}</span>
-                                        <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 400 }}>
+                                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 400 }}>
                                             {source === 'Manual Follow-up' ? 'Scheduled via CRM Forms' : source === 'Mobile Sync' ? 'Call logs & SMS from phone' : 'AI & Auto-triggers'}
                                         </span>
                                     </div>
@@ -95,7 +97,7 @@ const ActivityFilterPanel = ({ isOpen, onClose, filters, onFilterChange, onReset
 
                     {/* Activity Type */}
                     <div style={{ marginBottom: '24px' }}>
-                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#475569', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                             Activity Type
                         </label>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
@@ -109,9 +111,9 @@ const ActivityFilterPanel = ({ isOpen, onClose, filters, onFilterChange, onReset
                                         fontSize: '0.85rem',
                                         fontWeight: 600,
                                         cursor: 'pointer',
-                                        border: (filters.activityType || []).includes(type) ? '1px solid #10b981' : '1px solid #e2e8f0',
-                                        background: (filters.activityType || []).includes(type) ? '#ecfdf5' : '#fff',
-                                        color: (filters.activityType || []).includes(type) ? '#059669' : '#64748b',
+                                        border: (filters.activityType || []).includes(type) ? '1px solid #10b981' : '1px solid var(--border-color)',
+                                        background: (filters.activityType || []).includes(type) ? '#ecfdf5' : 'var(--bg-card)',
+                                        color: (filters.activityType || []).includes(type) ? '#059669' : 'var(--text-muted)',
                                         transition: 'all 0.2s'
                                     }}
                                 >
@@ -123,12 +125,12 @@ const ActivityFilterPanel = ({ isOpen, onClose, filters, onFilterChange, onReset
 
                     {/* Status */}
                     <div style={{ marginBottom: '24px' }}>
-                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#475569', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                             Status
                         </label>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                             {ACTIVITY_STATUSES.map(status => (
-                                <label key={status} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '0.9rem', color: '#334155' }}>
+                                <label key={status} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '0.9rem', color: 'var(--text-main)' }}>
                                     <input
                                         type="checkbox"
                                         checked={(filters.status || []).includes(status)}
@@ -143,14 +145,14 @@ const ActivityFilterPanel = ({ isOpen, onClose, filters, onFilterChange, onReset
 
                     {/* Priority */}
                     <div style={{ marginBottom: '24px' }}>
-                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#475569', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                             Priority
                         </label>
                         <div style={{ display: 'flex', gap: '8px' }}>
                             {PRIORITIES.map(priority => {
                                 const isSelected = (filters.priority || []).includes(priority);
-                                let color = '#64748b';
-                                let bg = '#fff';
+                                let color = 'var(--text-muted)';
+                                let bg = 'var(--bg-card)';
                                 let border = '#e2e8f0';
 
                                 if (isSelected) {
@@ -185,31 +187,31 @@ const ActivityFilterPanel = ({ isOpen, onClose, filters, onFilterChange, onReset
 
                     {/* Date Range */}
                     <div style={{ marginBottom: '24px' }}>
-                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#475569', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                             Scheduled Date
                         </label>
                         <div style={{ display: 'flex', gap: '10px' }}>
                             <div style={{ flex: 1 }}>
-                                <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '4px' }}>From</label>
+                                <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '4px' }}>From</label>
                                 <input
                                     type="date"
                                     value={filters.dateRange?.start || ''}
                                     onChange={(e) => handleDateChange('start', e.target.value)}
                                     style={{
-                                        width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #e2e8f0',
-                                        fontSize: '0.85rem', color: '#334155', outline: 'none'
+                                        width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid var(--border-color)',
+                                        fontSize: '0.85rem', color: 'var(--text-main)', outline: 'none'
                                     }}
                                 />
                             </div>
                             <div style={{ flex: 1 }}>
-                                <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '4px' }}>To</label>
+                                <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '4px' }}>To</label>
                                 <input
                                     type="date"
                                     value={filters.dateRange?.end || ''}
                                     onChange={(e) => handleDateChange('end', e.target.value)}
                                     style={{
-                                        width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #e2e8f0',
-                                        fontSize: '0.85rem', color: '#334155', outline: 'none'
+                                        width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid var(--border-color)',
+                                        fontSize: '0.85rem', color: 'var(--text-main)', outline: 'none'
                                     }}
                                 />
                             </div>
@@ -218,7 +220,7 @@ const ActivityFilterPanel = ({ isOpen, onClose, filters, onFilterChange, onReset
 
                     {/* Owner */}
                     <div style={{ marginBottom: '24px' }}>
-                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#475569', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                             Assigned To
                         </label>
                         <select
@@ -227,8 +229,8 @@ const ActivityFilterPanel = ({ isOpen, onClose, filters, onFilterChange, onReset
                                 if (e.target.value) toggleFilter('owner', e.target.value);
                             }}
                             style={{
-                                width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #e2e8f0',
-                                fontSize: '0.9rem', color: '#334155', outline: 'none', marginBottom: '8px'
+                                width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid var(--border-color)',
+                                fontSize: '0.9rem', color: 'var(--text-main)', outline: 'none', marginBottom: '8px'
                             }}
                         >
                             <option value="">Select User...</option>
@@ -239,11 +241,11 @@ const ActivityFilterPanel = ({ isOpen, onClose, filters, onFilterChange, onReset
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                             {(filters.owner || []).map(owner => (
                                 <div key={owner} style={{
-                                    fontSize: '0.8rem', background: '#f1f5f9', padding: '4px 8px', borderRadius: '4px',
-                                    color: '#475569', display: 'flex', alignItems: 'center', gap: '6px'
+                                    fontSize: '0.8rem', background: 'var(--bg-gray)', padding: '4px 8px', borderRadius: '4px',
+                                    color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px'
                                 }}>
                                     {owner}
-                                    <i className="fas fa-times" style={{ cursor: 'pointer', color: '#94a3b8' }} onClick={() => toggleFilter('owner', owner)}></i>
+                                    <i className="fas fa-times" style={{ cursor: 'pointer', color: 'var(--text-muted)' }} onClick={() => toggleFilter('owner', owner)}></i>
                                 </div>
                             ))}
                         </div>
@@ -253,13 +255,13 @@ const ActivityFilterPanel = ({ isOpen, onClose, filters, onFilterChange, onReset
 
                 {/* Footer */}
                 <div style={{
-                    padding: '20px 24px', borderTop: '1px solid #e2e8f0', background: '#f8fafc',
+                    padding: '20px 24px', borderTop: '1px solid var(--border-color)', background: 'var(--bg-gray)',
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center'
                 }}>
                     <button
                         onClick={onReset}
                         style={{
-                            background: 'none', border: 'none', color: '#64748b', fontSize: '0.9rem', fontWeight: 600,
+                            background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '0.9rem', fontWeight: 600,
                             cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
                         }}
                     >
@@ -268,7 +270,7 @@ const ActivityFilterPanel = ({ isOpen, onClose, filters, onFilterChange, onReset
                     <button
                         onClick={onClose}
                         style={{
-                            background: '#1e293b', color: '#fff', border: 'none', padding: '10px 24px',
+                            background: 'var(--text-main)', color: 'var(--bg-card)', border: 'none', padding: '10px 24px',
                             borderRadius: '8px', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer',
                             boxShadow: '0 4px 6px rgba(15, 23, 42, 0.1)'
                         }}

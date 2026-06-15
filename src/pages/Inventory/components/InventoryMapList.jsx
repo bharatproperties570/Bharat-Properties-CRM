@@ -6,8 +6,8 @@ const InventoryMapList = ({ items = [], onItemClick, getLookupValue, activeItemI
         <div style={{ 
             width: '380px', 
             height: '100%', 
-            background: '#f8fafc', 
-            borderRight: '1px solid #e2e8f0',
+            background: 'var(--bg-gray)', 
+            borderRight: '1px solid var(--border-color)',
             display: 'flex',
             flexDirection: 'column',
             overflow: 'hidden',
@@ -15,17 +15,17 @@ const InventoryMapList = ({ items = [], onItemClick, getLookupValue, activeItemI
         }}>
             <div style={{ 
                 padding: '1.25rem 1.5rem', 
-                borderBottom: '1px solid #e2e8f0', 
-                background: '#fff',
+                borderBottom: '1px solid var(--border-color)', 
+                background: 'var(--bg-card)',
                 zIndex: 5,
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center'
             }}>
-                <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>
+                <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--text-main)', margin: 0 }}>
                     Properties ({items.length})
                 </h3>
-                <div style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                <div style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                     Map Sidebar
                 </div>
             </div>
@@ -36,7 +36,7 @@ const InventoryMapList = ({ items = [], onItemClick, getLookupValue, activeItemI
                 padding: '0' // Removed padding to match Deals list
             }} className="custom-scrollbar">
                 {items.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8', fontSize: '0.85rem' }}>
+                    <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
                         No properties found in this area.
                     </div>
                 ) : (
@@ -68,7 +68,7 @@ const InventoryMapList = ({ items = [], onItemClick, getLookupValue, activeItemI
                                 style={{ 
                                     padding: '8px 12px',
                                     background: isSelected ? 'var(--contact-row-hover, #f1f5f9)' : '#fff',
-                                    borderBottom: '1px solid #e2e8f0',
+                                    borderBottom: '1px solid var(--border-color)',
                                     borderLeft: isSelected ? '4px solid #3b82f6' : '4px solid transparent',
                                     cursor: 'pointer',
                                     transition: 'all 0.2s',
@@ -94,13 +94,13 @@ const InventoryMapList = ({ items = [], onItemClick, getLookupValue, activeItemI
 
                                     <div style={{ flex: 1, minWidth: 0 }}>
                                         {/* Project & Price/Size */}
-                                        <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#1e293b', marginBottom: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        <div style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                             {renderValue(item.projectName)}
                                         </div>
                                         
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
                                             <i className="fas fa-map-marker-alt" style={{ fontSize: '0.65rem', color: '#ef4444' }}></i>
-                                            <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>
+                                            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>
                                                 {renderValue(item.address?.locality || item.address?.area)}
                                             </span>
                                         </div>

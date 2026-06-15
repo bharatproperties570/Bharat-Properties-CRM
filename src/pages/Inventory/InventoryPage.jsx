@@ -312,13 +312,13 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                                                         />
                             {/* No Results Feedback */}
                             {!loading && inventoryItems.length === 0 && (
-                                <div className="no-results" style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>
+                                <div className="no-results" style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>
                                     No inventory records found.
                                 </div>
                             )}
                         </>
                     ) : (
-                        <div style={{ height: 'calc(100vh - 180px)', display: 'flex', position: 'relative', background: '#fff' }}>
+                        <div style={{ height: 'calc(100vh - 180px)', display: 'flex', position: 'relative', background: 'var(--bg-card)' }}>
                             <InventoryMapList 
                                 items={visibleMapItemIds ? inventoryItems.filter(item => visibleMapItemIds.includes(item._id || item.id)) : inventoryItems}
                                 onItemClick={(id) => setActiveMapItemId(id)}
@@ -339,7 +339,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                 </div>
             </div>
 
-            <footer className="summary-footer" style={{ height: '55px', background: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', marginTop: 'auto' }}>
+            <footer className="summary-footer" style={{ height: '55px', background: 'var(--bg-gray)', borderTop: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', marginTop: 'auto' }}>
                 <div style={{ display: 'flex', gap: '20px', alignItems: 'center', padding: '0 2rem', width: '100%', overflowX: 'auto' }}>
                     <div className="summary-label" style={{ background: '#334155', color: '#fff', borderRadius: '8px', fontSize: '0.65rem', padding: '4px 12px', fontWeight: 800, whiteSpace: 'nowrap' }}>SUMMARY</div>
                     {stats?.categories && stats.categories.length > 0 ? (
@@ -356,7 +356,7 @@ export default function InventoryPage({ onNavigate, onAddActivity }) {
                             );
                         })
                     ) : (
-                        <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontStyle: 'italic' }}>Calculating distribution...</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>Calculating distribution...</div>
                     )}
                 </div>
             </footer>

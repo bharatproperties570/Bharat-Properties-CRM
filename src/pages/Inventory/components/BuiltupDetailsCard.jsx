@@ -20,8 +20,8 @@ const BuiltupDetailsCard = ({ inventory, getLookupValue }) => {
                         <i className="fas fa-building" style={{ color: 'var(--premium-blue)' }}></i>
                     </div>
                     <div>
-                        <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, color: '#0f172a', letterSpacing: '-0.3px' }}>Built-up Details</h3>
-                        <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>Structure, floors & furnishing status</p>
+                        <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, color: 'var(--text-main)', letterSpacing: '-0.3px' }}>Built-up Details</h3>
+                        <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Structure, floors & furnishing status</p>
                     </div>
                 </div>
                 {inventory.builtupVideoUrl && (
@@ -60,10 +60,10 @@ const BuiltupDetailsCard = ({ inventory, getLookupValue }) => {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                 {/* Floor Wise Details */}
                 {(inventory.builtupDetails || []).map((floor, fIdx) => (
-                    <div key={fIdx} style={{ padding: '20px', background: 'rgba(248, 250, 252, 0.4)', borderRadius: '20px', border: '1px solid #f1f5f9' }}>
+                    <div key={fIdx} style={{ padding: '20px', background: 'rgba(248, 250, 252, 0.4)', borderRadius: '20px', border: '1px solid var(--border-color)' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px', borderBottom: '1px dashed #e2e8f0', paddingBottom: '10px' }}>
                             <i className="fas fa-layer-group" style={{ color: 'var(--premium-blue)', fontSize: '0.9rem' }}></i>
-                            <span style={{ fontSize: '0.85rem', fontWeight: 900, color: '#0f172a', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                            <span style={{ fontSize: '0.85rem', fontWeight: 900, color: 'var(--text-main)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                                 {floor.floor || `Level ${fIdx + 1}`}
                             </span>
                         </div>
@@ -84,7 +84,7 @@ const BuiltupDetailsCard = ({ inventory, getLookupValue }) => {
                                             height: '65px', 
                                             borderRadius: '12px', 
                                             overflow: 'hidden', 
-                                            border: '1px solid #e2e8f0', 
+                                            border: '1px solid var(--border-color)', 
                                             cursor: 'pointer',
                                             boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)'
                                         }}
@@ -171,7 +171,7 @@ const BuiltupDetailsCard = ({ inventory, getLookupValue }) => {
                         </p>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                             {(inventory.furnishedItems || '').split(',').map((item, idx) => (
-                                <span key={idx} style={{ padding: '6px 12px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 700, color: '#475569', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                                <span key={idx} style={{ padding: '6px 12px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
                                     {item.trim()}
                                 </span>
                             ))}
@@ -239,12 +239,12 @@ const BuiltupDetailsCard = ({ inventory, getLookupValue }) => {
 };
 
 const InfoItem = ({ label, value, icon }) => (
-    <div style={{ padding: '14px', background: 'rgba(248, 250, 252, 0.5)', borderRadius: '16px', border: '1px solid #f1f5f9' }}>
-        <p style={{ margin: '0 0 6px 0', fontSize: '0.6rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <i className={`fas fa-${icon}`} style={{ width: '12px', textAlign: 'center', color: '#cbd5e1' }}></i>
+    <div style={{ padding: '14px', background: 'rgba(248, 250, 252, 0.5)', borderRadius: '16px', border: '1px solid var(--border-color)' }}>
+        <p style={{ margin: '0 0 6px 0', fontSize: '0.6rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <i className={`fas fa-${icon}`} style={{ width: '12px', textAlign: 'center', color: 'var(--text-muted)' }}></i>
             {label}
         </p>
-        <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 700, color: '#1e293b' }}>{value || '-'}</p>
+        <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-main)' }}>{value || '-'}</p>
     </div>
 );
 

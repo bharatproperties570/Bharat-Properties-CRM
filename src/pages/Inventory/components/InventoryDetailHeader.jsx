@@ -41,7 +41,7 @@ const InventoryDetailHeader = ({
         }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
                 <button onClick={onBack} style={{
-                    border: 'none', background: 'rgba(241, 245, 249, 0.8)', color: '#475569', 
+                    border: 'none', background: 'rgba(241, 245, 249, 0.8)', color: 'var(--text-muted)', 
                     width: '36px', height: '36px', borderRadius: '10px', 
                     display: 'flex', alignItems: 'center', justifyContent: 'center', 
                     cursor: 'pointer', transition: 'all 0.2s'
@@ -58,9 +58,9 @@ const InventoryDetailHeader = ({
                     </div>
                     <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <h1 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 900, color: '#0f172a', letterSpacing: '-0.5px' }}>
+                            <h1 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 900, color: 'var(--text-main)', letterSpacing: '-0.5px' }}>
                                 {renderValue(inventory.unitNo)}
-                                <span style={{ fontSize: '1rem', color: '#64748b', fontWeight: 600, marginLeft: '6px' }}>
+                                <span style={{ fontSize: '1rem', color: 'var(--text-muted)', fontWeight: 600, marginLeft: '6px' }}>
                                     ({renderValue(getLookupValue('UnitType', inventory.unitType))})
                                 </span>
                             </h1>
@@ -79,20 +79,20 @@ const InventoryDetailHeader = ({
                                 </span>
                                 {rawStatus !== statusLabel && rawStatus !== 'Available' && (
                                     <span style={{ 
-                                        fontSize: '0.65rem', fontWeight: 800, color: '#475569', 
-                                        background: '#f1f5f9', padding: '2px 8px', borderRadius: '6px', 
-                                        border: '1px solid #e2e8f0', textTransform: 'uppercase' 
+                                        fontSize: '0.65rem', fontWeight: 800, color: 'var(--text-muted)', 
+                                        background: 'var(--bg-gray)', padding: '2px 8px', borderRadius: '6px', 
+                                        border: '1px solid var(--border-color)', textTransform: 'uppercase' 
                                     }}>
                                         {rawStatus}
                                     </span>
                                 )}
                             </div>
                         </div>
-                        <p style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600, display: 'flex', gap: '12px', alignItems: 'center', marginTop: '2px' }}>
+                        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, display: 'flex', gap: '12px', alignItems: 'center', marginTop: '2px' }}>
                             <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                 <i className="fas fa-project-diagram" style={{ fontSize: '0.7rem' }}></i> {renderValue(inventory.projectName)}
                             </span>
-                            <span style={{ color: '#cbd5e1' }}>|</span>
+                            <span style={{ color: 'var(--text-muted)' }}>|</span>
                             <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                 <i className="fas fa-layer-group" style={{ fontSize: '0.7rem' }}></i> {renderValue(inventory.block)}
                             </span>
@@ -129,14 +129,14 @@ const InventoryDetailHeader = ({
                                     });
                                 }
                             }}
-                            style={{ border: 'none', background: 'rgba(241, 245, 249, 0.8)', color: '#475569', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                            style={{ border: 'none', background: 'rgba(241, 245, 249, 0.8)', color: 'var(--text-muted)', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
                         >
                             <i className="fas fa-phone-alt" style={{ color: '#16a34a' }}></i> CALL {getTargetContacts().length > 1 && <i className="fas fa-chevron-down" style={{fontSize:'0.65rem', marginLeft:'2px'}}></i>}
                         </button>
                         {showCallMenu && getTargetContacts().length > 1 && (
                             <div style={{
                                 position: 'absolute', top: '100%', right: 0, marginTop: '8px',
-                                background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px',
+                                background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '12px',
                                 boxShadow: '0 10px 25px rgba(0,0,0,0.1)', zIndex: 1000, minWidth: '220px',
                                 padding: '8px 0', overflow: 'hidden'
                             }}>
@@ -154,13 +154,13 @@ const InventoryDetailHeader = ({
                                                 entityType: 'inventory'
                                             });
                                         }}
-                                        style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
+                                        style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
                                         className="hover:bg-slate-50"
                                     >
                                         <i className="fas fa-phone" style={{ color: '#16a34a', width: '16px' }}></i>
                                         <div style={{display:'flex', flexDirection:'column', lineHeight:'1.4'}}>
                                             <span>{target.name}</span>
-                                            <span style={{fontSize:'0.7rem', color:'#94a3b8'}}>{target.mobile}</span>
+                                            <span style={{fontSize:'0.7rem', color: 'var(--text-muted)'}}>{target.mobile}</span>
                                         </div>
                                     </button>
                                 ))}
@@ -169,13 +169,13 @@ const InventoryDetailHeader = ({
                     </div>
                     <button
                         onClick={handleMessageClick}
-                        style={{ border: 'none', background: 'rgba(241, 245, 249, 0.8)', color: '#475569', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                        style={{ border: 'none', background: 'rgba(241, 245, 249, 0.8)', color: 'var(--text-muted)', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
                     >
                         <i className="fas fa-comment-alt" style={{ color: '#3b82f6' }}></i> SMS
                     </button>
                     <button
                         onClick={handleEmailClick}
-                        style={{ border: 'none', background: 'rgba(241, 245, 249, 0.8)', color: '#475569', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                        style={{ border: 'none', background: 'rgba(241, 245, 249, 0.8)', color: 'var(--text-muted)', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
                     >
                         <i className="fas fa-envelope" style={{ color: '#8b5cf6' }}></i> EMAIL
                     </button>
@@ -183,7 +183,7 @@ const InventoryDetailHeader = ({
                     <div style={{ position: 'relative' }}>
                         <button
                             onClick={handleMoreMenuClick}
-                            style={{ border: 'none', background: 'rgba(241, 245, 249, 0.8)', color: '#475569', width: '38px', height: '38px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                            style={{ border: 'none', background: 'rgba(241, 245, 249, 0.8)', color: 'var(--text-muted)', width: '38px', height: '38px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
                         >
                             <i className="fas fa-ellipsis-v"></i>
                         </button>
@@ -198,10 +198,10 @@ const InventoryDetailHeader = ({
                             }}>
                                 <button onClick={handleFeedbackClick} style={menuItemStyle}><i className="fas fa-comment-dots" style={{ color: '#f59e0b', width: '16px' }}></i> Feedback</button>
                                 <button onClick={handleTagsClick} style={menuItemStyle}><i className="fas fa-tags" style={{ color: '#8b5cf6', width: '16px' }}></i> Manage Tags</button>
-                                <button onClick={handleDocumentClick} style={menuItemStyle}><i className="fas fa-file-alt" style={{ color: '#64748b', width: '16px' }}></i> Document</button>
+                                <button onClick={handleDocumentClick} style={menuItemStyle}><i className="fas fa-file-alt" style={{ color: 'var(--text-muted)', width: '16px' }}></i> Document</button>
                                 <button onClick={handleUploadClick} style={menuItemStyle}><i className="fas fa-cloud-upload-alt" style={{ color: '#4f46e5', width: '16px' }}></i> Upload Media</button>
                                 <button onClick={handleBuiltupClick} style={menuItemStyle}><i className="fas fa-layer-group" style={{ color: '#2563eb', width: '16px' }}></i> Add Builtup Details</button>
-                                <div style={{ height: '1px', background: '#f1f5f9', margin: '4px 0' }}></div>
+                                <div style={{ height: '1px', background: 'var(--bg-gray)', margin: '4px 0' }}></div>
                                 <button onClick={handleWhatsAppShare} style={menuItemStyle}><i className="fab fa-whatsapp" style={{ color: '#25D366', width: '16px' }}></i> WhatsApp Share</button>
                                 <button onClick={handleCopyDetails} style={menuItemStyle}>
                                     <i className={isCopying ? "fas fa-check" : "fas fa-copy"} style={{ color: isCopying ? '#10b981' : '#64748b', width: '16px' }}></i> 
@@ -214,14 +214,14 @@ const InventoryDetailHeader = ({
 
                 <div style={{
                     display: 'flex', alignItems: 'center', gap: '12px', padding: '4px 12px',
-                    background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px',
+                    background: 'var(--bg-gray)', border: '1px solid var(--border-color)', borderRadius: '8px',
                     marginLeft: '8px'
                 }}>
                     <div style={{ display: 'flex', flexDirection: 'column', lineHeight: '1.2' }}>
-                        <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0f172a', whiteSpace: 'nowrap' }}>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-main)', whiteSpace: 'nowrap' }}>
                             {renderValue(inventory.assignedTo?.fullName) || renderValue(inventory.assignedTo?.name) || (typeof inventory.assignedTo === 'string' && !/^[0-9a-fA-F]{24}$/.test(inventory.assignedTo) ? renderValue(inventory.assignedTo) : 'Unassigned')}
                         </span>
-                        <span style={{ fontSize: '0.65rem', fontWeight: 600, color: '#64748b', whiteSpace: 'nowrap' }}>
+                        <span style={{ fontSize: '0.65rem', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
                             {renderValue(inventory.team?.name) || renderValue(inventory.team?.lookup_value) || (typeof inventory.team === 'string' && !/^[0-9a-fA-F]{24}$/.test(inventory.team) ? renderValue(inventory.team) : 'Standard Team')}
                         </span>
                     </div>
@@ -242,7 +242,7 @@ const InventoryDetailHeader = ({
 
 const menuItemStyle = {
     width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent',
-    border: 'none', fontSize: '0.8rem', fontWeight: 600, color: '#475569',
+    border: 'none', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)',
     cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px'
 };
 

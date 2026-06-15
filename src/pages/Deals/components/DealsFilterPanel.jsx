@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useTheme } from '../../../context/ThemeContext';
 import { createPortal } from 'react-dom';
 import { PROPERTY_CATEGORIES } from '../../../constants/propertyConstants';
 import { PROJECTS_LIST } from '../../../constants/projectConstants';
@@ -14,7 +15,7 @@ const styles = {
     sectionTitle: {
         fontSize: '0.7rem',
         fontWeight: '700',
-        color: '#64748b',
+        color: 'var(--text-muted)',
         textTransform: 'uppercase',
         letterSpacing: '0.05em',
         marginBottom: '10px',
@@ -24,16 +25,16 @@ const styles = {
         display: 'block',
         fontSize: '0.85rem',
         fontWeight: '600',
-        color: '#1e293b',
+        color: 'var(--text-main)',
         marginBottom: '6px'
     },
     input: {
         width: '100%',
         padding: '10px 12px',
         fontSize: '0.9rem',
-        color: '#0f172a',
-        backgroundColor: '#fff',
-        border: '1px solid #cbd5e1',
+        color: 'var(--text-main)',
+        backgroundColor: 'var(--bg-card)',
+        border: '1px solid var(--border-color)',
         borderRadius: '8px',
         outline: 'none',
         transition: 'all 0.2s ease',
@@ -43,9 +44,9 @@ const styles = {
         width: '100%',
         padding: '10px 12px',
         fontSize: '0.9rem',
-        color: '#0f172a',
-        backgroundColor: '#fff',
-        border: '1px solid #cbd5e1',
+        color: 'var(--text-main)',
+        backgroundColor: 'var(--bg-card)',
+        border: '1px solid var(--border-color)',
         borderRadius: '8px',
         outline: 'none',
         transition: 'all 0.2s ease',
@@ -63,14 +64,14 @@ const styles = {
         boxShadow: '0 1px 2px rgba(0, 102, 255, 0.1)'
     },
     inactiveBtn: {
-        backgroundColor: '#ffffff',
-        borderColor: '#e2e8f0',
-        color: '#64748b'
+        backgroundColor: 'var(--bg-card)',
+        borderColor: 'var(--border-color)',
+        color: 'var(--text-muted)'
     },
     resetBtn: {
         background: 'transparent',
         border: 'none',
-        color: '#64748b',
+        color: 'var(--text-muted)',
         fontSize: '0.85rem',
         fontWeight: '600',
         cursor: 'pointer',
@@ -98,6 +99,7 @@ const styles = {
 
 // MultiSelect Component
 const MultiSelectDropdown = ({ options, selected, onChange, placeholder, disabled }) => {
+    const { isDark } = useTheme();
     const [isOpen, setIsOpen] = useState(false);
     const containerRef = useRef(null);
 
@@ -129,8 +131,8 @@ const MultiSelectDropdown = ({ options, selected, onChange, placeholder, disable
                 onClick={() => !disabled && setIsOpen(!isOpen)}
                 style={{
                     ...styles.input,
-                    color: disabled ? '#94a3b8' : '#0f172a',
-                    backgroundColor: disabled ? '#f1f5f9' : '#fff',
+                    color: disabled ? 'var(--text-muted)' : 'var(--text-main)',
+                    backgroundColor: disabled ? 'var(--bg-gray)' : 'var(--bg-card)',
                     cursor: disabled ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     justifyContent: 'space-between',
@@ -140,13 +142,13 @@ const MultiSelectDropdown = ({ options, selected, onChange, placeholder, disable
                 <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '90%' }}>
                     {displayText}
                 </span>
-                <i className={`fas fa-chevron-${isOpen ? 'up' : 'down'}`} style={{ fontSize: '0.8rem', color: '#64748b' }}></i>
+                <i className={`fas fa-chevron-${isOpen ? 'up' : 'down'}`} style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}></i>
             </div>
 
             {isOpen && !disabled && (
                 <div style={{
                     position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '4px',
-                    backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px',
+                    backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '8px',
                     boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)', zIndex: 2001, maxHeight: '200px', overflowY: 'auto'
                 }}>
                     {options.map(option => (
@@ -155,11 +157,11 @@ const MultiSelectDropdown = ({ options, selected, onChange, placeholder, disable
                             onClick={() => handleSelect(option)}
                             style={{
                                 padding: '8px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px',
-                                backgroundColor: selected.includes(option) ? '#eff6ff' : 'transparent',
+                                backgroundColor: selected.includes(option) ? (isDark ? 'rgba(59, 130, 246, 0.15)' : '#eff6ff') : 'transparent',
                                 color: selected.includes(option) ? '#0066ff' : '#0f172a', fontSize: '0.9rem'
                             }}
-                            onMouseEnter={e => e.currentTarget.style.backgroundColor = selected.includes(option) ? '#eff6ff' : '#f8fafc'}
-                            onMouseLeave={e => e.currentTarget.style.backgroundColor = selected.includes(option) ? '#eff6ff' : 'transparent'}
+                            onMouseEnter={e => e.currentTarget.style.backgroundColor = selected.includes(option) ? (isDark ? 'rgba(59, 130, 246, 0.15)' : '#eff6ff') : 'var(--bg-gray)'}
+                            onMouseLeave={e => e.currentTarget.style.backgroundColor = selected.includes(option) ? (isDark ? 'rgba(59, 130, 246, 0.15)' : '#eff6ff') : 'transparent'}
                         >
                             <input type="checkbox" checked={selected.includes(option)} readOnly style={{ pointerEvents: 'none' }} />
                             {option}
@@ -172,6 +174,7 @@ const MultiSelectDropdown = ({ options, selected, onChange, placeholder, disable
 };
 
 const DealsFilterPanel = ({ isOpen, onClose, filters, onFilterChange, portalTarget = document.body }) => {
+    const { isDark } = useTheme();
     const { masterFields = {}, propertyConfig = {}, projects: dynamicProjects = [] } = usePropertyConfig();
     const [isVisible, setIsVisible] = useState(false);
     const [sizeMode, setSizeMode] = useState('type');
@@ -306,15 +309,15 @@ const DealsFilterPanel = ({ isOpen, onClose, filters, onFilterChange, portalTarg
         <div style={{ position: portalTarget === document.body ? 'fixed' : 'absolute', inset: 0, zIndex: 2000, display: 'flex', justifyContent: 'flex-end', fontFamily: "'Inter', sans-serif" }}>
             <div style={{ position: 'absolute', inset: 0, background: 'rgba(15, 23, 42, 0.3)', opacity: isOpen ? 1 : 0, transition: 'opacity 200ms ease' }} onClick={onClose}></div>
             <div style={{
-                position: 'relative', width: '420px', height: '100%', background: '#ffffff', boxShadow: '-10px 0 40px rgba(0,0,0,0.1)',
+                position: 'relative', width: '420px', height: '100%', background: 'var(--bg-card)', boxShadow: '-10px 0 40px rgba(0,0,0,0.1)',
                 display: 'flex', flexDirection: 'column', transform: isOpen ? 'translateX(0)' : 'translateX(100%)', transition: 'transform 300ms cubic-bezier(0.16, 1, 0.3, 1)'
             }}>
-                <header style={{ padding: '20px 24px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#ffffff' }}>
+                <header style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--bg-card)' }}>
                     <div>
-                        <h2 style={{ fontSize: '1.25rem', fontWeight: '700', color: '#0f172a', letterSpacing: '-0.025em', margin: 0 }}>Filter Deals</h2>
-                        <p style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '4px', margin: 0 }}>Real-time filtering enabled</p>
+                        <h2 style={{ fontSize: '1.25rem', fontWeight: '700', color: 'var(--text-main)', letterSpacing: '-0.025em', margin: 0 }}>Filter Deals</h2>
+                        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '4px', margin: 0 }}>Real-time filtering enabled</p>
                     </div>
-                    <button onClick={onClose} style={{ width: '36px', height: '36px', borderRadius: '50%', border: 'none', background: '#f8fafc', color: '#64748b', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', transition: 'all 0.2s' }}>
+                    <button onClick={onClose} style={{ width: '36px', height: '36px', borderRadius: '50%', border: 'none', background: 'var(--bg-gray)', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', transition: 'all 0.2s' }}>
                         <i className="fas fa-times"></i>
                     </button>
                 </header>
@@ -343,7 +346,7 @@ const DealsFilterPanel = ({ isOpen, onClose, filters, onFilterChange, portalTarg
                         </div>
                     </section>
 
-                    <div style={{ height: '1px', background: '#f1f5f9' }}></div>
+                    <div style={{ height: '1px', background: 'var(--bg-gray)' }}></div>
 
                     {/* 2. Deal Stage */}
                     <section>
@@ -367,7 +370,7 @@ const DealsFilterPanel = ({ isOpen, onClose, filters, onFilterChange, portalTarg
                         </div>
                     </section>
 
-                    <div style={{ height: '1px', background: '#f1f5f9' }}></div>
+                    <div style={{ height: '1px', background: 'var(--bg-gray)' }}></div>
 
                     {/* 3. Property Information */}
                     <section>
@@ -399,9 +402,9 @@ const DealsFilterPanel = ({ isOpen, onClose, filters, onFilterChange, portalTarg
                             <div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                                     <label style={{ ...styles.label, marginBottom: 0 }}>Size</label>
-                                    <div style={{ display: 'flex', backgroundColor: '#f1f5f9', padding: '2px', borderRadius: '6px' }}>
-                                        <button onClick={() => { setSizeMode('type'); updateFilter('sizeMode', 'type'); }} style={{ padding: '4px 12px', fontSize: '0.75rem', borderRadius: '4px', border: 'none', fontWeight: '600', cursor: 'pointer', backgroundColor: sizeMode === 'type' ? '#fff' : 'transparent', color: sizeMode === 'type' ? '#0f172a' : '#64748b', boxShadow: sizeMode === 'type' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none' }}>Type</button>
-                                        <button onClick={() => { setSizeMode('range'); updateFilter('sizeMode', 'range'); }} style={{ padding: '4px 12px', fontSize: '0.75rem', borderRadius: '4px', border: 'none', fontWeight: '600', cursor: 'pointer', backgroundColor: sizeMode === 'range' ? '#fff' : 'transparent', color: sizeMode === 'range' ? '#0f172a' : '#64748b', boxShadow: sizeMode === 'range' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none' }}>Min/Max</button>
+                                    <div style={{ display: 'flex', backgroundColor: 'var(--bg-gray)', padding: '2px', borderRadius: '6px' }}>
+                                        <button onClick={() => { setSizeMode('type'); updateFilter('sizeMode', 'type'); }} style={{ padding: '4px 12px', fontSize: '0.75rem', borderRadius: '4px', border: 'none', fontWeight: '600', cursor: 'pointer', backgroundColor: sizeMode === 'type' ? 'var(--bg-card)' : 'transparent', color: sizeMode === 'type' ? 'var(--text-main)' : 'var(--text-muted)', boxShadow: sizeMode === 'type' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none' }}>Type</button>
+                                        <button onClick={() => { setSizeMode('range'); updateFilter('sizeMode', 'range'); }} style={{ padding: '4px 12px', fontSize: '0.75rem', borderRadius: '4px', border: 'none', fontWeight: '600', cursor: 'pointer', backgroundColor: sizeMode === 'range' ? 'var(--bg-card)' : 'transparent', color: sizeMode === 'range' ? 'var(--text-main)' : 'var(--text-muted)', boxShadow: sizeMode === 'range' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none' }}>Min/Max</button>
                                     </div>
                                 </div>
                                 {sizeMode === 'type' ? (
@@ -449,7 +452,7 @@ const DealsFilterPanel = ({ isOpen, onClose, filters, onFilterChange, portalTarg
                         </div>
                     </section>
 
-                    <div style={{ height: '1px', background: '#f1f5f9' }}></div>
+                    <div style={{ height: '1px', background: 'var(--bg-gray)' }}></div>
 
                     {/* 4. Location & Project */}
                     <section>
@@ -459,7 +462,7 @@ const DealsFilterPanel = ({ isOpen, onClose, filters, onFilterChange, portalTarg
                                 <div style={{ flex: 1 }}>
                                     <label style={styles.label}>Location</label>
                                     <div style={{ position: 'relative' }}>
-                                        <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.9rem' }}></i>
+                                        <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: '0.9rem' }}></i>
                                         <input
                                             ref={searchInputRef}
                                             type="text"
@@ -468,7 +471,7 @@ const DealsFilterPanel = ({ isOpen, onClose, filters, onFilterChange, portalTarg
                                             value={filters.location || ''}
                                             onChange={(e) => updateFilter('location', e.target.value)}
                                             onFocus={e => e.target.style.borderColor = '#0066ff'}
-                                            onBlur={e => e.target.style.borderColor = '#cbd5e1'}
+                                            onBlur={e => e.target.style.borderColor = 'var(--border-color)'}
                                         />
                                     </div>
                                 </div>
@@ -521,7 +524,7 @@ const DealsFilterPanel = ({ isOpen, onClose, filters, onFilterChange, portalTarg
                         </div>
                     </section>
 
-                    <div style={{ height: '1px', background: '#f1f5f9' }}></div>
+                    <div style={{ height: '1px', background: 'var(--bg-gray)' }}></div>
 
                     {/* 5. Orientation */}
                     <section>
@@ -557,7 +560,7 @@ const DealsFilterPanel = ({ isOpen, onClose, filters, onFilterChange, portalTarg
                         </div>
                     </section>
 
-                    <div style={{ height: '1px', background: '#f1f5f9' }}></div>
+                    <div style={{ height: '1px', background: 'var(--bg-gray)' }}></div>
 
                     {/* Price Range */}
                     <section>
@@ -580,7 +583,7 @@ const DealsFilterPanel = ({ isOpen, onClose, filters, onFilterChange, portalTarg
                         </div>
                     </section>
 
-                    <div style={{ height: '1px', background: '#f1f5f9' }}></div>
+                    <div style={{ height: '1px', background: 'var(--bg-gray)' }}></div>
 
                     {/* Deal Details (New Fields) */}
                     <section>
@@ -617,7 +620,7 @@ const DealsFilterPanel = ({ isOpen, onClose, filters, onFilterChange, portalTarg
                     </section>
                 </div>
 
-                <footer style={{ padding: '24px', borderTop: '1px solid #e2e8f0', backgroundColor: '#ffffff', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <footer style={{ padding: '24px', borderTop: '1px solid var(--border-color)', backgroundColor: 'var(--bg-card)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     <button onClick={onClose} style={styles.applyBtn}>
                         View {Object.keys(filters).length > 0 ? 'Filtered Results' : 'All Deals'}
                     </button>

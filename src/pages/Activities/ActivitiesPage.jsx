@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect, memo, Fragment } from 'react';
+import { useTheme } from '../../context/ThemeContext';
 import { useActivities } from '../../context/ActivityContext';
 import CreateActivityModal from '../../components/CreateActivityModal';
 import ActivityOutcomeModal from '../../components/ActivityOutcomeModal';
@@ -13,7 +14,7 @@ import { renderValue } from '../../utils/renderUtils';
 // Colored stage chip using STAGE_PIPELINE data
 const LeadStageChip = memo(function LeadStageChip({ stage }) {
     const info = STAGE_PIPELINE.find(s => s.label === stage) || STAGE_PIPELINE[0];
-    if (!stage) return <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontStyle: 'italic' }}>--</span>;
+    if (!stage) return <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>--</span>;
     return (
         <span style={{
             display: 'inline-flex', alignItems: 'center', gap: '4px',
@@ -38,6 +39,7 @@ const ActivityRow = memo(function ActivityRow({
     setSelectedActivity,
     setIsOutcomeModalOpen
 }) {
+    const { isDark } = useTheme();
     const isRowSelected = selectedActivityId === activity._id;
 
     return (
@@ -47,8 +49,8 @@ const ActivityRow = memo(function ActivityRow({
                 padding: '16px 12px',
                 marginBottom: '8px',
                 borderRadius: '8px',
-                border: isRowSelected ? '2px solid #10b981' : '1px solid #e2e8f0',
-                background: isRowSelected ? '#f0fdf4' : '#fff',
+                border: isRowSelected ? '2px solid #10b981' : '1px solid var(--border-color)',
+                background: isRowSelected ? isDark ? 'rgba(16, 185, 129, 0.15)' : '#f0fdf4' : 'var(--bg-card)',
                 display: 'grid',
                 gridTemplateColumns: '35px 250px 140px 1.2fr 100px 1.2fr 130px 130px 120px',
                 gap: '12px',
@@ -72,7 +74,7 @@ const ActivityRow = memo(function ActivityRow({
 
             {/* Details */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', overflow: 'hidden' }}>
-                <div title={renderValue(activity.entityType === 'Inventory' ? activity.participants?.[0]?.name : (activity.relatedTo?.[0]?.name || activity.participants?.[0]?.name))} className="text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0f172a' }}>
+                <div title={renderValue(activity.entityType === 'Inventory' ? activity.participants?.[0]?.name : (activity.relatedTo?.[0]?.name || activity.participants?.[0]?.name))} className="text-ellipsis" style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text-main)' }}>
                     {renderValue(activity.entityType === 'Inventory' 
                         ? (activity.participants?.[0]?.name || activity.contactName || 'Unknown Owner') 
                         : (activity.relatedTo?.[0]?.name || activity.participants?.[0]?.name || activity.contactName || 'Unknown Client')
@@ -87,7 +89,7 @@ const ActivityRow = memo(function ActivityRow({
 
                 {/* Email - Enterprise Multi-Path Lookup */}
                 {(activity.contactEmail || activity.participants?.[0]?.email || activity.details?.email) && (
-                    <div className="text-ellipsis" style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>
+                    <div className="text-ellipsis" style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>
                         <i className="fas fa-envelope" style={{ marginRight: '6px', opacity: 0.7 }}></i>
                         {renderValue(activity.contactEmail || activity.participants?.[0]?.email || activity.details?.email)}
                     </div>
@@ -96,11 +98,11 @@ const ActivityRow = memo(function ActivityRow({
 
             {/* Scheduled Date */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                <div style={{ fontSize: '0.8rem', color: '#0f172a', fontWeight: 700 }}>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-main)', fontWeight: 700 }}>
                     <i className="far fa-calendar" style={{ marginRight: '6px', color: '#6366f1' }}></i>
                     {activity.dueDate ? new Date(activity.dueDate).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '--'}
                 </div>
-                <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 700 }}>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700 }}>
                     <i className="far fa-clock" style={{ marginRight: '6px', color: '#10b981' }}></i>
                     {activity.dueTime || (activity.dueDate && !activity.dueDate.toString().includes('00:00:00') 
                         ? new Date(activity.dueDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
@@ -109,15 +111,15 @@ const ActivityRow = memo(function ActivityRow({
             </div>
 
             {/* Agenda */}
-            <div style={{ fontSize: '0.75rem', color: '#475569', lineHeight: 1.5, overflow: 'hidden' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5, overflow: 'hidden' }}>
                 <div className="address-clamp" style={{ fontStyle: 'italic' }}>
                     {(() => {
-                        if (activity.details?.outcome) return <span style={{ fontWeight: 700, color: '#0f172a', fontStyle: 'normal' }}>{renderValue(activity.details.outcome)}</span>;
-                        if (activity.details?.feedback && activity.details?.formSource === 'InventoryFeedbackForm') return <span style={{ fontWeight: 700, color: '#0f172a', fontStyle: 'normal' }}>{renderValue(activity.details.feedback)}</span>;
+                        if (activity.details?.outcome) return <span style={{ fontWeight: 700, color: 'var(--text-main)', fontStyle: 'normal' }}>{renderValue(activity.details.outcome)}</span>;
+                        if (activity.details?.feedback && activity.details?.formSource === 'InventoryFeedbackForm') return <span style={{ fontWeight: 700, color: 'var(--text-main)', fontStyle: 'normal' }}>{renderValue(activity.details.feedback)}</span>;
                         
                         const strToSearch = activity.details?.agenda || activity.subject || '';
                         const match = String(strToSearch).match(/discuss (.*?) for Unit/i);
-                        if (match && match[1]) return <span style={{ fontWeight: 700, color: '#0f172a', fontStyle: 'normal' }}>{renderValue(match[1].trim())}</span>;
+                        if (match && match[1]) return <span style={{ fontWeight: 700, color: 'var(--text-main)', fontStyle: 'normal' }}>{renderValue(match[1].trim())}</span>;
 
                         return renderValue(activity.subject || activity.details?.agenda);
                     })()}
@@ -131,15 +133,15 @@ const ActivityRow = memo(function ActivityRow({
                     padding: '5px 12px',
                     borderRadius: '16px',
                     fontWeight: 700,
-                    background: activity.type === 'Meeting' ? '#dbeafe' : activity.type === 'Call' || activity.type === 'Call Back' ? '#fef3c7' : '#d1fae5',
-                    color: activity.type === 'Meeting' ? '#1e40af' : activity.type === 'Call' || activity.type === 'Call Back' ? '#92400e' : '#065f46',
+                    background: activity.type === 'Meeting' ? isDark ? 'rgba(59, 130, 246, 0.15)' : '#dbeafe' : activity.type === 'Call' || activity.type === 'Call Back' ? isDark ? 'rgba(245, 158, 11, 0.15)' : '#fef3c7' : isDark ? 'rgba(16, 185, 129, 0.15)' : '#d1fae5',
+                    color: activity.type === 'Meeting' ? isDark ? '#93c5fd' : '#1e40af' : activity.type === 'Call' || activity.type === 'Call Back' ? isDark ? '#fcd34d' : '#92400e' : isDark ? '#6ee7b7' : '#065f46',
                 }}>
                     {renderValue(activity.type)}
                 </span>
             </div>
 
             {/* Project / Feedback / Details */}
-            <div style={{ fontSize: '0.75rem', color: '#475569', lineHeight: 1.5, overflow: 'hidden' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.5, overflow: 'hidden' }}>
                 {(activity.details?.visitedProperties?.[0]?.project || activity.entityType === 'Inventory') && (
                     <div className="text-ellipsis" style={{ fontSize: '0.75rem', color: '#0891b2', fontWeight: 600, marginBottom: '4px' }}>
                         <i className="fas fa-building" style={{ marginRight: '4px' }}></i>
@@ -149,19 +151,19 @@ const ActivityRow = memo(function ActivityRow({
                     </div>
                 )}
                 {activity.details?.specificReason && (
-                    <div className="address-clamp" style={{ fontSize: '0.75rem', color: '#b45309', fontWeight: 600, padding: '4px 8px', background: '#fef3c7', borderRadius: '4px', borderLeft: '3px solid #f59e0b', marginBottom: '4px' }}>
+                    <div className="address-clamp" style={{ fontSize: '0.75rem', color: '#b45309', fontWeight: 600, padding: '4px 8px', background: isDark ? 'rgba(245, 158, 11, 0.15)' : '#fef3c7', borderRadius: '4px', borderLeft: '3px solid #f59e0b', marginBottom: '4px' }}>
                         <i className="fas fa-info-circle" style={{ marginRight: '4px' }}></i>{renderValue(activity.details.specificReason)}
                     </div>
                 )}
                 {!activity.details?.specificReason && activity.description && activity.type === 'Call Back' && (
-                    <div className="address-clamp" style={{ fontSize: '0.75rem', color: '#059669', fontWeight: 600, padding: '4px 8px', background: '#d1fae5', borderRadius: '4px', borderLeft: '3px solid #10b981', marginBottom: '4px' }}>
+                    <div className="address-clamp" style={{ fontSize: '0.75rem', color: '#059669', fontWeight: 600, padding: '4px 8px', background: isDark ? 'rgba(16, 185, 129, 0.15)' : '#d1fae5', borderRadius: '4px', borderLeft: '3px solid #10b981', marginBottom: '4px' }}>
                         <i className="fas fa-comment-dots" style={{ marginRight: '4px' }}></i>{renderValue(activity.description)}
                     </div>
                 )}
                 {activity.details && Object.keys(activity.details).length > 0 && typeof activity.details === 'object' && !Array.isArray(activity.details) && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
                         {Object.entries(activity.details).filter(([k, v]) => v && typeof v === 'string' && !['visitedProperties', 'formSource', 'platform', 'source', 'agenda', 'outcome', 'specificReason', 'project', 'block', 'feedback', 'unitNo', 'inventoryId'].includes(k)).slice(0, 2).map(([key, value], i) => (
-                            <span key={i} title={`${key}: ${renderValue(value)}`} className="text-ellipsis" style={{ maxWidth: '100%', fontSize: '0.65rem', background: '#f1f5f9', color: '#475569', padding: '2px 6px', borderRadius: '4px', border: '1px solid #e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden' }}>
+                            <span key={i} title={`${key}: ${renderValue(value)}`} className="text-ellipsis" style={{ maxWidth: '100%', fontSize: '0.65rem', background: 'var(--bg-gray)', color: 'var(--text-muted)', padding: '2px 6px', borderRadius: '4px', border: '1px solid var(--border-color)', whiteSpace: 'nowrap', overflow: 'hidden' }}>
                                 <span style={{ fontWeight: 700, textTransform: 'capitalize' }}>{key}</span>: {renderValue(value)}
                             </span>
                         ))}
@@ -170,12 +172,12 @@ const ActivityRow = memo(function ActivityRow({
             </div>
 
             {/* Scheduled By */}
-            <div className="text-ellipsis" style={{ fontSize: '0.8rem', color: '#334155', fontWeight: 600 }}>
+            <div className="text-ellipsis" style={{ fontSize: '0.8rem', color: 'var(--text-main)', fontWeight: 600 }}>
                 {renderValue(activity.assignedTo?.fullName || activity.assignedTo?.name || activity.createdBy?.fullName || activity.createdBy?.name || activity.performedBy || activity.scheduledBy || '--')}
             </div>
 
             {/* Scheduled For */}
-            <div className="text-ellipsis" style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>
+            <div className="text-ellipsis" style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>
                 {renderValue(activity.assignedTo?.fullName || activity.assignedTo?.name || (activity.performedBy || activity.createdBy ? 'Self' : '--'))}
             </div>
 
@@ -190,15 +192,15 @@ const ActivityRow = memo(function ActivityRow({
                     padding: '3px 8px',
                     borderRadius: '10px',
                     background: activity.status?.toLowerCase() === 'completed'
-                        ? '#d1fae5'
+                        ? isDark ? 'rgba(16, 185, 129, 0.15)' : '#d1fae5'
                         : activity.status?.toLowerCase() === 'overdue'
                             ? '#fee2e2'
-                            : '#fffbeb',
+                            : isDark ? 'rgba(251, 191, 36, 0.15)' : '#fffbeb',
                     color: activity.status?.toLowerCase() === 'completed'
-                        ? '#065f46'
+                        ? isDark ? '#6ee7b7' : '#065f46'
                         : activity.status?.toLowerCase() === 'overdue'
                             ? '#991b1b'
-                            : '#92400e',
+                            : isDark ? '#fcd34d' : '#92400e',
                     width: 'fit-content'
                 }}>
                     {renderValue(activity.status)}
@@ -214,6 +216,7 @@ ActivityRow.displayName = 'ActivityRow';
 // ─── MAIN ACTIVITIES PAGE ───────────────────────────────────────────────────
 
 function ActivitiesPage() {
+    const { isDark } = useTheme();
     const { activities, fetchActivities, addActivity, updateActivity, deleteActivity } = useActivities();
 
     // UI State
@@ -409,7 +412,7 @@ function ActivitiesPage() {
         const days = [];
 
         for (let i = 0; i < firstDay; i++) {
-            days.push(<div key={`mini-prev-${i}`} style={{ padding: '4px', textAlign: 'center', color: '#cbd5e1' }}></div>);
+            days.push(<div key={`mini-prev-${i}`} style={{ padding: '4px', textAlign: 'center', color: 'var(--text-muted)' }}></div>);
         }
 
         for (let d = 1; d <= daysInMonth; d++) {
@@ -417,7 +420,7 @@ function ActivitiesPage() {
             days.push(
                 <div key={d} style={{
                     padding: '4px', textAlign: 'center', fontSize: '0.75rem',
-                    color: isToday ? '#fff' : '#475569',
+                    color: isToday ? 'var(--bg-card)' : 'var(--text-muted)',
                     background: isToday ? '#10b981' : 'transparent',
                     borderRadius: '50%', fontWeight: isToday ? 800 : 400,
                     cursor: 'pointer'
@@ -428,19 +431,19 @@ function ActivitiesPage() {
         }
 
         return (
-            <div style={{ padding: '16px', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+            <div style={{ padding: '16px', background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                    <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1e293b' }}>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-main)' }}>
                         {currentDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
                     </span>
                     <div style={{ display: 'flex', gap: '4px' }}>
-                        <i className="fas fa-chevron-left" style={{ cursor: 'pointer', fontSize: '0.7rem', color: '#64748b' }} onClick={() => changeDate(-1)}></i>
-                        <i className="fas fa-chevron-right" style={{ cursor: 'pointer', fontSize: '0.7rem', color: '#64748b' }} onClick={() => changeDate(1)}></i>
+                        <i className="fas fa-chevron-left" style={{ cursor: 'pointer', fontSize: '0.7rem', color: 'var(--text-muted)' }} onClick={() => changeDate(-1)}></i>
+                        <i className="fas fa-chevron-right" style={{ cursor: 'pointer', fontSize: '0.7rem', color: 'var(--text-muted)' }} onClick={() => changeDate(1)}></i>
                     </div>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '2px', textAlign: 'center' }}>
                     {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, idx) => (
-                        <div key={idx} style={{ fontSize: '0.65rem', fontWeight: 800, color: '#94a3b8', paddingBottom: '4px' }}>{day}</div>
+                        <div key={idx} style={{ fontSize: '0.65rem', fontWeight: 800, color: 'var(--text-muted)', paddingBottom: '4px' }}>{day}</div>
                     ))}
                     {days}
                 </div>
@@ -458,7 +461,7 @@ function ActivitiesPage() {
             const days = [];
 
             for (let i = 0; i < firstDay; i++) {
-                days.push(<div key={`prev-${i}`} className="calendar-day padding" style={{ minHeight: '130px', background: '#f8fafc', border: '1px solid #e2e8f0' }}></div>);
+                days.push(<div key={`prev-${i}`} className="calendar-day padding" style={{ minHeight: '130px', background: 'var(--bg-gray)', border: '1px solid var(--border-color)' }}></div>);
             }
 
             for (let d = 1; d <= daysInMonth; d++) {
@@ -470,8 +473,8 @@ function ActivitiesPage() {
                 });
 
                 days.push(
-                    <div key={d} className="calendar-day" style={{ minHeight: '130px', background: '#fff', border: '1px solid #e2e8f0', padding: '10px', display: 'flex', flexDirection: 'column', gap: '6px', transition: 'all 0.2s', position: 'relative' }}>
-                        <div style={{ fontWeight: 800, fontSize: '0.8rem', color: isToday ? '#fff' : '#475569', background: isToday ? '#10b981' : 'transparent', width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%', marginBottom: '4px' }}>
+                    <div key={d} className="calendar-day" style={{ minHeight: '130px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', padding: '10px', display: 'flex', flexDirection: 'column', gap: '6px', transition: 'all 0.2s', position: 'relative' }}>
+                        <div style={{ fontWeight: 800, fontSize: '0.8rem', color: isToday ? 'var(--bg-card)' : 'var(--text-muted)', background: isToday ? '#10b981' : 'transparent', width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%', marginBottom: '4px' }}>
                             {d}
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', overflowY: 'auto', flex: 1 }}>
@@ -481,7 +484,7 @@ function ActivitiesPage() {
                                     onClick={(e) => { e.stopPropagation(); setSelectedActivity(a); }}
                                     style={{
                                         fontSize: '0.65rem', padding: '3px 8px', borderRadius: '4px',
-                                        background: a.type === 'Meeting' ? '#e1f5fe' : a.type === 'Call' ? '#fff9c4' : '#e8f5e9',
+                                        background: a.type === 'Meeting' ? (isDark ? 'rgba(14, 165, 233, 0.15)' : '#e1f5fe') : a.type === 'Call' ? (isDark ? 'rgba(234, 179, 8, 0.15)' : '#fff9c4') : (isDark ? 'rgba(34, 197, 94, 0.15)' : '#e8f5e9'),
                                         color: a.type === 'Meeting' ? '#0288d1' : a.type === 'Call' ? '#fbc02d' : '#2e7d32',
                                         borderLeft: `3px solid ${a.type === 'Meeting' ? '#03a9f4' : a.type === 'Call' ? '#fdd835' : '#4caf50'}`,
                                         boxShadow: selectedActivity?._id === a._id ? '0 0 0 2px #10b981' : 'none',
@@ -499,9 +502,9 @@ function ActivitiesPage() {
             }
 
             return (
-                <div className="calendar-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden', background: '#f8fafc' }}>
+                <div className="calendar-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', border: '1px solid var(--border-color)', borderRadius: '12px', overflow: 'hidden', background: 'var(--bg-gray)' }}>
                     {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-                        <div key={day} style={{ padding: '12px', background: '#fff', textAlign: 'center', fontWeight: 800, fontSize: '0.75rem', color: '#94a3b8', borderBottom: '1px solid #e2e8f0', textTransform: 'uppercase' }}>{day}</div>
+                        <div key={day} style={{ padding: '12px', background: 'var(--bg-card)', textAlign: 'center', fontWeight: 800, fontSize: '0.75rem', color: 'var(--text-muted)', borderBottom: '1px solid var(--border-color)', textTransform: 'uppercase' }}>{day}</div>
                     ))}
                     {days}
                 </div>
@@ -515,22 +518,22 @@ function ActivitiesPage() {
             if (viewType === 'week') startDate.setDate(currentDate.getDate() - currentDate.getDay());
 
             return (
-                <div style={{ display: 'grid', gridTemplateColumns: `60px repeat(${numDays}, 1fr)`, border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden', background: '#fff' }}>
-                    <div style={{ borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}></div>
+                <div style={{ display: 'grid', gridTemplateColumns: `60px repeat(${numDays}, 1fr)`, border: '1px solid var(--border-color)', borderRadius: '12px', overflow: 'hidden', background: 'var(--bg-card)' }}>
+                    <div style={{ borderBottom: '1px solid var(--border-color)', background: 'var(--bg-gray)' }}></div>
                     {Array.from({ length: numDays }).map((_, i) => {
                         const date = new Date(startDate);
                         date.setDate(startDate.getDate() + i);
                         const isToday = new Date().toDateString() === date.toDateString();
                         return (
-                            <div key={i} style={{ padding: '12px', borderLeft: '1px solid #e2e8f0', borderBottom: '1px solid #e2e8f0', textAlign: 'center', background: isToday ? '#10b98110' : '#fff' }}>
-                                <div style={{ fontSize: '0.7rem', fontWeight: 800, color: isToday ? '#10b981' : '#94a3b8', textTransform: 'uppercase' }}>{date.toLocaleString('default', { weekday: 'short' })}</div>
-                                <div style={{ fontSize: '1.2rem', fontWeight: 800, color: isToday ? '#fff' : '#1e293b', background: isToday ? '#10b981' : 'transparent', width: '32px', height: '32px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%', marginTop: '4px' }}>{date.getDate()}</div>
+                            <div key={i} style={{ padding: '12px', borderLeft: '1px solid var(--border-color)', borderBottom: '1px solid var(--border-color)', textAlign: 'center', background: isToday ? '#10b98110' : 'var(--bg-card)' }}>
+                                <div style={{ fontSize: '0.7rem', fontWeight: 800, color: isToday ? '#10b981' : 'var(--text-muted)', textTransform: 'uppercase' }}>{date.toLocaleString('default', { weekday: 'short' })}</div>
+                                <div style={{ fontSize: '1.2rem', fontWeight: 800, color: isToday ? 'var(--bg-card)' : 'var(--text-main)', background: isToday ? '#10b981' : 'transparent', width: '32px', height: '32px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%', marginTop: '4px' }}>{date.getDate()}</div>
                             </div>
                         );
                     })}
                     {hours.map(hour => (
                         <Fragment key={hour}>
-                            <div style={{ padding: '10px 8px', borderBottom: '1px solid #f1f5f9', textAlign: 'right', fontSize: '0.65rem', color: '#94a3b8', fontWeight: 700 }}>{hour === 0 ? '12 AM' : hour < 12 ? `${hour} AM` : hour === 12 ? '12 PM' : `${hour - 12} PM`}</div>
+                            <div style={{ padding: '10px 8px', borderBottom: '1px solid var(--border-color)', textAlign: 'right', fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 700 }}>{hour === 0 ? '12 AM' : hour < 12 ? `${hour} AM` : hour === 12 ? '12 PM' : `${hour - 12} PM`}</div>
                             {Array.from({ length: numDays }).map((_, i) => {
                                 const date = new Date(startDate);
                                 date.setDate(startDate.getDate() + i);
@@ -543,14 +546,14 @@ function ActivitiesPage() {
                                     return parseInt(t.split(':')[0]) === hour;
                                 });
                                 return (
-                                    <div key={i} style={{ borderLeft: '1px solid #f1f5f9', borderBottom: '1px solid #f1f5f9', minHeight: '48px', position: 'relative', padding: '2px' }}>
+                                    <div key={i} style={{ borderLeft: '1px solid var(--border-color)', borderBottom: '1px solid var(--border-color)', minHeight: '48px', position: 'relative', padding: '2px' }}>
                                         {hourActivities.map(a => (
                                             <div
                                                 key={a._id}
                                                 onClick={(e) => { e.stopPropagation(); setSelectedActivity(a); }}
                                                 style={{
                                                     fontSize: '0.6rem', padding: '4px 8px', borderRadius: '4px',
-                                                    background: a.type === 'Meeting' ? '#e1f5fe' : a.type === 'Call' ? '#fff9c4' : '#e8f5e9',
+                                                    background: a.type === 'Meeting' ? (isDark ? 'rgba(14, 165, 233, 0.15)' : '#e1f5fe') : a.type === 'Call' ? (isDark ? 'rgba(234, 179, 8, 0.15)' : '#fff9c4') : (isDark ? 'rgba(34, 197, 94, 0.15)' : '#e8f5e9'),
                                                     color: a.type === 'Meeting' ? '#0288d1' : a.type === 'Call' ? '#fbc02d' : '#2e7d32',
                                                     borderLeft: `3px solid ${a.type === 'Meeting' ? '#03a9f4' : a.type === 'Call' ? '#fdd835' : '#4caf50'}`,
                                                     boxShadow: selectedActivity?._id === a._id ? '0 0 0 2px #10b981' : 'none',
@@ -570,17 +573,17 @@ function ActivitiesPage() {
         };
 
         return (
-            <div className="calendar-view-container" style={{ display: 'flex', height: 'calc(100vh - 120px)', background: '#fff' }}>
-                <div className="calendar-sidebar" style={{ width: '280px', borderRight: '1px solid #e2e8f0', padding: '24px', display: 'flex', flexDirection: 'column', gap: '24px', overflowY: 'auto' }}>
+            <div className="calendar-view-container" style={{ display: 'flex', height: 'calc(100vh - 120px)', background: 'var(--bg-card)' }}>
+                <div className="calendar-sidebar" style={{ width: '280px', borderRight: '1px solid var(--border-color)', padding: '24px', display: 'flex', flexDirection: 'column', gap: '24px', overflowY: 'auto' }}>
                     <button className="btn-primary" onClick={() => setIsCreateModalOpen(true)} style={{ width: '100%', padding: '12px', borderRadius: '24px', boxShadow: '0 4px 12px rgba(16, 185, 129, 0.2)', marginBottom: '8px' }}>
                         <i className="fas fa-plus" style={{ marginRight: '8px' }}></i> Create
                     </button>
                     {miniCalendar}
                     <div>
-                        <h4 style={{ fontSize: '0.75rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '16px', letterSpacing: '0.5px' }}>My Calendars</h4>
+                        <h4 style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '16px', letterSpacing: '0.5px' }}>My Calendars</h4>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                             {['Meetings', 'Calls', 'Site Visits', 'Follow Ups'].map((label, idx) => (
-                                <label key={idx} style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', fontSize: '0.85rem', color: '#475569' }}>
+                                <label key={idx} style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
                                     <input type="checkbox" defaultChecked style={{ accentColor: ['#4285F4', '#F4B400', '#0F9D58', '#DB4437'][idx] }} />
                                     <span style={{ flex: 1 }}>{label}</span>
                                     <div style={{ width: '12px', height: '12px', borderRadius: '3px', background: ['#4285F4', '#F4B400', '#0F9D58', '#DB4437'][idx] }}></div>
@@ -590,18 +593,18 @@ function ActivitiesPage() {
                     </div>
                 </div>
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                    <div className="calendar-toolbar" style={{ padding: '16px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div className="calendar-toolbar" style={{ padding: '16px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                            <h2 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#1e293b', margin: 0 }}>{monthName} {year}</h2>
-                            <div style={{ display: 'flex', gap: '4px', background: '#f1f5f9', padding: '4px', borderRadius: '8px' }}>
-                                <button onClick={() => changeDate(-1)} style={{ padding: '6px 12px', border: 'none', background: 'none', cursor: 'pointer', color: '#64748b' }}><i className="fas fa-chevron-left"></i></button>
-                                <button onClick={() => setCurrentDate(new Date())} style={{ padding: '6px 16px', border: 'none', background: '#fff', borderRadius: '6px', color: '#475569', fontWeight: 700, fontSize: '0.85rem', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>Today</button>
-                                <button onClick={() => changeDate(1)} style={{ padding: '6px 12px', border: 'none', background: 'none', cursor: 'pointer', color: '#64748b' }}><i className="fas fa-chevron-right"></i></button>
+                            <h2 style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-main)', margin: 0 }}>{monthName} {year}</h2>
+                            <div style={{ display: 'flex', gap: '4px', background: 'var(--bg-gray)', padding: '4px', borderRadius: '8px' }}>
+                                <button onClick={() => changeDate(-1)} style={{ padding: '6px 12px', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><i className="fas fa-chevron-left"></i></button>
+                                <button onClick={() => setCurrentDate(new Date())} style={{ padding: '6px 16px', border: 'none', background: 'var(--bg-card)', borderRadius: '6px', color: 'var(--text-muted)', fontWeight: 700, fontSize: '0.85rem', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>Today</button>
+                                <button onClick={() => changeDate(1)} style={{ padding: '6px 12px', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><i className="fas fa-chevron-right"></i></button>
                             </div>
                         </div>
-                        <div style={{ display: 'flex', gap: '4px', background: '#f1f5f9', padding: '4px', borderRadius: '8px' }}>
+                        <div style={{ display: 'flex', gap: '4px', background: 'var(--bg-gray)', padding: '4px', borderRadius: '8px' }}>
                             {['Month', 'Week', 'Day'].map(view => (
-                                <button key={view} onClick={() => setCalendarView(view.toLowerCase())} style={{ padding: '6px 16px', border: 'none', background: calendarView === view.toLowerCase() ? '#fff' : 'none', borderRadius: '6px', color: calendarView === view.toLowerCase() ? '#10b981' : '#64748b', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', boxShadow: calendarView === view.toLowerCase() ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', transition: 'all 0.2s' }}>{view}</button>
+                                <button key={view} onClick={() => setCalendarView(view.toLowerCase())} style={{ padding: '6px 16px', border: 'none', background: calendarView === view.toLowerCase() ? 'var(--bg-card)' : 'none', borderRadius: '6px', color: calendarView === view.toLowerCase() ? '#10b981' : 'var(--text-muted)', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', boxShadow: calendarView === view.toLowerCase() ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', transition: 'all 0.2s' }}>{view}</button>
                             ))}
                         </div>
                     </div>
@@ -616,7 +619,7 @@ function ActivitiesPage() {
     return (
         <section className="main-content" style={{ height: 'calc(100vh - 65px)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <div className="page-container" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', height: '100%' }}>
-                <div className="page-header" style={{ background: '#fff', borderBottom: '1px solid #eef2f5', padding: '15px 0.5rem', zIndex: 110 }}>
+                <div className="page-header" style={{ background: 'var(--bg-card)', borderBottom: '1px solid var(--border-color)', padding: '15px 0.5rem', zIndex: 110 }}>
                     <div className="page-title-group">
                         <i className="fas fa-tasks" style={{ color: '#68737d' }}></i>
                         <div>
@@ -636,16 +639,16 @@ function ActivitiesPage() {
                     </div>
                 </div>
 
-                <div style={{ padding: '10px 0.5rem', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                <div style={{ padding: '10px 0.5rem', background: 'var(--bg-gray)', borderBottom: '1px solid var(--border-color)' }}>
                     <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
                         {['All', 'Follow Up', 'Site Visit', 'Meeting', 'Call', 'Task'].map(type => (
-                            <button key={type} style={{ padding: '6px 16px', borderRadius: '6px', border: activeType === type ? 'none' : '1px solid #e2e8f0', background: activeType === type ? '#10b981' : '#fff', color: activeType === type ? '#fff' : '#64748b', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s' }} onClick={() => setQuickTypeFilter(type)}>{type}</button>
+                            <button key={type} style={{ padding: '6px 16px', borderRadius: '6px', border: activeType === type ? 'none' : '1px solid var(--border-color)', background: activeType === type ? '#10b981' : 'var(--bg-card)', color: activeType === type ? '#fff' : 'var(--text-muted)', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s' }} onClick={() => setQuickTypeFilter(type)}>{type}</button>
                         ))}
                     </div>
-                    <div style={{ display: 'flex', gap: '20px', borderBottom: '2px solid #e2e8f0', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: '20px', borderBottom: '2px solid var(--border-color)', alignItems: 'center' }}>
                         <div style={{ display: 'flex', gap: '20px' }}>
                             {['Today', 'Upcoming', 'Overdue', 'Completed', 'Custom'].map(tab => (
-                                <button key={tab} onClick={() => setQuickStatusFilter(tab)} style={{ padding: '10px 0', border: 'none', background: 'none', fontSize: '0.85rem', fontWeight: 600, color: currentTab === tab ? '#10b981' : '#64748b', borderBottom: currentTab === tab ? '2px solid #10b981' : '2px solid transparent', cursor: 'pointer', marginBottom: '-2px' }}>{tab}</button>
+                                <button key={tab} onClick={() => setQuickStatusFilter(tab)} style={{ padding: '10px 0', border: 'none', background: 'none', fontSize: '0.85rem', fontWeight: 600, color: currentTab === tab ? '#10b981' : 'var(--text-muted)', borderBottom: currentTab === tab ? '2px solid #10b981' : '2px solid transparent', cursor: 'pointer', marginBottom: '-2px' }}>{tab}</button>
                             ))}
                         </div>
                         <div style={{ flex: 1 }}></div>
@@ -655,7 +658,7 @@ function ActivitiesPage() {
                 <div className="content-body" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                     {viewMode === 'list' ? (
                         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                            <div className="toolbar-container" style={{ padding: '5px 0.5rem', borderBottom: '1px solid #eef2f5', minHeight: '45px', display: 'flex', alignItems: 'center', background: '#fff', zIndex: 105 }}>
+                            <div className="toolbar-container" style={{ padding: '5px 0.5rem', borderBottom: '1px solid var(--border-color)', minHeight: '45px', display: 'flex', alignItems: 'center', background: 'var(--bg-card)', zIndex: 105 }}>
                                 {selectedIds.length > 0 ? (
                                     <div className="action-panel" style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%', overflowX: 'auto', paddingTop: '4px', paddingBottom: '2px' }}>
                                         <div className="selection-count" style={{ marginRight: '10px', fontWeight: 600, color: 'var(--primary-color)', whiteSpace: 'nowrap' }}>{selectedIds.length} Selected</div>
@@ -664,7 +667,7 @@ function ActivitiesPage() {
                                                 <button className="action-btn" title="Edit Activity" onClick={handleEditActivity}><i className="fas fa-edit"></i> Edit</button>
                                                 <button className="action-btn" title="Reschedule" onClick={handleEditActivity}><i className="fas fa-calendar-alt"></i> Reschedule</button>
                                                 <button className="action-btn" title="Mark Complete" onClick={() => handleOpenCompleteModal(filteredActivities.find(a => a._id === selectedIds[0]))}><i className="fas fa-check-circle"></i> Complete</button>
-                                                <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 4px' }}></div>
+                                                <div style={{ width: '1px', height: '24px', background: 'var(--border-color)', margin: '0 4px' }}></div>
                                             </>
                                         )}
                                         <button className="action-btn" title="Add Note" onClick={selectedIds.length === 1 ? handleEditActivity : () => {}}><i className="fas fa-sticky-note"></i> Note</button>
@@ -687,16 +690,16 @@ function ActivitiesPage() {
                                         <div style={{ flex: 1 }}></div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                                             <div style={{ fontSize: '0.85rem', color: '#68737d', fontWeight: 500 }}>Total: <strong>{totalRecords}</strong> Activities</div>
-                                            <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.8rem", color: "#64748b" }}>
+                                            <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.8rem", color: 'var(--text-muted)' }}>
                                                 <span>Show:</span>
-                                                <select value={recordsPerPage} onChange={handleRecordsPerPageChange} style={{ padding: "4px 8px", border: "1px solid #e2e8f0", borderRadius: "6px", fontSize: "0.8rem", fontWeight: 600, color: "#0f172a", outline: "none", cursor: "pointer" }}>
+                                                <select value={recordsPerPage} onChange={handleRecordsPerPageChange} style={{ padding: "4px 8px", border: '1px solid var(--border-color)', borderRadius: "6px", fontSize: "0.8rem", fontWeight: 600, color: 'var(--text-main)', outline: "none", cursor: "pointer" }}>
                                                     {[10, 25, 50, 100, 300, 500, 750, 1000].map(v => <option key={v} value={v}>{v}</option>)}
                                                 </select>
                                             </div>
                                             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                                                <button onClick={goToPreviousPage} disabled={currentPage === 1} style={{ padding: "6px 12px", border: "1px solid #e2e8f0", borderRadius: "6px", background: currentPage === 1 ? "#f8fafc" : "#fff", color: currentPage === 1 ? "#cbd5e1" : "#0f172a", cursor: currentPage === 1 ? "not-allowed" : "pointer", fontSize: "0.75rem", fontWeight: 600 }}><i className="fas fa-chevron-left"></i> Prev</button>
-                                                <span style={{ fontSize: "0.8rem", fontWeight: 600, color: "#0f172a", minWidth: "80px", textAlign: "center" }}>{currentPage} / {totalPages || 1}</span>
-                                                <button onClick={goToNextPage} disabled={currentPage >= totalPages} style={{ padding: "6px 12px", border: "1px solid #e2e8f0", borderRadius: "6px", background: currentPage >= totalPages ? "#f8fafc" : "#fff", color: currentPage >= totalPages ? "#cbd5e1" : "#0f172a", cursor: currentPage >= totalPages ? "not-allowed" : "pointer", fontSize: "0.75rem", fontWeight: 600 }}>Next <i className="fas fa-chevron-right"></i></button>
+                                                <button onClick={goToPreviousPage} disabled={currentPage === 1} style={{ padding: "6px 12px", border: '1px solid var(--border-color)', borderRadius: "6px", background: currentPage === 1 ? 'var(--bg-gray)' : 'var(--bg-card)', color: currentPage === 1 ? 'var(--text-muted)' : 'var(--text-main)', cursor: currentPage === 1 ? "not-allowed" : "pointer", fontSize: "0.75rem", fontWeight: 600 }}><i className="fas fa-chevron-left"></i> Prev</button>
+                                                <span style={{ fontSize: "0.8rem", fontWeight: 600, color: 'var(--text-main)', minWidth: "80px", textAlign: "center" }}>{currentPage} / {totalPages || 1}</span>
+                                                <button onClick={goToNextPage} disabled={currentPage >= totalPages} style={{ padding: "6px 12px", border: '1px solid var(--border-color)', borderRadius: "6px", background: currentPage >= totalPages ? 'var(--bg-gray)' : 'var(--bg-card)', color: currentPage >= totalPages ? 'var(--text-muted)' : 'var(--text-main)', cursor: currentPage >= totalPages ? "not-allowed" : "pointer", fontSize: "0.75rem", fontWeight: 600 }}>Next <i className="fas fa-chevron-right"></i></button>
 
                                                 {/* Professional Sort Icon */}
                                                 <div style={{ position: 'relative', marginLeft: '10px' }}>
@@ -705,9 +708,9 @@ function ActivitiesPage() {
                                                         style={{ 
                                                             display: 'flex', alignItems: 'center', justifyContent: 'center', 
                                                             width: '32px', height: '32px', borderRadius: '8px',
-                                                            border: '1px solid #e2e8f0',
-                                                            background: isSortOpen ? 'var(--primary-color)' : '#fff',
-                                                            color: isSortOpen ? '#fff' : '#64748b',
+                                                            border: '1px solid var(--border-color)',
+                                                            background: isSortOpen ? 'var(--primary-color)' : 'var(--bg-card)',
+                                                            color: isSortOpen ? '#fff' : 'var(--text-muted)',
                                                             cursor: 'pointer', transition: 'all 0.2s'
                                                         }}
                                                         onClick={() => setIsSortOpen(!isSortOpen)}
@@ -723,11 +726,11 @@ function ActivitiesPage() {
                                                             />
                                                             <ul className="shadow-lg border-0" style={{ 
                                                                 position: 'absolute', top: '100%', right: 0, zIndex: 999,
-                                                                backgroundColor: '#fff', borderRadius: '16px', padding: '10px', 
+                                                                backgroundColor: 'var(--bg-card)', borderRadius: '16px', padding: '10px', 
                                                                 minWidth: '220px', marginTop: '8px', listStyle: 'none',
-                                                                border: '1px solid #eef2f5'
+                                                                border: '1px solid var(--border-color)'
                                                             }}>
-                                                                <li><h6 style={{ fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', color: '#94a3b8', padding: '10px 15px', margin: 0 }}>Advanced Sort</h6></li>
+                                                                <li><h6 style={{ fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-muted)', padding: '10px 15px', margin: 0 }}>Advanced Sort</h6></li>
                                                                 {[
                                                                     { label: 'Oldest Due', by: 'dueDate', order: 1, icon: 'fa-calendar-day' },
                                                                     { label: 'Newest Due', by: 'dueDate', order: -1, icon: 'fa-calendar-check' },
@@ -745,7 +748,7 @@ function ActivitiesPage() {
                                                                                 padding: '10px 15px', 
                                                                                 fontSize: '0.85rem',
                                                                                 fontWeight: sortConfig.label === opt.label ? 700 : 500,
-                                                                                color: sortConfig.label === opt.label ? '#fff' : '#1e293b',
+                                                                                color: sortConfig.label === opt.label ? '#fff' : 'var(--text-main)',
                                                                                 background: sortConfig.label === opt.label ? 'var(--primary-color)' : 'transparent',
                                                                                 cursor: 'pointer',
                                                                                 marginBottom: '2px',
@@ -775,7 +778,7 @@ function ActivitiesPage() {
                             </div>
                             <ActiveFiltersChips filters={filters} onRemoveFilter={handleRemoveFilter} onClearAll={handleClearAll} />
                             <div className="list-scroll-area" style={{ flex: 1, overflow: 'auto' }}>
-                                <div style={{ position: 'sticky', top: 0, zIndex: 99, padding: '15px 0.5rem', background: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569', fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px', display: 'grid', gridTemplateColumns: '35px 250px 140px 1.2fr 100px 1.2fr 130px 130px 120px', gap: '12px', alignItems: 'center', width: '100%', minWidth: '1300px' }}>
+                                <div style={{ position: 'sticky', top: 0, zIndex: 99, padding: '15px 0.5rem', background: 'var(--bg-gray)', borderBottom: '2px solid var(--border-color)', color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px', display: 'grid', gridTemplateColumns: '35px 250px 140px 1.2fr 100px 1.2fr 130px 130px 120px', gap: '12px', alignItems: 'center', width: '100%', minWidth: '1300px' }}>
                                     <div><input type="checkbox" onChange={toggleSelectAll} checked={selectedIds.length === filteredActivities.length && filteredActivities.length > 0} /></div>
                                     <div>Details</div>
                                     <div>Scheduled Date</div>
@@ -786,7 +789,7 @@ function ActivitiesPage() {
                                     <div>Scheduled For</div>
                                     <div>Stage / Status</div>
                                 </div>
-                                <div className="list-content" style={{ background: '#fafbfc', padding: '1rem 0.5rem' }}>
+                                <div className="list-content" style={{ background: 'var(--bg-gray)', padding: '1rem 0.5rem' }}>
                                     {paginatedActivities.map((activity) => (
                                         <ActivityRow
                                             key={activity._id}
@@ -809,21 +812,21 @@ function ActivitiesPage() {
                         </div>
                     )}
 
-                    <div className="activities-footer" style={{ padding: '12px 1rem', background: selectedActivity ? '#1e293b' : '#fff', color: selectedActivity ? '#fff' : 'inherit', borderTop: '1px solid #eef2f5', display: 'flex', justifyContent: 'space-between', alignItems: 'center', zIndex: 1000, transition: 'all 0.3s ease', height: '55px', minHeight: '55px' }}>
+                    <div className="activities-footer" style={{ padding: '12px 1rem', background: selectedActivity ? 'var(--text-main)' : 'var(--bg-card)', color: selectedActivity ? 'var(--bg-card)' : 'inherit', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', zIndex: 1000, transition: 'all 0.3s ease', height: '55px', minHeight: '55px' }}>
                         {!selectedActivity ? (
                             <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
-                                <div style={{ fontSize: '0.85rem', color: '#94a3b8', fontWeight: 600 }}>Summary</div>
-                                <div style={{ fontSize: '0.85rem', color: '#334155', fontWeight: 700 }}>Total Activities <span style={{ color: '#10b981', marginLeft: '5px' }}>{totalRecords}</span></div>
+                                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600 }}>Summary</div>
+                                <div style={{ fontSize: '0.85rem', color: 'var(--text-main)', fontWeight: 700 }}>Total Activities <span style={{ color: '#10b981', marginLeft: '5px' }}>{totalRecords}</span></div>
                             </div>
                         ) : (
                             <div style={{ display: 'flex', gap: '30px', alignItems: 'center', flex: 1 }}>
-                                <div style={{ background: '#334155', color: '#fff', borderRadius: '6px', fontSize: '0.7rem', padding: '4px 12px', fontWeight: 800 }}>ACTIVITY SUMMARY</div>
+                                <div style={{ background: 'var(--text-main)', color: 'var(--bg-card)', borderRadius: '6px', fontSize: '0.7rem', padding: '4px 12px', fontWeight: 800 }}>ACTIVITY SUMMARY</div>
                                 <div style={{ display: 'flex', gap: '20px' }}>
-                                    <div style={{ fontSize: '0.8rem' }}><span style={{ color: '#94a3b8' }}>CONTACT:</span> <span style={{ fontWeight: 800 }}>{renderValue(selectedActivity.relatedTo?.[0]?.name || 'Unknown')}</span></div>
-                                    <div style={{ fontSize: '0.8rem' }}><span style={{ color: '#94a3b8' }}>TYPE:</span> <span style={{ fontWeight: 800, color: '#10b981' }}>{renderValue(selectedActivity.type)}</span></div>
-                                    <div style={{ fontSize: '0.8rem', maxWidth: '400px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}><span style={{ color: '#94a3b8' }}>SUBJECT:</span> <span style={{ fontWeight: 600 }}>{renderValue(selectedActivity.subject)}</span></div>
+                                    <div style={{ fontSize: '0.8rem' }}><span style={{ color: 'var(--text-muted)' }}>CONTACT:</span> <span style={{ fontWeight: 800 }}>{renderValue(selectedActivity.relatedTo?.[0]?.name || 'Unknown')}</span></div>
+                                    <div style={{ fontSize: '0.8rem' }}><span style={{ color: 'var(--text-muted)' }}>TYPE:</span> <span style={{ fontWeight: 800, color: '#10b981' }}>{renderValue(selectedActivity.type)}</span></div>
+                                    <div style={{ fontSize: '0.8rem', maxWidth: '400px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}><span style={{ color: 'var(--text-muted)' }}>SUBJECT:</span> <span style={{ fontWeight: 600 }}>{renderValue(selectedActivity.subject)}</span></div>
                                 </div>
-                                <button onClick={() => setSelectedActivity(null)} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', marginLeft: 'auto' }}><i className="fas fa-times"></i></button>
+                                <button onClick={() => setSelectedActivity(null)} style={{ background: 'var(--bg-gray)', border: 'none', color: 'var(--text-main)', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', marginLeft: 'auto' }}><i className="fas fa-times"></i></button>
                             </div>
                         )}
                     </div>

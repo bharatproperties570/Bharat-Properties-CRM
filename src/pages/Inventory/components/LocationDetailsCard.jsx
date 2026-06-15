@@ -16,16 +16,16 @@ const LocationDetailsCard = ({ inventory, getLookupValue, onUpdateLocation }) =>
             padding: '12px 14px', 
             background: 'rgba(248, 250, 252, 0.5)', 
             borderRadius: '14px', 
-            border: '1px solid #f1f5f9',
+            border: '1px solid var(--border-color)',
             display: 'flex',
             flexDirection: 'column',
             gap: '4px'
         }}>
-            <p style={{ margin: 0, fontSize: '0.6rem', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.3px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <i className={`fas fa-${icon}`} style={{ fontSize: '0.55rem', color: '#cbd5e1' }}></i>
+            <p style={{ margin: 0, fontSize: '0.6rem', fontWeight: 900, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.3px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <i className={`fas fa-${icon}`} style={{ fontSize: '0.55rem', color: 'var(--text-muted)' }}></i>
                 {label}
             </p>
-            <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 800, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 800, color: 'var(--text-main)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {renderValue(value) || '-'}
             </p>
         </div>
@@ -55,8 +55,8 @@ const LocationDetailsCard = ({ inventory, getLookupValue, onUpdateLocation }) =>
                         <i className="fas fa-map-marker-alt" style={{ color: '#ef4444' }}></i>
                     </div>
                     <div>
-                        <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, color: '#0f172a', letterSpacing: '-0.3px' }}>Location Intelligence</h3>
-                        <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>Geospatial data & verified address</p>
+                        <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, color: 'var(--text-main)', letterSpacing: '-0.3px' }}>Location Intelligence</h3>
+                        <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Geospatial data & verified address</p>
                     </div>
                 </div>
                 <button 
@@ -106,13 +106,13 @@ const LocationDetailsCard = ({ inventory, getLookupValue, onUpdateLocation }) =>
                         <p style={{ margin: '0 0 8px 0', fontSize: '0.65rem', fontWeight: 900, color: 'var(--premium-blue)', textTransform: 'uppercase', letterSpacing: '0.8px' }}>
                             <i className="fas fa-file-alt" style={{ marginRight: '8px' }}></i> FULL OFFICIAL ADDRESS
                         </p>
-                        <p style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: '#1e293b', lineHeight: '1.6' }}>
+                        <p style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: 'var(--text-main)', lineHeight: '1.6' }}>
                             {fullAddress}
                         </p>
                     </div>
                 </div>
 
-                <div style={{ height: '100%', borderRadius: '24px', overflow: 'hidden', border: '1px solid #e2e8f0', position: 'relative', boxShadow: '0 8px 30px rgba(0,0,0,0.06)' }}>
+                <div style={{ height: '100%', borderRadius: '24px', overflow: 'hidden', border: '1px solid var(--border-color)', position: 'relative', boxShadow: '0 8px 30px rgba(0,0,0,0.06)' }}>
                     <ProfessionalMap
                         items={hasValidCoords ? [inventory] : []}
                         center={coords}
@@ -141,7 +141,7 @@ const LocationDetailsCard = ({ inventory, getLookupValue, onUpdateLocation }) =>
                             onClick={onUpdateLocation}
                             style={{
                                 background: 'rgba(255, 255, 255, 0.95)', backdropFilter: 'blur(10px)',
-                                padding: '8px 16px', borderRadius: '10px', border: '1px solid #e2e8f0',
+                                padding: '8px 16px', borderRadius: '10px', border: '1px solid var(--border-color)',
                                 color: 'var(--premium-blue)', fontSize: '0.7rem', fontWeight: 900,
                                 cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px',
                                 boxShadow: '0 10px 25px rgba(0,0,0,0.08)', transition: 'all 0.2s',
@@ -157,7 +157,7 @@ const LocationDetailsCard = ({ inventory, getLookupValue, onUpdateLocation }) =>
                         position: 'absolute', bottom: '16px', right: '16px',
                         background: 'rgba(255,255,255,0.95)', backdropFilter: 'blur(10px)',
                         padding: '10px 18px', borderRadius: '14px', border: '1px solid #fff',
-                        fontSize: '0.65rem', fontWeight: 900, color: '#1e293b',
+                        fontSize: '0.65rem', fontWeight: 900, color: 'var(--text-main)',
                         boxShadow: '0 10px 30px rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', gap: '8px',
                         textTransform: 'uppercase', letterSpacing: '0.5px'
                     }}>

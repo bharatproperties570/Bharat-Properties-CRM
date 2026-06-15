@@ -69,8 +69,8 @@ const InventorySidebar = ({
                             <i className="fas fa-landmark" style={{ color: '#fbbf24', fontSize: '0.85rem' }}></i>
                         </div>
                         <div>
-                            <h3 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 900, color: '#0f172a' }}>Chain of Title History</h3>
-                            <p style={{ margin: 0, fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600 }}>Legal ownership transfer trail</p>
+                            <h3 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 900, color: 'var(--text-main)' }}>Chain of Title History</h3>
+                            <p style={{ margin: 0, fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600 }}>Legal ownership transfer trail</p>
                         </div>
                     </div>
                     {Array.isArray(inventory.ownerHistory) && inventory.ownerHistory.length > 0 && (
@@ -133,11 +133,11 @@ const InventorySidebar = ({
                                                     {displayName.charAt(0).toUpperCase()}
                                                 </div>
                                                 <div style={{ minWidth: 0 }}>
-                                                    <p style={{ margin: 0, fontSize: '0.82rem', fontWeight: 800, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                    <p style={{ margin: 0, fontSize: '0.82rem', fontWeight: 800, color: 'var(--text-main)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                                         {displayName}
                                                     </p>
                                                     {displayMobile && (
-                                                        <p style={{ margin: 0, fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>
+                                                        <p style={{ margin: 0, fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600 }}>
                                                             <i className="fas fa-phone-alt" style={{ fontSize: '0.55rem', marginRight: '4px' }}></i>
                                                             {displayMobile}
                                                         </p>
@@ -158,12 +158,12 @@ const InventorySidebar = ({
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px', flexWrap: 'wrap' }}>
                                             <span style={{
                                                 fontSize: '0.6rem', fontWeight: 800, padding: '2px 8px',
-                                                borderRadius: '6px', background: '#f1f5f9', color: '#475569',
-                                                border: '1px solid #e2e8f0', textTransform: 'uppercase'
+                                                borderRadius: '6px', background: 'var(--bg-gray)', color: 'var(--text-muted)',
+                                                border: '1px solid var(--border-color)', textTransform: 'uppercase'
                                             }}>
                                                 {role}
                                             </span>
-                                            <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600 }}>
+                                            <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)', fontWeight: 600 }}>
                                                 <i className="fas fa-link" style={{ fontSize: '0.55rem', marginRight: '3px' }}></i>
                                                 {source}
                                             </span>
@@ -171,12 +171,12 @@ const InventorySidebar = ({
 
                                         {/* Row 3: Date + Author */}
                                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                            <span style={{ fontSize: '0.62rem', color: '#94a3b8', fontWeight: 700 }}>
+                                            <span style={{ fontSize: '0.62rem', color: 'var(--text-muted)', fontWeight: 700 }}>
                                                 <i className="fas fa-calendar-alt" style={{ fontSize: '0.55rem', marginRight: '4px' }}></i>
                                                 {dateStr} {timeStr && `· ${timeStr}`}
                                             </span>
                                             {authorName && (
-                                                <span style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 600 }}>
+                                                <span style={{ fontSize: '0.6rem', color: 'var(--text-muted)', fontWeight: 600 }}>
                                                     <i className="fas fa-user-edit" style={{ fontSize: '0.55rem', marginRight: '3px' }}></i>
                                                     {authorName}
                                                 </span>
@@ -189,11 +189,11 @@ const InventorySidebar = ({
                     </div>
                 ) : (
                     <div style={{ textAlign: 'center', padding: '24px 16px' }}>
-                        <div style={{ width: '48px', height: '48px', background: '#f1f5f9', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
-                            <i className="fas fa-shield-alt" style={{ color: '#94a3b8', fontSize: '1.2rem' }}></i>
+                        <div style={{ width: '48px', height: '48px', background: 'var(--bg-gray)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
+                            <i className="fas fa-shield-alt" style={{ color: 'var(--text-muted)', fontSize: '1.2rem' }}></i>
                         </div>
-                        <p style={{ margin: '0 0 4px', fontSize: '0.8rem', fontWeight: 800, color: '#475569' }}>First-Hand Record</p>
-                        <p style={{ margin: 0, fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600 }}>No ownership transfers recorded. This is the original entry in the system.</p>
+                        <p style={{ margin: '0 0 4px', fontSize: '0.8rem', fontWeight: 800, color: 'var(--text-muted)' }}>First-Hand Record</p>
+                        <p style={{ margin: 0, fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>No ownership transfers recorded. This is the original entry in the system.</p>
                     </div>
                 )}
             </div>
@@ -204,8 +204,8 @@ const InventorySidebar = ({
             />
 
             {/* Inventory Lifecycle Section */}
-            <div style={{ marginTop: '24px', paddingTop: '24px', borderTop: '1px solid #f1f5f9' }}>
-                <h3 style={{ fontSize: '0.85rem', fontWeight: 900, color: '#0f172a', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '0.8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{ marginTop: '24px', paddingTop: '24px', borderTop: '1px solid var(--border-color)' }}>
+                <h3 style={{ fontSize: '0.85rem', fontWeight: 900, color: 'var(--text-main)', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '0.8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <i className="fas fa-history" style={{ color: '#6366f1', fontSize: '0.9rem' }}></i>
                     Inventory Lifecycle
                 </h3>
@@ -248,12 +248,12 @@ const InventorySidebar = ({
 
 
 const LifecycleMetric = ({ label, value, icon, color }) => (
-    <div style={{ padding: '12px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #f1f5f9', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+    <div style={{ padding: '12px', background: 'var(--bg-gray)', borderRadius: '12px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '4px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <i className={`fas fa-${icon}`} style={{ fontSize: '0.65rem', color: color }}></i>
-            <span style={{ fontSize: '0.55rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{label}</span>
+            <span style={{ fontSize: '0.55rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{label}</span>
         </div>
-        <div style={{ fontSize: '0.85rem', fontWeight: 900, color: '#1e293b' }}>{value}</div>
+        <div style={{ fontSize: '0.85rem', fontWeight: 900, color: 'var(--text-main)' }}>{value}</div>
     </div>
 );
 

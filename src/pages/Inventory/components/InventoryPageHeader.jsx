@@ -12,8 +12,8 @@ const InventoryPageHeader = ({ viewMode, setViewMode, setIsFilterPanelOpen, acti
                     <i className="fas fa-warehouse" style={{ color: '#16a34a', fontSize: '1.1rem' }}></i>
                 </div>
                 <div>
-                    <h1 style={{ fontSize: '1.4rem', fontWeight: '800', color: '#0f172a', margin: 0, letterSpacing: '-0.02em' }}>Inventory</h1>
-                    <p style={{ fontSize: '0.8rem', color: '#64748b', margin: 0, fontWeight: 500 }}>Property Assets Management</p>
+                    <h1 style={{ fontSize: '1.4rem', fontWeight: '800', color: 'var(--text-main)', margin: 0, letterSpacing: '-0.02em' }}>Inventory</h1>
+                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0, fontWeight: 500 }}>Property Assets Management</p>
                 </div>
             </div>
             <div style={{ display: 'flex', gap: '10px' }}>

@@ -69,7 +69,7 @@ function PipelineDashboard({ entityType = 'lead', refreshTrigger }) {
     if (loading) {
         return (
             <div className="pipeline-dashboard" id="pipelineDashboard" style={{ opacity: 0.5 }}>
-                <div style={{ padding: '20px', textAlign: 'center', width: '100%', color: '#64748b' }}>
+                <div style={{ padding: '20px', textAlign: 'center', width: '100%', color: 'var(--text-muted)' }}>
                     <i className="fas fa-spinner fa-spin"></i> Loading live pipeline data...
                 </div>
             </div>
@@ -173,34 +173,34 @@ function ClosedPipelineItem({ total, won, lost, unqualified, wonPerc, lostPerc, 
                 left: coords.left,
                 width: coords.width,
                 zIndex: 99999,
-                background: '#fff',
+                background: 'var(--bg-card)',
                 boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
-                border: '1px solid #e2e8f0',
+                border: '1px solid var(--border-color)',
                 borderRadius: '8px',
                 overflow: 'hidden',
                 animation: 'fadeIn 0.2s ease-out'
             }}
             onClick={(e) => e.stopPropagation()}
         >
-            <div className="sub-stage-item success" style={{ padding: '10px 12px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div className="sub-stage-item success" style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div className="sub-label" style={{ fontSize: '0.75rem', fontWeight: 600, color: '#166534' }}>Won</div>
                 <div className="sub-stats" style={{ display: 'flex', gap: '8px', fontSize: '0.75rem' }}>
                     <span className="sub-val" style={{ fontWeight: 700 }}>{won}</span>
-                    <span className="sub-percent" style={{ color: '#64748b' }}>{wonPerc}</span>
+                    <span className="sub-percent" style={{ color: 'var(--text-muted)' }}>{wonPerc}</span>
                 </div>
             </div>
-            <div className="sub-stage-item neutral" style={{ padding: '10px 12px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div className="sub-label" style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569' }}>Unqualified</div>
+            <div className="sub-stage-item neutral" style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div className="sub-label" style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Unqualified</div>
                 <div className="sub-stats" style={{ display: 'flex', gap: '8px', fontSize: '0.75rem' }}>
                     <span className="sub-val" style={{ fontWeight: 700 }}>{unqualified}</span>
-                    <span className="sub-percent" style={{ color: '#64748b' }}>{unqualifiedPerc}</span>
+                    <span className="sub-percent" style={{ color: 'var(--text-muted)' }}>{unqualifiedPerc}</span>
                 </div>
             </div>
             <div className="sub-stage-item danger" style={{ padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div className="sub-label" style={{ fontSize: '0.75rem', fontWeight: 600, color: '#991b1b' }}>Lost</div>
                 <div className="sub-stats" style={{ display: 'flex', gap: '8px', fontSize: '0.75rem' }}>
                     <span className="sub-val" style={{ fontWeight: 700 }}>{lost}</span>
-                    <span className="sub-percent" style={{ color: '#64748b' }}>{lostPerc}</span>
+                    <span className="sub-percent" style={{ color: 'var(--text-muted)' }}>{lostPerc}</span>
                 </div>
             </div>
         </div>
@@ -212,7 +212,7 @@ function ClosedPipelineItem({ total, won, lost, unqualified, wonPerc, lostPerc, 
                 className="pipeline-item"
                 style={{
                     cursor: 'pointer',
-                    background: isOpen ? '#f8fafc' : undefined,
+                    background: isOpen ? 'var(--bg-gray)' : undefined,
                     transition: 'background 0.2s'
                 }}
                 onClick={toggleMenu}

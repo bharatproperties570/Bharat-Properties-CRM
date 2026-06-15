@@ -38,8 +38,8 @@ const InventorySpecsPanel = ({ inventory, getLookupValue, handleToggleIntent, ha
                             <i className="fas fa-bolt" style={{ color: 'var(--premium-blue)' }}></i>
                         </div>
                         <div>
-                            <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, color: '#0f172a', letterSpacing: '-0.3px' }}>Transaction Console</h3>
-                            <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>Manage listing intent & interactions</p>
+                            <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, color: 'var(--text-main)', letterSpacing: '-0.3px' }}>Transaction Console</h3>
+                            <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Manage listing intent & interactions</p>
                         </div>
                     </div>
 
@@ -88,8 +88,8 @@ const InventorySpecsPanel = ({ inventory, getLookupValue, handleToggleIntent, ha
                         <i className="fas fa-home" style={{ color: 'var(--premium-blue)' }}></i>
                     </div>
                     <div>
-                        <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, color: '#0f172a', letterSpacing: '-0.3px' }}>Unit Specifications</h3>
-                        <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>Live property details & orientation</p>
+                        <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, color: 'var(--text-main)', letterSpacing: '-0.3px' }}>Unit Specifications</h3>
+                        <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Live property details & orientation</p>
                     </div>
                 </div>
 
@@ -120,7 +120,7 @@ const InventorySpecsPanel = ({ inventory, getLookupValue, handleToggleIntent, ha
                         <p style={{ margin: '0 0 6px 0', fontSize: '0.65rem', fontWeight: 800, color: 'var(--premium-blue)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
                             <i className="fas fa-expand-arrows-alt" style={{ marginRight: '8px' }}></i> Size Label (Primary)
                         </p>
-                        <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 900, color: '#0f172a', letterSpacing: '-0.5px' }}>
+                        <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 900, color: 'var(--text-main)', letterSpacing: '-0.5px' }}>
                             {[
                                 getLookupValue('UnitType', inventory.unitType),
                                 getLookupValue('SubCategory', inventory.subCategory),
@@ -130,14 +130,14 @@ const InventorySpecsPanel = ({ inventory, getLookupValue, handleToggleIntent, ha
                     </div>
                     <div style={{ width: '1px', height: '40px', background: 'rgba(59, 130, 246, 0.2)' }}></div>
                     <div style={{ flex: 1 }}>
-                        <p style={{ margin: '0 0 4px 0', fontSize: '0.6rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>Width</p>
-                        <p style={{ margin: 0, fontSize: '1.05rem', fontWeight: 900, color: '#1e293b' }}>
+                        <p style={{ margin: '0 0 4px 0', fontSize: '0.6rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Width</p>
+                        <p style={{ margin: 0, fontSize: '1.05rem', fontWeight: 900, color: 'var(--text-main)' }}>
                             {renderValue(inventory.frontage || inventory.width) || '-'}
                         </p>
                     </div>
                     <div style={{ flex: 1 }}>
-                        <p style={{ margin: '0 0 4px 0', fontSize: '0.6rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>Length</p>
-                        <p style={{ margin: 0, fontSize: '1.05rem', fontWeight: 900, color: '#1e293b' }}>
+                        <p style={{ margin: '0 0 4px 0', fontSize: '0.6rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Length</p>
+                        <p style={{ margin: 0, fontSize: '1.05rem', fontWeight: 900, color: 'var(--text-main)' }}>
                             {renderValue(inventory.depth || inventory.length) || '-'}
                         </p>
                     </div>
@@ -162,12 +162,12 @@ const TransactionCard = ({ active, onToggle, onAction, icon, color, label, desc,
                 <i className={`fas fa-${icon}`}></i>
             </div>
             <div style={{ position: 'relative', width: '40px', height: '22px', background: active ? color : '#cbd5e1', borderRadius: '11px', cursor: 'pointer', transition: 'all 0.3s' }} onClick={onToggle}>
-                <div style={{ position: 'absolute', top: '2px', left: active ? '20px' : '2px', width: '18px', height: '18px', background: '#fff', borderRadius: '50%', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', transition: 'all 0.3s' }}></div>
+                <div style={{ position: 'absolute', top: '2px', left: active ? '20px' : '2px', width: '18px', height: '18px', background: 'var(--bg-card)', borderRadius: '50%', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', transition: 'all 0.3s' }}></div>
             </div>
         </div>
         <div>
             <h4 style={{ margin: 0, fontSize: '0.8rem', fontWeight: 900, color: active ? '#0f172a' : '#64748b', letterSpacing: '0.5px' }}>{label}</h4>
-            <p style={{ margin: '2px 0 0 0', fontSize: '0.75rem', color: '#94a3b8', fontWeight: 700 }}>{desc}</p>
+            <p style={{ margin: '2px 0 0 0', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700 }}>{desc}</p>
         </div>
         <button
             onClick={onAction}

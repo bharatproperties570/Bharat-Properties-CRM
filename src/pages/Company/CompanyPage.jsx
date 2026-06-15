@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, {  useState, useEffect, useCallback  } from 'react';
+import { useTheme } from '../../context/ThemeContext';
 import { getInitials } from '../../utils/helpers';
 import { PermissionGate } from '../../hooks/usePermissions';
 import { renderValue } from '../../utils/renderUtils';
@@ -11,6 +12,7 @@ import ManageGroupsModal from './components/ManageGroupsModal';
 import AssignGroupModal from './components/AssignGroupModal';
 import PremiumSearchBar from '../../components/PremiumSearchBar';
 function CompanyPage({ onEdit, onNavigate }) {
+    const { isDark } = useTheme();
     const [selectedIds, setSelectedIds] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
@@ -272,7 +274,7 @@ function CompanyPage({ onEdit, onNavigate }) {
                 {/* Content Body */}
                 <div className="content-body" style={{ display: 'flex', flexDirection: 'column', height: 'auto', overflow: 'visible', paddingTop: 0, position: 'relative' }}>
                     {/* Toolbar - Sticky */}
-                    <div className="toolbar-container" style={{ position: 'sticky', top: 0, zIndex: 1000, padding: '5px 2rem', minHeight: '45px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #eef2f5', background: '#fff' }}>
+                    <div className="toolbar-container" style={{ position: 'sticky', top: 0, zIndex: 1000, padding: '5px 2rem', minHeight: '45px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-light)' }}>
                         {selectedCount > 0 ? (
                             <div className="action-panel" style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%', overflowX: 'auto', paddingTop: '4px', paddingBottom: '2px' }}>
                                 {/* Select All Checkbox - Always visible */}
@@ -366,23 +368,23 @@ function CompanyPage({ onEdit, onNavigate }) {
                                     />
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                                    <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                                         Items: <strong>{companies.length}</strong> / <strong>{totalCount}</strong>
                                     </div>
 
                                     {/* Records Per Page */}
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: '#64748b' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                                         <span>Show:</span>
                                         <select
                                             value={recordsPerPage}
                                             onChange={handleRecordsPerPageChange}
                                             style={{
                                                 padding: '4px 8px',
-                                                border: '1px solid #e2e8f0',
+                                                border: '1px solid var(--border-color)',
                                                 borderRadius: '6px',
                                                 fontSize: '0.8rem',
                                                 fontWeight: 600,
-                                                color: '#0f172a',
+                                                color: 'var(--text-main)',
                                                 outline: 'none',
                                                 cursor: 'pointer'
                                             }}
@@ -404,10 +406,10 @@ function CompanyPage({ onEdit, onNavigate }) {
                                             disabled={currentPage === 1}
                                             style={{
                                                 padding: '6px 12px',
-                                                border: '1px solid #e2e8f0',
+                                                border: '1px solid var(--border-color)',
                                                 borderRadius: '6px',
-                                                background: currentPage === 1 ? '#f8fafc' : '#fff',
-                                                color: currentPage === 1 ? '#cbd5e1' : '#0f172a',
+                                                background: currentPage === 1 ? 'var(--bg-gray)' : 'var(--bg-card)',
+                                                color: currentPage === 1 ? 'var(--text-muted)' : 'var(--text-main)',
                                                 cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
                                                 fontSize: '0.75rem',
                                                 fontWeight: 600,
@@ -416,7 +418,7 @@ function CompanyPage({ onEdit, onNavigate }) {
                                         >
                                             <i className="fas fa-chevron-left"></i> Prev
                                         </button>
-                                        <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#0f172a', minWidth: '80px', textAlign: 'center' }}>
+                                        <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-main)', minWidth: '80px', textAlign: 'center' }}>
                                             {currentPage} / {totalPages || 1}
                                         </span>
                                         <button
@@ -424,10 +426,10 @@ function CompanyPage({ onEdit, onNavigate }) {
                                             disabled={currentPage >= totalPages}
                                             style={{
                                                 padding: '6px 12px',
-                                                border: '1px solid #e2e8f0',
+                                                border: '1px solid var(--border-color)',
                                                 borderRadius: '6px',
-                                                background: currentPage >= totalPages ? '#f8fafc' : '#fff',
-                                                color: currentPage >= totalPages ? '#cbd5e1' : '#0f172a',
+                                                background: currentPage >= totalPages ? 'var(--bg-gray)' : 'var(--bg-card)',
+                                                color: currentPage >= totalPages ? 'var(--text-muted)' : 'var(--text-main)',
                                                 cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer',
                                                 fontSize: '0.75rem',
                                                 fontWeight: 600,
@@ -444,9 +446,9 @@ function CompanyPage({ onEdit, onNavigate }) {
                                                 style={{ 
                                                     display: 'flex', alignItems: 'center', justifyContent: 'center', 
                                                     width: '32px', height: '32px', borderRadius: '8px',
-                                                    border: '1px solid #e2e8f0',
-                                                    background: isSortOpen ? 'var(--primary-color)' : '#fff',
-                                                    color: isSortOpen ? '#fff' : '#64748b',
+                                                    border: '1px solid var(--border-color)',
+                                                    background: isSortOpen ? 'var(--primary-color)' : 'var(--bg-card)',
+                                                    color: isSortOpen ? '#fff' : 'var(--text-main)',
                                                     cursor: 'pointer', transition: 'all 0.2s'
                                                 }}
                                                 onClick={() => setIsSortOpen(!isSortOpen)}
@@ -462,11 +464,11 @@ function CompanyPage({ onEdit, onNavigate }) {
                                                     />
                                                     <ul className="shadow-lg border-0" style={{ 
                                                         position: 'absolute', top: '100%', right: 0, zIndex: 999,
-                                                        backgroundColor: '#fff', borderRadius: '16px', padding: '10px', 
+                                                        backgroundColor: 'var(--bg-light)', borderRadius: '16px', padding: '10px', 
                                                         minWidth: '220px', marginTop: '8px', listStyle: 'none',
-                                                        border: '1px solid #eef2f5'
+                                                        border: '1px solid var(--border-color)'
                                                     }}>
-                                                        <li><h6 style={{ fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', color: '#94a3b8', padding: '10px 15px', margin: 0 }}>Sort Options</h6></li>
+                                                        <li><h6 style={{ fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-muted)', padding: '10px 15px', margin: 0 }}>Sort Options</h6></li>
                                                         {[
                                                             { label: 'Newest First', by: 'createdAt', order: -1, icon: 'fa-calendar-plus' },
                                                             { label: 'Oldest First', by: 'createdAt', order: 1, icon: 'fa-history' },
@@ -482,7 +484,7 @@ function CompanyPage({ onEdit, onNavigate }) {
                                                                         padding: '10px 15px', 
                                                                         fontSize: '0.9rem',
                                                                         fontWeight: sortConfig.label === opt.label ? 700 : 500,
-                                                                        color: sortConfig.label === opt.label ? '#fff' : '#1e293b',
+                                                                        color: sortConfig.label === opt.label ? '#fff' : 'var(--text-main)',
                                                                         background: sortConfig.label === opt.label ? 'var(--primary-color)' : 'transparent',
                                                                         cursor: 'pointer',
                                                                         marginBottom: '2px',
@@ -516,8 +518,8 @@ function CompanyPage({ onEdit, onNavigate }) {
                         <div className="list-header" style={{
                             position: 'sticky',
                             top: '45px',
-                            background: '#f8fafc',
-                            color: '#64748b',
+                            background: 'var(--bg-gray)',
+                            color: 'var(--text-muted)',
                             zIndex: 100,
                             borderBottom: '2px solid #e2e8f0',
                             display: 'grid',
@@ -552,7 +554,7 @@ function CompanyPage({ onEdit, onNavigate }) {
 
                     {/* List Content - Only in List View */}
                     {viewMode === 'list' && (
-                        <div id="companyListContent" style={{ background: '#fff' }}>
+                        <div id="companyListContent" style={{ background: 'var(--bg-light)' }}>
                             {companies.map((company, idx) => (
                                 <div
                                     key={company._id}
@@ -561,18 +563,18 @@ function CompanyPage({ onEdit, onNavigate }) {
                                          display: 'grid',
                                         gridTemplateColumns: '40px 1.8fr 1.2fr 80px 1fr 1fr 0.8fr 1fr',
                                         padding: '12px 1rem',
-                                        borderBottom: '1px solid #f1f5f9',
+                                        borderBottom: '1px solid var(--border-color)',
                                         alignItems: 'center',
-                                        background: isSelected(company._id) ? '#f0f9ff' : '#fff',
+                                        background: isSelected(company._id) ? (isDark ? 'rgba(59, 130, 246, 0.15)' : '#f0f9ff') : 'var(--bg-card)',
                                         transition: 'all 0.2s',
                                         cursor: 'pointer'
                                     }}
                                     onMouseOver={(e) => {
-                                        if (!isSelected(company._id)) e.currentTarget.style.background = '#fafbfc';
+                                        if (!isSelected(company._id)) e.currentTarget.style.background = isDark ? 'var(--bg-gray)' : '#fafbfc';
                                     }}
                                     onMouseOut={(e) => {
-                                        if (!isSelected(company._id)) e.currentTarget.style.background = '#fff';
-                                        else e.currentTarget.style.background = '#f0f9ff';
+                                        if (!isSelected(company._id)) e.currentTarget.style.background = 'var(--bg-card)';
+                                        else e.currentTarget.style.background = isDark ? 'rgba(59, 130, 246, 0.15)' : '#f0f9ff';
                                     }}
                                     onClick={() => toggleSelect(company._id)}
                                 >
@@ -611,7 +613,7 @@ function CompanyPage({ onEdit, onNavigate }) {
                                                     {company.emails?.[0]?.address || '-'}
                                                 </span>
                                             </div>
-                                            <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '2px' }}>
+                                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
                                                 <i className="fas fa-phone-alt" style={{ marginRight: '4px', transform: 'scaleX(-1) rotate(5deg)' }}></i>
                                                 {company.phones?.[0]?.phoneNumber ? `${company.phones[0].phoneCode} ${company.phones[0].phoneNumber}` : '-'}
                                             </div>
@@ -619,22 +621,22 @@ function CompanyPage({ onEdit, onNavigate }) {
                                     </div>
 
                                     {/* Address */}
-                                    <div style={{ fontSize: '0.75rem', color: '#475569', lineHeight: 1.4, overflow: 'hidden' }}>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.4, overflow: 'hidden' }}>
                                         <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.7rem', marginRight: '6px' }}></i>
                                         <span className="address-clamp" style={{ fontSize: '0.75rem' }}>{getFirstAddress(company)}</span>
                                     </div>
 
                                     {/* Employees */}
-                                    <div style={{ fontSize: '0.8rem', color: '#0f172a', fontWeight: 700, textAlign: 'center' }}>
-                                        <i className="fas fa-users" style={{ marginRight: '6px', color: '#64748b', fontSize: '0.75rem' }}></i>
+                                    <div style={{ fontSize: '0.8rem', color: 'var(--text-main)', fontWeight: 700, textAlign: 'center' }}>
+                                        <i className="fas fa-users" style={{ marginRight: '6px', color: 'var(--text-muted)', fontSize: '0.75rem' }}></i>
                                         {company.employees?.length || 0}
                                     </div>
 
                                     {/* Category / Industry */}
-                                    <div style={{ fontSize: '0.75rem', color: '#64748b', lineHeight: 1.3 }}>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.3 }}>
                                         {renderValue(company.industry)}
                                         {company.companyType && (
-                                            <div style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: '1px' }}>
+                                            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '1px' }}>
                                                 {renderValue(company.companyType)}
                                             </div>
                                         )}
@@ -658,7 +660,7 @@ function CompanyPage({ onEdit, onNavigate }) {
                                                 ))}
                                             </div>
                                         ) : (
-                                            <span style={{ fontSize: '0.65rem', color: '#cbd5e1' }}>No Group</span>
+                                            <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>No Group</span>
                                         )}
                                     </div>
 
@@ -669,8 +671,8 @@ function CompanyPage({ onEdit, onNavigate }) {
                                             borderRadius: '12px',
                                             fontSize: '0.65rem',
                                             fontWeight: 800,
-                                            background: '#f1f5f9',
-                                            color: '#475569'
+                                            background: isDark ? '#334155' : '#f1f5f9',
+                                            color: 'var(--text-muted)'
                                         }}>
                                             {renderValue(company.source)}
                                         </span>
@@ -679,15 +681,15 @@ function CompanyPage({ onEdit, onNavigate }) {
                                     {/* Ownership / Date Combined */}
                                     <div className="col-assignment">
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                            <div className="avatar-circle" style={{ width: '32px', height: '32px', fontSize: '0.8rem', background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b', flexShrink: 0 }}>
+                                            <div className="avatar-circle" style={{ width: '32px', height: '32px', fontSize: '0.8rem', background: 'var(--bg-gray)', border: '1px solid var(--border-color)', color: 'var(--text-muted)', flexShrink: 0 }}>
                                                 {getInitials(getUserName(company.owner))}
                                             </div>
                                             <div style={{ lineHeight: 1.2 }}>
-                                                <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a' }}>{getUserName(company.owner)}</div>
-                                                <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>
+                                                <div style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--text-main)' }}>{getUserName(company.owner)}</div>
+                                                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600 }}>
                                                     {getTeamName(company.team || company.assignment?.team)}
                                                 </div>
-                                                <div style={{ color: '#94a3b8', fontWeight: 600, marginTop: '2px', fontSize: '0.65rem' }}>
+                                                <div style={{ color: 'var(--text-muted)', fontWeight: 600, marginTop: '2px', fontSize: '0.65rem' }}>
                                                     <i className="far fa-clock" style={{ marginRight: '6px' }}></i>
                                                     {company.createdAt ? new Date(company.createdAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '-'}
                                                 </div>
@@ -701,7 +703,7 @@ function CompanyPage({ onEdit, onNavigate }) {
 
                     {/* Card View - Only in Card Mode */}
                     {viewMode === 'card' && (
-                        <div style={{ padding: '2rem', background: '#f8fafc' }}>
+                        <div style={{ padding: '2rem', background: 'var(--bg-gray)' }}>
                             <div style={{
                                 display: 'grid',
                                 gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))',
@@ -711,7 +713,7 @@ function CompanyPage({ onEdit, onNavigate }) {
                                     <div
                                         key={company._id}
                                         style={{
-                                            background: '#fff',
+                                            background: 'var(--bg-light)',
                                             border: isSelected(company._id) ? '2px solid var(--primary-color)' : '1px solid #e2e8f0',
                                             borderRadius: '12px',
                                             padding: '20px',
@@ -765,7 +767,7 @@ function CompanyPage({ onEdit, onNavigate }) {
                                                 >
                                                     {company.name}
                                                 </div>
-                                                <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>
+                                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>
                                                     {renderValue(company.industry)}
                                                 </div>
                                             </div>
@@ -773,41 +775,41 @@ function CompanyPage({ onEdit, onNavigate }) {
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                 <i className="fas fa-envelope" style={{ fontSize: '0.75rem', color: '#8e44ad', width: '16px' }}></i>
-                                                <span style={{ fontSize: '0.8rem', color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                                     {company.emails?.[0]?.address || '-'}
                                                 </span>
                                             </div>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                 <i className="fas fa-phone-alt" style={{ fontSize: '0.75rem', color: '#3498db', width: '16px', transform: 'scaleX(-1) rotate(5deg)' }}></i>
-                                                <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                                                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                                                     {company.phones?.[0]?.phoneNumber ? `${company.phones[0].phoneCode} ${company.phones[0].phoneNumber}` : '-'}
                                                 </span>
                                             </div>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                 <i className="fas fa-map-marker-alt" style={{ fontSize: '0.75rem', color: '#e74c3c', width: '16px' }}></i>
-                                                <span style={{ fontSize: '0.8rem', color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                                     {getFirstAddress(company)}
                                                 </span>
                                             </div>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                 <i className="fas fa-users" style={{ fontSize: '0.75rem', color: '#27ae60', width: '16px' }}></i>
-                                                <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                                                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                                                     {company.employees?.length || 0} Employees
                                                 </span>
                                             </div>
                                         </div>
                                         <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                             <div>
-                                                <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Source</div>
-                                                <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#0f172a' }}>{renderValue(company.source)}</div>
+                                                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Source</div>
+                                                <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-main)' }}>{renderValue(company.source)}</div>
                                             </div>
                                             <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '10px' }}>
                                                 <div style={{ textAlign: 'right' }}>
-                                                    <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Owner</div>
-                                                    <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#0f172a' }}>{getUserName(company.owner)}</div>
-                                                    <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>{getTeamName(company.team || company.assignment?.team)}</div>
+                                                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Owner</div>
+                                                    <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-main)' }}>{getUserName(company.owner)}</div>
+                                                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600 }}>{getTeamName(company.team || company.assignment?.team)}</div>
                                                 </div>
-                                                <div className="avatar-circle" style={{ width: '32px', height: '32px', fontSize: '0.8rem', background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b' }}>
+                                                <div className="avatar-circle" style={{ width: '32px', height: '32px', fontSize: '0.8rem', background: 'var(--bg-gray)', border: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>
                                                     {getInitials(getUserName(company.owner))}
                                                 </div>
                                             </div>
@@ -821,16 +823,16 @@ function CompanyPage({ onEdit, onNavigate }) {
                     {/* No Results */}
                     {!loading && companies.length === 0 && (
                         <div style={{ padding: '4rem 2rem', textAlign: 'center' }}>
-                            <i className="fas fa-building" style={{ fontSize: '3rem', color: '#cbd5e1', marginBottom: '1rem' }}></i>
-                            <div style={{ fontSize: '1rem', fontWeight: 700, color: '#64748b' }}>No companies found</div>
-                            <div style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '8px' }}>Try adjusting your search or filters</div>
+                            <i className="fas fa-building" style={{ fontSize: '3rem', color: 'var(--text-muted)', marginBottom: '1rem' }}></i>
+                            <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-muted)' }}>No companies found</div>
+                            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '8px' }}>Try adjusting your search or filters</div>
                         </div>
                     )}
 
                     {/* Footer Summary - Standard Style matching Contacts */}
-                    <footer className="summary-footer" style={{ height: "55px", background: "#f8fafc", borderTop: "1px solid #e2e8f0", display: "flex", alignItems: "center" }}>
+                    <footer className="summary-footer" style={{ height: "55px", background: 'var(--bg-gray)', borderTop: '1px solid var(--border-color)', display: "flex", alignItems: "center" }}>
                         <div style={{ display: "flex", gap: "20px", alignItems: "center", padding: "0 2rem", width: "100%", overflowX: "auto" }}>
-                            <div className="summary-label" style={{ background: "#334155", color: "#fff", borderRadius: "8px", fontSize: "0.65rem", padding: "4px 12px", fontWeight: 800, whiteSpace: "nowrap" }}>SUMMARY</div>
+                            <div className="summary-label" style={{ background: isDark ? 'var(--primary-color)' : '#334155', color: "#fff", borderRadius: "8px", fontSize: "0.65rem", padding: "4px 12px", fontWeight: 800, whiteSpace: "nowrap" }}>SUMMARY</div>
                             <div className="stat-pill" style={{ display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
                                 <span style={{ color: "var(--primary-color)", fontWeight: 700, fontSize: "0.80rem", textTransform: "uppercase" }}>TOTAL COMPANIES:</span>
                                 <span className="stat-val-bold" style={{ fontWeight: 800, fontSize: "1.1rem" }}>{totalCount.toLocaleString()}</span>

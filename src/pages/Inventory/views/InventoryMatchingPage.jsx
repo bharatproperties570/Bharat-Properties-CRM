@@ -11,6 +11,7 @@ import { formatIndianCurrency, formatLeadBudget } from '../../../utils/numberToW
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 
 const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
+    const { isDark } = useTheme();
     const { addActivity } = useActivities();
     const { getLookupValue, lookups, projects, sizes } = usePropertyConfig();
     const [inventory, setInventory] = useState(null);
@@ -190,13 +191,13 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
 
     if (!inventory) {
         return (
-            <div style={{ padding: '80px 40px', textAlign: 'center', background: '#f8fafc', minHeight: '100vh' }}>
-                <div style={{ maxWidth: '400px', margin: '0 auto', background: '#fff', padding: '40px', borderRadius: '16px', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}>
+            <div style={{ padding: '80px 40px', textAlign: 'center', background: 'var(--bg-gray)', minHeight: '100vh' }}>
+                <div style={{ maxWidth: '400px', margin: '0 auto', background: 'var(--bg-card)', padding: '40px', borderRadius: '16px', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}>
                     <div style={{ width: '64px', height: '64px', background: '#fee2e2', color: '#ef4444', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', fontSize: '1.5rem' }}>
                         <i className="fas fa-exclamation-triangle"></i>
                     </div>
-                    <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#1e293b', marginBottom: '8px' }}>Inventory Not Found</h2>
-                    <p style={{ color: '#64748b', marginBottom: '24px' }}>The inventory item you're looking for might have been deleted or moved.</p>
+                    <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '8px' }}>Inventory Not Found</h2>
+                    <p style={{ color: 'var(--text-muted)', marginBottom: '24px' }}>The inventory item you're looking for might have been deleted or moved.</p>
                     <button
                         onClick={() => onNavigate('inventory')}
                         style={{ background: '#3b82f6', color: '#fff', border: 'none', padding: '12px 24px', borderRadius: '8px', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px' }}
@@ -288,7 +289,7 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
             case 'negotiation': return { bg: '#f3e8ff', color: '#9333ea' };
             case 'closure': return { bg: '#f0fdf4', color: '#16a34a' };
             case 'follow-up': return { bg: '#fff7ed', color: '#ea580c' };
-            default: return { bg: '#f8fafc', color: '#64748b' };
+            default: return { bg: '#f8fafc', color: 'var(--text-muted)' };
         }
     };
 
@@ -301,28 +302,28 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
     };
 
     return (
-        <div style={{ background: '#f1f5f9', minHeight: '100vh', padding: '24px', pb: '100px' }}>
+        <div style={{ background: 'var(--bg-gray)', minHeight: '100vh', padding: '24px', pb: '100px' }}>
             {/* Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                     <button
                         onClick={() => onNavigate('inventory')}
-                        style={{ border: 'none', background: '#fff', width: '40px', height: '40px', borderRadius: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}
+                        style={{ border: 'none', background: 'var(--bg-card)', width: '40px', height: '40px', borderRadius: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}
                     >
-                        <i className="fas fa-arrow-left" style={{ color: '#1e293b' }}></i>
+                        <i className="fas fa-arrow-left" style={{ color: 'var(--text-main)' }}></i>
                     </button>
                     <div>
-                        <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>Inventory Match Center</h1>
+                        <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-main)', margin: 0 }}>Inventory Match Center</h1>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
-                            <span style={{ fontSize: '0.85rem', color: '#64748b' }}>Matching leads for:</span>
-                            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#2563eb', background: '#eff6ff', padding: '2px 8px', borderRadius: '4px' }}>{renderValue(resolveLookup(inventory.propertyType, 'Category'))} | {renderValue(inventory.unitNo)}</span>
+                            <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Matching leads for:</span>
+                            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#2563eb', background: isDark ? 'rgba(59, 130, 246, 0.15)' : '#eff6ff', padding: '2px 8px', borderRadius: '4px' }}>{renderValue(resolveLookup(inventory.propertyType, 'Category'))} | {renderValue(inventory.unitNo)}</span>
                         </div>
                     </div>
                 </div>
                 <div style={{ display: 'flex', gap: '12px' }}>
                     <button
                         className="btn-outline"
-                        style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#fff' }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-card)' }}
                         onClick={() => {
                             const panel = document.getElementById('refine-matches-panel');
                             if (panel) panel.scrollIntoView({ behavior: 'smooth' });
@@ -348,22 +349,22 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
             <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: '24px' }}>
                 {/* Inventory Snapshot */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                    <div style={{ background: '#fff', borderRadius: '20px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0' }}>
-                        <h3 style={{ fontSize: '1rem', fontWeight: 800, color: '#0f172a', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ background: 'var(--bg-card)', borderRadius: '20px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid var(--border-color)' }}>
+                        <h3 style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <i className="fas fa-info-circle" style={{ color: '#3b82f6' }}></i> Property Particulars
                         </h3>
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                            <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px' }}>
-                                <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Property Info</label>
-                                <p style={{ fontSize: '1.1rem', fontWeight: 700, color: '#0f172a', margin: '4px 0' }}>{renderValue(resolveLookup(inventory.propertyType, 'Category') || inventory.propertyType)}</p>
-                                <p style={{ fontSize: '0.85rem', color: '#64748b', margin: 0 }}>{renderValue(resolveLookup(inventory.location, 'Locality') || inventory.location?.name)}</p>
+                            <div style={{ background: 'var(--bg-gray)', padding: '16px', borderRadius: '12px' }}>
+                                <label style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Property Info</label>
+                                <p style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)', margin: '4px 0' }}>{renderValue(resolveLookup(inventory.propertyType, 'Category') || inventory.propertyType)}</p>
+                                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: 0 }}>{renderValue(resolveLookup(inventory.location, 'Locality') || inventory.location?.name)}</p>
                             </div>
 
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                                <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '12px' }}>
-                                    <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Size</label>
-                                    <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a', margin: '2px 0' }}>{renderValue(resolveLookup(inventory.sizeConfig, 'Size') || inventory.size || inventory.area)}</p>
+                                <div style={{ background: 'var(--bg-gray)', padding: '12px', borderRadius: '12px' }}>
+                                    <label style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Size</label>
+                                    <p style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-main)', margin: '2px 0' }}>{renderValue(resolveLookup(inventory.sizeConfig, 'Size') || inventory.size || inventory.area)}</p>
                                 </div>
                                 <div style={{ background: '#ecfdf5', padding: '12px', borderRadius: '12px' }}>
                                     <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#059669', textTransform: 'uppercase' }}>Price</label>
@@ -374,15 +375,15 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
                     </div>
 
                     {/* Interactive Refinement */}
-                    <div id="refine-matches-panel" style={{ background: '#fff', borderRadius: '20px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0', position: 'sticky', top: '24px' }}>
-                        <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#64748b', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    <div id="refine-matches-panel" style={{ background: 'var(--bg-card)', borderRadius: '20px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', border: '1px solid var(--border-color)', position: 'sticky', top: '24px' }}>
+                        <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--text-muted)', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                             <i className="fas fa-filter" style={{ color: '#f59e0b' }}></i> Refine Matches
                         </h3>
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                             <div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                                    <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1e293b' }}>Budget Flexibility</label>
+                                    <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-main)' }}>Budget Flexibility</label>
                                     <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#3b82f6' }}>±{budgetFlexibility}%</span>
                                 </div>
                                 <input
@@ -392,12 +393,12 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
                                     onChange={(e) => setBudgetFlexibility(parseInt(e.target.value))}
                                     style={{ width: '100%', cursor: 'pointer', accentColor: '#3b82f6' }}
                                 />
-                                <p style={{ fontSize: '0.65rem', color: '#64748b', marginTop: '4px' }}>Expand budget range for matching leads.</p>
+                                <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '4px' }}>Expand budget range for matching leads.</p>
                             </div>
 
                             <div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                                    <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1e293b' }}>Size Flexibility</label>
+                                    <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-main)' }}>Size Flexibility</label>
                                     <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#10b981' }}>±{sizeFlexibility}%</span>
                                 </div>
                                 <input
@@ -407,7 +408,7 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
                                     onChange={(e) => setSizeFlexibility(parseInt(e.target.value))}
                                     style={{ width: '100%', cursor: 'pointer', accentColor: '#10b981' }}
                                 />
-                                <p style={{ fontSize: '0.65rem', color: '#64748b', marginTop: '4px' }}>Allow deviation in required size matching.</p>
+                                <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '4px' }}>Allow deviation in required size matching.</p>
                             </div>
                         </div>
                     </div>
@@ -424,10 +425,10 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
                                 onChange={handleSelectAll}
                                 checked={selectedLeads.length === matchedLeads.length && matchedLeads.length > 0}
                             />
-                            <span style={{ fontSize: '0.9rem', fontWeight: 600, color: '#64748b' }}>Select All Verified Matches</span>
+                            <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-muted)' }}>Select All Verified Matches</span>
                         </div>
-                        <div style={{ fontSize: '0.85rem', color: '#64748b' }}>
-                            Sorted by <span style={{ fontWeight: 700, color: '#0f172a' }}>Match Accuracy</span>
+                        <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                            Sorted by <span style={{ fontWeight: 700, color: 'var(--text-main)' }}>Match Accuracy</span>
                         </div>
                     </div>
 
@@ -435,11 +436,11 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
                         <div
                             key={lead.mobile + idx}
                             style={{
-                                background: '#fff',
+                                background: 'var(--bg-card)',
                                 borderRadius: '20px',
                                 padding: '24px',
                                 boxShadow: selectedLeads.includes(lead.mobile) ? '0 0 0 2px #3b82f6, 0 4px 6px -1px rgba(0, 0, 0, 0.1)' : '0 1px 3px rgba(0,0,0,0.05)',
-                                border: '1px solid #e2e8f0',
+                                border: '1px solid var(--border-color)',
                                 display: 'grid',
                                 gridTemplateColumns: '40px 80px 1fr 240px',
                                 gap: '20px',
@@ -471,7 +472,7 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
                                         />
                                     </svg>
                                     <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                                        <span style={{ fontSize: '0.9rem', fontWeight: 900, color: '#0f172a' }}>{lead.matchPercentage}%</span>
+                                        <span style={{ fontSize: '0.9rem', fontWeight: 900, color: 'var(--text-main)' }}>{lead.matchPercentage}%</span>
                                     </div>
                                 </div>
                             </div>
@@ -513,7 +514,7 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
                                 </div>
 
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '6px' }}>
-                                    <span style={{ fontSize: '0.8rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                         <i className="fas fa-map-marker-alt" style={{ fontSize: '0.75rem' }}></i> {renderValue(resolveLookup(lead.location, 'Locality') || lead.location)}
                                     </span>
                                     <span style={{
@@ -593,7 +594,7 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
                                             setIsMessageOpen(true);
                                         }}
                                         title="Send SMS"
-                                        style={{ flex: 1, padding: '10px', borderRadius: '12px', border: '1px solid #eff6ff', background: '#f0f9ff', color: '#1e40af', cursor: 'pointer' }}
+                                        style={{ flex: 1, padding: '10px', borderRadius: '12px', border: isDark ? '1px solid rgba(59, 130, 246, 0.3)' : '1px solid #eff6ff', background: isDark ? 'var(--bg-gray)' : '#f0f9ff', color: isDark ? '#60a5fa' : '#1e40af', cursor: 'pointer' }}
                                     >
                                         <i className="fas fa-comment-alt"></i>
                                     </button>
@@ -628,7 +629,7 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
 
             {/* Batch Action Bar */}
             {selectedLeads.length > 0 && (
-                <div style={{ position: 'fixed', bottom: '24px', left: '50%', transform: 'translateX(-50%)', background: '#0f172a', padding: '16px 32px', borderRadius: '100px', display: 'flex', alignItems: 'center', gap: '32px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2)', zIndex: 1000, border: '1px solid #334155' }}>
+                <div style={{ position: 'fixed', bottom: '24px', left: '50%', transform: 'translateX(-50%)', background: 'var(--bg-gray)', padding: '16px 32px', borderRadius: '100px', display: 'flex', alignItems: 'center', gap: '32px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2)', zIndex: 1000, border: '1px solid var(--border-color)' }}>
                     <div style={{ color: '#fff', fontSize: '0.95rem', fontWeight: 600 }}>
                         <span style={{ color: '#3b82f6', fontSize: '1.1rem', fontWeight: 800 }}>{selectedLeads.length}</span> potential buyers selected
                     </div>
@@ -638,13 +639,13 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
                             onClick={handleBatchMail}
                             style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
                         >
-                            <i className="fas fa-envelope" style={{ color: '#94a3b8' }}></i> Batch Email
+                            <i className="fas fa-envelope" style={{ color: 'var(--text-muted)' }}></i> Batch Email
                         </button>
                         <button
                             onClick={handleBatchMessage}
                             style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
                         >
-                            <i className="fas fa-comment-alt" style={{ color: '#94a3b8' }}></i> Batch SMS
+                            <i className="fas fa-comment-alt" style={{ color: 'var(--text-muted)' }}></i> Batch SMS
                         </button>
                         <button
                             onClick={() => {
@@ -658,7 +659,7 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
                     </div>
                     <button
                         onClick={() => setSelectedLeads([])}
-                        style={{ border: 'none', background: 'transparent', color: '#94a3b8', cursor: 'pointer' }}
+                        style={{ border: 'none', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer' }}
                     >
                         <i className="fas fa-times"></i>
                     </button>
