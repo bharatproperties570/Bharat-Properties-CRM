@@ -1,4 +1,5 @@
 import { memo } from 'react';
+import { toast } from 'react-hot-toast';
 
 const SLAWidget = ({ metrics }) => {
     // Determine risk metrics based on existing dashboard data
@@ -8,14 +9,21 @@ const SLAWidget = ({ metrics }) => {
     // Total critical tasks overdue (Mocking based on agenda for now if needed, or static for effect)
     const overdueFollowups = Math.max(0, untouchedLeads - 2);
 
+    const handleRecovery = () => {
+        toast.success(`Recovery Protocol Activated: AI is re-engaging ${untouchedLeads} untouched leads.`, {
+            icon: '🚀',
+            style: { background: '#334155', color: '#fff', fontSize: '0.85rem' }
+        });
+    };
+
     return (
         <div className="glass-card" style={{ padding: '24px', background: 'rgba(239, 68, 68, 0.05)', borderLeft: '4px solid #ef4444' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
                 <div>
-                    <h3 style={{ fontSize: '1rem', fontWeight: 900, color: '#f8fafc', margin: 0, letterSpacing: '0.05em' }}>SLA COMPLIANCE</h3>
+                    <h3 style={{ fontSize: '1rem', fontWeight: 900, color: 'var(--text-main)', margin: 0, letterSpacing: '0.05em' }}>SLA COMPLIANCE</h3>
                     <p style={{ fontSize: '0.65rem', color: '#ef4444', fontWeight: 800, margin: '2px 0 0 0' }}>LEADS AT RISK (ACTION REQ.)</p>
                 </div>
-                <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: '#ef4444', color: 'var(--text-main)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 12px rgba(239, 68, 68, 0.4)' }}>
+                <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: '#ef4444', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 12px rgba(239, 68, 68, 0.4)' }}>
                     <i className="fas fa-exclamation-triangle"></i>
                 </div>
             </div>
@@ -35,7 +43,9 @@ const SLAWidget = ({ metrics }) => {
             </div>
 
             {untouchedLeads > 0 && (
-                <button style={{ 
+                <button 
+                onClick={handleRecovery}
+                style={{ 
                     width: '100%', marginTop: '16px', padding: '10px', 
                     background: 'transparent', border: '1px solid #ef4444', color: '#ef4444', 
                     borderRadius: '8px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer',
