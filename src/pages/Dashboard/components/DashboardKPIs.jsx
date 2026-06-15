@@ -27,8 +27,8 @@ const KpiCard = memo(function KpiCard({ title, value, subtitle, icon, color, tre
                 )}
             </div>
             
-            <h3 style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600, margin: '0 0 4px 0', letterSpacing: '0.02em', opacity: 0.8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title.toUpperCase()}</h3>
-            <div style={{ fontSize: '1.4rem', fontWeight: 900, color: '#fff', letterSpacing: '-0.02em' }}>{value}</div>
+            <h3 style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600, margin: '0 0 4px 0', letterSpacing: '0.02em', opacity: 0.8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title.toUpperCase()}</h3>
+            <div style={{ fontSize: '1.4rem', fontWeight: 900, color: 'var(--text-main)', letterSpacing: '-0.02em' }}>{value}</div>
             <p style={{ fontSize: '0.65rem', color: '#64748b', margin: '4px 0 0 0', fontWeight: 500, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{subtitle}</p>
             
             {/* Decorative Glow */}

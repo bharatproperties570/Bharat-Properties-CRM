@@ -42,18 +42,18 @@ const DashboardPage = ({ onNavigate }) => {
     }
 
     return (
-        <section className="dashboard-container" style={{ flex: 1, height: '100vh', overflowY: 'auto', background: '#020617', color: '#f8fafc', padding: '0 2rem 2rem 2rem' }}>
+        <section className="dashboard-container" style={{ flex: 1, height: '100vh', overflowY: 'auto', background: 'var(--bg-dark)', color: 'var(--text-main)', padding: '0 2rem 2rem 2rem' }}>
             <style>{`
                 :root {
-                    --bg-dark: #020617;
-                    --card-bg: rgba(30, 41, 59, 0.5);
+                    --bg-dark: ${isDark ? '#020617' : '#f1f5f9'};
+                    --card-bg: ${isDark ? 'rgba(30, 41, 59, 0.5)' : 'rgba(255, 255, 255, 0.8)'};
                     --accent-primary: #6366f1;
                     --accent-success: #10b981;
                     --accent-warning: #f59e0b;
-                    --text-main: #f8fafc;
-                    --text-muted: #94a3b8;
-                    --border-color: rgba(255, 255, 255, 0.05);
-                    --glass-glow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+                    --text-main: ${isDark ? '#f8fafc' : '#0f172a'};
+                    --text-muted: ${isDark ? '#94a3b8' : '#64748b'};
+                    --border-color: ${isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.08)'};
+                    --glass-glow: ${isDark ? '0 8px 32px 0 rgba(0, 0, 0, 0.37)' : '0 8px 32px 0 rgba(0, 0, 0, 0.05)'};
                 }
 
                 .dashboard-container::-webkit-scrollbar { width: 6px; }
@@ -142,7 +142,7 @@ const DashboardPage = ({ onNavigate }) => {
             `}</style>
 
             {/* Futuristic Header */}
-            <div className="neural-header" style={{ position: 'sticky', top: 0, zIndex: 100, background: 'rgba(2, 6, 23, 0.8)', backdropFilter: 'blur(12px)', padding: '24px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', marginBottom: '24px' }}>
+            <div className="neural-header" style={{ position: 'sticky', top: 0, zIndex: 100, background: isDark ? 'rgba(2, 6, 23, 0.8)' : 'rgba(241, 245, 249, 0.8)', backdropFilter: 'blur(12px)', padding: '24px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', marginBottom: '24px' }}>
                 <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                         <img 
@@ -156,7 +156,7 @@ const DashboardPage = ({ onNavigate }) => {
                             }} 
                         />
                         <div>
-                            <h1 style={{ fontSize: '1.8rem', fontWeight: 900, letterSpacing: '-0.03em', margin: 0, background: 'linear-gradient(to right, #fff, #94a3b8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                            <h1 style={{ fontSize: '1.8rem', fontWeight: 900, letterSpacing: '-0.03em', margin: 0, background: isDark ? 'linear-gradient(to right, #fff, #94a3b8)' : 'linear-gradient(to right, #0f172a, #475569)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
                                 Neural Command Dashboard
                             </h1>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '6px' }}>
@@ -184,9 +184,9 @@ const DashboardPage = ({ onNavigate }) => {
                                 {users.map(u => <option key={u._id} value={u._id}>{u.fullName}</option>)}
                             </optgroup>
                         </select>
-                        <i className="fas fa-chevron-down" style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.7rem', color: '#94a3b8' }}></i>
+                        <i className="fas fa-chevron-down" style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.7rem', color: 'var(--text-muted)' }}></i>
                     </div>
-                    <button onClick={fetchData} style={{ width: '40px', height: '40px', borderRadius: '12px', border: '1px solid var(--border-color)', background: 'rgba(99, 102, 241, 0.1)', color: '#fff', cursor: 'pointer' }}>
+                    <button onClick={fetchData} style={{ width: '40px', height: '40px', borderRadius: '12px', border: '1px solid var(--border-color)', background: isDark ? 'rgba(99, 102, 241, 0.1)' : '#fff', color: isDark ? '#fff' : '#6366f1', cursor: 'pointer', boxShadow: isDark ? 'none' : '0 2px 10px rgba(0,0,0,0.05)' }}>
                         <i className={`fas fa-sync-alt ${loading ? 'fa-spin' : ''}`}></i>
                     </button>
                 </div>

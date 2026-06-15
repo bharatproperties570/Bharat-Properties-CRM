@@ -24,7 +24,7 @@ const PipelineVelocityFunnel = ({ leads, formatters }) => {
         <div className="glass-card" style={{ padding: '24px', position: 'relative', display: 'flex', flexDirection: 'column' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                 <div>
-                    <h2 style={{ fontSize: '1rem', fontWeight: 900, margin: 0, letterSpacing: '-0.02em', color: '#fff' }}>PIPELINE VELOCITY</h2>
+                    <h2 style={{ fontSize: '1rem', fontWeight: 900, margin: 0, letterSpacing: '-0.02em', color: 'var(--text-main)' }}>PIPELINE VELOCITY</h2>
                     <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '4px 0 0 0', fontWeight: 600 }}>FUNNEL CONVERSION RATES</p>
                 </div>
                 <div style={{ background: 'rgba(99, 102, 241, 0.1)', padding: '6px 12px', borderRadius: '8px', border: '1px solid rgba(99, 102, 241, 0.2)' }}>
@@ -66,7 +66,7 @@ const PipelineVelocityFunnel = ({ leads, formatters }) => {
                                     boxShadow: `0 4px 12px ${color}33`,
                                     transition: 'width 1s cubic-bezier(0.4, 0, 0.2, 1)'
                                 }}>
-                                    <span style={{ color: '#fff', fontWeight: 900, fontSize: '0.9rem', textShadow: '0 2px 4px rgba(0,0,0,0.5)' }}>
+                                    <span style={{ color: 'var(--text-main)', fontWeight: 900, fontSize: '0.9rem', textShadow: '0 2px 4px rgba(0,0,0,0.5)' }}>
                                         {fmtNum(stage.count)}
                                     </span>
                                 </div>
@@ -76,7 +76,7 @@ const PipelineVelocityFunnel = ({ leads, formatters }) => {
                             <div style={{ width: '35%', paddingLeft: '16px', display: 'flex', flexDirection: 'column' }}>
                                 <span style={{ color: '#f8fafc', fontSize: '0.85rem', fontWeight: 700 }}>{stage.label}</span>
                                 {convRate !== null && (
-                                    <span style={{ color: '#94a3b8', fontSize: '0.7rem', fontWeight: 600 }}>
+                                    <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem', fontWeight: 600 }}>
                                         <i className="fas fa-level-down-alt" style={{ marginRight: '4px', transform: 'rotate(-45deg)' }}></i>
                                         {convRate}% conv.
                                     </span>

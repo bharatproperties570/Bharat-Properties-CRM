@@ -28,7 +28,7 @@ const TeamLeaderboardWidget = ({ users, metrics }) => {
         <div className="glass-card" style={{ padding: '24px', background: 'rgba(30, 41, 59, 0.4)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
                 <div>
-                    <h3 style={{ fontSize: '1rem', fontWeight: 900, color: '#fff', margin: 0, letterSpacing: '0.05em' }}>TEAM LEADERBOARD</h3>
+                    <h3 style={{ fontSize: '1rem', fontWeight: 900, color: 'var(--text-main)', margin: 0, letterSpacing: '0.05em' }}>TEAM LEADERBOARD</h3>
                     <p style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 700, margin: '2px 0 0 0' }}>TOP PERFORMERS (THIS WEEK)</p>
                 </div>
                 <i className="fas fa-trophy" style={{ color: '#f59e0b', fontSize: '1.2rem' }}></i>
@@ -40,14 +40,14 @@ const TeamLeaderboardWidget = ({ users, metrics }) => {
                         <div style={{ 
                             width: '28px', height: '28px', borderRadius: '50%', 
                             background: idx === 0 ? '#f59e0b' : idx === 1 ? '#94a3b8' : idx === 2 ? '#b45309' : '#334155',
-                            color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            color: 'var(--text-main)', display: 'flex', alignItems: 'center', justifyContent: 'center',
                             fontSize: '0.75rem', fontWeight: 900, flexShrink: 0
                         }}>
                             {idx + 1}
                         </div>
                         <div style={{ minWidth: 0, flex: 1 }}>
                             <div style={{ fontSize: '0.8rem', fontWeight: 800, color: '#f8fafc', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user.name}</div>
-                            <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600 }}>{user.siteVisits} Visits • {user.dealsClosed} Deals</div>
+                            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600 }}>{user.siteVisits} Visits • {user.dealsClosed} Deals</div>
                         </div>
                         <div style={{ textAlign: 'right' }}>
                             <div style={{ fontSize: '0.9rem', fontWeight: 900, color: '#10b981' }}>{user.score}</div>

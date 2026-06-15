@@ -13,12 +13,12 @@ const RevenuePanel = ({ charts, metrics, formatters }) => {
             <div className="glass-card" style={{ padding: '20px', borderLeft: '4px solid #10b981' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
                     <div>
-                        <h3 style={{ fontSize: '1.1rem', fontWeight: 900, color: '#fff', margin: 0, letterSpacing: '0.05em' }}>FINANCIAL INTELLIGENCE</h3>
+                        <h3 style={{ fontSize: '1.1rem', fontWeight: 900, color: 'var(--text-main)', margin: 0, letterSpacing: '0.05em' }}>FINANCIAL INTELLIGENCE</h3>
                         <p style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '4px', fontWeight: 600 }}>MTD PERFORMANCE vs TARGET</p>
                     </div>
                     <div style={{ textAlign: 'right' }}>
                         <div style={{ fontSize: '1.6rem', fontWeight: 900, color: '#10b981' }}>{fmtCr(perf.mtdCommission)}</div>
-                        <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 600 }}>TGT: {fmtCr(perf.target)}</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>TGT: {fmtCr(perf.target)}</div>
                     </div>
                 </div>
 
@@ -28,9 +28,9 @@ const RevenuePanel = ({ charts, metrics, formatters }) => {
                         { label: 'BOOKING VELOCITY', val: perf.bookingTarget || 0, colors: ['#6366f1', '#a5b4fc'] }
                     ].map((t, i) => (
                         <div key={i}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', fontWeight: 700, marginBottom: '10px', color: '#94a3b8' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', fontWeight: 700, marginBottom: '10px', color: 'var(--text-muted)' }}>
                                 <span>{t.label}</span>
-                                <span style={{ color: '#fff' }}>{t.val}%</span>
+                                <span style={{ color: 'var(--text-main)' }}>{t.val}%</span>
                             </div>
                             <div style={{ height: '6px', background: 'rgba(255,255,255,0.05)', borderRadius: '10px', overflow: 'hidden' }}>
                                 <div style={{ width: `${t.val}%`, height: '100%', background: `linear-gradient(90deg, ${t.colors[0]}, ${t.colors[1]})`, borderRadius: '10px', boxShadow: `0 0 10px ${t.colors[0]}40` }}></div>
@@ -46,13 +46,13 @@ const RevenuePanel = ({ charts, metrics, formatters }) => {
 
             {/* Recent High Value Deals */}
             <div className="glass-card" style={{ padding: '24px' }}>
-                <h3 style={{ fontSize: '1rem', fontWeight: 900, color: '#fff', marginBottom: '4px', letterSpacing: '0.05em' }}>LIVE PIPELINE</h3>
+                <h3 style={{ fontSize: '1rem', fontWeight: 900, color: 'var(--text-main)', marginBottom: '4px', letterSpacing: '0.05em' }}>LIVE PIPELINE</h3>
                 <p style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '24px', fontWeight: 600 }}>LATEST TRANSACTION FLOW</p>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     {recentDeals.slice(0, 5).map((deal, idx) => (
                         <div key={idx} style={{ padding: '16px', background: 'rgba(15, 23, 42, 0.4)', borderRadius: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid rgba(255,255,255,0.02)' }}>
                             <div style={{ minWidth: 0 }}>
-                                <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{renderValue(deal.project?.name || deal.project)}</div>
+                                <div style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text-main)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{renderValue(deal.project?.name || deal.project)}</div>
                                 <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>{deal.unitNo} • {new Date(deal.updatedAt).toLocaleDateString()}</div>
                             </div>
                             <div style={{ textAlign: 'right', flexShrink: 0 }}>
