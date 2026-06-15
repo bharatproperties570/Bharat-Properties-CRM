@@ -369,6 +369,8 @@ export const MODULE_CONFIG = {
             { key: 'ownerLocality', label: 'Locality/Sector', sample: 'Sector 15' },
             { key: 'ownerArea', label: 'Area', sample: 'Near Metro Station' },
             { key: 'ownerCity', label: 'City', sample: 'Gurugram' },
+            { key: 'ownerTehsil', label: 'Tehsil', sample: 'Thanesar' },
+            { key: 'ownerPostOffice', label: 'Post Office', sample: 'Sector 7' },
             { key: 'ownerState', label: 'State', sample: 'Haryana' },
             { key: 'ownerPinCode', label: 'Pin Code', sample: '122001' },
             

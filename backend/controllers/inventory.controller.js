@@ -2419,6 +2419,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                 let area = String(ownerArea || '').trim();
                 let city = String(ownerCity || '').trim();
                 let tehsil = String(row.tehsil || row['Tehsil'] || row.ownerTehsil || '').trim();
+                let postOffice = String(row.postOffice || row['Post Office'] || row.ownerPostOffice || '').trim();
                 let state = String(ownerState || '').trim();
                 let pincode = String(ownerPinCode || '').trim();
 
@@ -2426,7 +2427,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                 
                 // 🚀 [HARDENED ENTERPRISE LOOPHOLE FIX]
                 // Force ALL mapped fields through the AddressParsingService to enforce strict taxonomy.
-                const combinedAddressToParse = [hNo, street, area, locality, city, tehsil, state, pincode, fullAddress]
+                const combinedAddressToParse = [hNo, street, area, locality, city, tehsil, postOffice, state, pincode, fullAddress]
                     .filter(Boolean)
                     .join(', ');
 
@@ -2447,6 +2448,9 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                         if (parsed.tehsil) {
                             tehsil = parsed.tehsil;
                         }
+                        if (parsed.postOffice) {
+                            postOffice = parsed.postOffice;
+                        }
 
                         state = parsed.state || state;
                         pincode = parsed.pincode || pincode;
@@ -2462,6 +2466,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
                     area: area || '',
                     city: city || '',
                     tehsil: tehsil || '',
+                    postOffice: postOffice || '',
                     state: state || '',
                     pincode: pincode || ''
                 };
