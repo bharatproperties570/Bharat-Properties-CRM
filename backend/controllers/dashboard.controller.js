@@ -375,6 +375,60 @@ export const getDashboardStats = async (req, res) => {
             .lean()
         ]);
 
+        const todayZero = new Date();
+        todayZero.setHours(0, 0, 0, 0);
+        
+        const tomorrowZero = new Date(todayZero);
+        tomorrowZero.setDate(tomorrowZero.getDate() + 1);
+
+        const agendaStatsRaw = await Activity.aggregate([
+            { $match: { ...baseActQuery, status: { $regex: /pending|in progress|open/i } } },
+            {
+                $project: {
+                    type: 1,
+                    dueDate: 1,
+                    bucket: {
+                        $switch: {
+                            branches: [
+                                { case: { $lt: ["$dueDate", todayZero] }, then: "overdue" },
+                                { case: { $and: [{ $gte: ["$dueDate", todayZero] }, { $lt: ["$dueDate", tomorrowZero] }] }, then: "today" },
+                                { case: { $gte: ["$dueDate", tomorrowZero] }, then: "pending" }
+                            ],
+                            default: "pending"
+                        }
+                    },
+                    category: {
+                        $switch: {
+                            branches: [
+                                { case: { $in: ["$type", ["Task", "Call", "Call Back", "Followup"]] }, then: "Followup" },
+                                { case: { $in: ["$type", ["Meeting", "Meeting Scheduled"]] }, then: "Meeting" },
+                                { case: { $eq: ["$type", "Site Visit"] }, then: "Site Visit" }
+                            ],
+                            default: "Followup"
+                        }
+                    }
+                }
+            },
+            {
+                $group: {
+                    _id: { category: "$category", bucket: "$bucket" },
+                    count: { $sum: 1 }
+                }
+            }
+        ]);
+
+        const agendaStats = {
+            Followup: { today: 0, overdue: 0, pending: 0 },
+            Meeting: { today: 0, overdue: 0, pending: 0 },
+            "Site Visit": { today: 0, overdue: 0, pending: 0 }
+        };
+
+        agendaStatsRaw.forEach(stat => {
+            if (agendaStats[stat._id.category] && stat._id.bucket) {
+                agendaStats[stat._id.category][stat._id.bucket] = stat.count;
+            }
+        });
+
         const formatTimeHelper = (dueDate, dueTime) => {
             if (!dueDate) return 'Pending';
             const date = new Date(dueDate);
@@ -519,7 +573,7 @@ export const getDashboardStats = async (req, res) => {
             total_favourite: 0,
 
             // Agenda
-            agenda: { tasks: liveTasks, siteVisits: liveSiteVisits },
+            agenda: { tasks: liveTasks, siteVisits: liveSiteVisits, stats: agendaStats },
             recentActivityFeed,
 
             // AI
