@@ -32,7 +32,7 @@ const RevenuePanel = ({ charts, metrics, formatters }) => {
                                 <span>{t.label}</span>
                                 <span style={{ color: 'var(--text-main)' }}>{t.val}%</span>
                             </div>
-                            <div style={{ height: '6px', background: 'rgba(255,255,255,0.05)', borderRadius: '10px', overflow: 'hidden' }}>
+                            <div style={{ height: '6px', background: 'var(--border-light)', borderRadius: '10px', overflow: 'hidden' }}>
                                 <div style={{ width: `${t.val}%`, height: '100%', background: `linear-gradient(90deg, ${t.colors[0]}, ${t.colors[1]})`, borderRadius: '10px', boxShadow: `0 0 10px ${t.colors[0]}40` }}></div>
                             </div>
                         </div>
@@ -50,7 +50,7 @@ const RevenuePanel = ({ charts, metrics, formatters }) => {
                 <p style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '24px', fontWeight: 600 }}>LATEST TRANSACTION FLOW</p>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     {recentDeals.slice(0, 5).map((deal, idx) => (
-                        <div key={idx} style={{ padding: '16px', background: 'rgba(15, 23, 42, 0.4)', borderRadius: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid rgba(255,255,255,0.02)' }}>
+                        <div key={idx} style={{ padding: '16px', background: 'var(--panel-bg)', borderRadius: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid var(--border-light)' }}>
                             <div style={{ minWidth: 0 }}>
                                 <div style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text-main)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{renderValue(deal.project?.name || deal.project)}</div>
                                 <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>{deal.unitNo} • {new Date(deal.updatedAt).toLocaleDateString()}</div>

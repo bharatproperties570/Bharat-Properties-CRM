@@ -21,13 +21,13 @@ const SLAWidget = ({ metrics }) => {
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                <div style={{ background: 'rgba(15, 23, 42, 0.6)', padding: '12px', borderRadius: '12px', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+                <div style={{ background: 'var(--panel-bg)', padding: '12px', borderRadius: '12px', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
                     <div style={{ fontSize: '1.4rem', fontWeight: 900, color: '#ef4444' }}>{untouchedLeads}</div>
                     <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', fontWeight: 700, marginTop: '2px' }}>UNTOUCHED LEADS</div>
                     <div style={{ fontSize: '0.55rem', color: '#ef4444', marginTop: '6px', fontWeight: 800 }}>&gt; 48 HOURS PENDING</div>
                 </div>
                 
-                <div style={{ background: 'rgba(15, 23, 42, 0.6)', padding: '12px', borderRadius: '12px', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
+                <div style={{ background: 'var(--panel-bg)', padding: '12px', borderRadius: '12px', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
                     <div style={{ fontSize: '1.4rem', fontWeight: 900, color: '#f59e0b' }}>{overdueFollowups}</div>
                     <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', fontWeight: 700, marginTop: '2px' }}>OVERDUE TASKS</div>
                     <div style={{ fontSize: '0.55rem', color: '#f59e0b', marginTop: '6px', fontWeight: 800 }}>MISSED FOLLOW-UPS</div>

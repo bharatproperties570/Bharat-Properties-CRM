@@ -35,7 +35,7 @@ const LeadAcquisitionPanel = ({ charts, metrics, formatters }) => {
                         { label: 'MTD VISITS', value: mtdVisits.reduce((s, v) => s + v.count, 0), icon: 'fa-map-marker-alt', color: '#f59e0b' },
                         { label: 'PIPE VALUE', value: fmtCr(perf.pipelineValue), icon: 'fa-chart-pie', color: '#8b5cf6' }
                     ].map((s, i) => (
-                        <div key={i} style={{ background: 'rgba(15, 23, 42, 0.4)', padding: '16px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.03)' }}>
+                        <div key={i} style={{ background: 'var(--panel-bg)', padding: '16px', borderRadius: '16px', border: '1px solid var(--border-light)' }}>
                             <div style={{ color: s.color, marginBottom: '8px', fontSize: '0.9rem' }}><i className={`fas ${s.icon}`}></i></div>
                             <div style={{ fontSize: '1.2rem', fontWeight: 900, color: 'var(--text-main)' }}>{s.value}</div>
                             <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 700, marginTop: '4px' }}>{s.label}</div>
@@ -46,7 +46,7 @@ const LeadAcquisitionPanel = ({ charts, metrics, formatters }) => {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginTop: '10px' }}>
                     <div style={{ height: '280px', display: 'flex', flexDirection: 'column' }}>
                         <h3 style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--text-muted)', marginBottom: '8px', letterSpacing: '0.05em' }}>LEAD VOLUME TREND</h3>
-                        <div style={{ flex: 1, background: 'rgba(15, 23, 42, 0.4)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.03)', padding: '16px 0 0 0' }}>
+                        <div style={{ flex: 1, background: 'var(--panel-bg)', borderRadius: '16px', border: '1px solid var(--border-light)', padding: '16px 0 0 0' }}>
                             <Chart 
                                 options={leadTrendChart.options}
                                 series={leadTrendChart.series}

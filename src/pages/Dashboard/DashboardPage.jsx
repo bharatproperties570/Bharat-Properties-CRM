@@ -47,6 +47,9 @@ const DashboardPage = ({ onNavigate }) => {
                 :root {
                     --bg-dark: ${isDark ? '#020617' : '#f1f5f9'};
                     --card-bg: ${isDark ? 'rgba(30, 41, 59, 0.5)' : 'rgba(255, 255, 255, 0.8)'};
+                    --panel-bg: ${isDark ? 'rgba(15, 23, 42, 0.4)' : 'rgba(248, 250, 252, 0.8)'};
+                    --border-light: ${isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)'};
+                    --gradient-dark: ${isDark ? 'linear-gradient(135deg, rgba(30, 41, 59, 0.5), rgba(15, 23, 42, 0.5))' : 'linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(241, 245, 249, 0.8))'};
                     --accent-primary: #6366f1;
                     --accent-success: #10b981;
                     --accent-warning: #f59e0b;

@@ -25,7 +25,7 @@ const TeamLeaderboardWidget = ({ users, metrics }) => {
     if (leaderboard.length === 0) return null;
 
     return (
-        <div className="glass-card" style={{ padding: '24px', background: 'rgba(30, 41, 59, 0.4)' }}>
+        <div className="glass-card" style={{ padding: '24px', background: 'var(--panel-bg)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
                 <div>
                     <h3 style={{ fontSize: '1rem', fontWeight: 900, color: 'var(--text-main)', margin: 0, letterSpacing: '0.05em' }}>TEAM LEADERBOARD</h3>
@@ -36,7 +36,7 @@ const TeamLeaderboardWidget = ({ users, metrics }) => {
             
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 {leaderboard.map((user, idx) => (
-                    <div key={user.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', background: 'rgba(15, 23, 42, 0.6)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.03)' }}>
+                    <div key={user.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', background: 'var(--panel-bg)', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
                         <div style={{ 
                             width: '28px', height: '28px', borderRadius: '50%', 
                             background: idx === 0 ? '#f59e0b' : idx === 1 ? '#94a3b8' : idx === 2 ? '#b45309' : '#334155',

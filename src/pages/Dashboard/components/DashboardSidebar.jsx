@@ -27,7 +27,7 @@ const DashboardSidebar = ({ metrics, users, onNavigate }) => {
 
                 {agenda.tasks.length === 0 && agenda.siteVisits.length === 0 ? (
                     <div style={{ textAlign: 'center', padding: '40px 0' }}>
-                        <div style={{ width: '48px', height: '48px', background: 'rgba(255,255,255,0.03)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', color: '#475569' }}>
+                        <div style={{ width: '48px', height: '48px', background: 'var(--border-light)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', color: '#475569' }}>
                             <i className="fas fa-calendar-check fa-xl"></i>
                         </div>
                         <p style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600 }}>NO ACTIVE TASKS DETECTED</p>
@@ -59,7 +59,7 @@ const DashboardSidebar = ({ metrics, users, onNavigate }) => {
             </div>
 
             {/* AI Alert Hub */}
-            <div className="glass-card" style={{ padding: '24px', background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.5), rgba(15, 23, 42, 0.5))' }}>
+            <div className="glass-card" style={{ padding: '24px', background: 'var(--gradient-dark)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
                     <div style={{ width: '36px', height: '36px', background: '#6366f1', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-main)', boxShadow: '0 0 15px rgba(99, 102, 241, 0.4)' }}>
                         <i className="fas fa-robot"></i>
@@ -72,7 +72,7 @@ const DashboardSidebar = ({ metrics, users, onNavigate }) => {
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     {allAlerts.slice(0, 4).map((alert, idx) => (
-                        <div key={idx} style={{ padding: '16px', background: 'rgba(15, 23, 42, 0.4)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.02)', borderLeft: '4px solid #f43f5e' }}>
+                        <div key={idx} style={{ padding: '16px', background: 'var(--panel-bg)', borderRadius: '16px', border: '1px solid var(--border-light)', borderLeft: '4px solid #f43f5e' }}>
                             <div style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--text-main)' }}>{renderValue(alert.title)}</div>
                             <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', margin: '6px 0 0 0', lineHeight: 1.4, fontWeight: 500 }}>{renderValue(alert.message)}</p>
                             <div style={{ marginTop: '12px', fontSize: '0.65rem', fontWeight: 800, color: '#6366f1', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>RESOLVE NOW <i className="fas fa-chevron-right" style={{ fontSize: '0.5rem' }}></i></div>
@@ -99,7 +99,7 @@ const DashboardSidebar = ({ metrics, users, onNavigate }) => {
                         </div>
                     ))}
                 </div>
-                <div style={{ height: '6px', background: 'rgba(255,255,255,0.05)', borderRadius: '10px', overflow: 'hidden', display: 'flex' }}>
+                <div style={{ height: '6px', background: 'var(--border-light)', borderRadius: '10px', overflow: 'hidden', display: 'flex' }}>
                     <div style={{ width: '70%', background: '#10b981', boxShadow: '0 0 10px rgba(16, 185, 129, 0.4)' }}></div>
                     <div style={{ width: '20%', background: '#f59e0b' }}></div>
                     <div style={{ width: '10%', background: '#6366f1' }}></div>
