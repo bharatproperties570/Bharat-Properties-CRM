@@ -1,6 +1,7 @@
 import Activity from "../models/Activity.js";
 import Lead from "../models/Lead.js";
 import Deal from "../models/Deal.js";
+import Booking from "../models/Booking.js";
 import Lookup from "../models/Lookup.js";
 import Inventory from "../models/Inventory.js";
 import Project from "../models/Project.js";
@@ -102,6 +103,19 @@ export const getDashboardStats = async (req, res) => {
             
             baseDealQuery.$and = baseDealQuery.$and || [];
             baseDealQuery.$and.push({ $or: teamFilter });
+        }
+
+        const baseBookingQuery = { ...visibilityFilter };
+        if (baseBookingQuery.owner) {
+            baseBookingQuery.salesAgent = baseBookingQuery.owner;
+            delete baseBookingQuery.owner;
+        }
+        if (userId && mongoose.Types.ObjectId.isValid(userId)) {
+            baseBookingQuery.$and = baseBookingQuery.$and || [];
+            baseBookingQuery.$and.push({ $or: [{ salesAgent: userId }] });
+        } else if (teamId && mongoose.Types.ObjectId.isValid(teamId)) {
+            baseBookingQuery.$and = baseBookingQuery.$and || [];
+            baseBookingQuery.$and.push({ $or: [{ teams: teamId }] });
         }
 
         // ━━ 1. ACTIVITY STATS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -243,9 +257,18 @@ export const getDashboardStats = async (req, res) => {
         ]);
 
         // ━━ 5. FINANCIAL INTELLIGENCE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        const revenueBySourceRaw = await Deal.aggregate([
-            { $match: baseDealQuery },
-            { $group: { _id: "$source", count: { $sum: 1 }, total: { $sum: "$commission.actualAmount" } } },
+        const revenueBySourceRaw = await Booking.aggregate([
+            { $match: baseBookingQuery },
+            { 
+                $lookup: {
+                    from: "leads",
+                    localField: "lead",
+                    foreignField: "_id",
+                    as: "leadDoc"
+                }
+            },
+            { $unwind: { path: "$leadDoc", preserveNullAndEmptyArrays: true } },
+            { $group: { _id: "$leadDoc.source", count: { $sum: 1 }, total: { $sum: "$commissionReceived" } } },
             { $sort: { total: -1 } }, { $limit: 6 }
         ]);
         const revenueBySource = {
@@ -253,14 +276,21 @@ export const getDashboardStats = async (req, res) => {
             series: [{ name: 'Commission (₹)', data: revenueBySourceRaw.map(r => Math.round(r.total || 0)) }]
         };
 
-        console.log("[Dashboard] Processing Financials...");
+        console.log("[Dashboard] Processing Financials from Booking model...");
         // Cash flow last 6 months
         const sixMonthsAgo = new Date(Date.now() - 180 * 86400000);
-        const cashFlowRaw = await Deal.aggregate([
-            { $match: { ...baseDealQuery, "closingDetails.isClosed": true, "closingDetails.closingDate": { $gte: sixMonthsAgo } } },
-            { $group: { _id: { month: { $month: "$closingDetails.closingDate" }, year: { $year: "$closingDetails.closingDate" } }, total: { $sum: "$commission.actualAmount" }, deals: { $sum: 1 } } },
-            { $sort: { "_id.year": 1, "_id.month": 1 } }
+        const cashFlowRaw = await Booking.aggregate([
+            { $match: { ...baseBookingQuery, bookingDate: { $gte: sixMonthsAgo } } },
+            {
+                $group: {
+                    _id: { month: { $month: '$bookingDate' }, year: { $year: '$bookingDate' } },
+                    total: { $sum: '$commissionReceived' },
+                    deals: { $sum: 1 }
+                }
+            },
+            { $sort: { '_id.year': 1, '_id.month': 1 } }
         ]);
+
         const cashFlowProjection = {
             categories: cashFlowRaw.map(c => {
                 const mIdx = (c._id.month || 1) - 1;
@@ -270,21 +300,28 @@ export const getDashboardStats = async (req, res) => {
             dealsPerMonth: cashFlowRaw.map(c => c.deals || 0)
         };
 
-        // Total revenue (all-time commission collected)
-        const revenueAgg = await Deal.aggregate([
-            { $match: baseDealQuery },
-            { $group: { _id: null, total: { $sum: "$commission.actualAmount" }, pending: { $sum: "$commission.commissionAmount" } } }
+        // Total revenue (all-time commission collected & pending)
+        const revenueAgg = await Booking.aggregate([
+            { $match: baseBookingQuery },
+            { $group: { _id: null, total: { $sum: "$commissionReceived" }, pending: { $sum: "$commissionPending" } } }
         ]);
         const totalRevenue = revenueAgg[0]?.total || 0;
         const pendingCommission = revenueAgg[0]?.pending || 0;
+
+        // MTD Revenue (Secured this month)
+        const mtdRevenueAgg = await Booking.aggregate([
+            { $match: { ...baseBookingQuery, bookingDate: { $gte: thisMonthStart } } },
+            { $group: { _id: null, total: { $sum: "$commissionReceived" } } }
+        ]);
+        const achievedAmount = mtdRevenueAgg[0]?.total || 0;
 
         // New MoM Growth Calculations
         const [lastMonthLeads, lastMonthDeals, lastMonthRevenue] = await Promise.all([
             Lead.countDocuments({ ...baseLeadQuery, createdAt: { $gte: lastMonthStart, $lt: lastMonthEnd } }),
             Deal.countDocuments({ ...baseDealQuery, createdAt: { $gte: lastMonthStart, $lt: lastMonthEnd } }),
-            Deal.aggregate([
-                { $match: { ...baseDealQuery, "closingDetails.isClosed": true, "closingDetails.closingDate": { $gte: lastMonthStart, $lt: lastMonthEnd } } },
-                { $group: { _id: null, total: { $sum: "$commission.actualAmount" } } }
+            Booking.aggregate([
+                { $match: { ...baseBookingQuery, bookingDate: { $gte: lastMonthStart, $lt: lastMonthEnd } } },
+                { $group: { _id: null, total: { $sum: "$commissionReceived" } } }
             ])
         ]);
 
@@ -352,7 +389,7 @@ export const getDashboardStats = async (req, res) => {
         const availability = populatedInventory.reduce((sum, i) => sum + i.count, 0);
         const leadSourceStats = leadsBySource.map(l => ({ source: lookupMap[l._id] || l._id, count: l.count }));
         const targetAmount = 50000000; // Mock Target: 5 Crore
-        const achievedAmount = totalRevenue || 0;
+        // MTD Achieved Amount is already calculated above as achievedAmount
         const conversionRate = totalLeads > 0 ? Math.round((dealsThisMonth / newLeadsThisMonth) * 100) : 0;
         const leadMoMGrowth = calcGrowth(newLeadsThisMonth, lastMonthLeads);
         
