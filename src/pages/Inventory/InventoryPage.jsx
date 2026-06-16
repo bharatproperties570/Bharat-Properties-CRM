@@ -1,3 +1,4 @@
+import { useTheme } from '../../context/ThemeContext';
 import { useState, useCallback, useEffect } from 'react';
 import { renderValue } from '../../utils/renderUtils';
 import { useUserContext } from '../../context/UserContext';

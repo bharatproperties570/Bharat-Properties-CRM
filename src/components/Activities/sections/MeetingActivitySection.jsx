@@ -1,7 +1,9 @@
+import { useTheme } from '../../../context/ThemeContext';
 import { useEffect, useRef } from 'react';
 import { FormLabel, FormSelect, FormInput, ActivityCard, SectionTitle } from '../ActivityCommon';
 
 const MeetingActivitySection = ({ formData, handleChange, errors, activityMasterFields, view = 'full' }) => {
+    const { isDark } = useTheme();
     const isCompleted = formData.status === 'Completed';
     const meetAct = activityMasterFields?.activities?.find(a => a.name === 'Meeting');
     const purpose = meetAct?.purposes?.find(p => p.name === formData.purpose);
@@ -72,7 +74,7 @@ const MeetingActivitySection = ({ formData, handleChange, errors, activityMaster
                 <FormLabel>Meeting Location</FormLabel>
                 <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
                     {['Office', 'On-Site', 'Virtual', 'Developer Office'].map(type => (
-                        <label key={type} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, color: '#334155' }}>
+                        <label key={type} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, color: isDark ? 'var(--text-primary)' : '#334155' }}>
                             <input
                                 type="radio"
                                 name="meetingType"

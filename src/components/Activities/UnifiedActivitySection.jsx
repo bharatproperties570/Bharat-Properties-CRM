@@ -1,3 +1,4 @@
+import { useTheme } from '../../context/ThemeContext';
 import { useState, useEffect, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import whatsappService from '../../services/whatsappService';
@@ -21,6 +22,7 @@ import './UnifiedActivitySection.css';
  * @param {boolean} hideComposer - Whether to hide the activity composer section
  */
 const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySaved, hideComposer = false, relatedEntities = [] }) => {
+    const { isDark } = useTheme();
     const { addActivity } = useActivities();
     const { activityMasterFields } = usePropertyConfig();
     const [composerTab, setComposerTab] = useState('note');
@@ -398,7 +400,7 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
     };
 
     const getTimelineIcon = (item) => {
-        if (item.source === 'audit') return { icon: 'history', color: '#8b5cf6', bg: '#f5f3ff' };
+        if (item.source === 'audit') return { icon: 'history', color: '#8b5cf6', bg: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f5f3ff' };
 
         const type = (item.type || '').toLowerCase();
         if (type.includes('call')) return { icon: 'phone-alt', color: '#3b82f6', bg: '#eff6ff' };
@@ -406,7 +408,7 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
         if (type.includes('site visit') || type.includes('visit')) return { icon: 'map-marked-alt', color: '#047857', bg: '#ecfdf5' };
         if (type.includes('task')) return { icon: 'tasks', color: '#f59e0b', bg: '#fffbeb' };
         if (type.includes('email')) return { icon: 'envelope', color: '#ef4444', bg: '#fef2f2' };
-        if (type.includes('sms')) return { icon: 'comment-alt', color: '#4f46e5', bg: '#f5f3ff' };
+        if (type.includes('sms')) return { icon: 'comment-alt', color: '#4f46e5', bg: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f5f3ff' };
         if (type.includes('whatsapp')) return { icon: 'whatsapp', color: '#25d366', bg: '#f0fdf4', brand: true };
         if (type === 'messaging') return { icon: 'comment-dots', color: '#6366f1', bg: '#eef2ff' };
         if (type.includes('feedback')) return { icon: 'comment-medical', color: '#ec4899', bg: '#fdf2f8' };
@@ -423,10 +425,10 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                     borderRadius: '12px', 
                     overflow: 'hidden', 
                     border: '1px solid #eef2f6',
-                    background: '#fff',
+                    background: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff',
                     boxShadow: '0 2px 10px rgba(0,0,0,0.02)'
                 }}>
-                    <div style={{ borderBottom: '1px solid #f1f5f9', display: 'flex', background: 'linear-gradient(to right, #ffffff, #f9fafb)', padding: '14px 20px', alignItems: 'center', justifyContent: 'space-between', position: 'relative' }} className="activity-dropdown-container">
+                    <div style={{ borderBottom: '1px solid #f1f5f9', display: 'flex', background: isDark ? 'var(--bg-card)' : 'linear-gradient(to right, #ffffff, #f9fafb)', padding: '14px 20px', alignItems: 'center', justifyContent: 'space-between', position: 'relative' }} className="activity-dropdown-container">
                         <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
                             <span style={{ fontSize: '0.75rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.8px', opacity: 0.8 }}>Current Action:</span>
                             <div style={{ position: 'relative' }}>
@@ -434,7 +436,7 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                                     onClick={() => setIsDropdownOpen(!isDropdownOpen)}
                                     style={{
                                         padding: '10px 18px',
-                                        background: '#fff',
+                                        background: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff',
                                         border: '1.5px solid #eef2f6',
                                         borderRadius: '12px',
                                         color: 'var(--premium-blue)',
@@ -477,7 +479,7 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                                         top: 'calc(100% + 8px)',
                                         left: 0,
                                         width: '200px',
-                                        background: '#fff',
+                                        background: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff',
                                         borderRadius: '12px',
                                         boxShadow: '0 10px 25px rgba(0,0,0,0.1)',
                                         border: '1px solid #e2e8f0',
@@ -506,7 +508,7 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                                                     width: '100%',
                                                     padding: '10px 14px',
                                                     border: 'none',
-                                                    background: composerTab === tab.id ? '#f5f3ff' : 'transparent',
+                                                    background: composerTab === tab.id ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#f5f3ff' : 'transparent',
                                                     borderRadius: '8px',
                                                     color: composerTab === tab.id ? 'var(--premium-blue)' : '#475569',
                                                     fontSize: '0.85rem',
@@ -614,7 +616,7 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                         {composerTab === 'task' ? (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                 {pendingTasks.map((task) => (
-                                    <div key={task.id} style={{ display: 'flex', gap: '12px', alignItems: 'flex-start', background: '#f8fafc', padding: '12px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                                    <div key={task.id} style={{ display: 'flex', gap: '12px', alignItems: 'flex-start', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', padding: '12px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
                                         <div style={{ flex: 1 }}>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
                                                 <input
@@ -658,7 +660,7 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                                     width: '100%',
                                     minHeight: (composerTab === 'meeting' || composerTab === 'site_visit') ? '60px' : '100px',
                                     border: '1px solid rgba(226, 232, 240, 0.8)',
-                                    background: 'rgba(255, 255, 255, 0.5)',
+                                    background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(255, 255, 255, 0.5)',
                                     borderRadius: '12px',
                                     padding: '14px',
                                     fontSize: '0.9rem',
@@ -702,7 +704,7 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
             {/* 2. Timeline Section */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <h3 style={{ fontSize: '1rem', fontWeight: 800, color: '#1e293b', margin: 0 }}>Activities Timeline</h3>
+                    <h3 style={{ fontSize: '1rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : '#1e293b', margin: 0 }}>Activities Timeline</h3>
                     <div style={{ display: 'flex', gap: '8px' }}>
                         <select
                             value={userFilter}
@@ -712,7 +714,7 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                                 fontSize: '0.75rem',
                                 fontWeight: 700,
                                 color: '#4f46e5',
-                                background: '#f5f3ff',
+                                background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f5f3ff',
                                 border: '1px solid #ddd6fe',
                                 borderRadius: '8px',
                                 cursor: 'pointer',
@@ -732,7 +734,7 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                                 fontSize: '0.75rem',
                                 fontWeight: 700,
                                 color: '#4f46e5',
-                                background: '#f5f3ff',
+                                background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f5f3ff',
                                 border: '1px solid #ddd6fe',
                                 borderRadius: '8px',
                                 cursor: 'pointer',
@@ -752,7 +754,7 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                                 fontSize: '0.75rem',
                                 fontWeight: 700,
                                 color: '#4f46e5',
-                                background: '#f5f3ff',
+                                background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f5f3ff',
                                 border: '1px solid #ddd6fe',
                                 borderRadius: '8px',
                                 cursor: 'pointer',
@@ -817,7 +819,7 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                                             }}>
                                                 <div className="timeline-header" style={{ marginBottom: '6px' }}>
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
-                                                        <div style={{ fontWeight: 800, fontSize: '0.85rem', color: '#0f172a' }}>
+                                                        <div style={{ fontWeight: 800, fontSize: '0.85rem', color: isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : '#0f172a' }}>
                                                             {item.title}
                                                             {item.metadata?.details?.recordingUrl && (
                                                                 <i className="fas fa-microphone" style={{ marginLeft: '8px', color: '#10b981', fontSize: '0.75rem' }} title="Recording available"></i>
@@ -846,7 +848,7 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                                                         marginTop: '4px', 
                                                         marginBottom: '10px',
                                                         padding: '6px 10px',
-                                                        background: 'rgba(255, 255, 255, 0.5)',
+                                                        background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(255, 255, 255, 0.5)',
                                                         borderRadius: '8px',
                                                         border: '1px solid rgba(0,0,0,0.03)'
                                                     }}>
@@ -856,12 +858,12 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                                                             </span>
                                                         )}
                                                         {item.metadata.source && (
-                                                            <span title="Lead Source" style={{ fontSize: '0.65rem', fontWeight: 800, background: '#e0f2fe', color: '#075985', padding: '2px 8px', borderRadius: '4px', textTransform: 'uppercase', letterSpacing: '0.02em', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                            <span title="Lead Source" style={{ fontSize: '0.65rem', fontWeight: 800, background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#e0f2fe', color: '#075985', padding: '2px 8px', borderRadius: '4px', textTransform: 'uppercase', letterSpacing: '0.02em', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                                 <i className="fas fa-sign-in-alt" style={{ fontSize: '0.6rem' }}></i> {typeof item.metadata.source === 'object' ? item.metadata.source.lookup_value : item.metadata.source}
                                                             </span>
                                                         )}
                                                         {item.metadata.subSource && (
-                                                            <span title="Medium / Sub-Source" style={{ fontSize: '0.65rem', fontWeight: 800, background: '#f1f5f9', color: '#475569', padding: '2px 8px', borderRadius: '4px', textTransform: 'uppercase', letterSpacing: '0.02em', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                            <span title="Medium / Sub-Source" style={{ fontSize: '0.65rem', fontWeight: 800, background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9', color: '#475569', padding: '2px 8px', borderRadius: '4px', textTransform: 'uppercase', letterSpacing: '0.02em', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                                 <i className="fas fa-layer-group" style={{ fontSize: '0.6rem' }}></i> {typeof item.metadata.subSource === 'object' ? item.metadata.subSource.lookup_value : item.metadata.subSource}
                                                             </span>
                                                         )}
@@ -905,7 +907,7 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                                                         {item.sourceEntity && item.sourceEntity !== entityType && (
                                                             <span style={{ 
                                                                 fontSize: '0.6rem', fontWeight: 800, padding: '2px 8px', 
-                                                                borderRadius: '4px', background: '#f1f5f9', color: '#64748b',
+                                                                borderRadius: '4px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9', color: '#64748b',
                                                                 textTransform: 'uppercase', letterSpacing: '0.02em', border: '1px solid #e2e8f0'
                                                             }}>
                                                                 {item.sourceEntity}
@@ -917,7 +919,7 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                                                             fontSize: '0.6rem',
                                                             padding: '3px 10px',
                                                             borderRadius: '6px',
-                                                            background: item.status === 'Completed' ? '#dcfce7' : '#fee2e2',
+                                                            background: item.status === 'Completed' ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#dcfce7' : isDark ? 'rgba(255, 255, 255, 0.03)' : '#fee2e2',
                                                             color: item.status === 'Completed' ? '#166534' : '#991b1b',
                                                             fontWeight: 900,
                                                             textTransform: 'uppercase',

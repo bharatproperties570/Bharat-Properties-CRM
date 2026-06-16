@@ -1,6 +1,8 @@
+import { useTheme } from '../../context/ThemeContext';
 import { FormLabel, FormInput, FormSelect } from './ActivityCommon';
 
 const ActivityBasicFields = ({ formData, handleChange, errors, activityMasterFields }) => {
+    const { isDark } = useTheme();
     return (
         <div style={{ marginBottom: '20px' }}>
             <div style={{ marginBottom: '16px' }}>

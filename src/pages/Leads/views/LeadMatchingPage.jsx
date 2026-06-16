@@ -1,3 +1,5 @@
+import { useTheme } from '../../../context/ThemeContext';
+
 import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import { whatsappTemplates } from '../../../constants/templates';
 import ComposeEmailModal from '../../Communication/components/ComposeEmailModal';
@@ -17,6 +19,7 @@ import { useUserContext } from '../../../context/UserContext';
 import { generateDealsPDF } from '../../../utils/pdfUtils';
 
 const LeadMatchingPage = ({ onNavigate, leadId }) => {
+    const { isDark } = useTheme();
     const { addActivity } = useActivities();
     const { getLookupValue, lookups, projects, sizes, propertyConfig, leadMasterFields, getLookupId } = usePropertyConfig();
     const [lead, setLead] = useState(null);
@@ -889,7 +892,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                             <div style={{ fontWeight: 700, color: '#065f46', fontSize: '0.9rem' }}>
                                 ✅ Message Copied to Clipboard!
                             </div>
-                            <div style={{ fontSize: '0.8rem', color: '#374151', lineHeight: '1.4' }}>
+                            <div style={{ fontSize: '0.8rem', color: isDark ? 'var(--text-primary)' : '#374151', lineHeight: '1.4' }}>
                                 WhatsApp Desktop App doesn't support pre-filled text via URL.<br/>
                                 <strong>Simply paste (Ctrl+V / ⌘V)</strong> in the WhatsApp message box after the app opens.
                             </div>
@@ -933,16 +936,16 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
         body += `We've been working hard to find the perfect properties for you. Based on our latest market analysis, we have identified these <strong>Top ${items.length} Matches</strong> that perfectly align with your requirements.<br><br>`;
 
         items.forEach((item, index) => {
-            body += `<div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-bottom: 20px; font-family: sans-serif; background: #fff;">`;
+            body += `<div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-bottom: 20px; font-family: sans-serif; background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff';">`;
             body += `<div style="display: flex; gap: 16px; align-items: flex-start;">`;
 
             // Image Preview (if available)
             if (item.images && item.images.length > 0) {
-                body += `<div style="width: 120px; height: 90px; border-radius: 8px; overflow: hidden; flex-shrink: 0; background: #f1f5f9;">`;
+                body += `<div style="width: 120px; height: 90px; border-radius: 8px; overflow: hidden; flex-shrink: 0; background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9';">`;
                 body += `<img src="${item.images[0]}" style="width: 100%; height: 100%; object-fit: cover;">`;
                 body += `</div>`;
             } else if (item.thumbnail) {
-                body += `<div style="width: 120px; height: 90px; border-radius: 8px; overflow: hidden; flex-shrink: 0; background: #f1f5f9;">`;
+                body += `<div style="width: 120px; height: 90px; border-radius: 8px; overflow: hidden; flex-shrink: 0; background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9';">`;
                 body += `<img src="${item.thumbnail}" style="width: 100%; height: 100%; object-fit: cover;">`;
                 body += `</div>`;
             }
@@ -989,21 +992,21 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
     }
 
     return (
-        <div style={{ background: '#f8fafc', minHeight: '100vh', padding: '24px', paddingBottom: '100px' }}>
+        <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', minHeight: '100vh', padding: '24px', paddingBottom: '100px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                     <button
                         onClick={() => onNavigate('leads')}
-                        style={{ border: 'none', background: '#fff', width: '40px', height: '40px', borderRadius: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}
+                        style={{ border: 'none', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', width: '40px', height: '40px', borderRadius: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}
                     >
-                        <i className="fas fa-arrow-left" style={{ color: '#1e293b' }}></i>
+                        <i className="fas fa-arrow-left" style={{ color: isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : '#1e293b' }}></i>
                     </button>
                     <div>
-                        <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>Requirement Match Center</h1>
+                        <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : '#0f172a', margin: 0 }}>Requirement Match Center</h1>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
-                            <span style={{ fontSize: '0.85rem', color: '#64748b' }}>Finding matches for Lead:</span>
+                            <span style={{ fontSize: '0.85rem', color: isDark ? 'var(--text-muted)' : '#64748b' }}>Finding matches for Lead:</span>
                             <span
-                                style={{ fontSize: '0.85rem', fontWeight: 700, color: '#2563eb', background: '#eff6ff', padding: '2px 8px', borderRadius: '4px', cursor: 'pointer', textDecoration: 'none' }}
+                                style={{ fontSize: '0.85rem', fontWeight: 700, color: '#2563eb', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#eff6ff', padding: '2px 8px', borderRadius: '4px', cursor: 'pointer', textDecoration: 'none' }}
                                 onClick={() => onNavigate('contact-detail', lead.mobile)}
                             >
                                 {renderValue(lead.name)} | {renderValue(lead.mobile)}
@@ -1016,7 +1019,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                         <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981' }}></div>
                         <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#166534' }}>Strict AI Engine Active</span>
                     </div>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', color: '#475569', cursor: 'pointer', fontWeight: 600 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', color: isDark ? 'var(--text-primary)' : '#475569', cursor: 'pointer', fontWeight: 600 }}>
                         <input type="checkbox" checked={hidePrice} onChange={(e) => setHidePrice(e.target.checked)} style={{ accentColor: '#6366f1', width: '16px', height: '16px', cursor: 'pointer' }} />
                         Hide Price
                     </label>
@@ -1026,8 +1029,8 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                         disabled={isSendingPortfolio}
                         style={{ 
                             display: 'flex', alignItems: 'center', gap: '8px',
-                            padding: '8px 16px', borderRadius: '10px', background: '#fff', 
-                            color: '#0f172a', border: '1px solid #e2e8f0', fontWeight: 700,
+                            padding: '8px 16px', borderRadius: '10px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', 
+                            color: isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : '#0f172a', border: '1px solid #e2e8f0', fontWeight: 700,
                             opacity: isSendingPortfolio ? 0.6 : 1, cursor: isSendingPortfolio ? 'not-allowed' : 'pointer'
                         }}
                     >
@@ -1063,9 +1066,9 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
 
             <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: '24px' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                    <div style={{ background: '#fff', borderRadius: '24px', padding: '24px', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.05), 0 8px 10px -6px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+                    <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', borderRadius: '24px', padding: '24px', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.05), 0 8px 10px -6px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                            <h3 style={{ fontSize: '0.85rem', fontWeight: 800, color: '#64748b', margin: 0, display: 'flex', alignItems: 'center', gap: '8px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                            <h3 style={{ fontSize: '0.85rem', fontWeight: 800, color: isDark ? 'var(--text-muted)' : '#64748b', margin: 0, display: 'flex', alignItems: 'center', gap: '8px', textTransform: 'uppercase', letterSpacing: '1px' }}>
                                 <i className="fas fa-fingerprint" style={{ color: '#3b82f6' }}></i> Requirement Profile
                             </h3>
                             <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#10b981', background: '#ecfdf5', padding: '4px 10px', borderRadius: '20px', border: '1px solid #b9f6ca', display: 'flex', alignItems: 'center', gap: '5px' }}>
@@ -1105,13 +1108,13 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                             {/* Core Requirement & Intent */}
-                            <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '16px', border: '1px solid #f1f5f9' }}>
+                            <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', padding: '16px', borderRadius: '16px', border: '1px solid #f1f5f9' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
                                     <div>
                                         <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>Primary Intent</label>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                            <span style={{ fontSize: '1.2rem', fontWeight: 900, color: '#0f172a' }}>{renderValue(lead.intent)}</span>
-                                            <span style={{ padding: '2px 10px', borderRadius: '8px', background: '#eff6ff', color: '#2563eb', fontSize: '0.75rem', fontWeight: 800 }}>{renderValue(lead.requirement)}</span>
+                                            <span style={{ fontSize: '1.2rem', fontWeight: 900, color: isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : '#0f172a' }}>{renderValue(lead.intent)}</span>
+                                            <span style={{ padding: '2px 10px', borderRadius: '8px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#eff6ff', color: '#2563eb', fontSize: '0.75rem', fontWeight: 800 }}>{renderValue(lead.requirement)}</span>
                                         </div>
                                     </div>
                                     <div style={{ textAlign: 'right' }}>
@@ -1124,7 +1127,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                     <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', display: 'block', marginBottom: '8px' }}>Property Categories</label>
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                                         {Array.isArray(lead.propertyType) && lead.propertyType.length > 0 ? lead.propertyType.map((pt, i) => (
-                                            <span key={i} style={{ fontSize: '0.7rem', fontWeight: 800, background: '#fff', color: '#475569', padding: '4px 10px', borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}>
+                                            <span key={i} style={{ fontSize: '0.7rem', fontWeight: 800, background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', color: isDark ? 'var(--text-primary)' : '#475569', padding: '4px 10px', borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}>
                                                 {renderValue(pt)}
                                             </span>
                                         )) : <span style={{ color: '#cbd5e1', fontSize: '0.75rem', fontStyle: 'italic' }}>No specific category selected</span>}
@@ -1134,27 +1137,27 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
 
                             {/* Location Signal Grid */}
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                                <div style={{ background: '#fff', padding: '14px', borderRadius: '16px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', padding: '14px', borderRadius: '16px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                         <i className="fas fa-map-marked-alt" style={{ color: '#3b82f6', fontSize: '0.75rem' }}></i>
                                         <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>Target Area</label>
                                     </div>
-                                    <p style={{ fontSize: '0.85rem', fontWeight: 800, color: '#1e293b', margin: 0 }}>{renderValue(lead.location)}</p>
-                                    {lead.locArea && <p style={{ fontSize: '0.7rem', color: '#64748b', margin: 0 }}>Sub: {renderValue(lead.locArea)}</p>}
+                                    <p style={{ fontSize: '0.85rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : '#1e293b', margin: 0 }}>{renderValue(lead.location)}</p>
+                                    {lead.locArea && <p style={{ fontSize: '0.7rem', color: isDark ? 'var(--text-muted)' : '#64748b', margin: 0 }}>Sub: {renderValue(lead.locArea)}</p>}
                                 </div>
-                                <div style={{ background: '#fff', padding: '14px', borderRadius: '16px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', padding: '14px', borderRadius: '16px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                         <i className="fas fa-city" style={{ color: '#3b82f6', fontSize: '0.75rem' }}></i>
                                         <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>City / Sector</label>
                                     </div>
-                                    <p style={{ fontSize: '0.85rem', fontWeight: 800, color: '#1e293b', margin: 0 }}>{renderValue(lead.sector || lead.locCity) || 'Open Region'}</p>
-                                    <p style={{ fontSize: '0.7rem', color: '#64748b', margin: 0 }}>Precise Match Active</p>
+                                    <p style={{ fontSize: '0.85rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : '#1e293b', margin: 0 }}>{renderValue(lead.sector || lead.locCity) || 'Open Region'}</p>
+                                    <p style={{ fontSize: '0.7rem', color: isDark ? 'var(--text-muted)' : '#64748b', margin: 0 }}>Precise Match Active</p>
                                 </div>
                             </div>
 
                             {/* Financial & Scale Grid */}
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                                <div style={{ background: '#eff6ff', padding: '14px', borderRadius: '16px', border: '1px solid #dbeafe', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#eff6ff', padding: '14px', borderRadius: '16px', border: '1px solid #dbeafe', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                         <i className="fas fa-wallet" style={{ color: '#2563eb', fontSize: '0.75rem' }}></i>
                                         <label style={{ fontSize: '0.65rem', fontWeight: 800, color: '#2563eb', textTransform: 'uppercase' }}>Budget Window</label>
@@ -1168,12 +1171,12 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                         </div>
                                     </div>
                                 </div>
-                                <div style={{ background: '#f8fafc', padding: '14px', borderRadius: '16px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', padding: '14px', borderRadius: '16px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                        <i className="fas fa-ruler-combined" style={{ color: '#64748b', fontSize: '0.75rem' }}></i>
+                                        <i className="fas fa-ruler-combined" style={{ color: isDark ? 'var(--text-muted)' : '#64748b', fontSize: '0.75rem' }}></i>
                                         <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>Scale (Sq.Yd)</label>
                                     </div>
-                                    <p style={{ fontSize: '1rem', fontWeight: 900, color: '#1e293b', margin: 0 }}>
+                                    <p style={{ fontSize: '1rem', fontWeight: 900, color: isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : '#1e293b', margin: 0 }}>
                                         {lead.areaMin > 0 ? `${lead.areaMin} – ${lead.areaMax || 'Any'}` : 'Open Size'}
                                     </p>
                                     <p style={{ fontSize: '0.65rem', color: '#94a3b8', margin: 0 }}>Preferred Floor: Any</p>
@@ -1196,22 +1199,22 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                         </div>
                     </div>
 
-                    <div style={{ background: '#fff', borderRadius: '24px', padding: '20px 24px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', border: `1px solid ${profileCompleteness.score < 60 ? '#ffedd5' : profileCompleteness.score < 100 ? '#fef9c3' : '#dcfce7'}`, position: 'relative', overflow: 'hidden' }}>
+                    <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', borderRadius: '24px', padding: '20px 24px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', border: `1px solid ${profileCompleteness.score < 60 ? '#ffedd5' : profileCompleteness.score < 100 ? '#fef9c3' : '#dcfce7'}`, position: 'relative', overflow: 'hidden' }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-                            <h3 style={{ fontSize: '0.8rem', fontWeight: 800, color: '#64748b', margin: 0, display: 'flex', alignItems: 'center', gap: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                            <h3 style={{ fontSize: '0.8rem', fontWeight: 800, color: isDark ? 'var(--text-muted)' : '#64748b', margin: 0, display: 'flex', alignItems: 'center', gap: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                                 <i className="fas fa-bolt" style={{ color: profileCompleteness.score < 60 ? '#f97316' : profileCompleteness.score < 100 ? '#eab308' : '#10b981' }}></i>
                                 Data Readiness
                             </h3>
-                            <div style={{ fontSize: '1rem', fontWeight: 900, color: '#0f172a' }}>{profileCompleteness.score}%</div>
+                            <div style={{ fontSize: '1rem', fontWeight: 900, color: isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : '#0f172a' }}>{profileCompleteness.score}%</div>
                         </div>
                         
-                        <div style={{ height: '8px', background: '#f1f5f9', borderRadius: '4px', marginBottom: '16px', overflow: 'hidden' }}>
+                        <div style={{ height: '8px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9', borderRadius: '4px', marginBottom: '16px', overflow: 'hidden' }}>
                             <div style={{ height: '100%', width: `${profileCompleteness.score}%`, background: profileCompleteness.score < 60 ? '#f97316' : profileCompleteness.score < 100 ? '#eab308' : '#10b981', borderRadius: '4px', transition: 'width 1s ease-in-out' }}></div>
                         </div>
 
                         <button
                             onClick={() => setShowQuickFill(true)}
-                            style={{ width: '100%', padding: '10px', borderRadius: '12px', border: '1.5px dashed #3b82f6', background: '#eff6ff', color: '#2563eb', fontWeight: 800, fontSize: '0.75rem', cursor: 'pointer', transition: 'all 0.2s' }}
+                            style={{ width: '100%', padding: '10px', borderRadius: '12px', border: '1.5px dashed #3b82f6', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#eff6ff', color: '#2563eb', fontWeight: 800, fontSize: '0.75rem', cursor: 'pointer', transition: 'all 0.2s' }}
                             onMouseOver={(e) => { e.currentTarget.style.background = '#dbeafe'; }}
                             onMouseOut={(e) => { e.currentTarget.style.background = '#eff6ff'; }}
                         >
@@ -1219,27 +1222,27 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                         </button>
                     </div>
 
-                    <div style={{ background: '#fff', borderRadius: '24px', padding: '24px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0', position: 'sticky', top: '24px' }}>
+                    <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', borderRadius: '24px', padding: '24px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0', position: 'sticky', top: '24px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                            <h3 style={{ fontSize: '0.8rem', fontWeight: 800, color: '#64748b', margin: 0, display: 'flex', alignItems: 'center', gap: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                            <h3 style={{ fontSize: '0.8rem', fontWeight: 800, color: isDark ? 'var(--text-muted)' : '#64748b', margin: 0, display: 'flex', alignItems: 'center', gap: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                                 <i className="fas fa-sliders-h" style={{ color: '#6366f1' }}></i> Match Sensitivity
                             </h3>
                             <button onClick={() => setIsWeightsOpen(true)} style={{ background: 'none', border: 'none', color: '#6366f1', fontSize: '0.7rem', fontWeight: 800, cursor: 'pointer', textDecoration: 'underline' }}>Precision Config</button>
                         </div>
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                            <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '16px', border: '1px solid #f1f5f9' }}>
+                            <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', padding: '16px', borderRadius: '16px', border: '1px solid #f1f5f9' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px', alignItems: 'center' }}>
-                                    <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569' }}>Budget Tolerance</label>
-                                    <span style={{ fontSize: '0.8rem', fontWeight: 900, color: '#2563eb', background: '#eff6ff', padding: '2px 8px', borderRadius: '6px' }}>±{budgetFlexibility}%</span>
+                                    <label style={{ fontSize: '0.75rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#475569' }}>Budget Tolerance</label>
+                                    <span style={{ fontSize: '0.8rem', fontWeight: 900, color: '#2563eb', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#eff6ff', padding: '2px 8px', borderRadius: '6px' }}>±{budgetFlexibility}%</span>
                                 </div>
                                 <input type="range" min="0" max="50" value={budgetFlexibility} onChange={(e) => setBudgetFlexibility(parseInt(e.target.value))} style={{ width: '100%', accentColor: '#2563eb', cursor: 'pointer' }} />
                                 <p style={{ margin: '8px 0 0 0', fontSize: '0.6rem', color: '#94a3b8', fontStyle: 'italic' }}>Broadens price range for higher recall</p>
                             </div>
 
-                            <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '16px', border: '1px solid #f1f5f9' }}>
+                            <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', padding: '16px', borderRadius: '16px', border: '1px solid #f1f5f9' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px', alignItems: 'center' }}>
-                                    <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569' }}>Scale Tolerance</label>
+                                    <label style={{ fontSize: '0.75rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#475569' }}>Scale Tolerance</label>
                                     <span style={{ fontSize: '0.8rem', fontWeight: 900, color: '#6366f1', background: '#eef2ff', padding: '2px 8px', borderRadius: '6px' }}>±{sizeFlexibility}%</span>
                                 </div>
                                 <input type="range" min="0" max="50" value={sizeFlexibility} onChange={(e) => setSizeFlexibility(parseInt(e.target.value))} style={{ width: '100%', accentColor: '#6366f1', cursor: 'pointer' }} />
@@ -1269,7 +1272,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                 display: 'flex', 
                                 alignItems: 'center', 
                                 gap: '10px', 
-                                background: showOtherCities ? '#eff6ff' : '#f8fafc',
+                                background: showOtherCities ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#eff6ff' : isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc',
                                 padding: '6px 12px',
                                 borderRadius: '100px',
                                 cursor: 'pointer',
@@ -1278,7 +1281,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                 userSelect: 'none'
                             }}
                         >
-                            <span style={{ fontSize: '0.72rem', fontWeight: 800, color: showOtherCities ? '#2563eb' : '#64748b' }}>
+                            <span style={{ fontSize: '0.72rem', fontWeight: 800, color: showOtherCities ? '#2563eb' : isDark ? 'var(--text-muted)' : '#64748b' }}>
                                 {showOtherCities ? 'Showing All Cities' : 'Target City Only'}
                             </span>
                             <div style={{ 
@@ -1292,7 +1295,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                 <div style={{ 
                                     width: '14px', 
                                     height: '14px', 
-                                    background: '#fff', 
+                                    background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', 
                                     borderRadius: '50%', 
                                     position: 'absolute', 
                                     top: '2px', 
@@ -1325,7 +1328,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                         {s.action && (
                                             <button 
                                                 onClick={() => s.action.toLowerCase().includes('quick fill') && setShowQuickFill(true)}
-                                                style={{ fontSize: '0.65rem', fontWeight: 800, color: c.icon, background: '#fff', border: `1px solid ${c.border}`, padding: '4px 12px', borderRadius: '8px', whiteSpace: 'nowrap', cursor: 'pointer', flexShrink: 0, boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}
+                                                style={{ fontSize: '0.65rem', fontWeight: 800, color: c.icon, background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', border: `1px solid ${c.border}`, padding: '4px 12px', borderRadius: '8px', whiteSpace: 'nowrap', cursor: 'pointer', flexShrink: 0, boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}
                                             >
                                                 {renderValue(s.action)} →
                                             </button>
@@ -1340,7 +1343,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                         <div
                             key={(item.id || item.unitNo) + idx}
                             style={{
-                                background: '#fff',
+                                background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff',
                                 borderRadius: '24px',
                                 padding: '8px 16px',
                                 boxShadow: selectedItems.includes(item.id || item.unitNo) ? '0 0 0 2px #3b82f6, 0 10px 15px -3px rgba(0, 0, 0, 0.1)' : '0 1px 3px rgba(0,0,0,0.05)',
@@ -1369,7 +1372,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                     style={{ 
                                         position: 'absolute', top: '-10px', left: '-10px', 
                                         zIndex: 10, width: '32px', height: '32px', 
-                                        borderRadius: '50%', background: item.isPinned ? '#f59e0b' : '#fff', 
+                                        borderRadius: '50%', background: item.isPinned ? '#f59e0b' : isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', 
                                         color: item.isPinned ? '#fff' : '#cbd5e1',
                                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                                         boxShadow: '0 4px 6px rgba(0,0,0,0.1)', cursor: 'pointer',
@@ -1383,7 +1386,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                 <img
                                     src={item.thumbnail}
                                     alt="Property"
-                                    style={{ width: '100%', height: '80px', objectFit: 'cover', borderRadius: '14px', background: '#f1f5f9' }}
+                                    style={{ width: '100%', height: '80px', objectFit: 'cover', borderRadius: '14px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9' }}
                                 />
                                 <div style={{ position: 'absolute', top: '8px', left: '8px', background: 'rgba(15, 23, 42, 0.8)', color: '#fff', fontSize: '0.6rem', fontWeight: 800, padding: '2px 8px', borderRadius: '6px', backdropFilter: 'blur(4px)' }}>
                                     {renderValue(item.itemType || item.category)}
@@ -1402,7 +1405,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                          `Sent ${item.daysSinceShared}d ago`}
                                     </div>
                                 )}
-                                <div style={{ position: 'absolute', bottom: '-10px', right: '10px', background: '#fff', width: '40px', height: '40px', borderRadius: '50%', border: `3px solid ${item.sharedStatus ? (item.sharedStatus === 'hot' ? '#fee2e2' : item.sharedStatus === 'recent' ? '#ffedd5' : '#fef9c3') : '#f8fafc'}`, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
+                                <div style={{ position: 'absolute', bottom: '-10px', right: '10px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', width: '40px', height: '40px', borderRadius: '50%', border: `3px solid ${item.sharedStatus ? (item.sharedStatus === 'hot' ? '#fee2e2' : item.sharedStatus === 'recent' ? '#ffedd5' : '#fef9c3') : '#f8fafc'}`, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
                                     <span style={{ fontSize: '0.72rem', fontWeight: 900, color: item.matchPercentage > 70 ? '#10b981' : '#f59e0b', lineHeight: 1 }}>{item.matchPercentage}%</span>
                                     {item.rawScore && item.rawScore !== item.matchPercentage && (
                                         <span style={{ fontSize: '0.45rem', color: '#94a3b8', lineHeight: 1 }}>{item.rawScore}→</span>
@@ -1414,8 +1417,8 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                             <div style={{ padding: '4px 0' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                     <div style={{
-                                        background: item.matchPercentage > 80 ? '#dcfce7' : item.matchPercentage > 50 ? '#fef3c7' : '#f1f5f9',
-                                        color: item.matchPercentage > 80 ? '#166534' : item.matchPercentage > 50 ? '#92400e' : '#475569',
+                                        background: item.matchPercentage > 80 ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#dcfce7' : item.matchPercentage > 50 ? '#fef3c7' : isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9',
+                                        color: item.matchPercentage > 80 ? '#166534' : item.matchPercentage > 50 ? '#92400e' : isDark ? 'var(--text-primary)' : '#475569',
                                         padding: '2px 10px',
                                         borderRadius: '8px',
                                         fontSize: '1.1rem',
@@ -1433,18 +1436,18 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                 </div>
 
                                 <div style={{ marginBottom: '8px' }}>
-                                    <p style={{ fontSize: '0.9rem', color: '#0f172a', margin: '0 0 4px 0', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <p style={{ fontSize: '0.9rem', color: isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : '#0f172a', margin: '0 0 4px 0', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
                                         <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.8rem' }}></i>
                                         {renderValue(item.inventoryId?.projectName || item.projectName || 'Premium Listing')}
                                     </p>
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                                         {item.inventoryId?.sector && (
-                                            <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#64748b', background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px' }}>
+                                            <span style={{ fontSize: '0.65rem', fontWeight: 800, color: isDark ? 'var(--text-muted)' : '#64748b', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9', padding: '2px 8px', borderRadius: '4px' }}>
                                                 {renderValue(item.inventoryId.sector)}
                                             </span>
                                         )}
                                         {item.inventoryId?.city && (
-                                            <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#2563eb', background: '#eff6ff', padding: '2px 8px', borderRadius: '4px' }}>
+                                            <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#2563eb', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#eff6ff', padding: '2px 8px', borderRadius: '4px' }}>
                                                 {renderValue(item.inventoryId.city)}
                                             </span>
                                         )}
@@ -1457,11 +1460,11 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                 </div>
 
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '6px', alignItems: 'center' }}>
-                                    <div style={{ background: '#eff6ff', padding: '4px 10px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, color: '#1e40af', display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid #dbeafe' }}>
+                                    <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#eff6ff', padding: '4px 10px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, color: '#1e40af', display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid #dbeafe' }}>
                                         <i className="fas fa-tag" style={{ color: '#3b82f6', fontSize: '0.7rem' }}></i>
                                         Sub-Category: <span style={{ color: '#2563eb', fontWeight: 800 }}>{renderValue(resolveLookup(item.subCategory, 'SubCategory') || resolveLookup(item.inventoryId?.subCategory, 'SubCategory') || resolveLookup(item.propertyType, 'Category') || resolveLookup(item.category, 'Category') || item.type || 'N/A')}</span>
                                     </div>
-                                    <div style={{ background: '#fff7ed', padding: '4px 10px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, color: '#c2410c', display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid #ffedd5' }}>
+                                    <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff7ed', padding: '4px 10px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, color: '#c2410c', display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid #ffedd5' }}>
                                         <i className="fas fa-ruler-combined" style={{ color: '#f97316', fontSize: '0.7rem' }}></i>
                                         Size: <span style={{ color: '#ea580c', fontWeight: 800 }}>{renderValue(resolveLookup(item.sizeConfig, 'Size') || resolveLookup(item.inventoryId?.sizeConfig, 'Size') || (item.size?.value ? `${item.size.value} ${item.size.unit || 'Sq.Yd.'}` : (typeof item.size === 'string' ? item.size : 'Size N/A')))}</span>
                                     </div>
@@ -1477,20 +1480,21 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                 </button>
 
                                 {expandedBreakdown === item._id && item.scoreBreakdown && (
-                                    <div style={{ background: '#f8fafc', borderRadius: '12px', padding: '12px 16px', marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px', border: '1px solid #f1f5f9' }}>
+                                    <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', borderRadius: '12px', padding: '12px 16px', marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px', border: '1px solid #f1f5f9' }}>
                                         {[
                                             { key: 'location', label: '📍 Location',  color: '#3b82f6' },
                                             { key: 'type',     label: '🏢 Type',      color: '#8b5cf6' },
                                             { key: 'budget',   label: '💰 Budget',    color: '#10b981' },
                                             { key: 'size',     label: '📐 Size',      color: '#f59e0b' }
                                         ].map(({ key, label, color }) => {
+    const { isDark } = useTheme();
                                             const sig = item.scoreBreakdown[key];
                                             if (!sig) return null;
                                             const pct = sig.max > 0 ? Math.round((sig.earned / sig.max) * 100) : 0;
                                             return (
                                                 <div key={key}>
                                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '3px' }}>
-                                                        <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#475569' }}>{label}</span>
+                                                        <span style={{ fontSize: '0.7rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#475569' }}>{label}</span>
                                                         <span style={{ fontSize: '0.7rem', fontWeight: 800, color: sig.earned === sig.max ? '#16a34a' : sig.earned > 0 ? '#d97706' : '#dc2626' }}>
                                                             {sig.earned}/{sig.max} pts
                                                         </span>
@@ -1507,8 +1511,8 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                         <div style={{ marginTop: '4px', borderTop: '1px dashed #e2e8f0', paddingTop: '8px' }}>
                                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                    <i className="fas fa-history" style={{ color: item.rawScore && item.rawScore > item.matchPercentage ? '#f97316' : '#64748b', fontSize: '0.7rem' }}></i>
-                                                    <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#475569' }}>Engagement Momentum</span>
+                                                    <i className="fas fa-history" style={{ color: item.rawScore && item.rawScore > item.matchPercentage ? '#f97316' : isDark ? 'var(--text-muted)' : '#64748b', fontSize: '0.7rem' }}></i>
+                                                    <span style={{ fontSize: '0.7rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#475569' }}>Engagement Momentum</span>
                                                 </div>
                                                 <span style={{ fontSize: '0.7rem', fontWeight: 900, color: item.rawScore && item.rawScore > item.matchPercentage ? '#dc2626' : '#10b981' }}>
                                                     {item.rawScore && item.rawScore > item.matchPercentage ? `-${item.rawScore - item.matchPercentage}% Decay` : 'Optimal'}
@@ -1524,7 +1528,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                         <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '8px', marginTop: '4px' }}>
                                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', marginBottom: '8px' }}>
                                                 {(item.matchDetails || item.matchReasons || []).map((detail, i) => (
-                                                    <span key={i} style={{ fontSize: '0.62rem', fontWeight: 800, color: '#475569', background: '#fff', padding: '1px 6px', borderRadius: '4px', border: '1px solid #e2e8f0', textTransform: 'uppercase' }}>
+                                                    <span key={i} style={{ fontSize: '0.62rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#475569', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', padding: '1px 6px', borderRadius: '4px', border: '1px solid #e2e8f0', textTransform: 'uppercase' }}>
                                                         {renderValue(detail)}
                                                     </span>
                                                 ))}
@@ -1556,7 +1560,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                     <button
                                         onClick={() => handleWhatsApp(item)}
                                         title="Send on WhatsApp"
-                                        style={{ flex: 1, height: '38px', borderRadius: '12px', border: '1px solid #dcfce7', background: '#f0fdf4', color: '#166534', cursor: 'pointer', transition: 'all 0.2s' }}
+                                        style={{ flex: 1, height: '38px', borderRadius: '12px', border: '1px solid #dcfce7', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f0fdf4', color: '#166534', cursor: 'pointer', transition: 'all 0.2s' }}
                                     >
                                         <i className="fab fa-whatsapp" style={{ fontSize: '1rem' }}></i>
                                     </button>
@@ -1571,7 +1575,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                             setIsMailOpen(true);
                                         }}
                                         title="Email Presentation"
-                                        style={{ flex: 1, height: '38px', borderRadius: '12px', border: '1px solid #eef2ff', background: '#f5f3ff', color: '#4338ca', cursor: 'pointer' }}
+                                        style={{ flex: 1, height: '38px', borderRadius: '12px', border: '1px solid #eef2ff', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f5f3ff', color: '#4338ca', cursor: 'pointer' }}
                                     >
                                         <i className="fas fa-envelope-open-text" style={{ fontSize: '0.9rem' }}></i>
                                     </button>
@@ -1585,7 +1589,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                             }, 500);
                                         }}
                                         title="Generate Professional PDF"
-                                        style={{ flex: 1, height: '38px', borderRadius: '12px', border: '1px solid #f1f5f9', background: '#fff', color: '#64748b', cursor: 'pointer' }}
+                                        style={{ flex: 1, height: '38px', borderRadius: '12px', border: '1px solid #f1f5f9', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', color: isDark ? 'var(--text-muted)' : '#64748b', cursor: 'pointer' }}
                                     >
                                         <i className="fas fa-file-pdf" style={{ fontSize: '0.9rem' }}></i>
                                     </button>
@@ -1595,7 +1599,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                     <button
                                         onClick={() => handleInterestFeedback(item, 'interested')}
                                         disabled={submittingFeedback === item._id}
-                                        style={{ flex: 1.2, height: '36px', borderRadius: '10px', border: `1px solid ${dealFeedback[item._id] === 'interested' ? '#10b981' : '#e2e8f0'}`, background: dealFeedback[item._id] === 'interested' ? '#ecfdf5' : '#fff', color: dealFeedback[item._id] === 'interested' ? '#10b981' : '#64748b', fontSize: '0.7rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', transition: 'all 0.2s' }}
+                                        style={{ flex: 1.2, height: '36px', borderRadius: '10px', border: `1px solid ${dealFeedback[item._id] === 'interested' ? '#10b981' : '#e2e8f0'}`, background: dealFeedback[item._id] === 'interested' ? '#ecfdf5' : isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', color: dealFeedback[item._id] === 'interested' ? '#10b981' : isDark ? 'var(--text-muted)' : '#64748b', fontSize: '0.7rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', transition: 'all 0.2s' }}
                                     >
                                         <i className="fas fa-thumbs-up" style={{ fontSize: '0.8rem' }}></i>
                                         {submittingFeedback === item._id && dealFeedback[item._id] === 'interested' ? '...' : 'Interested'}
@@ -1603,7 +1607,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                     <button
                                         onClick={() => handleInterestFeedback(item, 'passed')}
                                         disabled={submittingFeedback === item._id}
-                                        style={{ flex: 1, height: '36px', borderRadius: '10px', border: `1px solid ${dealFeedback[item._id] === 'passed' ? '#ef4444' : '#e2e8f0'}`, background: dealFeedback[item._id] === 'passed' ? '#fef2f2' : '#fff', color: dealFeedback[item._id] === 'passed' ? '#ef4444' : '#64748b', fontSize: '0.7rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', transition: 'all 0.2s' }}
+                                        style={{ flex: 1, height: '36px', borderRadius: '10px', border: `1px solid ${dealFeedback[item._id] === 'passed' ? '#ef4444' : '#e2e8f0'}`, background: dealFeedback[item._id] === 'passed' ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#fef2f2' : isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', color: dealFeedback[item._id] === 'passed' ? '#ef4444' : isDark ? 'var(--text-muted)' : '#64748b', fontSize: '0.7rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', transition: 'all 0.2s' }}
                                     >
                                         <i className="fas fa-thumbs-down" style={{ fontSize: '0.8rem' }}></i>
                                         {submittingFeedback === item._id && dealFeedback[item._id] === 'passed' ? '...' : 'Pass'}
@@ -1611,7 +1615,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                     <button
                                         onClick={() => handleInterestFeedback(item, 'snoozed')}
                                         disabled={submittingFeedback === item._id}
-                                        style={{ flex: 1, height: '36px', borderRadius: '10px', border: `1px solid ${dealFeedback[item._id] === 'snoozed' ? '#f59e0b' : '#e2e8f0'}`, background: dealFeedback[item._id] === 'snoozed' ? '#fffbeb' : '#fff', color: dealFeedback[item._id] === 'snoozed' ? '#f59e0b' : '#64748b', fontSize: '0.7rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', transition: 'all 0.2s' }}
+                                        style={{ flex: 1, height: '36px', borderRadius: '10px', border: `1px solid ${dealFeedback[item._id] === 'snoozed' ? '#f59e0b' : '#e2e8f0'}`, background: dealFeedback[item._id] === 'snoozed' ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#fffbeb' : isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', color: dealFeedback[item._id] === 'snoozed' ? '#f59e0b' : isDark ? 'var(--text-muted)' : '#64748b', fontSize: '0.7rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', transition: 'all 0.2s' }}
                                     >
                                         <i className="fas fa-clock" style={{ fontSize: '0.8rem' }}></i>
                                         {submittingFeedback === item._id && dealFeedback[item._id] === 'snoozed' ? '...' : 'Later'}
@@ -1654,16 +1658,16 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                     {matchedItems.length > visibleCount && (
                         <button
                             onClick={() => setVisibleCount(prev => prev + 15)}
-                            style={{ padding: '16px', borderRadius: '15px', border: '2px dashed #cbd5e1', background: '#f1f5f9', color: '#64748b', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s', width: '100%' }}
+                            style={{ padding: '16px', borderRadius: '15px', border: '2px dashed #cbd5e1', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9', color: isDark ? 'var(--text-muted)' : '#64748b', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s', width: '100%' }}
                         >
                             <i className="fas fa-plus-circle"></i> Load More Matches ({matchedItems.length - visibleCount} remaining)
                         </button>
                     )}
 
                     {matchedItems.length === 0 && (
-                        <div style={{ padding: '60px', textAlign: 'center', background: '#fff', borderRadius: '24px', border: '2px dashed #e2e8f0' }}>
+                        <div style={{ padding: '60px', textAlign: 'center', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', borderRadius: '24px', border: '2px dashed #e2e8f0' }}>
                             <i className="fas fa-search-minus" style={{ fontSize: '3rem', color: '#cbd5e1', marginBottom: '16px' }}></i>
-                            <h3 style={{ color: '#475569', marginBottom: '8px' }}>No exact matches found</h3>
+                            <h3 style={{ color: isDark ? 'var(--text-primary)' : '#475569', marginBottom: '8px' }}>No exact matches found</h3>
                             <p style={{ color: '#94a3b8', fontSize: '0.9rem' }}>Try adjusting the "Budget Flexibility" or "Match Accuracy" in the left panel.</p>
                         </div>
                     )}
@@ -1673,14 +1677,14 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                         <div style={{ marginTop: '20px' }}>
                             <button
                                 onClick={() => setShowExcluded(o => !o)}
-                                style={{ width: '100%', padding: '12px 16px', borderRadius: '14px', border: '1px solid #e2e8f0', background: '#f8fafc', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', transition: 'all 0.2s' }}
+                                style={{ width: '100%', padding: '12px 16px', borderRadius: '14px', border: '1px solid #e2e8f0', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', transition: 'all 0.2s' }}
                             >
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                    <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: '#fee2e2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fee2e2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                         <i className="fas fa-filter" style={{ color: '#dc2626', fontSize: '0.72rem' }}></i>
                                     </div>
                                     <div style={{ textAlign: 'left' }}>
-                                        <p style={{ margin: 0, fontWeight: 700, fontSize: '0.82rem', color: '#374151' }}>
+                                        <p style={{ margin: 0, fontWeight: 700, fontSize: '0.82rem', color: isDark ? 'var(--text-primary)' : '#374151' }}>
                                             {excludedCount} deal{excludedCount > 1 ? 's' : ''} filtered out by intent / category rules
                                         </p>
                                         <p style={{ margin: 0, fontSize: '0.7rem', color: '#94a3b8' }}>Click to see why they were excluded</p>
@@ -1690,7 +1694,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                             </button>
 
                             {showExcluded && excludedDeals.length > 0 && (
-                                <div style={{ background: '#fff', borderRadius: '14px', border: '1px solid #fee2e2', marginTop: '8px', overflow: 'hidden' }}>
+                                <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', borderRadius: '14px', border: '1px solid #fee2e2', marginTop: '8px', overflow: 'hidden' }}>
                                     <div style={{ padding: '10px 16px', background: '#fff1f2', borderBottom: '1px solid #fee2e2' }}>
                                         <p style={{ margin: 0, fontSize: '0.72rem', fontWeight: 700, color: '#991b1b' }}>
                                             <i className="fas fa-info-circle" style={{ marginRight: '6px' }}></i>
@@ -1699,13 +1703,13 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                     </div>
                                     {excludedDeals.map((ex, i) => (
                                         <div key={i} style={{ padding: '12px 16px', borderBottom: i < excludedDeals.length - 1 ? '1px solid #fef2f2' : 'none', display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
-                                            <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#fef2f2', border: '1px solid #fecaca', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                            <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fef2f2', border: '1px solid #fecaca', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                                                 <i className="fas fa-home" style={{ color: '#ef4444', fontSize: '0.8rem' }}></i>
                                             </div>
                                             <div style={{ flex: 1, textAlign: 'left' }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
-                                                    <span style={{ fontWeight: 700, fontSize: '0.82rem', color: '#374151' }}>{renderValue(ex.projectName)}</span>
-                                                    {ex.unitNo && <span style={{ fontSize: '0.65rem', background: '#f1f5f9', color: '#475569', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>Unit {renderValue(ex.unitNo)}</span>}
+                                                    <span style={{ fontWeight: 700, fontSize: '0.82rem', color: isDark ? 'var(--text-primary)' : '#374151' }}>{renderValue(ex.projectName)}</span>
+                                                    {ex.unitNo && <span style={{ fontSize: '0.65rem', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9', color: isDark ? 'var(--text-primary)' : '#475569', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>Unit {renderValue(ex.unitNo)}</span>}
                                                 </div>
                                                 <p style={{ margin: 0, fontSize: '0.7rem', color: '#dc2626', display: 'flex', alignItems: 'center', gap: '5px' }}>
                                                     <i className="fas fa-times-circle" style={{ fontSize: '0.65rem' }}></i>
@@ -1722,7 +1726,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             </div>
 
             {selectedItems.length > 0 && (
-                <div style={{ position: 'fixed', bottom: '24px', left: '50%', transform: 'translateX(-50%)', background: '#0f172a', padding: '12px 24px', borderRadius: '20px', display: 'flex', alignItems: 'center', gap: '20px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.3)', zIndex: 1000 }}>
+                <div style={{ position: 'fixed', bottom: '24px', left: '50%', transform: 'translateX(-50%)', background: isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : '#0f172a', padding: '12px 24px', borderRadius: '20px', display: 'flex', alignItems: 'center', gap: '20px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.3)', zIndex: 1000 }}>
                     <span style={{ color: '#fff', fontWeight: 600 }}>{selectedItems.length} selected</span>
                     <button 
                         className="btn-primary" 
@@ -1778,7 +1782,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
              {/* AI Findings Modal */}
             {aiFindings && (
                 <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.8)', backdropFilter: 'blur(8px)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-                    <div style={{ background: '#fff', width: '100%', maxWidth: '500px', borderRadius: '24px', overflow: 'hidden', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)', animation: 'modalSlideIn 0.3s ease-out' }}>
+                    <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', width: '100%', maxWidth: '500px', borderRadius: '24px', overflow: 'hidden', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)', animation: 'modalSlideIn 0.3s ease-out' }}>
                         <div style={{ background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)', padding: '24px', color: '#fff' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -1797,22 +1801,22 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                         </div>
 
                         <div style={{ padding: '24px' }}>
-                            <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '16px', border: '1px solid #e2e8f0', marginBottom: '20px' }}>
-                                <p style={{ margin: 0, fontSize: '0.9rem', color: '#334155', fontWeight: 600, fontStyle: 'italic', lineHeight: 1.5 }}>
+                            <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', padding: '16px', borderRadius: '16px', border: '1px solid #e2e8f0', marginBottom: '20px' }}>
+                                <p style={{ margin: 0, fontSize: '0.9rem', color: isDark ? 'var(--text-primary)' : isDark ? 'var(--text-muted)' : isDark ? 'var(--text-primary)' : '#334155', fontWeight: 600, fontStyle: 'italic', lineHeight: 1.5 }}>
                                     "{renderValue(aiFindings.summary)}"
                                 </p>
                             </div>
 
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '20px' }}>
-                                <div style={{ background: '#fff', border: '1px solid #f1f5f9', padding: '12px', borderRadius: '12px' }}>
+                                <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', border: '1px solid #f1f5f9', padding: '12px', borderRadius: '12px' }}>
                                     <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Budget Suggestion</label>
-                                    <p style={{ margin: 0, fontSize: '0.9rem', fontWeight: 800, color: '#1e293b' }}>
+                                    <p style={{ margin: 0, fontSize: '0.9rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : '#1e293b' }}>
                                         ₹{(aiFindings.budgetMin / 100000).toFixed(1)}L - {(aiFindings.budgetMax / 100000).toFixed(1)}L
                                     </p>
                                 </div>
-                                <div style={{ background: '#fff', border: '1px solid #f1f5f9', padding: '12px', borderRadius: '12px' }}>
+                                <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', border: '1px solid #f1f5f9', padding: '12px', borderRadius: '12px' }}>
                                     <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Location Vector</label>
-                                    <p style={{ margin: 0, fontSize: '0.9rem', fontWeight: 800, color: '#1e293b' }}>{renderValue(aiFindings.location)}</p>
+                                    <p style={{ margin: 0, fontSize: '0.9rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : '#1e293b' }}>{renderValue(aiFindings.location)}</p>
                                 </div>
                             </div>
 
@@ -1820,7 +1824,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                 <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '8px' }}>Property Signals</label>
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                                     {aiFindings.propertyType?.map((t, i) => (
-                                        <span key={i} style={{ padding: '4px 10px', background: '#f0fdf4', color: '#16a34a', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, border: '1px solid #dcfce7' }}>{renderValue(t)}</span>
+                                        <span key={i} style={{ padding: '4px 10px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f0fdf4', color: '#16a34a', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, border: '1px solid #dcfce7' }}>{renderValue(t)}</span>
                                     ))}
                                 </div>
                             </div>
@@ -1830,7 +1834,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                     <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '8px' }}>Soft Preferences (Nuance)</label>
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                                         {aiFindings.softSignals.map((s, i) => (
-                                            <span key={i} style={{ padding: '4px 10px', background: '#fff7ed', color: '#ea580c', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, border: '1px solid #ffedd5' }}>
+                                            <span key={i} style={{ padding: '4px 10px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff7ed', color: '#ea580c', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, border: '1px solid #ffedd5' }}>
                                                 <i className="fas fa-sparkles" style={{ marginRight: '4px' }}></i> {renderValue(s)}
                                             </span>
                                         ))}
@@ -1839,7 +1843,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                             )}
 
                             <div style={{ display: 'flex', gap: '12px' }}>
-                                <button onClick={() => setAiFindings(null)} style={{ flex: 1, padding: '14px', borderRadius: '12px', background: '#f1f5f9', color: '#64748b', border: 'none', fontWeight: 700, cursor: 'pointer' }}>Discard</button>
+                                <button onClick={() => setAiFindings(null)} style={{ flex: 1, padding: '14px', borderRadius: '12px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9', color: isDark ? 'var(--text-muted)' : '#64748b', border: 'none', fontWeight: 700, cursor: 'pointer' }}>Discard</button>
                                 <button 
                                     onClick={applyAIFindings}
                                     style={{ flex: 2, padding: '14px', borderRadius: '12px', background: '#6366f1', color: '#fff', border: 'none', fontWeight: 800, cursor: 'pointer', boxShadow: '0 4px 12px rgba(99, 102, 241, 0.3)' }}

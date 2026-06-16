@@ -1,3 +1,5 @@
+import { useTheme } from '../../../context/ThemeContext';
+
 import React, { useState, useEffect } from 'react';
 import { api } from '../../../utils/api';
 import toast from 'react-hot-toast';
@@ -60,7 +62,7 @@ function ManageGroupsModal({ isOpen, onClose }) {
     };
 
     const modalStyle = {
-        backgroundColor: '#fff', borderRadius: '16px',
+        backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', borderRadius: '16px',
         width: '600px', maxWidth: '95vw', maxHeight: '90vh',
         boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
         display: 'flex', flexDirection: 'column', overflow: 'hidden',
@@ -82,7 +84,7 @@ function ManageGroupsModal({ isOpen, onClose }) {
                 </div>
                 <div className="modal-body" style={{ padding: '24px', overflowY: 'auto' }}>
                     {/* Create New Group */}
-                    <form onSubmit={handleCreate} style={{ background: '#f8fafc', padding: '15px', borderRadius: '12px', marginBottom: '20px', border: '1px solid #e2e8f0' }}>
+                    <form onSubmit={handleCreate} style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', padding: '15px', borderRadius: '12px', marginBottom: '20px', border: '1px solid #e2e8f0' }}>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '10px', alignItems: 'end' }}>
                             <div>
                                 <label style={{ fontSize: '0.75rem', fontWeight: 700, marginBottom: '5px', display: 'block' }}>Group Name</label>
@@ -114,11 +116,11 @@ function ManageGroupsModal({ isOpen, onClose }) {
                     <div style={{ maxHeight: '300px', overflowY: 'auto', border: '1px solid #f1f5f9', borderRadius: '8px' }}>
                         {loading ? <div className="text-center p-4"><i className="fas fa-spinner fa-spin"></i></div> : (
                             <table className="table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-                                <thead style={{ background: '#f8fafc', position: 'sticky', top: 0 }}>
+                                <thead style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', position: 'sticky', top: 0 }}>
                                     <tr>
-                                        <th style={{ textAlign: 'left', padding: '12px', fontSize: '0.75rem', color: '#64748b' }}>NAME</th>
-                                        <th style={{ textAlign: 'left', padding: '12px', fontSize: '0.75rem', color: '#64748b' }}>CATEGORY</th>
-                                        <th style={{ textAlign: 'right', padding: '12px', fontSize: '0.75rem', color: '#64748b' }}>ACTION</th>
+                                        <th style={{ textAlign: 'left', padding: '12px', fontSize: '0.75rem', color: isDark ? 'var(--text-muted)' : '#64748b' }}>NAME</th>
+                                        <th style={{ textAlign: 'left', padding: '12px', fontSize: '0.75rem', color: isDark ? 'var(--text-muted)' : '#64748b' }}>CATEGORY</th>
+                                        <th style={{ textAlign: 'right', padding: '12px', fontSize: '0.75rem', color: isDark ? 'var(--text-muted)' : '#64748b' }}>ACTION</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -130,7 +132,7 @@ function ManageGroupsModal({ isOpen, onClose }) {
                                                     {group.name}
                                                 </div>
                                             </td>
-                                            <td style={{ padding: '12px', fontSize: '0.8rem', color: '#64748b' }}>{group.category}</td>
+                                            <td style={{ padding: '12px', fontSize: '0.8rem', color: isDark ? 'var(--text-muted)' : '#64748b' }}>{group.category}</td>
                                             <td style={{ padding: '12px', textAlign: 'right' }}>
                                                 <button className="btn-icon danger" onClick={() => handleDelete(group._id)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}>
                                                     <i className="fas fa-trash"></i>
@@ -148,8 +150,8 @@ function ManageGroupsModal({ isOpen, onClose }) {
                         )}
                     </div>
                 </div>
-                <div className="modal-footer" style={{ padding: '16px 24px', borderTop: '1px solid #f1f5f9', backgroundColor: '#f8fafc', display: 'flex', justifyContent: 'flex-end' }}>
-                    <button className="btn-outline" onClick={onClose} style={{ padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', border: '1px solid #cbd5e1', background: '#fff' }}>Close</button>
+                <div className="modal-footer" style={{ padding: '16px 24px', borderTop: '1px solid #f1f5f9', backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', display: 'flex', justifyContent: 'flex-end' }}>
+                    <button className="btn-outline" onClick={onClose} style={{ padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', border: '1px solid #cbd5e1', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff' }}>Close</button>
                 </div>
             </div>
         </div>

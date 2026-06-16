@@ -1,3 +1,4 @@
+import { useTheme } from '../../../context/ThemeContext';
 import { useMemo, useState, useEffect, useCallback } from 'react';
 import ComposeEmailModal from '../../Communication/components/ComposeEmailModal';
 import SendMessageModal from '../../../components/SendMessageModal';
@@ -9,6 +10,7 @@ import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import { formatIndianCurrency, formatLeadBudget } from '../../../utils/numberToWords';
 
 const DealMatchingPage = ({ onNavigate, dealId }) => {
+    const { isDark } = useTheme();
     const { addActivity } = useActivities();
     const { lookups, projects } = usePropertyConfig();
     
@@ -165,30 +167,30 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
     };
 
     if (loading) return (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', gap: '20px', background: '#f8fafc' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', gap: '20px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc' }}>
             <div className="loading-spinner"></div>
-            <h3 style={{ fontWeight: 800, color: '#1e293b' }}>Initializing Matching Engine...</h3>
+            <h3 style={{ fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#1e293b' }}>Initializing Matching Engine...</h3>
         </div>
     );
 
     if (!deal) return <div style={{ padding: '40px', textAlign: 'center' }}>Deal not found.</div>;
 
     return (
-        <div style={{ background: '#f1f5f9', minHeight: '100vh', padding: '24px' }}>
+        <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9', minHeight: '100vh', padding: '24px' }}>
             {/* Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                     <button
                         onClick={() => onNavigate('deals')}
-                        style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem', color: '#475569', transition: 'all 0.2s' }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', cursor: 'pointer', fontWeight: 700, fontSize: '0.85rem', color: isDark ? 'var(--text-primary)' : '#475569', transition: 'all 0.2s' }}
                         onMouseOver={e => e.currentTarget.style.background = '#f8fafc'}
                         onMouseOut={e => e.currentTarget.style.background = '#fff'}
                     >
                         <i className="fas fa-arrow-left" style={{ fontSize: '0.8rem' }}></i> Back to Deals
                     </button>
                     <div>
-                        <h1 style={{ fontSize: '1.5rem', fontWeight: 900, color: '#0f172a', margin: 0 }}>Deal Match Center</h1>
-                        <p style={{ margin: 0, color: '#64748b', fontSize: '0.85rem' }}>
+                        <h1 style={{ fontSize: '1.5rem', fontWeight: 900, color: isDark ? 'var(--text-primary)' : '#0f172a', margin: 0 }}>Deal Match Center</h1>
+                        <p style={{ margin: 0, color: isDark ? 'var(--text-muted)' : '#64748b', fontSize: '0.85rem' }}>
                             <span style={{ fontWeight: 700, color: '#2563eb' }}>{renderVal(deal.propertyType)}</span> in {renderVal(deal.location)}
                         </p>
                     </div>
@@ -201,14 +203,14 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
             <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: '24px' }}>
                 {/* Side Control Panel */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                    <div style={{ background: '#fff', borderRadius: '20px', padding: '24px', border: '1px solid #e2e8f0' }}>
-                        <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: '20px' }}>Deal Snapshot</h3>
+                    <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', borderRadius: '20px', padding: '24px', border: '1px solid #e2e8f0' }}>
+                        <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: isDark ? 'var(--text-muted)' : '#64748b', textTransform: 'uppercase', marginBottom: '20px' }}>Deal Snapshot</h3>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                            <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '12px', gridColumn: '1 / span 2' }}>
+                            <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', padding: '12px', borderRadius: '12px', gridColumn: '1 / span 2' }}>
                                 <small style={{ fontWeight: 700, color: '#94a3b8', fontSize: '0.65rem' }}>UNIT PRICE</small>
                                 <p style={{ margin: 0, fontWeight: 900, fontSize: '1.2rem', color: '#059669' }}>{formatIndianCurrency(deal.price || deal.quotePrice)}</p>
                             </div>
-                            <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '10px' }}>
+                            <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', padding: '10px', borderRadius: '10px' }}>
                                 <small style={{ fontWeight: 700, color: '#94a3b8', fontSize: '0.6rem' }}>SIZE / AREA</small>
                                 <p style={{ margin: 0, fontWeight: 800, fontSize: '0.85rem' }}>
                                     {(() => {
@@ -221,7 +223,7 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                                     })()}
                                 </p>
                             </div>
-                            <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '10px' }}>
+                            <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', padding: '10px', borderRadius: '10px' }}>
                                 <small style={{ fontWeight: 700, color: '#94a3b8', fontSize: '0.6rem' }}>STATUS</small>
                                 <p style={{ margin: 0, fontWeight: 800, fontSize: '0.85rem', color: '#f59e0b' }}>{renderVal(deal.stage || 'Open')}</p>
                             </div>
@@ -229,7 +231,7 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                             <div style={{ gridColumn: '1 / span 2', borderTop: '1px solid #f1f5f9', paddingTop: '12px', marginTop: '4px' }}>
                                 <div style={{ marginBottom: '10px' }}>
                                     <small style={{ fontWeight: 700, color: '#94a3b8', fontSize: '0.6rem', textTransform: 'uppercase' }}>Project</small>
-                                    <div style={{ fontWeight: 800, fontSize: '0.85rem', color: '#1e293b' }}>{renderVal(deal.projectName || deal.inventoryId?.projectName)}</div>
+                                    <div style={{ fontWeight: 800, fontSize: '0.85rem', color: isDark ? 'var(--text-primary)' : '#1e293b' }}>{renderVal(deal.projectName || deal.inventoryId?.projectName)}</div>
                                 </div>
                                 <div style={{ display: 'flex', gap: '20px' }}>
                                     <div>
@@ -249,8 +251,8 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                         </div>
                     </div>
 
-                    <div style={{ background: '#fff', borderRadius: '20px', padding: '24px', border: '1px solid #e2e8f0', position: 'sticky', top: '24px' }}>
-                        <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: '20px' }}>Refinement Engine</h3>
+                    <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', borderRadius: '20px', padding: '24px', border: '1px solid #e2e8f0', position: 'sticky', top: '24px' }}>
+                        <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: isDark ? 'var(--text-muted)' : '#64748b', textTransform: 'uppercase', marginBottom: '20px' }}>Refinement Engine</h3>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                             <div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
@@ -280,14 +282,14 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', opacity: matchingLoading ? 0.6 : 1, transition: 'opacity 0.2s' }}>
                         {matchedLeads.length === 0 ? (
-                            <div style={{ background: '#fff', padding: '80px', borderRadius: '20px', textAlign: 'center', border: '1px solid #e2e8f0' }}>
+                            <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', padding: '80px', borderRadius: '20px', textAlign: 'center', border: '1px solid #e2e8f0' }}>
                                 <i className="fas fa-user-slash" style={{ fontSize: '2.5rem', color: '#cbd5e1', marginBottom: '16px' }}></i>
-                                <h3 style={{ color: '#1e293b' }}>No Matching Leads Found</h3>
-                                <p style={{ color: '#64748b' }}>Broaden your tolerance filters to see potential prospects.</p>
+                                <h3 style={{ color: isDark ? 'var(--text-primary)' : '#1e293b' }}>No Matching Leads Found</h3>
+                                <p style={{ color: isDark ? 'var(--text-muted)' : '#64748b' }}>Broaden your tolerance filters to see potential prospects.</p>
                             </div>
                         ) : (
                             matchedLeads.map((lead) => (
-                                <div key={lead._id} style={{ background: '#fff', borderRadius: '16px', padding: '20px 24px', border: `1px solid ${selectedLeads.includes(lead.mobile) ? '#2563eb' : '#e2e8f0'}`, boxShadow: selectedLeads.includes(lead.mobile) ? '0 0 0 3px rgba(37,99,235,0.1)' : '0 1px 3px rgba(0,0,0,0.04)', display: 'grid', gridTemplateColumns: '32px 64px 1fr auto', gap: '16px', alignItems: 'center', transition: 'all 0.2s' }}>
+                                <div key={lead._id} style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', borderRadius: '16px', padding: '20px 24px', border: `1px solid ${selectedLeads.includes(lead.mobile) ? '#2563eb' : '#e2e8f0'}`, boxShadow: selectedLeads.includes(lead.mobile) ? '0 0 0 3px rgba(37,99,235,0.1)' : '0 1px 3px rgba(0,0,0,0.04)', display: 'grid', gridTemplateColumns: '32px 64px 1fr auto', gap: '16px', alignItems: 'center', transition: 'all 0.2s' }}>
                                     <input type="checkbox" checked={selectedLeads.includes(lead.mobile)} onChange={() => handleSelectLead(lead.mobile)} style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#2563eb' }} />
 
                                     <div style={{ position: 'relative', width: '60px', height: '60px', flexShrink: 0 }}>
@@ -296,23 +298,23 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                                             <circle cx="32" cy="32" r="28" fill="none" stroke={lead.score >= 80 ? '#10b981' : lead.score >= 50 ? '#f59e0b' : '#3b82f6'} strokeWidth="5" strokeDasharray="176" strokeDashoffset={176 * (1 - lead.score / 100)} transform="rotate(-90 32 32)" strokeLinecap="round" />
                                         </svg>
                                         <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                                            <span style={{ fontWeight: 900, fontSize: '0.8rem', color: '#0f172a', lineHeight: 1 }}>{lead.score}%</span>
+                                            <span style={{ fontWeight: 900, fontSize: '0.8rem', color: isDark ? 'var(--text-primary)' : '#0f172a', lineHeight: 1 }}>{lead.score}%</span>
                                             <span style={{ fontSize: '0.5rem', color: '#94a3b8', fontWeight: 600 }}>MATCH</span>
                                         </div>
                                     </div>
 
                                     <div style={{ minWidth: 0 }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
-                                            <h4 style={{ margin: 0, color: '#0f172a', fontSize: '1rem', fontWeight: 800 }}>{lead.firstName} {lead.lastName}</h4>
-                                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#2563eb', background: '#eff6ff', padding: '1px 7px', borderRadius: '20px', border: '1px solid #bfdbfe', flexShrink: 0 }}>{renderVal(lead.stage) !== 'N/A' ? renderVal(lead.stage) : 'Lead'}</span>
+                                            <h4 style={{ margin: 0, color: isDark ? 'var(--text-primary)' : '#0f172a', fontSize: '1rem', fontWeight: 800 }}>{lead.firstName} {lead.lastName}</h4>
+                                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#2563eb', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#eff6ff', padding: '1px 7px', borderRadius: '20px', border: '1px solid #bfdbfe', flexShrink: 0 }}>{renderVal(lead.stage) !== 'N/A' ? renderVal(lead.stage) : 'Lead'}</span>
                                         </div>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#64748b', fontSize: '0.8rem', marginBottom: '6px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: isDark ? 'var(--text-muted)' : '#64748b', fontSize: '0.8rem', marginBottom: '6px' }}>
                                             <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.7rem' }}></i>
                                             <span>{renderVal(lead.location) !== 'N/A' ? renderVal(lead.location) : lead.locArea || 'Location N/A'}</span>
                                             {lead.mobile && <><span style={{ color: '#e2e8f0' }}>·</span><span>{lead.mobile}</span></>}
                                         </div>
                                         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '6px' }}>
-                                            {formatLeadBudget(lead) !== 'TBA' && <span style={{ fontSize: '0.72rem', color: '#059669', fontWeight: 700, background: '#f0fdf4', padding: '2px 8px', borderRadius: '6px', border: '1px solid #bbf7d0' }}>{formatLeadBudget(lead)}</span>}
+                                            {formatLeadBudget(lead) !== 'TBA' && <span style={{ fontSize: '0.72rem', color: '#059669', fontWeight: 700, background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f0fdf4', padding: '2px 8px', borderRadius: '6px', border: '1px solid #bbf7d0' }}>{formatLeadBudget(lead)}</span>}
                                             {lead.areaMin > 0 && <span style={{ fontSize: '0.72rem', color: '#7c3aed', fontWeight: 700, background: '#faf5ff', padding: '2px 8px', borderRadius: '6px', border: '1px solid #e9d5ff' }}>{lead.areaMin}–{lead.areaMax} {lead.areaMetric || 'Sq.Yd.'}</span>}
                                         </div>
                                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
@@ -330,35 +332,35 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                                             <button
                                                 title="Call"
                                                 onClick={() => window.open(`tel:${lead.mobile}`)}
-                                                style={{ width: '36px', height: '36px', borderRadius: '10px', border: '1px solid #dcfce7', background: '#f0fdf4', color: '#15803d', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem', transition: 'all 0.15s' }}
+                                                style={{ width: '36px', height: '36px', borderRadius: '10px', border: '1px solid #dcfce7', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f0fdf4', color: '#15803d', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem', transition: 'all 0.15s' }}
                                                 onMouseOver={e => { e.currentTarget.style.background = '#dcfce7'; e.currentTarget.style.borderColor = '#86efac'; }}
                                                 onMouseOut={e => { e.currentTarget.style.background = '#f0fdf4'; e.currentTarget.style.borderColor = '#dcfce7'; }}
                                             ><i className="fas fa-phone-alt"></i></button>
                                             <button
                                                 title="WhatsApp"
                                                 onClick={() => handleWhatsApp(lead)}
-                                                style={{ width: '36px', height: '36px', borderRadius: '10px', border: '1px solid #dcfce7', background: '#f0fdf4', color: '#16a34a', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.95rem', transition: 'all 0.15s' }}
+                                                style={{ width: '36px', height: '36px', borderRadius: '10px', border: '1px solid #dcfce7', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f0fdf4', color: '#16a34a', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.95rem', transition: 'all 0.15s' }}
                                                 onMouseOver={e => { e.currentTarget.style.background = '#dcfce7'; }}
                                                 onMouseOut={e => { e.currentTarget.style.background = '#f0fdf4'; }}
                                             ><i className="fab fa-whatsapp"></i></button>
                                             <button
                                                 title="Send SMS"
                                                 onClick={() => { setSelectedContactsForMessage([lead]); setIsMessageOpen(true); }}
-                                                style={{ width: '36px', height: '36px', borderRadius: '10px', border: '1px solid #dbeafe', background: '#eff6ff', color: '#1d4ed8', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem', transition: 'all 0.15s' }}
+                                                style={{ width: '36px', height: '36px', borderRadius: '10px', border: '1px solid #dbeafe', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#eff6ff', color: '#1d4ed8', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem', transition: 'all 0.15s' }}
                                                 onMouseOver={e => { e.currentTarget.style.background = '#dbeafe'; }}
                                                 onMouseOut={e => { e.currentTarget.style.background = '#eff6ff'; }}
                                             ><i className="fas fa-comment-alt"></i></button>
                                             <button
                                                 title="Email"
                                                 onClick={() => { setSelectedContactsForMail([lead]); setMailSubject(`Property Match for ${lead.firstName}`); setIsMailOpen(true); }}
-                                                style={{ width: '36px', height: '36px', borderRadius: '10px', border: '1px solid #ede9fe', background: '#f5f3ff', color: '#6d28d9', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem', transition: 'all 0.15s' }}
+                                                style={{ width: '36px', height: '36px', borderRadius: '10px', border: '1px solid #ede9fe', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f5f3ff', color: '#6d28d9', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem', transition: 'all 0.15s' }}
                                                 onMouseOver={e => { e.currentTarget.style.background = '#ede9fe'; }}
                                                 onMouseOut={e => { e.currentTarget.style.background = '#f5f3ff'; }}
                                             ><i className="fas fa-envelope"></i></button>
                                         </div>
                                         <button
                                             onClick={() => { setActivityInitialData({ activityType: 'Site Visit', relatedTo: [{ id: lead.mobile, name: `${lead.firstName} ${lead.lastName || ''}`.trim() }] }); setIsActivityOpen(true); }}
-                                            style={{ padding: '7px 16px', borderRadius: '10px', border: '1px solid #e2e8f0', background: '#fff', color: '#374151', fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.15s' }}
+                                            style={{ padding: '7px 16px', borderRadius: '10px', border: '1px solid #e2e8f0', background: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', color: isDark ? 'var(--text-primary)' : '#374151', fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.15s' }}
                                             onMouseOver={e => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.borderColor = '#94a3b8'; }}
                                             onMouseOut={e => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = '#e2e8f0'; }}
                                         ><i className="fas fa-calendar-plus" style={{ marginRight: '6px', color: '#2563eb' }}></i>Schedule Visit</button>

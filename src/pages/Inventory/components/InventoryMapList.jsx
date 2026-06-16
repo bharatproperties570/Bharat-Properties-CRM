@@ -1,7 +1,9 @@
+import { useTheme } from '../../../context/ThemeContext';
 import React from 'react';
 import { renderValue } from '../../../utils/renderUtils';
 
 const InventoryMapList = ({ items = [], onItemClick, getLookupValue, activeItemId }) => {
+    const { isDark } = useTheme();
     return (
         <div style={{ 
             width: '380px', 
@@ -118,7 +120,7 @@ const InventoryMapList = ({ items = [], onItemClick, getLookupValue, activeItemI
                                                     background: isActiveStatus ? '#22c55e' : '#94a3b8',
                                                     boxShadow: isActiveStatus ? '0 0 8px rgba(34, 197, 94, 0.4)' : 'none'
                                                 }}></span>
-                                                <span style={{ fontSize: '0.62rem', fontWeight: 800, color: isActiveStatus ? '#16a34a' : '#64748b', textTransform: 'uppercase' }}>
+                                                <span style={{ fontSize: '0.62rem', fontWeight: 800, color: isActiveStatus ? '#16a34a' : isDark ? 'var(--text-muted)' : '#64748b', textTransform: 'uppercase' }}>
                                                     {renderValue(statusVal) || 'Inactive'}
                                                 </span>
                                             </div>

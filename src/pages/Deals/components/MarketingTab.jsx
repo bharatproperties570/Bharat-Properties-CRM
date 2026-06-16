@@ -1,8 +1,10 @@
+import { useTheme } from '../../../context/ThemeContext';
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../../utils/api';
 import toast from 'react-hot-toast';
 
 function MarketingTab({ dealId, deal, onRefresh }) {
+    const { isDark } = useTheme();
     const [loading, setLoading] = useState(true);
     const [sanitizing, setSanitizing] = useState(false);
     const [analytics, setAnalytics] = useState(null);
@@ -142,7 +144,7 @@ function MarketingTab({ dealId, deal, onRefresh }) {
         return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 {[1, 2, 3].map(i => (
-                    <div key={i} style={{ height: '80px', background: '#f1f5f9', borderRadius: '12px', animation: 'pulse 1.5s infinite' }} />
+                    <div key={i} style={{ height: '80px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9', borderRadius: '12px', animation: 'pulse 1.5s infinite' }} />
                 ))}
             </div>
         );
@@ -152,18 +154,18 @@ function MarketingTab({ dealId, deal, onRefresh }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
             {/* ── Step 1: Metadata Preparation ─────────────────────────── */}
-            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '20px' }}>
+            <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0', borderRadius: '16px', padding: '20px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: meta?.isReady ? '16px' : '0' }}>
                     <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: meta?.isReady ? '#dcfce7' : '#dbeafe', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: meta?.isReady ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#dcfce7' : '#dbeafe', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                 <i className={`fas ${meta?.isReady ? 'fa-check-circle' : 'fa-shield-alt'}`} style={{ color: meta?.isReady ? '#16a34a' : '#2563eb', fontSize: '14px' }}></i>
                             </div>
-                            <span style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0f172a' }}>
+                            <span style={{ fontSize: '0.9rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>
                                 {meta?.isReady ? 'Broadcast Ready' : 'Step 1 — Prepare Deal'}
                             </span>
                         </div>
-                        <p style={{ margin: '4px 0 0 36px', fontSize: '0.72rem', color: '#64748b' }}>
+                        <p style={{ margin: '4px 0 0 36px', fontSize: '0.72rem', color: isDark ? 'var(--text-muted)' : '#64748b' }}>
                             {meta?.isReady
                                 ? `Last updated: ${meta.lastSanitizedAt ? new Date(meta.lastSanitizedAt).toLocaleString('en-IN') : 'Recently'}`
                                 : 'Sanitize deal data before broadcasting to brokers'}
@@ -174,8 +176,8 @@ function MarketingTab({ dealId, deal, onRefresh }) {
                         disabled={sanitizing}
                         style={{
                             padding: '8px 16px', fontSize: '0.78rem', fontWeight: 700,
-                            borderRadius: '10px', border: '1px solid #e2e8f0',
-                            background: meta?.isReady ? '#fff' : '#6366f1', color: meta?.isReady ? '#475569' : '#fff',
+                            borderRadius: '10px', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0',
+                            background: meta?.isReady ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff' : '#6366f1', color: meta?.isReady ? isDark ? 'var(--text-primary)' : '#475569' : '#fff',
                             cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
                         }}
                     >
@@ -186,29 +188,29 @@ function MarketingTab({ dealId, deal, onRefresh }) {
 
                 {/* Deal Metadata Preview */}
                 {meta?.isReady && (
-                    <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-                        <div style={{ padding: '12px 16px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', borderRadius: '12px', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0', overflow: 'hidden' }}>
+                        <div style={{ padding: '12px 16px', borderBottom: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <span style={{ fontSize: '0.65rem', fontWeight: 900, color: '#94a3b8', letterSpacing: '1px' }}>DEAL DATA FOR BROADCAST</span>
                             <span style={{ fontSize: '0.65rem', color: '#10b981', fontWeight: 700 }}>
                                 <i className="fas fa-check-circle"></i> Verified
                             </span>
                         </div>
                         <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                            <div style={{ fontSize: '0.88rem', fontWeight: 800, color: '#0f172a' }}>{meta.title}</div>
+                            <div style={{ fontSize: '0.88rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>{meta.title}</div>
                             <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
                                 <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#6366f1' }}>
                                     <i className="fas fa-tag" style={{ marginRight: '4px' }}></i>{meta.price}
                                 </span>
-                                <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                                <span style={{ fontSize: '0.75rem', color: isDark ? 'var(--text-muted)' : '#64748b' }}>
                                     <i className="fas fa-map-marker-alt" style={{ marginRight: '4px' }}></i>{meta.location}
                                 </span>
                             </div>
                             {meta.detailedSections?.map((sec, idx) => (
-                                <div key={idx} style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: '8px' }}>
+                                <div key={idx} style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', padding: '10px 12px', borderRadius: '8px' }}>
                                     <div style={{ fontSize: '0.62rem', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '6px' }}>{sec.title}</div>
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                                         {sec.lines.map((line, li) => (
-                                            <span key={li} style={{ fontSize: '0.7rem', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '2px 8px', color: '#475569' }}>
+                                            <span key={li} style={{ fontSize: '0.7rem', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0', borderRadius: '6px', padding: '2px 8px', color: isDark ? 'var(--text-primary)' : '#475569' }}>
                                                 {line}
                                             </span>
                                         ))}
@@ -222,12 +224,12 @@ function MarketingTab({ dealId, deal, onRefresh }) {
 
             {/* ── Step 2: Broadcast Configuration ──────────────────────── */}
             {meta?.isReady && (
-                <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '20px' }}>
+                <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0', borderRadius: '16px', padding: '20px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
                         <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             <i className="fas fa-bullhorn" style={{ color: '#d97706', fontSize: '13px' }}></i>
                         </div>
-                        <span style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0f172a' }}>Step 2 — Configure Broadcast</span>
+                        <span style={{ fontSize: '0.9rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>Step 2 — Configure Broadcast</span>
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
@@ -237,7 +239,7 @@ function MarketingTab({ dealId, deal, onRefresh }) {
 
                             {/* WhatsApp Template */}
                             <div>
-                                <label style={{ fontSize: '0.7rem', fontWeight: 900, color: '#64748b', letterSpacing: '0.5px', display: 'block', marginBottom: '8px' }}>
+                                <label style={{ fontSize: '0.7rem', fontWeight: 900, color: isDark ? 'var(--text-muted)' : '#64748b', letterSpacing: '0.5px', display: 'block', marginBottom: '8px' }}>
                                     WHATSAPP TEMPLATE <span style={{ color: '#ef4444' }}>*</span>
                                 </label>
                                 {templates.length === 0 ? (
@@ -251,8 +253,8 @@ function MarketingTab({ dealId, deal, onRefresh }) {
                                         onChange={(e) => setSelectedTemplate(templates.find(t => t.name === e.target.value) || null)}
                                         style={{
                                             width: '100%', padding: '10px 12px', borderRadius: '10px',
-                                            border: '1px solid #e2e8f0', fontSize: '0.82rem', fontWeight: 600,
-                                            background: '#fff', color: selectedTemplate ? '#0f172a' : '#94a3b8',
+                                            border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0', fontSize: '0.82rem', fontWeight: 600,
+                                            background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', color: selectedTemplate ? isDark ? 'var(--text-primary)' : '#0f172a' : '#94a3b8',
                                             outline: 'none', cursor: 'pointer'
                                         }}
                                     >
@@ -271,13 +273,13 @@ function MarketingTab({ dealId, deal, onRefresh }) {
 
                             {/* Channels */}
                             <div>
-                                <label style={{ fontSize: '0.7rem', fontWeight: 900, color: '#64748b', letterSpacing: '0.5px', display: 'block', marginBottom: '8px' }}>CHANNELS</label>
+                                <label style={{ fontSize: '0.7rem', fontWeight: 900, color: isDark ? 'var(--text-muted)' : '#64748b', letterSpacing: '0.5px', display: 'block', marginBottom: '8px' }}>CHANNELS</label>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                     {[
                                         { key: 'whatsapp', icon: 'fab fa-whatsapp', color: '#128C7E', label: 'WhatsApp', note: 'Template required' },
                                         { key: 'email', icon: 'fas fa-envelope', color: '#ef4444', label: 'Email', note: 'Professional HTML' }
                                     ].map(ch => (
-                                        <label key={ch.key} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', border: `1px solid ${channels[ch.key] ? '#e0e7ff' : '#f1f5f9'}`, borderRadius: '10px', background: channels[ch.key] ? '#f5f3ff' : '#fafafa', cursor: 'pointer' }}>
+                                        <label key={ch.key} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', border: `1px solid ${channels[ch.key] ? '#e0e7ff' : '#f1f5f9'}`, borderRadius: '10px', background: channels[ch.key] ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#f5f3ff' : '#fafafa', cursor: 'pointer' }}>
                                             <input
                                                 type="checkbox"
                                                 checked={channels[ch.key]}
@@ -286,7 +288,7 @@ function MarketingTab({ dealId, deal, onRefresh }) {
                                             />
                                             <i className={ch.icon} style={{ color: ch.color, fontSize: '16px' }}></i>
                                             <div>
-                                                <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#0f172a' }}>{ch.label}</div>
+                                                <div style={{ fontSize: '0.82rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>{ch.label}</div>
                                                 <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>{ch.note}</div>
                                             </div>
                                         </label>
@@ -298,7 +300,7 @@ function MarketingTab({ dealId, deal, onRefresh }) {
                         {/* RIGHT: Group Selector + Launch */}
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                             <div>
-                                <label style={{ fontSize: '0.7rem', fontWeight: 900, color: '#64748b', letterSpacing: '0.5px', display: 'block', marginBottom: '8px' }}>BROKER GROUPS</label>
+                                <label style={{ fontSize: '0.7rem', fontWeight: 900, color: isDark ? 'var(--text-muted)' : '#64748b', letterSpacing: '0.5px', display: 'block', marginBottom: '8px' }}>BROKER GROUPS</label>
                                 {groups.length === 0 ? (
                                     <div style={{ fontSize: '0.75rem', color: '#94a3b8', padding: '12px', textAlign: 'center', border: '1px dashed #e2e8f0', borderRadius: '10px' }}>
                                         No broker groups found
@@ -317,8 +319,8 @@ function MarketingTab({ dealId, deal, onRefresh }) {
                                                     style={{
                                                         padding: '6px 14px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 700,
                                                         border: `1.5px solid ${isSelected ? g.color || '#6366f1' : '#e2e8f0'}`,
-                                                        background: isSelected ? (g.color || '#6366f1') : '#fff',
-                                                        color: isSelected ? '#fff' : '#475569',
+                                                        background: isSelected ? (g.color || '#6366f1') : isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff',
+                                                        color: isSelected ? '#fff' : isDark ? 'var(--text-primary)' : '#475569',
                                                         cursor: 'pointer', transition: 'all 0.15s',
                                                         display: 'flex', alignItems: 'center', gap: '5px'
                                                     }}
@@ -333,7 +335,7 @@ function MarketingTab({ dealId, deal, onRefresh }) {
                             </div>
 
                             <div style={{ marginTop: '10px' }}>
-                                <label style={{ fontSize: '0.7rem', fontWeight: 900, color: '#64748b', letterSpacing: '0.5px', display: 'block', marginBottom: '8px' }}>CONTACT GROUPS</label>
+                                <label style={{ fontSize: '0.7rem', fontWeight: 900, color: isDark ? 'var(--text-muted)' : '#64748b', letterSpacing: '0.5px', display: 'block', marginBottom: '8px' }}>CONTACT GROUPS</label>
                                 {contactGroups.length === 0 ? (
                                     <div style={{ fontSize: '0.75rem', color: '#94a3b8', padding: '12px', textAlign: 'center', border: '1px dashed #e2e8f0', borderRadius: '10px' }}>
                                         No contact groups found
@@ -352,8 +354,8 @@ function MarketingTab({ dealId, deal, onRefresh }) {
                                                     style={{
                                                         padding: '6px 14px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 700,
                                                         border: `1.5px solid ${isSelected ? g.color || '#10b981' : '#e2e8f0'}`,
-                                                        background: isSelected ? (g.color || '#10b981') : '#fff',
-                                                        color: isSelected ? '#fff' : '#475569',
+                                                        background: isSelected ? (g.color || '#10b981') : isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff',
+                                                        color: isSelected ? '#fff' : isDark ? 'var(--text-primary)' : '#475569',
                                                         cursor: 'pointer', transition: 'all 0.15s',
                                                         display: 'flex', alignItems: 'center', gap: '5px'
                                                     }}
@@ -423,14 +425,14 @@ function MarketingTab({ dealId, deal, onRefresh }) {
 
             {/* ── Analytics Section ─────────────────────────────────────── */}
             {analytics && analytics.total > 0 && (
-                <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '20px', borderTop: '3px solid #6366f1' }}>
+                <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0', borderRadius: '16px', padding: '20px', borderTop: '3px solid #6366f1' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
                         <i className="fas fa-chart-bar" style={{ color: '#6366f1', fontSize: '14px' }}></i>
-                        <span style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0f172a' }}>Broadcast Analytics</span>
+                        <span style={{ fontSize: '0.9rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>Broadcast Analytics</span>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px' }}>
                         {[
-                            { label: 'TOTAL REACH', val: analytics.total, bg: '#f8fafc', color: '#0f172a' },
+                            { label: 'TOTAL REACH', val: analytics.total, bg: '#f8fafc', color: isDark ? 'var(--text-primary)' : '#0f172a' },
                             { label: 'SENT', val: analytics.sent || analytics.total - (analytics.failed || 0), bg: '#f0fdf4', color: '#166534' },
                             { label: 'FAILED', val: analytics.failed, bg: '#fef2f2', color: '#991b1b' },
                             { label: 'CHANNELS', val: `${Object.entries(analytics.channels || {}).filter(([,v]) => v > 0).map(([k,v]) => `${k}:${v}`).join(' | ') || 'N/A'}`, bg: '#f5f3ff', color: '#5b21b6', small: true }

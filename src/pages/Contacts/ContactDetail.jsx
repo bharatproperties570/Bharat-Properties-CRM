@@ -1,3 +1,5 @@
+import { useTheme } from '../../context/ThemeContext';
+
 import React, { useState, useEffect } from 'react';
 import { api, enrichmentAPI } from '../../utils/api';
 import { renderValue } from '../../utils/renderUtils';
@@ -39,6 +41,7 @@ import ContactHistory from '../../components/ContactDetail/ContactHistory';
 import ContactBookings from '../../components/ContactDetail/ContactBookings';
 
 const ContactDetail = ({ contactId, onBack, onNavigate }) => {
+    const { isDark } = useTheme();
     const { scoringAttributes, activityMasterFields, scoreBands, getLookupValue } = usePropertyConfig(); // Inject Context
     const { sequences, enrollments, updateEnrollmentStatus } = useSequences();
     const [contact, setContact] = useState(null);
@@ -596,10 +599,10 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                     }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                             <span style={{ fontSize: '0.8rem', fontWeight: 900, color: 'var(--text-main)', textTransform: 'uppercase', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <i className="fas fa-chart-line" style={{ color: 'var(--premium-blue)' }}></i> Enterprise Lead Pipeline
+                                <i className="fas fa-chart-line" style={{ color: isDark ? 'var(--bg-card)' : 'var(--premium-blue)' }}></i> Enterprise Lead Pipeline
                             </span>
                             <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>
-                                TECHNICAL STATUS: <span style={{ color: 'var(--premium-blue)', fontWeight: 900 }}>{String(renderLookup(contact.stage) || 'New').toUpperCase()}</span>
+                                TECHNICAL STATUS: <span style={{ color: isDark ? 'var(--bg-card)' : 'var(--premium-blue)', fontWeight: 900 }}>{String(renderLookup(contact.stage) || 'New').toUpperCase()}</span>
                             </span>
                         </div>
                         <EnterprisePipeline
@@ -625,7 +628,7 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                     {/* COLUMN 1: LEFT - Profile & Preferences */}
                     <div className={`mobile-col ${isMobile && activeTab !== 'overview' ? 'hide-mobile' : ''}`} style={{ flex: '0 0 400px', display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto', minHeight: 0, paddingBottom: '20px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                            <i className="fas fa-id-card" style={{ color: 'var(--premium-blue)' }}></i>
+                            <i className="fas fa-id-card" style={{ color: isDark ? 'var(--bg-card)' : 'var(--premium-blue)' }}></i>
                             <span style={{ fontSize: '0.7rem', fontWeight: 900, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Contact Intelligence</span>
                         </div>
                         
@@ -661,7 +664,7 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                             minHeight: '100%'
                         }}>
                             <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-color)', background: 'var(--contact-card-bg)', display: 'flex', alignItems: 'center', gap: '8px', borderTopLeftRadius: '16px', borderTopRightRadius: '16px' }}>
-                                <i className="fas fa-bolt" style={{ color: 'var(--premium-blue)' }}></i>
+                                <i className="fas fa-bolt" style={{ color: isDark ? 'var(--bg-card)' : 'var(--premium-blue)' }}></i>
                                 <span style={{ fontSize: '0.75rem', fontWeight: 900, color: 'var(--text-main)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Interaction Intelligence</span>
                             </div>
                             <div style={{ padding: '20px', flex: 1, overflow: 'visible' }}>
@@ -709,7 +712,7 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                         ) : (
                             <>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                                    <i className="fas fa-chart-line" style={{ color: 'var(--premium-blue)' }}></i>
+                                    <i className="fas fa-chart-line" style={{ color: isDark ? 'var(--bg-card)' : 'var(--premium-blue)' }}></i>
                                     <span style={{ fontSize: '0.7rem', fontWeight: 900, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Strategic Monitoring</span>
                                 </div>
                                 {recordType === 'lead' && (
@@ -874,7 +877,7 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                                 }
                             }}
                             style={{
-                                background: 'var(--premium-blue)',
+                                background: isDark ? 'var(--bg-card)' : 'var(--premium-blue)',
                                 color: 'var(--text-inverse)',
                                 padding: '12px 18px',
                                 borderRadius: '14px',
@@ -892,7 +895,7 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                 {/* TOAST NOTIFICATION */}
                 {
                     toast && (
-                        <div style={{ position: 'fixed', bottom: '80px', left: '50%', transform: 'translateX(-50%)', background: 'var(--premium-blue)',
+                        <div style={{ position: 'fixed', bottom: '80px', left: '50%', transform: 'translateX(-50%)', background: isDark ? 'var(--bg-card)' : 'var(--premium-blue)',
 color: 'var(--text-inverse)',
 padding: '12px 18px', borderRadius: '8px', zIndex: 2000, display: 'flex', alignItems: 'center', gap: '10px', boxShadow: '0 4px 12px rgba(0,0,0,0.2)', fontSize: '0.85rem', fontWeight: 600 }}>
                             <i className="fas fa-check-circle" style={{ color: 'var(--success-color)' }}></i>

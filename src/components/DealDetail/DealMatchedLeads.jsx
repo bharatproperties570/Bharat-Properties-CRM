@@ -1,10 +1,12 @@
+import { useTheme } from '../../context/ThemeContext';
 import { formatIndianCurrency, formatLeadBudget } from '../../utils/numberToWords';
 
 const DealMatchedLeads = ({ matchingLeads, onNavigate, deal }) => {
+    const { isDark } = useTheme();
     const cardStyle = {
-        background: '#fff',
+        background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff',
         borderRadius: '20px',
-        border: '1px solid #e2e8f0',
+        border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0',
         boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05)',
         marginBottom: '24px',
         overflow: 'hidden'
@@ -12,17 +14,17 @@ const DealMatchedLeads = ({ matchingLeads, onNavigate, deal }) => {
 
     const sectionHeaderStyle = {
         padding: '20px 24px',
-        borderBottom: '1px solid #f1f5f9',
+        borderBottom: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #f1f5f9',
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        background: 'linear-gradient(to right, #fff, #f8fafc)'
+        background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'linear-gradient(to right, #fff, #f8fafc)'
     };
 
     const sectionTitleStyle = {
         fontSize: '0.95rem',
         fontWeight: 900,
-        color: '#0f172a',
+        color: isDark ? 'var(--text-primary)' : '#0f172a',
         textTransform: 'uppercase',
         letterSpacing: '0.05em',
         margin: 0,
@@ -33,9 +35,9 @@ const DealMatchedLeads = ({ matchingLeads, onNavigate, deal }) => {
 
     return (
         <div style={cardStyle}>
-            <div style={{ ...sectionHeaderStyle, background: '#f0fdf4', borderBottom: '1px solid #dcfce7' }}>
+            <div style={{ ...sectionHeaderStyle, background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f0fdf4', borderBottom: '1px solid #dcfce7' }}>
                 <h3 style={sectionTitleStyle}>
-                    <div style={{ width: '32px', height: '32px', background: '#ffffff', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '8px', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+                    <div style={{ width: '32px', height: '32px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#ffffff', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: '8px', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
                         <i className="fas fa-bullseye text-emerald-600" style={{ fontSize: '0.9rem' }}></i>
                     </div>
                     <span style={{ color: '#166534' }}>Top Matched Leads</span>
@@ -50,7 +52,7 @@ const DealMatchedLeads = ({ matchingLeads, onNavigate, deal }) => {
             <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 {matchingLeads && matchingLeads.length > 0 ? matchingLeads.slice(0, 3).map((lead, idx) => (
                     <div key={idx} style={{
-                        padding: '16px', background: '#fff', borderRadius: '12px', border: '1px solid #f0fdf4',
+                        padding: '16px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', borderRadius: '12px', border: '1px solid #f0fdf4',
                         boxShadow: '0 4px 6px -2px rgba(0, 0, 0, 0.02)', transition: 'all 0.2s',
                         cursor: 'pointer', position: 'relative', overflow: 'hidden'
                     }} className="hover:shadow-md hover:border-emerald-200 group" onClick={() => onNavigate('lead-detail', lead._id)}>
@@ -58,8 +60,8 @@ const DealMatchedLeads = ({ matchingLeads, onNavigate, deal }) => {
 
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px', paddingLeft: '8px' }}>
                             <div>
-                                <h4 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#1e293b', margin: '0 0 2px 0' }}>{lead.name}</h4>
-                                <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <h4 style={{ fontSize: '0.9rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#1e293b', margin: '0 0 2px 0' }}>{lead.name}</h4>
+                                <p style={{ fontSize: '0.75rem', color: isDark ? 'var(--text-muted)' : '#64748b', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
                                     <i className="fas fa-phone-alt" style={{ fontSize: '0.6rem', opacity: 0.7 }}></i> {lead.mobile || lead.phone || lead.contactDetails?.phones?.[0]?.number || 'No Phone'}
                                 </p>
                             </div>
@@ -79,7 +81,7 @@ const DealMatchedLeads = ({ matchingLeads, onNavigate, deal }) => {
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                                 <span style={{
                                     fontSize: '0.65rem', fontWeight: 800, padding: '2px 6px', borderRadius: '4px',
-                                    background: '#f1f5f9', color: '#475569', textTransform: 'uppercase'
+                                    background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9', color: isDark ? 'var(--text-primary)' : '#475569', textTransform: 'uppercase'
                                 }}>
                                     {lead.category || 'Lead'}
                                 </span>
@@ -100,13 +102,13 @@ const DealMatchedLeads = ({ matchingLeads, onNavigate, deal }) => {
                         </div>
                     </div>
                 )) : (
-                    <div style={{ textAlign: 'center', padding: '32px 0', color: '#94a3b8', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #e2e8f0' }}>
+                    <div style={{ textAlign: 'center', padding: '32px 0', color: '#94a3b8', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', borderRadius: '12px', border: '1px dashed #e2e8f0' }}>
                         <i className="fas fa-search-location" style={{ fontSize: '2rem', marginBottom: '12px', opacity: 0.3 }}></i>
                         <p style={{ fontSize: '0.8rem', fontWeight: 700, margin: 0 }}>No Perfect Matches</p>
                         <p style={{ fontSize: '0.7rem', margin: '4px 0 0 0' }}>Try adjusting match criteria in centre</p>
                         <button
                             onClick={() => onNavigate('inventory-matching', deal.inventoryId?._id || deal.inventoryId)}
-                            style={{ marginTop: '12px', fontSize: '0.75rem', fontWeight: 800, color: '#2563eb', background: '#eff6ff', border: 'none', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer' }}
+                            style={{ marginTop: '12px', fontSize: '0.75rem', fontWeight: 800, color: '#2563eb', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#eff6ff', border: 'none', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer' }}
                         >
                             Go to Match Centre
                         </button>

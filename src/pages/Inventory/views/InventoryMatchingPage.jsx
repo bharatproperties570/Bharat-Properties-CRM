@@ -193,7 +193,7 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
         return (
             <div style={{ padding: '80px 40px', textAlign: 'center', background: 'var(--bg-gray)', minHeight: '100vh' }}>
                 <div style={{ maxWidth: '400px', margin: '0 auto', background: 'var(--bg-card)', padding: '40px', borderRadius: '16px', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}>
-                    <div style={{ width: '64px', height: '64px', background: '#fee2e2', color: '#ef4444', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', fontSize: '1.5rem' }}>
+                    <div style={{ width: '64px', height: '64px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fee2e2', color: '#ef4444', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', fontSize: '1.5rem' }}>
                         <i className="fas fa-exclamation-triangle"></i>
                     </div>
                     <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '8px' }}>Inventory Not Found</h2>
@@ -507,7 +507,7 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
                                     >
                                         <i className={`${lead.interestedInventory?.includes(inventoryId) ? 'fas' : 'far'} fa-star`}></i>
                                     </button>
-                                    <div style={{ background: lead.matchPercentage > 80 ? '#fef2f2' : '#f0f9ff', color: lead.matchPercentage > 80 ? '#dc2626' : '#2563eb', padding: '2px 8px', borderRadius: '100px', fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    <div style={{ background: lead.matchPercentage > 80 ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#fef2f2' : '#f0f9ff', color: lead.matchPercentage > 80 ? '#dc2626' : '#2563eb', padding: '2px 8px', borderRadius: '100px', fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                         <i className={`fas fa-thermometer-${lead.matchPercentage > 80 ? 'full' : lead.matchPercentage > 50 ? 'half' : 'empty'}`}></i>
                                         {lead.matchPercentage > 80 ? 'Hot' : 'Warm'} ({lead.matchPercentage})
                                     </div>
@@ -563,7 +563,7 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
                                 {lead.gaps && lead.gaps.length > 0 && (
                                     <div style={{ display: 'flex', gap: '6px', marginTop: '10px' }}>
                                         {lead.gaps.map((gap, i) => (
-                                            <span key={i} style={{ fontSize: '0.6rem', fontWeight: 700, color: '#ef4444', background: '#fef2f2', padding: '2px 6px', borderRadius: '4px', border: '1px solid #fee2e2' }}>
+                                            <span key={i} style={{ fontSize: '0.6rem', fontWeight: 700, color: '#ef4444', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fef2f2', padding: '2px 6px', borderRadius: '4px', border: '1px solid #fee2e2' }}>
                                                 {gap}
                                             </span>
                                         ))}
@@ -577,14 +577,14 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
                                     <button
                                         onClick={() => window.open(`tel:${lead.mobile}`)}
                                         title="Call Lead"
-                                        style={{ flex: 1, padding: '10px', borderRadius: '12px', border: '1px solid #dcfce7', background: '#f0fdf4', color: '#166534', cursor: 'pointer' }}
+                                        style={{ flex: 1, padding: '10px', borderRadius: '12px', border: '1px solid #dcfce7', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f0fdf4', color: '#166534', cursor: 'pointer' }}
                                     >
                                         <i className="fas fa-phone-alt"></i>
                                     </button>
                                     <button
                                         onClick={() => handleWhatsApp(lead.mobile, lead.name)}
                                         title="WhatsApp"
-                                        style={{ flex: 1, padding: '10px', borderRadius: '12px', border: '1px solid #dcfce7', background: '#f0fdf4', color: '#166534', cursor: 'pointer' }}
+                                        style={{ flex: 1, padding: '10px', borderRadius: '12px', border: '1px solid #dcfce7', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f0fdf4', color: '#166534', cursor: 'pointer' }}
                                     >
                                         <i className="fab fa-whatsapp"></i>
                                     </button>

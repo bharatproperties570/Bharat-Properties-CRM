@@ -125,7 +125,7 @@ const KPI = ({ icon, iconBg, iconColor, label, value, sub, trend, trendDir, colo
 
 // ── Main Page ────────────────────────────────────────────────
 const InventoryAnalyticsPage = ({ onNavigate }) => {
-  const { isDark } = useTheme();
+    const { isDark } = useTheme();
   const tickColor  = isDark ? '#64748b' : '#94a3b8';
   const gridStroke = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)';
   const TipT = (props) => <Tip {...props} isDark={isDark} />;
@@ -210,7 +210,7 @@ const InventoryAnalyticsPage = ({ onNavigate }) => {
     });
     return Object.entries(map)
       .sort((a,b) => b[1] - a[1])
-      .map(([name, count]) => ({ name, count, color: STATUS_COLORS[name] || '#64748b' }));
+      .map(([name, count]) => ({ name, count, color: STATUS_COLORS[name] || isDark ? 'var(--text-muted)' : '#64748b' }));
   }, [filtered]);
 
   const maxStatusCount = Math.max(...statusData.map(s => s.count), 1);
@@ -871,7 +871,7 @@ const InventoryAnalyticsPage = ({ onNavigate }) => {
                           <td>
                             <span className="inv-status-chip" style={{
                               background: (STATUS_COLORS[status]||'#64748b') + '20',
-                              color: STATUS_COLORS[status] || '#64748b',
+                              color: STATUS_COLORS[status] || isDark ? 'var(--text-muted)' : '#64748b',
                               border: `1px solid ${(STATUS_COLORS[status]||'#64748b')}30`
                             }}>{status}</span>
                           </td>

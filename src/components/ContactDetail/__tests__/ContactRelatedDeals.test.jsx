@@ -1,3 +1,5 @@
+import { useTheme } from '../../../context/ThemeContext';
+
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import ContactRelatedDeals from '../../ContactRelatedDeals';

@@ -1,8 +1,10 @@
+import { useTheme } from '../../context/ThemeContext';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useDebounce } from '../../hooks/useDebounce';
 import { api } from '../../utils/api';
 
 const ActivityRelatedTo = ({ relatedTo = [], participants = [], onAddRelation, onRemoveRelation }) => {
+    const { isDark } = useTheme();
     const [searchTerm, setSearchTerm] = useState('');
     const [searchResults, setSearchResults] = useState({ leads: [], contacts: [] });
     const [isSearching, setIsSearching] = useState(false);
@@ -99,7 +101,7 @@ const ActivityRelatedTo = ({ relatedTo = [], participants = [], onAddRelation, o
                 {participants?.map((p, idx) => (
                     <div key={idx} style={{
                         padding: '6px 12px',
-                        background: '#f0fdf4',
+                        background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f0fdf4',
                         border: '1px solid #bbf7d0',
                         borderRadius: '20px',
                         display: 'flex',
@@ -130,7 +132,7 @@ const ActivityRelatedTo = ({ relatedTo = [], participants = [], onAddRelation, o
                             borderRadius: '10px',
                             border: '1px solid #e2e8f0',
                             fontSize: '0.9rem',
-                            backgroundColor: '#f8fafc',
+                            backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc',
                             outline: 'none',
                             transition: 'all 0.2s'
                         }}
@@ -148,7 +150,7 @@ const ActivityRelatedTo = ({ relatedTo = [], participants = [], onAddRelation, o
                         top: '100%',
                         left: 0,
                         right: 0,
-                        backgroundColor: '#fff',
+                        backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff',
                         borderRadius: '12px',
                         boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)',
                         border: '1px solid #e2e8f0',
@@ -160,7 +162,7 @@ const ActivityRelatedTo = ({ relatedTo = [], participants = [], onAddRelation, o
                         {/* Leads */}
                         {searchResults.leads.length > 0 && (
                             <div>
-                                <div style={{ padding: '8px 12px', backgroundColor: '#f8fafc', fontSize: '0.7rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>Leads</div>
+                                <div style={{ padding: '8px 12px', backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', fontSize: '0.7rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>Leads</div>
                                 {searchResults.leads.map(lead => (
                                     <div 
                                         key={lead._id} 
@@ -173,7 +175,7 @@ const ActivityRelatedTo = ({ relatedTo = [], participants = [], onAddRelation, o
                                             <i className="fas fa-bullseye" style={{ fontSize: '0.8rem' }}></i>
                                         </div>
                                         <div>
-                                            <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#1e293b' }}>{lead.fullName || lead.name}</div>
+                                            <div style={{ fontSize: '0.85rem', fontWeight: 600, color: isDark ? 'var(--text-primary)' : '#1e293b' }}>{lead.fullName || lead.name}</div>
                                             <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{lead.mobile || lead.email || 'Lead'}</div>
                                         </div>
                                     </div>
@@ -184,7 +186,7 @@ const ActivityRelatedTo = ({ relatedTo = [], participants = [], onAddRelation, o
                         {/* Contacts */}
                         {searchResults.contacts.length > 0 && (
                             <div>
-                                <div style={{ padding: '8px 12px', backgroundColor: '#f8fafc', fontSize: '0.7rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>Contacts</div>
+                                <div style={{ padding: '8px 12px', backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', fontSize: '0.7rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase' }}>Contacts</div>
                                 {searchResults.contacts.map(contact => (
                                     <div 
                                         key={contact._id} 
@@ -193,11 +195,11 @@ const ActivityRelatedTo = ({ relatedTo = [], participants = [], onAddRelation, o
                                         onMouseOver={e => e.currentTarget.style.backgroundColor = '#f1f5f9'}
                                         onMouseOut={e => e.currentTarget.style.backgroundColor = 'transparent'}
                                     >
-                                        <div style={{ width: '28px', height: '28px', borderRadius: '50%', backgroundColor: '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#16a34a' }}>
+                                        <div style={{ width: '28px', height: '28px', borderRadius: '50%', backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#16a34a' }}>
                                             <i className="fas fa-user" style={{ fontSize: '0.8rem' }}></i>
                                         </div>
                                         <div>
-                                            <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#1e293b' }}>{contact.name || contact.fullName}</div>
+                                            <div style={{ fontSize: '0.85rem', fontWeight: 600, color: isDark ? 'var(--text-primary)' : '#1e293b' }}>{contact.name || contact.fullName}</div>
                                             <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{contact.mobile || contact.email || 'Contact'}</div>
                                         </div>
                                     </div>

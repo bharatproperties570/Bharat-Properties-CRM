@@ -1,5 +1,7 @@
+import { useTheme } from '../../context/ThemeContext';
 import { fixDriveUrl, getYoutubeId } from '../../utils/helpers';
 export const PriceCard = ({ label, value, subValue, theme = 'indigo', isDiff = false, isStatus = false }) => {
+    const { isDark } = useTheme();
     const colors = {
         indigo: { bg: '#eef2ff', text: '#4338ca', border: '#e0e7ff', icon: 'fa-tag' },
         blue: { bg: '#eff6ff', text: '#1d4ed8', border: '#dbeafe', icon: 'fa-file-invoice-dollar' },
@@ -18,7 +20,7 @@ export const PriceCard = ({ label, value, subValue, theme = 'indigo', isDiff = f
                 <span style={{ fontSize: '0.65rem', fontWeight: 900, color: c.text, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</span>
                 <i className={`fas ${c.icon}`} style={{ fontSize: '0.8rem', color: c.text, opacity: 0.5 }}></i>
             </div>
-            <div style={{ fontSize: '1.4rem', fontWeight: 900, color: '#0f172a', letterSpacing: '-0.02em' }}>
+            <div style={{ fontSize: '1.4rem', fontWeight: 900, color: isDark ? 'var(--text-primary)' : '#0f172a', letterSpacing: '-0.02em' }}>
                 {isStatus ? value : (isDiff && value > 0 ? '+' : '') + (typeof value === 'number' ? `₹${value.toLocaleString('en-IN')}` : value)}
             </div>
             {subValue && <div style={{ fontSize: '0.65rem', fontWeight: 700, color: c.text, opacity: 0.8, textTransform: 'uppercase' }}>{subValue}</div>}
@@ -28,11 +30,11 @@ export const PriceCard = ({ label, value, subValue, theme = 'indigo', isDiff = f
 
 export const DetailField = ({ label, value, icon }) => (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-        <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '6px' }}>
+        <span style={{ fontSize: '0.65rem', fontWeight: 700, color: isDark ? 'var(--text-muted)' : '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '6px' }}>
             {icon && <i className={`fas ${icon}`} style={{ fontSize: '0.6rem' }}></i>}
             {label}
         </span>
-        <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#1e293b' }}>{value || 'N/A'}</span>
+        <span style={{ fontSize: '0.85rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#1e293b' }}>{value || 'N/A'}</span>
     </div>
 );
 
@@ -41,7 +43,7 @@ export const TabItem = ({ id, label, active, onClick }) => (
         onClick={() => onClick(id)}
         style={{
             padding: '12px 20px', background: 'none', border: 'none',
-            fontSize: '0.8rem', fontWeight: 800, color: active ? '#4f46e5' : '#64748b',
+            fontSize: '0.8rem', fontWeight: 800, color: active ? '#4f46e5' : isDark ? 'var(--text-muted)' : '#64748b',
             cursor: 'pointer', position: 'relative', transition: 'all 0.2s',
             textTransform: 'uppercase', letterSpacing: '0.05em'
         }}
@@ -58,6 +60,7 @@ export const TableContainer = ({ children }) => (
 );
 
 export const MediaViewerModal = ({ isOpen, onClose, data }) => {
+    const { isDark } = useTheme();
     if (!isOpen || !data) return null;
 
     return (

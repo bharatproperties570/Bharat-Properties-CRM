@@ -1,6 +1,9 @@
+import { useTheme } from '../../../context/ThemeContext';
+
 import { useState, useEffect } from 'react';
 
 const AlgorithmSettingsModal = ({ isOpen, onClose, weights, onSave }) => {
+    const { isDark } = useTheme();
     const [tempWeights, setTempWeights] = useState({
         location: 30,
         type: 20,
@@ -50,7 +53,7 @@ const AlgorithmSettingsModal = ({ isOpen, onClose, weights, onSave }) => {
     };
 
     const modalStyle = {
-        backgroundColor: '#fff',
+        backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff',
         width: '100%',
         maxWidth: '500px',
         borderRadius: '24px',
@@ -77,14 +80,14 @@ const AlgorithmSettingsModal = ({ isOpen, onClose, weights, onSave }) => {
     const labelStyle = {
         fontSize: '0.9rem',
         fontWeight: 700,
-        color: '#1e293b'
+        color: isDark ? 'var(--text-primary)' : '#1e293b'
     };
 
     const valueStyle = {
         fontSize: '0.9rem',
         fontWeight: 800,
         color: '#3b82f6',
-        background: '#eff6ff',
+        background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#eff6ff',
         padding: '2px 8px',
         borderRadius: '6px'
     };
@@ -104,7 +107,7 @@ const AlgorithmSettingsModal = ({ isOpen, onClose, weights, onSave }) => {
         <div style={overlayStyle} onClick={(e) => e.target === e.currentTarget && onClose()}>
             <div style={modalStyle}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>Algorithm Settings</h2>
+                    <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#0f172a', margin: 0 }}>Algorithm Settings</h2>
                     <button onClick={onClose} style={{ border: 'none', background: 'transparent', color: '#94a3b8', cursor: 'pointer', fontSize: '1.25rem' }}>
                         <i className="fas fa-times"></i>
                     </button>
@@ -132,10 +135,10 @@ const AlgorithmSettingsModal = ({ isOpen, onClose, weights, onSave }) => {
                     ))}
                 </div>
 
-                <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '16px', marginBottom: '32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', padding: '16px', borderRadius: '16px', marginBottom: '32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
                         <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#64748b' }}>TOTAL POSSIBLE POINTS</span>
-                        <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0f172a' }}>{totalWeight} / 100</div>
+                        <div style={{ fontSize: '1.1rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>{totalWeight} / 100</div>
                     </div>
                     <button
                         onClick={handleReset}
@@ -148,7 +151,7 @@ const AlgorithmSettingsModal = ({ isOpen, onClose, weights, onSave }) => {
                 <div style={{ display: 'flex', gap: '12px' }}>
                     <button
                         onClick={onClose}
-                        style={{ flex: 1, padding: '12px', borderRadius: '12px', border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontWeight: 700, cursor: 'pointer' }}
+                        style={{ flex: 1, padding: '12px', borderRadius: '12px', border: '1px solid #e2e8f0', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', color: '#64748b', fontWeight: 700, cursor: 'pointer' }}
                     >
                         Cancel
                     </button>

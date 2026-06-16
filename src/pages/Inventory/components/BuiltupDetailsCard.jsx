@@ -1,8 +1,10 @@
+import { useTheme } from '../../../context/ThemeContext';
 import React, { useState } from 'react';
 import { renderValue } from '../../../utils/renderUtils';
 import { fixDriveUrl } from '../../../utils/helpers';
 
 const BuiltupDetailsCard = ({ inventory, getLookupValue }) => {
+    const { isDark } = useTheme();
     const [selectedImageUrl, setSelectedImageUrl] = useState(null);
 
     const gridStyle = { 
@@ -128,7 +130,7 @@ const BuiltupDetailsCard = ({ inventory, getLookupValue }) => {
                                             gap: '6px', 
                                             width: '100px', 
                                             padding: '8px 0', 
-                                            background: '#f0fdf4', 
+                                            background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f0fdf4', 
                                             border: '1px solid #bbf7d0', 
                                             borderRadius: '10px', 
                                             color: '#16a34a', 

@@ -1,21 +1,23 @@
+import { useTheme } from '../../context/ThemeContext';
 import SingleDealLifecycle from '../../components/SingleDealLifecycle';
 import { getStageProbability } from '../../utils/stageEngine';
 
 const DealLifecycle = ({ deal, activities, currentStage, stageStyle, stageInfo, onStageChange }) => {
+    const { isDark } = useTheme();
     return (
         <div className="no-scrollbar" style={{
             width: '100%',
             padding: '0.75rem 2rem 0.25rem 2rem',
-            borderBottom: '1px solid #e2e8f0',
-            background: '#fff',
+            borderBottom: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0',
+            background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff',
             zIndex: 40
         }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <span style={{ fontSize: '0.8rem', fontWeight: 900, color: '#0f172a', textTransform: 'uppercase', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '0.8rem', fontWeight: 900, color: isDark ? 'var(--text-primary)' : '#0f172a', textTransform: 'uppercase', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <i className="fas fa-route" style={{ color: '#4f46e5' }}></i> Deal Stage Pipeline
                 </span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: isDark ? 'var(--text-muted)' : '#64748b' }}>
                         CURRENT STATUS: <span style={{ color: '#4f46e5', fontWeight: 900 }}>{String(deal.stage || 'Open').toUpperCase()}</span>
                     </span>
                     {/* Stage Badge with probability */}

@@ -1,3 +1,5 @@
+import { useTheme } from '../../context/ThemeContext';
+
 import React from 'react';
 import { BASE_BACKEND_URL } from '../../utils/api';
 
@@ -34,19 +36,19 @@ const formatDateTime = (dateVal) => {
 const getFileIconConfig = (fileName = '') => {
     const name = String(fileName).toLowerCase();
     if (name.endsWith('.pdf')) {
-        return { icon: 'fa-file-pdf', color: '#ef4444', bg: '#fef2f2', border: '#fee2e2', type: 'PDF' };
+        return { icon: 'fa-file-pdf', color: '#ef4444', bg: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fef2f2', border: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'var(--border-color)' : '#fee2e2', type: 'PDF' };
     }
     if (name.endsWith('.png') || name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.webp') || name.endsWith('.svg') || name.endsWith('.gif')) {
         return { icon: 'fa-file-image', color: '#f59e0b', bg: '#fffbeb', border: '#fef3c7', type: 'IMAGE' };
     }
     if (name.endsWith('.doc') || name.endsWith('.docx')) {
-        return { icon: 'fa-file-word', color: '#3b82f6', bg: '#eff6ff', border: '#dbeafe', type: 'WORD' };
+        return { icon: 'fa-file-word', color: '#3b82f6', bg: isDark ? 'rgba(255, 255, 255, 0.03)' : '#eff6ff', border: '#dbeafe', type: 'WORD' };
     }
     if (name.endsWith('.xls') || name.endsWith('.xlsx') || name.endsWith('.csv')) {
-        return { icon: 'fa-file-excel', color: '#10b981', bg: '#f0fdf4', border: '#dcfce7', type: 'EXCEL' };
+        return { icon: 'fa-file-excel', color: '#10b981', bg: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f0fdf4', border: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'var(--border-color)' : '#dcfce7', type: 'EXCEL' };
     }
     // Default invoice/doc fallback
-    return { icon: 'fa-file-lines', color: '#6366f1', bg: '#f5f3ff', border: '#e0e7ff', type: 'DOC' };
+    return { icon: 'fa-file-lines', color: '#6366f1', bg: '#f5f3ff', border: isDark ? 'rgba(255, 255, 255, 0.03)' : '#e0e7ff', type: 'DOC' };
 };
 
 const ContactDocuments = React.memo(function ContactDocuments({
@@ -56,6 +58,7 @@ const ContactDocuments = React.memo(function ContactDocuments({
     setIsDocumentModalOpen,
     renderLookup
 }) {
+    const { isDark } = useTheme();
     return (
         <>
             <style>
@@ -93,7 +96,7 @@ const ContactDocuments = React.memo(function ContactDocuments({
                     transform: translateY(-1px);
                     box-shadow: 0 6px 14px rgba(99, 102, 241, 0.05), 0 2px 6px rgba(15, 23, 42, 0.01);
                     border-color: #cbd5e1;
-                    background: #ffffff;
+                    background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#ffffff';
                 }
                 .enterprise-document-card:hover::after {
                     background: linear-gradient(135deg, #ffffff 50%, #c7d2fe 50%, #818cf8 100%);
@@ -116,7 +119,7 @@ const ContactDocuments = React.memo(function ContactDocuments({
                 }
                 .enterprise-doc-action-btn:hover {
                     background: #4f46e5;
-                    color: #ffffff;
+                    color: isDark ? 'rgba(255,255,255,0.05)' : '#ffffff';
                     border-color: #4f46e5;
                     box-shadow: 0 3px 8px rgba(79, 70, 229, 0.15);
                 }
@@ -203,7 +206,7 @@ const ContactDocuments = React.memo(function ContactDocuments({
                                                 </div>
                                                 {docCategoryText && (
                                                     <span style={{
-                                                        background: '#eff6ff',
+                                                        background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#eff6ff',
                                                         color: '#2563eb',
                                                         fontSize: '0.45rem',
                                                         padding: '0.5px 4px',
@@ -221,7 +224,7 @@ const ContactDocuments = React.memo(function ContactDocuments({
 
                                             {/* Right Column: Document Type Name, Linked Inventory */}
                                             <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '1px' }}>
-                                                <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', paddingRight: '12px' }}>
+                                                <span style={{ fontSize: '0.8rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', paddingRight: '12px' }}>
                                                     {docTypeText}
                                                 </span>
                                                 {(doc.unitNumber || doc.projectName) && (
@@ -240,7 +243,7 @@ const ContactDocuments = React.memo(function ContactDocuments({
 
                                         {/* Row 3: Upload Timestamp + View Action Button */}
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '3px', paddingTop: '6px', borderTop: '1px solid #f1f5f9', width: '100%' }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '0.62rem', color: '#64748b', fontWeight: 600 }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '0.62rem', color: isDark ? 'var(--text-muted)' : '#64748b', fontWeight: 600 }}>
                                                 <i className="far fa-clock" style={{ fontSize: '0.6rem', color: '#94a3b8' }}></i>
                                                 <span>
                                                     {formatDateTime(doc.uploadedAt || doc.createdAt || doc.date) || 'Upload time N/A'}
@@ -265,7 +268,7 @@ const ContactDocuments = React.memo(function ContactDocuments({
                             })
                         ) : (
                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', padding: '24px 16px', background: '#f5f3ff', borderRadius: '12px', border: '1px dashed #c7d2fe', textAlign: 'center' }}>
-                                <div style={{ width: '40px', height: '40px', background: '#e0e7ff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <div style={{ width: '40px', height: '40px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#e0e7ff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                     <i className="fas fa-folder-open" style={{ color: '#4f46e5', fontSize: '1.1rem' }}></i>
                                 </div>
                                 <div>
@@ -274,7 +277,7 @@ const ContactDocuments = React.memo(function ContactDocuments({
                                 </div>
                                 <button 
                                     className="btn-outline" 
-                                    style={{ padding: '6px 14px', fontSize: '0.65rem', borderRadius: '8px', background: '#ffffff', color: '#4f46e5', borderColor: '#c7d2fe', marginTop: '4px', fontWeight: 800 }} 
+                                    style={{ padding: '6px 14px', fontSize: '0.65rem', borderRadius: '8px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#ffffff', color: '#4f46e5', borderColor: '#c7d2fe', marginTop: '4px', fontWeight: 800 }} 
                                     onClick={() => setIsDocumentModalOpen(true)}
                                 >
                                     <i className="fas fa-upload" style={{ marginRight: '6px' }}></i> Upload Document

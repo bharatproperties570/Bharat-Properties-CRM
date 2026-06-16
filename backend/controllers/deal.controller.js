@@ -765,7 +765,6 @@ export const sanitizeDeal = async (req, res) => {
         const deal = await Deal.findById(req.params.id)
             .populate('inventoryId')
             .populate('projectId')
-            .populate('contactId')
             .populate('owner')
             .populate('associatedContact');
 

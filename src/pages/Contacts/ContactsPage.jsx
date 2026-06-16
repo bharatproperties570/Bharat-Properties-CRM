@@ -1,3 +1,5 @@
+import { useTheme } from '../../context/ThemeContext';
+
 import React, { useState, useEffect, useCallback, useMemo, memo } from "react";
 import toast from "react-hot-toast";
 import Swal from 'sweetalert2';
@@ -50,6 +52,7 @@ const ContactRow = memo(function ContactRow({
   renderValue,
   getInitials
 }) {
+  const { isDark } = useTheme();
   return (
     <div
       className={`list-item contact-list-grid ${isSelected ? 'selected' : ''}`}
@@ -200,7 +203,7 @@ const ContactRow = memo(function ContactRow({
               { key: 'meeting', icon: 'fa-users', color: '#8b5cf6', label: 'Meeting' },
               { key: 'siteVisit', icon: 'fa-map-marked-alt', color: '#f59e0b', label: 'Site Visit' },
               { key: 'email', icon: 'fa-envelope', color: '#ef4444', label: 'Email' },
-              { key: 'sms', icon: 'fa-sms', color: '#64748b', label: 'SMS' }
+              { key: 'sms', icon: 'fa-sms', color: isDark ? 'var(--text-muted)' : '#64748b', label: 'SMS' }
             ];
             const activeItems = items.filter(i => (counts[i.key] || 0) > 0);
             if (activeItems.length === 0) return <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontStyle: 'italic' }}>No interactions</span>;
@@ -680,7 +683,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
                     setIsEnrollModalOpen(true);
                   }}><i className="fas fa-stream"></i> Sequence</button>
                 )}
-                <button className="action-btn" style={{ background: '#fff7ed', color: '#9a3412', borderColor: '#fed7aa' }} onClick={() => {
+                <button className="action-btn" style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff7ed', color: '#9a3412', borderColor: '#fed7aa' }} onClick={() => {
                   let count = 0;
                   getSelectedContacts().forEach(contact => { if (executeDistribution('contacts', contact, { users: [], teams: [] }).success) count++; });
                   toast.success(`Distributed ${count} contacts.`);

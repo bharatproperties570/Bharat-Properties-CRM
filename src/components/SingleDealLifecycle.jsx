@@ -1,3 +1,4 @@
+import { useTheme } from '../context/ThemeContext';
 import React, { useMemo, useState } from 'react';
 import {
     CheckCircle,
@@ -29,6 +30,7 @@ function RadioIcon({ size, color }) {
 }
 
 const SingleDealLifecycle = ({ deal, activities = [], onStageChange }) => {
+    const { isDark } = useTheme();
     const [selectedStage, setSelectedStage] = useState(null);
     const [isUpdating, setIsUpdating] = useState(false);
 
@@ -283,7 +285,7 @@ const SingleDealLifecycle = ({ deal, activities = [], onStageChange }) => {
                                             <span>WIN {deal.dealProbability || 50}%</span>
                                         </div>
                                         <div style={{ width: '100%', height: '2px', background: 'rgba(255,255,255,0.2)', borderRadius: '1px', overflow: 'hidden' }}>
-                                            <div style={{ width: `${deal.dealProbability || 50}%`, height: '100%', background: '#fff' }} />
+                                            <div style={{ width: `${deal.dealProbability || 50}%`, height: '100%', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff' }} />
                                         </div>
                                     </div>
                                     <div style={{ display: 'flex', gap: '2px' }}>
@@ -299,7 +301,7 @@ const SingleDealLifecycle = ({ deal, activities = [], onStageChange }) => {
                                 </div>
                             )}
                             {idx < lifecycleData.stages.length - 1 && lifecycleData.transitions[idx].wait && (
-                                <div style={{ position: 'absolute', right: '-12px', top: '50%', transform: 'translateY(-50%)', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '4px', padding: '2px 5px', fontSize: '0.55rem', fontWeight: 800, color: '#4f46e5', zize: 100, boxShadow: '0 2px 5px rgba(0,0,0,0.05)' }}>
+                                <div style={{ position: 'absolute', right: '-12px', top: '50%', transform: 'translateY(-50%)', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', border: '1px solid #e2e8f0', borderRadius: '4px', padding: '2px 5px', fontSize: '0.55rem', fontWeight: 800, color: '#4f46e5', zize: 100, boxShadow: '0 2px 5px rgba(0,0,0,0.05)' }}>
                                     {lifecycleData.transitions[idx].wait}d
                                 </div>
                             )}

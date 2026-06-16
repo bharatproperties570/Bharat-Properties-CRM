@@ -1,5 +1,7 @@
+import { useTheme } from '../../context/ThemeContext';
 
 const ActivityStatusToggle = ({ status, onStatusChange }) => {
+    const { isDark } = useTheme();
     const isCompleted = status === 'Completed';
 
     return (
@@ -8,7 +10,7 @@ const ActivityStatusToggle = ({ status, onStatusChange }) => {
             alignItems: 'center',
             gap: '12px',
             padding: '12px 16px',
-            background: isCompleted ? '#ecfdf5' : '#f8fafc',
+            background: isCompleted ? '#ecfdf5' : isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc',
             borderRadius: '12px',
             border: `1px solid ${isCompleted ? '#10b981' : '#e2e8f0'}`,
             marginBottom: '20px',

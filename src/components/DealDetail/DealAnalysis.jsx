@@ -1,10 +1,12 @@
+import { useTheme } from '../../context/ThemeContext';
 
 const DealAnalysis = ({ deal, isMarkingLost, handleMarkAsLost, setDeal }) => {
+    const { isDark } = useTheme();
     if (!isMarkingLost && deal.stage !== 'Closed Lost') return null;
 
     return (
         <div style={{
-            background: '#fff',
+            background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff',
             borderRadius: '16px',
             border: '1px solid #fee2e2',
             boxShadow: '0 8px 32px rgba(239, 68, 68, 0.08)',
@@ -14,7 +16,7 @@ const DealAnalysis = ({ deal, isMarkingLost, handleMarkAsLost, setDeal }) => {
         }}>
             <div style={{
                 padding: '14px 20px',
-                background: '#fef2f2',
+                background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fef2f2',
                 borderBottom: '1px solid #fee2e2',
                 display: 'flex',
                 justifyContent: 'space-between',
@@ -32,7 +34,7 @@ const DealAnalysis = ({ deal, isMarkingLost, handleMarkAsLost, setDeal }) => {
                         <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase' }}>Selected Reasons</div>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                             {(deal.closingDetails?.lossReasons || ['Price Issue']).map((r, i) => (
-                                <span key={i} style={{ padding: '4px 10px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 700, color: '#475569' }}>
+                                <span key={i} style={{ padding: '4px 10px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#475569' }}>
                                     {r}
                                 </span>
                             ))}
@@ -40,7 +42,7 @@ const DealAnalysis = ({ deal, isMarkingLost, handleMarkAsLost, setDeal }) => {
                         {deal.closingDetails?.remarks && (
                             <div style={{ marginTop: '8px' }}>
                                 <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase', marginBottom: '4px' }}>Closure Remarks</div>
-                                <p style={{ fontSize: '0.8rem', color: '#1e293b', background: '#f8fafc', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', margin: 0 }}>
+                                <p style={{ fontSize: '0.8rem', color: isDark ? 'var(--text-primary)' : '#1e293b', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', padding: '10px', borderRadius: '8px', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0', margin: 0 }}>
                                     {deal.closingDetails.remarks}
                                 </p>
                             </div>
@@ -64,9 +66,9 @@ const DealAnalysis = ({ deal, isMarkingLost, handleMarkAsLost, setDeal }) => {
                                         }}
                                         style={{
                                             padding: '8px',
-                                            background: (deal.closingDetails?.lossReasons || []).includes(reason) ? '#ef4444' : '#fff',
+                                            background: (deal.closingDetails?.lossReasons || []).includes(reason) ? '#ef4444' : isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff',
                                             border: `1px solid ${(deal.closingDetails?.lossReasons || []).includes(reason) ? '#ef4444' : '#e2e8f0'}`,
-                                            color: (deal.closingDetails?.lossReasons || []).includes(reason) ? '#fff' : '#475569',
+                                            color: (deal.closingDetails?.lossReasons || []).includes(reason) ? '#fff' : isDark ? 'var(--text-primary)' : '#475569',
                                             borderRadius: '8px',
                                             fontSize: '0.7rem',
                                             fontWeight: 700,
@@ -93,7 +95,7 @@ const DealAnalysis = ({ deal, isMarkingLost, handleMarkAsLost, setDeal }) => {
                                     width: '100%',
                                     padding: '12px',
                                     borderRadius: '12px',
-                                    border: '1px solid #e2e8f0',
+                                    border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0',
                                     fontSize: '0.8rem',
                                     minHeight: '80px',
                                     outline: 'none',

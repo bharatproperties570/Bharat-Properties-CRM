@@ -1,3 +1,5 @@
+import { useTheme } from '../../context/ThemeContext';
+
 import React from 'react';
 
 const ContactAutomation = React.memo(function ContactAutomation({
@@ -7,6 +9,7 @@ const ContactAutomation = React.memo(function ContactAutomation({
     updateEnrollmentStatus,
     setIsEnrollModalOpen
 }) {
+    const { isDark } = useTheme();
     return (
         <div className="glass-card" style={{ borderRadius: '16px', border: '1px solid rgba(59, 130, 246, 0.2)', boxShadow: '0 8px 32px 0 rgba(59, 130, 246, 0.05)' }}>
             <div style={{ padding: '14px 20px', background: 'rgba(59, 130, 246, 0.05)', borderBottom: '1px solid rgba(59, 130, 246, 0.1)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -27,20 +30,20 @@ const ContactAutomation = React.memo(function ContactAutomation({
                     const seq = sequences.find(s => s.id === enrollment.sequenceId);
                     if (!seq) return null;
                     return (
-                        <div key={enrollment.id} style={{ background: '#fff', border: '1px solid #eef2f6', borderRadius: '12px', padding: '12px' }}>
+                        <div key={enrollment.id} style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', border: '1px solid #eef2f6', borderRadius: '12px', padding: '12px' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
                                 <div>
-                                    <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#1e293b' }}>{seq.name}</div>
-                                    <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>Started {new Date(enrollment.enrolledAt).toLocaleDateString()}</div>
+                                    <div style={{ fontSize: '0.85rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#1e293b' }}>{seq.name}</div>
+                                    <div style={{ fontSize: '0.65rem', color: isDark ? 'var(--text-muted)' : '#64748b', fontWeight: 600 }}>Started {new Date(enrollment.enrolledAt).toLocaleDateString()}</div>
                                 </div>
-                                <span style={{ background: '#dcfce7', color: '#166534', fontSize: '0.6rem', padding: '2px 8px', borderRadius: '4px', fontWeight: 900 }}>ACTIVE</span>
+                                <span style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'var(--border-color)' : '#dcfce7', color: '#166534', fontSize: '0.6rem', padding: '2px 8px', borderRadius: '4px', fontWeight: 900 }}>ACTIVE</span>
                             </div>
                             <div style={{ marginBottom: '10px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', marginBottom: '4px' }}>
-                                    <span style={{ color: '#64748b', fontWeight: 700 }}>Next Step: {seq.steps[enrollment.currentStep]?.type || 'Completed'}</span>
-                                    <span style={{ color: '#1e293b', fontWeight: 800 }}>{Math.round((enrollment.currentStep / seq.steps.length) * 100)}%</span>
+                                    <span style={{ color: isDark ? 'var(--text-muted)' : '#64748b', fontWeight: 700 }}>Next Step: {seq.steps[enrollment.currentStep]?.type || 'Completed'}</span>
+                                    <span style={{ color: isDark ? 'var(--text-primary)' : '#1e293b', fontWeight: 800 }}>{Math.round((enrollment.currentStep / seq.steps.length) * 100)}%</span>
                                 </div>
-                                <div style={{ height: '6px', background: '#f1f5f9', borderRadius: '3px', overflow: 'hidden' }}>
+                                <div style={{ height: '6px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9', borderRadius: '3px', overflow: 'hidden' }}>
                                     <div style={{ width: `${(enrollment.currentStep / seq.steps.length) * 100}%`, height: '100%', background: '#3b82f6' }}></div>
                                 </div>
                             </div>
@@ -53,7 +56,7 @@ const ContactAutomation = React.memo(function ContactAutomation({
                                 </button>
                                 <button
                                     onClick={() => updateEnrollmentStatus(contact?._id || contact?.mobile, 'stopped')}
-                                    style={{ flex: 1, padding: '6px', fontSize: '0.65rem', fontWeight: 800, background: '#fee2e2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: '6px', cursor: 'pointer' }}
+                                    style={{ flex: 1, padding: '6px', fontSize: '0.65rem', fontWeight: 800, background: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'var(--border-color)' : '#fee2e2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: '6px', cursor: 'pointer' }}
                                 >
                                     Stop
                                 </button>
@@ -69,7 +72,7 @@ const ContactAutomation = React.memo(function ContactAutomation({
                             <div key={i} style={{ display: 'flex', gap: '10px', fontSize: '0.7rem' }}>
                                 <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#3b82f6', marginTop: '4px' }}></div>
                                 <div style={{ flex: 1 }}>
-                                    <div style={{ color: '#1e293b', fontWeight: 600 }}>{log.message}</div>
+                                    <div style={{ color: isDark ? 'var(--text-primary)' : '#1e293b', fontWeight: 600 }}>{log.message}</div>
                                     <div style={{ color: '#94a3b8', fontSize: '0.65rem' }}>{new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
                                 </div>
                             </div>

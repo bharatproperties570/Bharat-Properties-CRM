@@ -1,7 +1,9 @@
+import { useTheme } from '../../../context/ThemeContext';
 import React from 'react';
 import { renderValue } from '../../../utils/renderUtils';
 
 const InventorySpecsPanel = ({ inventory, getLookupValue, handleToggleIntent, handleCreateDeal, onFeedback, isInventoryActive, hideConsole = false }) => {
+    const { isDark } = useTheme();
     const intents = Array.isArray(inventory.intent) 
         ? inventory.intent.map(i => (i && typeof i === 'object' ? i.lookup_value : i))
         : [inventory.intent && typeof inventory.intent === 'object' ? inventory.intent.lookup_value : inventory.intent].filter(Boolean);
@@ -147,9 +149,11 @@ const InventorySpecsPanel = ({ inventory, getLookupValue, handleToggleIntent, ha
     );
 };
 
-const TransactionCard = ({ active, onToggle, onAction, icon, color, label, desc, disabled }) => (
-    <div style={{
-        padding: '20px', borderRadius: '20px', background: active ? '#fff' : 'rgba(248, 250, 252, 0.5)',
+const TransactionCard = ({ active, onToggle, onAction, icon, color, label, desc, disabled }) => {
+    const { isDark } = useTheme();
+    return (
+<div style={{
+        padding: '20px', borderRadius: '20px', background: active ? isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff' : 'rgba(248, 250, 252, 0.5)',
         border: `1px solid ${active ? color : '#e2e8f0'}`,
         display: 'flex', flexDirection: 'column', gap: '16px', transition: 'all 0.3s ease',
         boxShadow: active ? `0 10px 25px -5px ${color}15` : 'none',
@@ -166,7 +170,7 @@ const TransactionCard = ({ active, onToggle, onAction, icon, color, label, desc,
             </div>
         </div>
         <div>
-            <h4 style={{ margin: 0, fontSize: '0.8rem', fontWeight: 900, color: active ? '#0f172a' : '#64748b', letterSpacing: '0.5px' }}>{label}</h4>
+            <h4 style={{ margin: 0, fontSize: '0.8rem', fontWeight: 900, color: active ? isDark ? 'var(--text-primary)' : '#0f172a' : isDark ? 'var(--text-muted)' : '#64748b', letterSpacing: '0.5px' }}>{label}</h4>
             <p style={{ margin: '2px 0 0 0', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700 }}>{desc}</p>
         </div>
         <button
@@ -174,8 +178,8 @@ const TransactionCard = ({ active, onToggle, onAction, icon, color, label, desc,
             disabled={disabled}
             style={{
                 width: '100%', padding: '10px', borderRadius: '10px', border: 'none',
-                background: disabled ? '#f1f5f9' : (active ? color : '#f1f5f9'), 
-                color: disabled ? '#cbd5e1' : (active ? '#fff' : '#475569'),
+                background: disabled ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9' : (active ? color : isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9'), 
+                color: disabled ? '#cbd5e1' : (active ? '#fff' : isDark ? 'var(--text-primary)' : '#475569'),
                 fontSize: '0.75rem', fontWeight: 800, cursor: disabled ? 'not-allowed' : 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
                 transition: 'all 0.2s'
@@ -185,10 +189,13 @@ const TransactionCard = ({ active, onToggle, onAction, icon, color, label, desc,
             {disabled ? 'UNIT INACTIVE' : (active ? 'FEEDBACK' : 'ENABLE INTENT')}
         </button>
     </div>
-);
+    );
+};
 
-const SpecItem = ({ label, value, icon, highlight = false }) => (
-    <div style={{ 
+const SpecItem = ({ label, value, icon, highlight = false }) => {
+    const { isDark } = useTheme();
+    return (
+<div style={{ 
         padding: highlight ? '18px 16px' : '14px', 
         background: highlight ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(37, 99, 235, 0.03))' : 'rgba(248, 250, 252, 0.5)', 
         borderRadius: '16px', 
@@ -210,12 +217,13 @@ const SpecItem = ({ label, value, icon, highlight = false }) => (
             margin: 0, 
             fontSize: highlight ? '1rem' : '0.85rem', 
             fontWeight: highlight ? 900 : 700, 
-            color: highlight ? '#0f172a' : '#1e293b',
+            color: highlight ? isDark ? 'var(--text-primary)' : '#0f172a' : isDark ? 'var(--text-primary)' : '#1e293b',
             letterSpacing: highlight ? '-0.3px' : 'normal'
         }}>
             {value || '-'}
         </p>
     </div>
-);
+    );
+};
 
 export default React.memo(InventorySpecsPanel);

@@ -68,52 +68,53 @@
 /* Global Dark Mode Variable Overrides */
 html.dark-mode,
 .dark-mode {
-    --bg-light: #0f172a; /* Slate 900 */
-    --bg-gray: #1e293b;  /* Slate 800 */
-    --border-color: #334155; /* Slate 700 */
-    --text-main: #f8fafc; /* Slate 50 */
-    --text-muted: #94a3b8; /* Slate 400 */
-    --sidebar-bg: #0f172a;
-    --sidebar-text: #94a3b8;
-    --sidebar-active-bg: #1e293b;
-    --header-bg-translucent: rgba(15, 23, 42, 0.7);
-    --header-blur: blur(16px);
+    --bg-light: #07162B; /* Navy Royal */
+    --bg-gray: rgba(255, 255, 255, 0.04); /* Surface Glass */
+    --border-color: rgba(201, 146, 26, 0.15); /* Gold Faint */
+    --text-main: #EEE8D8; /* Warm White */
+    --text-muted: #A89E88; /* Warm Grey */
+    --sidebar-bg: #07162B;
+    --sidebar-text: #A89E88;
+    --sidebar-active-bg: rgba(201, 146, 26, 0.08); /* Faint Gold Hover */
+    --header-bg-translucent: rgba(7, 22, 43, 0.7);
+    --header-blur: blur(16px) saturate(180%);
 
     /* Contacts Page Theme Overrides */
-    --contact-row-bg: #1e293b;
-    --contact-row-hover: #334155;
-    --contact-row-selected: rgba(59, 130, 246, 0.15);
-    --contact-card-bg: #1e293b;
-    --contact-card-border: #334155;
-    --contact-card-header: #0f172a;
-    --contact-card-divider: #334155;
-    --contact-name-color: #fff;
+    --contact-row-bg: rgba(255, 255, 255, 0.02);
+    --contact-row-hover: rgba(255, 255, 255, 0.05);
+    --contact-row-selected: rgba(201, 146, 26, 0.12);
+    --contact-card-bg: rgba(255, 255, 255, 0.03);
+    --contact-card-border: rgba(201, 146, 26, 0.15);
+    --contact-card-header: rgba(0, 0, 0, 0.2);
+    --contact-card-divider: rgba(201, 146, 26, 0.15);
+    --contact-name-color: #FAD87A; /* Gold Light */
 
-    --toolbar-bg: #0f172a;
-    --toolbar-border: #1e293b;
-    --input-bg: #1e293b;
-    --input-border: #334155;
-    --input-text: #f8fafc;
+    --toolbar-bg: #07162B;
+    --toolbar-border: rgba(201, 146, 26, 0.15);
+    --input-bg: rgba(255, 255, 255, 0.03);
+    --input-border: rgba(201, 146, 26, 0.28);
+    --input-text: #EEE8D8;
 
-    --badge-prof-bg: #334155;
-    --badge-prof-color: #94a3b8;
+    --badge-prof-bg: rgba(201, 146, 26, 0.08);
+    --badge-prof-color: #FAD87A;
 
-    --stat-property-bg: rgba(16, 185, 129, 0.15);
-    --stat-property-color: #34d399;
-    --stat-investor-bg: rgba(239, 68, 68, 0.15);
-    --stat-investor-color: #f87171;
-    --stat-agent-bg: rgba(59, 130, 246, 0.15);
-    --stat-agent-color: #60a5fa;
-    --stat-sales-bg: rgba(192, 132, 252, 0.15);
-    --stat-sales-color: #c084fc;
+    --stat-property-bg: rgba(53, 185, 122, 0.15);
+    --stat-property-color: #35B97A; /* Marketing Green */
+    --stat-investor-bg: rgba(224, 82, 82, 0.15);
+    --stat-investor-color: #E05252; /* Marketing Red */
+    --stat-agent-bg: rgba(74, 159, 212, 0.15);
+    --stat-agent-color: #4A9FD4; /* Marketing Blue */
+    --stat-sales-bg: rgba(139, 125, 216, 0.15);
+    --stat-sales-color: #8B7DD8; /* Marketing Purple */
 
-    --stat-pill-bg: #1e293b;
-    --stat-pill-border: #334155;
-    --source-badge-bg: rgba(139, 92, 246, 0.15);
-    --source-badge-color: #c084fc;
-    --danger-color: #f87171;
-    --danger-bg: rgba(239, 68, 68, 0.15);
+    --stat-pill-bg: rgba(255, 255, 255, 0.03);
+    --stat-pill-border: rgba(201, 146, 26, 0.15);
+    --source-badge-bg: rgba(201, 146, 26, 0.1);
+    --source-badge-color: #E0A830;
+    --danger-color: #E05252;
+    --danger-bg: rgba(224, 82, 82, 0.15);
 }
+
 
 
 * {
@@ -2072,12 +2073,12 @@ body {
 .pipeline-value {
     font-size: 1.1rem;
     font-weight: 700;
-    color: #1a1f23;
+    color: var(--text-primary);
 }
 
 .pipeline-percent {
     font-size: 0.7rem;
-    color: #8e44ad;
+    color: var(--text-muted);
     font-weight: 700;
 }
 
@@ -3451,3 +3452,34 @@ html.dark-mode .search-spinner {
   border-top-color: var(--text-muted);
 }
 
+
+
+/* global-glass-overrides */
+html.dark-mode .bg-white,
+html.dark-mode .bg-gray-50,
+html.dark-mode .MuiPaper-root,
+html.dark-mode .list-item,
+html.dark-mode .dropdown-menu,
+html.dark-mode .list-header {
+    background-color: var(--contact-card-bg) !important;
+    backdrop-filter: blur(14px) saturate(180%) !important;
+    -webkit-backdrop-filter: blur(14px) saturate(180%) !important;
+    border-color: var(--border-color) !important;
+}
+html.dark-mode .list-item:not(.selected):hover {
+    background-color: var(--contact-row-hover) !important;
+}
+html.dark-mode .list-item.selected {
+    background-color: var(--contact-row-selected) !important;
+}
+html.dark-mode .shadow-sm,
+html.dark-mode .shadow-md {
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.2) !important;
+}
+
+html.dark-mode .dropdown-menu a {
+    color: var(--text-main) !important;
+}
+html.dark-mode .dropdown-menu a:hover {
+    background: var(--contact-row-hover) !important;
+}

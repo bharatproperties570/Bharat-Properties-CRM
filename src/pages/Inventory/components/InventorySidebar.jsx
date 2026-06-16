@@ -1,3 +1,4 @@
+import { useTheme } from '../../../context/ThemeContext';
 import React from 'react';
 import { renderValue, formatSafeDate } from '../../../utils/renderUtils';
 import { getInitials, fixDriveUrl, getYoutubeId } from '../../../utils/helpers';
@@ -15,6 +16,7 @@ const InventorySidebar = ({
     activeLeadsCount,
     refresh
 }) => {
+    const { isDark } = useTheme();
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
             {/* Lead Matching Stat (Inverted Premium Card) */}

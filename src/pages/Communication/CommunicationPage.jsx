@@ -14,13 +14,13 @@ import { formatLeadBudget } from '../../utils/numberToWords';
 
 /* ── Theme tokens ─────────────────────────────────────────────────────────── */
 const DARK = {
-    bg: '#0c0e1a', bg2: '#10131f', surface: '#151829', surfaceHov: '#1c2038',
-    border: 'rgba(255,255,255,0.07)', borderStrong: 'rgba(255,255,255,0.12)',
-    text: '#e2e8f0', text2: '#94a3b8', text3: '#475569',
-    accent: '#6366f1', accentSoft: 'rgba(99,102,241,0.15)',
-    bubble_in: 'rgba(255,255,255,0.07)', bubble_out: 'linear-gradient(135deg,#4f46e5,#6366f1)',
-    input: 'rgba(255,255,255,0.05)', inputBorder: 'rgba(255,255,255,0.1)',
-    badge: 'rgba(255,255,255,0.06)', badgeText: '#94a3b8',
+    bg: '#07162B', bg2: 'rgba(255,255,255,0.03)', surface: 'rgba(255,255,255,0.04)', surfaceHov: 'rgba(255,255,255,0.07)',
+    border: 'rgba(201, 146, 26, 0.15)', borderStrong: 'rgba(201, 146, 26, 0.28)',
+    text: '#EEE8D8', text2: '#A89E88', text3: '#6A6255',
+    accent: '#C9921A', accentSoft: 'rgba(201, 146, 26, 0.1)',
+    bubble_in: 'rgba(255,255,255,0.05)', bubble_out: 'linear-gradient(135deg, #C9921A, #E0A830)',
+    input: 'rgba(255,255,255,0.03)', inputBorder: 'rgba(201, 146, 26, 0.28)',
+    badge: 'rgba(201, 146, 26, 0.08)', badgeText: '#FAD87A',
 };
 const LIGHT = {
     bg: '#f0f4ff', bg2: '#e8edf8', surface: '#ffffff', surfaceHov: '#f8fafc',

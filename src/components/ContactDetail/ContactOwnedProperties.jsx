@@ -1,3 +1,5 @@
+import { useTheme } from '../../context/ThemeContext';
+
 import React from 'react';
 
 // Professional Date & Time Formatter
@@ -28,12 +30,13 @@ const ContactOwnedProperties = React.memo(function ContactOwnedProperties({
     renderLookup,
     onNavigate
 }) {
+    const { isDark } = useTheme();
     return (
         <>
             <style>
                 {`
                 .enterprise-asset-card {
-                    background: #ffffff;
+                    background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#ffffff';
                     border: 1px solid #e2e8f0;
                     border-top: 3px solid #10b981; /* Top accent green representing hard assets */
                     border-radius: 12px;
@@ -107,12 +110,12 @@ const ContactOwnedProperties = React.memo(function ContactOwnedProperties({
                                         {/* Row 1: SubCategory + Unit Number (e.g. "3 BHK 101" instead of "Unit #101") & Role Badge */}
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#0f172a' }}>
+                                                <span style={{ fontSize: '0.85rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>
                                                     {subCategoryText} {unitNoText}
                                                 </span>
                                             </div>
                                             <span style={{
-                                                background: prop.matchRole === 'ASSOCIATE' ? '#eff6ff' : '#ecfdf5',
+                                                background: prop.matchRole === 'ASSOCIATE' ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#eff6ff' : '#ecfdf5',
                                                 color: prop.matchRole === 'ASSOCIATE' ? '#2563eb' : '#059669',
                                                 fontSize: '0.55rem',
                                                 padding: '3px 8px',
@@ -127,10 +130,10 @@ const ContactOwnedProperties = React.memo(function ContactOwnedProperties({
                                         </div>
 
                                         {/* Row 2: Project Name + Block Name (in smaller text) + Asset icon circle badge */}
-                                        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px', fontSize: '0.75rem', color: '#475569', fontWeight: 650 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px', fontSize: '0.75rem', color: isDark ? 'var(--text-muted)' : '#475569', fontWeight: 650 }}>
                                             <div style={{
                                                 width: '24px', height: '24px',
-                                                background: '#f0fdf4',
+                                                background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f0fdf4',
                                                 border: '1px solid #dcfce7',
                                                 borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
                                             }}>
@@ -143,7 +146,7 @@ const ContactOwnedProperties = React.memo(function ContactOwnedProperties({
                                                     return 'fa-building';
                                                 })()}`} style={{ color: '#10b981', fontSize: '0.75rem' }}></i>
                                             </div>
-                                            <span style={{ color: '#1e293b', fontWeight: 700 }}>
+                                            <span style={{ color: isDark ? 'var(--text-primary)' : '#1e293b', fontWeight: 700 }}>
                                                 {projectNameText}
                                             </span>
                                             {prop.block && String(prop.block).trim() !== 'null' && String(prop.block).trim() !== 'undefined' && (
@@ -156,16 +159,16 @@ const ContactOwnedProperties = React.memo(function ContactOwnedProperties({
                                         {/* Row 3: Size & Status + Creation Date & Time (formatted with clock icon) */}
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px', paddingTop: '8px', borderTop: '1px solid #f1f5f9' }}>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                <span style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 700 }}>
+                                                <span style={{ fontSize: '0.65rem', color: isDark ? 'var(--text-muted)' : '#64748b', fontWeight: 700 }}>
                                                     {renderLookup(prop.sizeLabel, '') || renderLookup(prop.sizeConfig, '') || renderLookup(prop.size, '') || (prop.size?.value ? `${prop.size.value} ${prop.size.unit || ''}` : 'Size TBA')}
                                                 </span>
-                                                <span style={{ width: '3px', height: '3px', background: '#cbd5e1', borderRadius: '50%' }}></span>
+                                                <span style={{ width: '3px', height: '3px', background: isDark ? 'var(--border-color)' : '#cbd5e1', borderRadius: '50%' }}></span>
                                                 <span style={{ fontSize: '0.65rem', color: prop.status === 'Active' ? '#10b981' : '#ef4444', fontWeight: 800 }}>
                                                     {renderLookup(prop.status) || 'Active'}
                                                 </span>
                                             </div>
                                             
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.65rem', color: isDark ? 'var(--text-muted)' : '#64748b', fontWeight: 600 }}>
                                                 <i className="far fa-clock" style={{ fontSize: '0.65rem', color: '#94a3b8' }}></i>
                                                 <span>
                                                     {formatDateTime(prop.createdAt || prop.date) || 'Date TBA'}
@@ -176,8 +179,8 @@ const ContactOwnedProperties = React.memo(function ContactOwnedProperties({
                                 );
                             })
                         ) : (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px', background: '#f0fdf4', borderRadius: '12px', border: '1px dashed #a7f3d0' }}>
-                                <div style={{ width: '32px', height: '32px', background: '#dcfce7', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f0fdf4', borderRadius: '12px', border: '1px dashed #a7f3d0' }}>
+                                <div style={{ width: '32px', height: '32px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'var(--border-color)' : '#dcfce7', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                     <i className="fas fa-building" style={{ color: '#059669', fontSize: '0.9rem' }}></i>
                                 </div>
                                 <span style={{ fontSize: '0.75rem', color: '#059669', fontWeight: 600 }}>No owned properties found.</span>

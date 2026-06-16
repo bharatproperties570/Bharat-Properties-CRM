@@ -1,5 +1,7 @@
+import { useTheme } from '../../context/ThemeContext';
 
 const ActivityTypeTabs = ({ activeType, onTypeChange }) => {
+    const { isDark } = useTheme();
     const types = [
         { id: 'Call', icon: 'fas fa-phone-alt', color: '#3b82f6', label: 'Call' },
         { id: 'Meeting', icon: 'fas fa-users', color: '#a855f7', label: 'Meeting' },
@@ -13,7 +15,7 @@ const ActivityTypeTabs = ({ activeType, onTypeChange }) => {
             display: 'flex',
             gap: '8px',
             padding: '4px',
-            background: '#f1f5f9',
+            background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9',
             borderRadius: '12px',
             marginBottom: '24px'
         }}>
@@ -34,7 +36,7 @@ const ActivityTypeTabs = ({ activeType, onTypeChange }) => {
                         fontWeight: 700,
                         cursor: 'pointer',
                         transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                        backgroundColor: activeType === type.id ? '#fff' : 'transparent',
+                        backgroundColor: activeType === type.id ? isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff' : 'transparent',
                         color: activeType === type.id ? type.color : '#64748b',
                         boxShadow: activeType === type.id ? '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)' : 'none'
                     }}

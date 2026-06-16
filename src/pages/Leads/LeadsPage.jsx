@@ -1,5 +1,6 @@
-import React, { useEffect, useState, useCallback } from 'react';
 import { useTheme } from '../../context/ThemeContext';
+import React, { useEffect, useState, useCallback } from 'react';
+
 import PipelineDashboard from '../../components/PipelineDashboard';
 import Swal from 'sweetalert2';
 import { api, enrichmentAPI } from '../../utils/api';
@@ -1303,7 +1304,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
 
                     return (
                         <div
-                            style={{ position: 'fixed', top: activeMatchPopover.y, left: activeMatchPopover.x, zIndex: 2000, background: 'var(--bg-card)', color: 'var(--text-main)', padding: '16px', borderRadius: '12px', boxShadow: '0 10px 40px rgba(0,0,0,0.15)', border: '1px solid var(--border-color)', minWidth: '320px' }}
+                            style={{ position: 'fixed', top: activeMatchPopover.y, left: activeMatchPopover.x, zIndex: 2000, background: isDark ? 'var(--bg-main)' : '#fff', backdropFilter: 'blur(24px) saturate(200%)', color: 'var(--text-main)', padding: '16px', borderRadius: '12px', boxShadow: '0 10px 40px rgba(0,0,0,0.5)', border: '1px solid var(--border-color)', minWidth: '320px' }}
                             onMouseLeave={() => setActiveMatchPopover(null)}
                         >
                             <div style={{ fontSize: '0.7rem', fontWeight: 900, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '12px', letterSpacing: '0.5px', display: 'flex', justifyContent: 'space-between' }}>
@@ -1332,7 +1333,19 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                                 <div style={{ fontWeight: 800, fontSize: '0.75rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{typeof (item.propertyType || item.type) === 'object' ? ((item.propertyType || item.type).lookup_value || (item.propertyType || item.type).name) : (getLookupValue('PropertyType', item.propertyType || item.type) || (item.propertyType || item.type))} at {typeof item.location === 'object' ? (item.location.lookup_value || item.location.name) : (getLookupValue('Location', item.location) || item.location)}</div>
                                                 <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>₹{renderValue(item.price)} • {renderValue(item.size)}</div>
                                             </div>
-                                            <div style={{ background: item.matchPercentage > 80 ? '#dcfce7' : '#fef3c7', color: item.matchPercentage > 80 ? '#166534' : '#92400e', padding: '2px 6px', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 900, flexShrink: 0 }}>
+                                            <div style={{ 
+                                                background: item.matchPercentage > 80 
+                                                    ? (isDark ? 'rgba(74, 222, 128, 0.15)' : '#dcfce7') 
+                                                    : (isDark ? 'rgba(250, 204, 21, 0.15)' : '#fef3c7'), 
+                                                color: item.matchPercentage > 80 
+                                                    ? (isDark ? '#4ade80' : '#166534') 
+                                                    : (isDark ? '#facc15' : '#92400e'), 
+                                                padding: '2px 8px', 
+                                                borderRadius: '6px', 
+                                                fontSize: '0.7rem', 
+                                                fontWeight: 900, 
+                                                flexShrink: 0 
+                                            }}>
                                                 {item.matchPercentage}%
                                             </div>
                                         </div>
@@ -1433,6 +1446,7 @@ const LeadItem = React.memo(function LeadItem({
     setRefreshTrigger,
     showToast
 }) {
+    const { isDark } = useTheme();
     if (!lead) return null;
 
     // Logic to split Intent (Buy/Rent) from Property Type (Residential Plot etc)
@@ -1532,7 +1546,7 @@ const LeadItem = React.memo(function LeadItem({
                                 {lead.name}
                             </a>
                             {lead.aiClosingProbability > 75 && (
-                                <span style={{ marginLeft: '8px', background: '#dcfce7', color: '#166534', fontSize: '0.6rem', padding: '2px 6px', borderRadius: '4px', fontWeight: 900, border: '1px solid #bbf7d0' }}>
+                                <span style={{ marginLeft: '8px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#dcfce7', color: '#166534', fontSize: '0.6rem', padding: '2px 6px', borderRadius: '4px', fontWeight: 900, border: '1px solid #bbf7d0' }}>
                                     ✨ HIGH INTENT
                                 </span>
                             )}
@@ -1541,7 +1555,7 @@ const LeadItem = React.memo(function LeadItem({
                             {lead.isTemporary && lead.expiryBadge ? (
                                 <span
                                     style={{
-                                        background: lead.expiryBadge.class === 'badge-danger' ? '#fee2e2' : '#fef3c7',
+                                        background: lead.expiryBadge.class === 'badge-danger' ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#fee2e2' : '#fef3c7',
                                         color: lead.expiryBadge.class === 'badge-danger' ? '#991b1b' : '#92400e',
                                         fontSize: '0.65rem',
                                         padding: '1px 6px',
@@ -1560,7 +1574,7 @@ const LeadItem = React.memo(function LeadItem({
                                 LeadConversionService.isConverted(lead.mobile) || lead.isConverted ? (
                                     <span
                                         onClick={() => onNavigate('contact-detail', lead._id)}
-                                        style={{ background: '#dcfce7', color: '#166534', fontSize: '0.6rem', padding: '1px 6px', borderRadius: '4px', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}
+                                        style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#dcfce7', color: '#166534', fontSize: '0.6rem', padding: '1px 6px', borderRadius: '4px', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}
                                     >
                                         <i className="fas fa-check-circle"></i> CONVERTED
                                     </span>
@@ -1613,7 +1627,7 @@ const LeadItem = React.memo(function LeadItem({
                                 const rect = e.currentTarget.getBoundingClientRect();
                                 setActiveMatchPopover({ name: lead.name, x: rect.left, y: rect.bottom + 10 });
                             }}
-                            style={{ background: '#e0f2fe', color: '#0284c7', fontWeight: 800, padding: '3px 10px', borderRadius: '6px', cursor: 'pointer', border: '1px solid rgba(2, 132, 199, 0.1)' }}
+                            style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#e0f2fe', color: '#0284c7', fontWeight: 800, padding: '3px 10px', borderRadius: '6px', cursor: 'pointer', border: '1px solid rgba(2, 132, 199, 0.1)' }}
                         >
                             {lead.matched} Matches
                         </span>
@@ -1647,7 +1661,7 @@ const LeadItem = React.memo(function LeadItem({
                         </div>
                     )}
                     {(lead.locHNo || lead.locStreet) && (
-                        <div style={{ color: '#334155', fontSize: '0.7rem' }}>
+                        <div style={{ color: isDark ? 'var(--text-primary)' : '#334155', fontSize: '0.7rem' }}>
                             <i className="fas fa-home" style={{ marginRight: '6px', color: 'var(--text-muted)', fontSize: '0.65rem' }}></i>
                             {[lead.locHNo, lead.locStreet].map(v => renderValue(v)).filter(Boolean).join(', ')}
                         </div>
@@ -1822,6 +1836,7 @@ const LeadCard = React.memo(function LeadCard({
     AIExpertService,
     showToast
 }) {
+    const { isDark } = useTheme();
     if (!lead) return null;
 
     const normalizedLead = {
@@ -1914,7 +1929,7 @@ const LeadCard = React.memo(function LeadCard({
                                     setIsOutcomeModalOpen(true);
                                 }}
                                 style={{
-                                    background: '#f0fdf4',
+                                    background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f0fdf4',
                                     border: '1px solid #bbf7d0',
                                     borderRadius: '6px',
                                     padding: '6px 10px',
@@ -1941,7 +1956,7 @@ const LeadCard = React.memo(function LeadCard({
                     }
                     return null;
                 })()}
-                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#334155' }}>
+                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: isDark ? 'var(--text-primary)' : '#334155' }}>
                     {(() => {
                         const cat = Array.isArray(lead.reqDisplay?.category)
                             ? lead.reqDisplay.category.map(s => {

@@ -1,6 +1,7 @@
+import { useTheme } from '../../context/ThemeContext';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { api } from '../../utils/api';
-import { useTheme } from '../../context/ThemeContext';
+
 import {
   BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -141,7 +142,7 @@ const KPI = ({ icon, iconBg, iconColor, label, value, sub, trend, trendDir, colo
 
 // ── MAIN PAGE ────────────────────────────────────────────────
 const LeadAnalyticsPage = ({ onNavigate }) => {
-  const { isDark } = useTheme();
+    const { isDark } = useTheme();
   const tickColor = isDark ? '#64748b' : '#94a3b8';
   const gridStroke = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)';
   const TipWithTheme = (props) => <Tip {...props} isDark={isDark} />;

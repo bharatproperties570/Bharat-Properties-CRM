@@ -1,3 +1,4 @@
+import { useTheme } from '../../context/ThemeContext';
 import React, { useState, useCallback, useMemo } from 'react';
 import { renderValue } from '../../utils/renderUtils';
 import { getInitials, fixDriveUrl, getYoutubeId } from '../../utils/helpers';
@@ -479,6 +480,7 @@ export default function InventoryDetailPage({ inventoryId, onBack, onAddActivity
 
 // Media Viewer Internal Component (Keep here as it's small)
 const MediaViewerModal = ({ data, onClose }) => {
+    const { isDark } = useTheme();
     console.log('MediaViewerModal Rendering with data:', data);
     const embedUrl = useMemo(() => {
         if (!data || !data.url) return null;

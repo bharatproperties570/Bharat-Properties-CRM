@@ -1,3 +1,4 @@
+import { useTheme } from '../../context/ThemeContext';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import Swal from 'sweetalert2';
 import { api, activitiesAPI } from '../../utils/api';
@@ -49,6 +50,7 @@ import PriceIntelligenceCard from '../../components/PriceIntelligenceCard';
 import DealPriceJourneyCard from '../../components/DealPriceJourneyCard';
 
 const DealDetailPage = ({ dealId, onBack, onNavigate, onAddActivity }) => {
+    const { isDark } = useTheme();
     const { user } = useUserContext();
     const { getLookupValue } = usePropertyConfig();
     const [deal, setDeal] = useState(null);
@@ -399,7 +401,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
             icon: 'warning',
             showCancelButton: true,
             confirmButtonColor: '#ef4444',
-            cancelButtonColor: '#64748b',
+            cancelButtonColor: isDark ? 'var(--text-muted)' : '#64748b',
             confirmButtonText: 'Yes, mark as lost'
         });
 
@@ -563,9 +565,9 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
     }, [currentStage]);
 
     if (loading) return (
-        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#f8fafc' }}>
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc' }}>
             <div className="loader"></div>
-            <span style={{ marginLeft: '12px', fontWeight: 600, color: '#64748b' }}>Loading Transaction Command Center...</span>
+            <span style={{ marginLeft: '12px', fontWeight: 600, color: isDark ? 'var(--text-muted)' : '#64748b' }}>Loading Transaction Command Center...</span>
         </div>
     );
     if (!deal) return <div className="error-state">Deal not found</div>;
@@ -621,7 +623,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                 <div style={{ flex: '0 0 400px', display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto', minHeight: 0, paddingBottom: '20px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                         <i className="fas fa-building" style={{ color: '#4f46e5' }}></i>
-                        <span style={{ fontSize: '0.7rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Unit & Location Intelligence</span>
+                        <span style={{ fontSize: '0.7rem', fontWeight: 900, color: isDark ? 'var(--text-muted)' : '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Unit & Location Intelligence</span>
                     </div>
 
                     {inventory ? (
@@ -670,24 +672,24 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                 </div>
 
                 {/* COLUMN 2: CENTER - INTERACTION INTELLIGENCE */}
-                <div style={{ flex: '1', display: 'flex', flexDirection: 'column', background: '#f8fafc', overflowY: 'auto', minHeight: 0, minWidth: '0', position: 'relative', paddingBottom: '20px' }}>
+                <div style={{ flex: '1', display: 'flex', flexDirection: 'column', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', overflowY: 'auto', minHeight: 0, minWidth: '0', position: 'relative', paddingBottom: '20px' }}>
                     <div className="glass-card" style={{ 
-                        background: '#fff',
+                        background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff',
                         borderRadius: '16px',
-                        border: '1px solid #e2e8f0',
+                        border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0',
                         boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)',
                         display: 'flex',
                         flexDirection: 'column',
                         minHeight: '100%'
                     }}>
-                        <div style={{ padding: '0 20px', borderBottom: '1px solid #f1f5f9', background: '#fff', display: 'flex', alignItems: 'center', gap: '24px', borderTopLeftRadius: '16px', borderTopRightRadius: '16px' }}>
+                        <div style={{ padding: '0 20px', borderBottom: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #f1f5f9', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', display: 'flex', alignItems: 'center', gap: '24px', borderTopLeftRadius: '16px', borderTopRightRadius: '16px' }}>
                             <button 
                                 onClick={() => setActiveCenterTab('activities')}
                                 style={{ 
                                     padding: '16px 0', 
                                     fontSize: '0.75rem', 
                                     fontWeight: 900, 
-                                    color: activeCenterTab === 'activities' ? '#4f46e5' : '#64748b', 
+                                    color: activeCenterTab === 'activities' ? '#4f46e5' : isDark ? 'var(--text-muted)' : '#64748b', 
                                     textTransform: 'uppercase', 
                                     letterSpacing: '0.5px',
                                     borderBottom: activeCenterTab === 'activities' ? '2px solid #4f46e5' : 'none',
@@ -704,7 +706,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                                     padding: '16px 0', 
                                     fontSize: '0.75rem', 
                                     fontWeight: 900, 
-                                    color: activeCenterTab === 'marketing' ? '#4f46e5' : '#64748b', 
+                                    color: activeCenterTab === 'marketing' ? '#4f46e5' : isDark ? 'var(--text-muted)' : '#64748b', 
                                     textTransform: 'uppercase', 
                                     letterSpacing: '0.5px',
                                     borderBottom: activeCenterTab === 'marketing' ? '2px solid #4f46e5' : 'none',
@@ -761,7 +763,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                 <div style={{ flex: '0 0 400px', display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto', minHeight: 0, paddingBottom: '20px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexShrink: 0 }}>
                         <i className="fas fa-file-invoice-dollar" style={{ color: '#4f46e5' }}></i>
-                        <span style={{ fontSize: '0.7rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Pricing & Logistics</span>
+                        <span style={{ fontSize: '0.7rem', fontWeight: 900, color: isDark ? 'var(--text-muted)' : '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Pricing & Logistics</span>
                     </div>
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', flexShrink: 0 }}>
@@ -833,32 +835,32 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                         <div className="glass-card">
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
                                 <div style={{ width: '32px', height: '32px', background: 'rgba(100, 116, 139, 0.1)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                    <i className="fas fa-history" style={{ color: '#64748b', fontSize: '0.8rem' }}></i>
+                                    <i className="fas fa-history" style={{ color: isDark ? 'var(--text-muted)' : '#64748b', fontSize: '0.8rem' }}></i>
                                 </div>
-                                <h3 style={{ margin: 0, fontSize: '0.85rem', fontWeight: 900, color: '#0f172a' }}>Property History</h3>
+                                <h3 style={{ margin: 0, fontSize: '0.85rem', fontWeight: 900, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>Property History</h3>
                             </div>
-                            <div style={{ paddingLeft: '14px', borderLeft: '2px solid #f1f5f9', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            <div style={{ paddingLeft: '14px', borderLeft: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '2px solid #f1f5f9', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                 {inventory ? (
                                     (inventory.ownerHistory || []).length > 0 ? (
                                         (inventory.ownerHistory || []).reverse().slice(0, 5).map((item, idx) => (
                                             <div key={idx} style={{ position: 'relative' }}>
                                                 <div style={{ position: 'absolute', left: '-20px', top: '4px', width: '8px', height: '8px', background: '#10b981', borderRadius: '50%', border: '2px solid #fff' }}></div>
-                                                <p style={{ margin: 0, fontSize: '0.75rem', fontWeight: 800, color: '#1e293b' }}>{renderValue(item.contactName)}</p>
-                                                <p style={{ margin: 0, fontSize: '0.6rem', color: '#64748b' }}>{new Date(item.date).toLocaleDateString()}</p>
+                                                <p style={{ margin: 0, fontSize: '0.75rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#1e293b' }}>{renderValue(item.contactName)}</p>
+                                                <p style={{ margin: 0, fontSize: '0.6rem', color: isDark ? 'var(--text-muted)' : '#64748b' }}>{new Date(item.date).toLocaleDateString()}</p>
                                             </div>
                                         ))
                                     ) : (
-                                        <p style={{ fontSize: '0.7rem', color: '#64748b', margin: 0 }}>No history recorded.</p>
+                                        <p style={{ fontSize: '0.7rem', color: isDark ? 'var(--text-muted)' : '#64748b', margin: 0 }}>No history recorded.</p>
                                     )
                                 ) : (
-                                    <p style={{ fontSize: '0.7rem', color: '#64748b', margin: 0 }}>No inventory linked.</p>
+                                    <p style={{ fontSize: '0.7rem', color: isDark ? 'var(--text-muted)' : '#64748b', margin: 0 }}>No inventory linked.</p>
                                 )}
                             </div>
                         </div>
 
                         {/* Inventory Lifecycle */}
                         <div className="glass-card">
-                            <h3 style={{ fontSize: '0.75rem', fontWeight: 900, color: '#0f172a', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.6px' }}>Lifecycle Analytics</h3>
+                            <h3 style={{ fontSize: '0.75rem', fontWeight: 900, color: isDark ? 'var(--text-primary)' : '#0f172a', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.6px' }}>Lifecycle Analytics</h3>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                                 <LifecycleMetric label="Acquired" value={inventory?.createdAt ? new Date(inventory.createdAt).toLocaleDateString() : '-'} icon="calendar-plus" color="#10b981" />
                                 <LifecycleMetric label="Modified" value={inventory?.updatedAt ? new Date(inventory.updatedAt).toLocaleDateString() : '-'} icon="edit" color="#3b82f6" />
@@ -1065,17 +1067,17 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
 
             {isPublishModalOpen && (
                 <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.6)', zIndex: 1000, display: 'flex', justifyContent: 'center', alignItems: 'center', backdropFilter: 'blur(4px)' }}>
-                    <div style={{ background: '#fff', width: '95%', maxWidth: '600px', borderRadius: '16px', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)' }}>
+                    <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', width: '95%', maxWidth: '600px', borderRadius: '16px', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)' }}>
                         
                         {/* Header */}
-                        <div style={{ padding: '20px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ padding: '20px 24px', borderBottom: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                <div style={{ width: '38px', height: '38px', background: '#eff6ff', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <div style={{ width: '38px', height: '38px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#eff6ff', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                     <i className="fas fa-globe" style={{ color: '#2563eb', fontSize: '1.1rem' }}></i>
                                 </div>
                                 <div>
-                                    <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>Website Publishing Settings</h3>
-                                    <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>Configure privacy and listing description</p>
+                                    <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#1e293b', margin: 0 }}>Website Publishing Settings</h3>
+                                    <p style={{ margin: 0, fontSize: '0.75rem', color: isDark ? 'var(--text-muted)' : '#64748b' }}>Configure privacy and listing description</p>
                                 </div>
                             </div>
                             <button 
@@ -1087,19 +1089,19 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                         </div>
 
                         {/* Body */}
-                        <div style={{ padding: '24px', overflowY: 'auto', maxHeight: '70vh', background: '#f8fafc', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                        <div style={{ padding: '24px', overflowY: 'auto', maxHeight: '70vh', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', display: 'flex', flexDirection: 'column', gap: '20px' }}>
                             
                             {/* Privacy Settings Card */}
-                            <div style={{ background: '#fff', padding: '16px 20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                                <h5 style={{ margin: '0 0 14px 0', fontSize: '0.85rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', padding: '16px 20px', borderRadius: '12px', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0' }}>
+                                <h5 style={{ margin: '0 0 14px 0', fontSize: '0.85rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#1e293b', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                     <i className="fas fa-shield-alt" style={{ color: '#2563eb' }}></i> Privacy & Display Settings
                                 </h5>
                                 
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                                         <div>
-                                            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#334155', display: 'block' }}>Display Unit Number</span>
-                                            <span style={{ fontSize: '0.7rem', color: '#64748b' }}>Show the exact unit number on the public website.</span>
+                                            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: isDark ? 'var(--text-primary)' : '#334155', display: 'block' }}>Display Unit Number</span>
+                                            <span style={{ fontSize: '0.7rem', color: isDark ? 'var(--text-muted)' : '#64748b' }}>Show the exact unit number on the public website.</span>
                                         </div>
                                         <label className="switch" style={{ position: 'relative', display: 'inline-block', width: '40px', height: '20px' }}>
                                             <input 
@@ -1115,7 +1117,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                                             }}>
                                                 <span style={{
                                                     position: 'absolute', content: '""', height: '14px', width: '14px', left: publishFormShareUnitNumber ? '22px' : '3px', bottom: '3px',
-                                                    backgroundColor: 'white', transition: '.4s', borderRadius: '50%'
+                                                    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : 'white', transition: '.4s', borderRadius: '50%'
                                                 }} />
                                             </span>
                                         </label>
@@ -1123,8 +1125,8 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                                     
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px dashed #e2e8f0', paddingTop: '12px' }}>
                                         <div>
-                                            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#334155', display: 'block' }}>Display Map Location</span>
-                                            <span style={{ fontSize: '0.7rem', color: '#64748b' }}>Share precise geographical details on website maps.</span>
+                                            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: isDark ? 'var(--text-primary)' : '#334155', display: 'block' }}>Display Map Location</span>
+                                            <span style={{ fontSize: '0.7rem', color: isDark ? 'var(--text-muted)' : '#64748b' }}>Share precise geographical details on website maps.</span>
                                         </div>
                                         <label className="switch" style={{ position: 'relative', display: 'inline-block', width: '40px', height: '20px' }}>
                                             <input 
@@ -1140,7 +1142,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                                             }}>
                                                 <span style={{
                                                     position: 'absolute', content: '""', height: '14px', width: '14px', left: publishFormShareLocation ? '22px' : '3px', bottom: '3px',
-                                                    backgroundColor: 'white', transition: '.4s', borderRadius: '50%'
+                                                    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : 'white', transition: '.4s', borderRadius: '50%'
                                                 }} />
                                             </span>
                                         </label>
@@ -1149,11 +1151,11 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                             </div>
 
                             {/* AI Listing Description Card */}
-                            <div style={{ background: '#fff', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', position: 'relative', overflow: 'hidden' }}>
+                            <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', padding: '20px', borderRadius: '12px', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0', position: 'relative', overflow: 'hidden' }}>
                                 <div style={{ position: 'absolute', top: '-50px', right: '-50px', width: '120px', height: '120px', background: 'radial-gradient(circle, rgba(99, 102, 241, 0.1) 0%, rgba(255,255,255,0) 70%)', pointerEvents: 'none' }}></div>
                                 
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                    <label style={{ fontSize: '0.85rem', color: '#1e293b', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <label style={{ fontSize: '0.85rem', color: isDark ? 'var(--text-primary)' : '#1e293b', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
                                         <i className="fas fa-globe text-blue-600"></i> Public Website Listing Description
                                     </label>
                                     <button
@@ -1187,12 +1189,12 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                                         width: '100%', 
                                         padding: '10px 12px', 
                                         borderRadius: '8px', 
-                                        border: '1px solid #cbd5e1', 
+                                        border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #cbd5e1', 
                                         fontSize: '0.85rem', 
                                         outline: 'none', 
                                         minHeight: '160px', 
                                         resize: 'vertical', 
-                                        background: '#fff', 
+                                        background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', 
                                         lineHeight: '1.5' 
                                     }}
                                     value={publishFormDescription}
@@ -1200,7 +1202,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                                     placeholder="Write a premium description for the public website. (Tip: Use the AI Generator above to draft an engaging, high-converting listing automatically using your selected property details!)"
                                 />
                                 
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px', fontSize: '0.72rem', color: '#64748b', fontWeight: 600 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px', fontSize: '0.72rem', color: isDark ? 'var(--text-muted)' : '#64748b', fontWeight: 600 }}>
                                     <i className="fas fa-info-circle text-blue-500"></i>
                                     <span>This description will be published to the public portal for prospective buyers.</span>
                                 </div>
@@ -1208,10 +1210,10 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                         </div>
 
                         {/* Footer */}
-                        <div style={{ padding: '16px 24px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: '12px', background: '#fff' }}>
+                        <div style={{ padding: '16px 24px', borderTop: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: '12px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff' }}>
                             <button 
                                 onClick={() => setIsPublishModalOpen(false)} 
-                                style={{ padding: '8px 16px', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#fff', color: '#475569', fontWeight: 600, cursor: 'pointer', fontSize: '0.85rem' }}
+                                style={{ padding: '8px 16px', borderRadius: '8px', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #cbd5e1', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', color: isDark ? 'var(--text-primary)' : '#475569', fontWeight: 600, cursor: 'pointer', fontSize: '0.85rem' }}
                             >
                                 Cancel
                             </button>
@@ -1220,7 +1222,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                                     onClick={handleUnpublishListing}
                                     disabled={savingPublishSettings}
                                     style={{
-                                        padding: '8px 16px', borderRadius: '8px', border: '1px solid #fca5a5', background: '#fef2f2', color: '#ef4444', fontWeight: 600, cursor: 'pointer', fontSize: '0.85rem',
+                                        padding: '8px 16px', borderRadius: '8px', border: '1px solid #fca5a5', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fef2f2', color: '#ef4444', fontWeight: 600, cursor: 'pointer', fontSize: '0.85rem',
                                         opacity: savingPublishSettings ? 0.7 : 1
                                     }}
                                 >
@@ -1246,14 +1248,17 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
 };
 
 
-const LifecycleMetric = ({ label, value, icon, color }) => (
-    <div style={{ padding: '10px', background: '#f8fafc', borderRadius: '10px', border: '1px solid #f1f5f9', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+const LifecycleMetric = ({ label, value, icon, color }) => {
+    const { isDark } = useTheme();
+    return (
+    <div style={{ padding: '10px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', borderRadius: '10px', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #f1f5f9', display: 'flex', flexDirection: 'column', gap: '2px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
             <i className={`fas fa-${icon}`} style={{ fontSize: '0.6rem', color: color }}></i>
-            <span style={{ fontSize: '0.5rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>{label}</span>
+            <span style={{ fontSize: '0.5rem', fontWeight: 800, color: isDark ? 'var(--text-muted)' : '#64748b', textTransform: 'uppercase' }}>{label}</span>
         </div>
-        <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#1e293b' }}>{value}</div>
+        <div style={{ fontSize: '0.75rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#1e293b' }}>{value}</div>
     </div>
-);
+    );
+};
 
 export default DealDetailPage;

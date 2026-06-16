@@ -184,11 +184,11 @@ const InventoryTable = ({
                                                 width: 'auto',
                                                 height: '26px', 
                                                 padding: '0 8px',
-                                                background: isActive ? '#dcfce7' : '#f1f5f9', 
+                                                background: isActive ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#dcfce7' : isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9', 
                                                 borderRadius: '6px',
                                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                                                 fontSize: '0.85rem', fontWeight: 900, 
-                                                color: isActive ? '#15803d' : '#1e293b',
+                                                color: isActive ? '#15803d' : isDark ? 'var(--text-primary)' : '#1e293b',
                                                 border: isActive ? '1px solid #bdf4c9' : '1px solid #e2e8f0'
                                             }}
                                             onClick={(e) => { e.stopPropagation(); onNavigate('inventory-detail', item._id); }}

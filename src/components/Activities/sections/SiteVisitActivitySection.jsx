@@ -1,3 +1,4 @@
+import { useTheme } from '../../../context/ThemeContext';
 import { FormLabel, FormSelect, ActivityCard, SectionTitle } from '../ActivityCommon';
 
 const SiteVisitActivitySection = ({ 
@@ -13,6 +14,7 @@ const SiteVisitActivitySection = ({
     removePropertyRow,
     view = 'full' // 'selection', 'results', or 'full'
 }) => {
+    const { isDark } = useTheme();
     const isCompleted = formData.status === 'Completed';
     const visitAct = activityMasterFields?.activities?.find(a => a.name === 'Site Visit');
     const purpose = visitAct?.purposes?.find(p => p.name === formData.purpose);
@@ -53,7 +55,7 @@ const SiteVisitActivitySection = ({
                             placeholder="Why was this visit cancelled?"
                             style={{
                                 width: '100%', padding: '10px', borderRadius: '10px', border: `1px solid ${errors.cancellationReason ? '#ef4444' : '#e2e8f0'}`,
-                                fontSize: '0.9rem', backgroundColor: '#fff', minHeight: '80px', outline: 'none'
+                                fontSize: '0.9rem', backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', minHeight: '80px', outline: 'none'
                             }}
                         />
                     </div>
@@ -78,7 +80,7 @@ const SiteVisitActivitySection = ({
                             }}>
                                 <div style={{ flex: 1.5 }}>
                                     <div style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b' }}>PROPERTY</div>
-                                    <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#1e293b' }}>
+                                    <div style={{ fontSize: '0.85rem', fontWeight: 600, color: isDark ? 'var(--text-primary)' : '#1e293b' }}>
                                         {row.project || 'No Project'} - {row.property || 'No Unit'}
                                     </div>
                                 </div>

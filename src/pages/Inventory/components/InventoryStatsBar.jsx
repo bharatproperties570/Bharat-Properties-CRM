@@ -1,7 +1,9 @@
+import { useTheme } from '../../../context/ThemeContext';
 import React from 'react';
 import { renderValue } from '../../../utils/renderUtils';
 
 const InventoryStatsBar = ({ statusFilter, setStatusFilter, activeCount, inactiveCount, setCurrentPage, onNavigate }) => {
+    const { isDark } = useTheme();
     return (
         <div className="inventory-stats-row" style={{ padding: '8px 25px', display: 'flex', alignItems: 'center', justifyContent: 'flex-start', background: 'var(--bg-card)', borderBottom: '1px solid var(--border-color)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0' }}>
@@ -14,7 +16,7 @@ const InventoryStatsBar = ({ statusFilter, setStatusFilter, activeCount, inactiv
                     style={{
                         padding: '10px 25px 10px 20px',
                         cursor: 'pointer',
-                        backgroundColor: statusFilter === 'InActive' ? '#f1f5f9' : '#fff',
+                        backgroundColor: statusFilter === 'InActive' ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9' : isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff',
                         color: 'var(--text-muted)',
                         border: '1px solid var(--border-color)',
                         borderRight: 'none',
@@ -42,8 +44,8 @@ const InventoryStatsBar = ({ statusFilter, setStatusFilter, activeCount, inactiv
                     style={{
                         padding: '10px 25px 10px 30px',
                         cursor: 'pointer',
-                        backgroundColor: statusFilter === 'Active' ? '#f1f5f9' : '#fff',
-                        color: statusFilter === 'Active' ? '#10b981' : '#64748b',
+                        backgroundColor: statusFilter === 'Active' ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9' : isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff',
+                        color: statusFilter === 'Active' ? '#10b981' : isDark ? 'var(--text-muted)' : '#64748b',
                         border: '1px solid var(--border-color)',
                         marginLeft: '-10px',
                         fontWeight: 800,

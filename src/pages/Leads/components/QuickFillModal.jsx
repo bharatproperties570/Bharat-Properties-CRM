@@ -1,3 +1,5 @@
+import { useTheme } from '../../../context/ThemeContext';
+
 import { useState, useEffect, useRef } from 'react';
 import { api } from '../../../utils/api';
 import toast from 'react-hot-toast';
@@ -33,6 +35,7 @@ const BUDGET_VALUES = [
 // --- Local Re-usable UI Components matching AddLeadModal ---
 
 const AnimatedSegmentControl = ({ options, value, onChange }) => {
+    const { isDark } = useTheme();
     const [activeIndex, setActiveIndex] = useState(options.indexOf(value));
 
     useEffect(() => {
@@ -48,7 +51,7 @@ const AnimatedSegmentControl = ({ options, value, onChange }) => {
         <div style={{
             position: 'relative',
             display: 'flex',
-            background: '#f1f5f9',
+            background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9',
             borderRadius: '12px',
             padding: '4px',
             border: '1px solid #e2e8f0',
@@ -61,7 +64,7 @@ const AnimatedSegmentControl = ({ options, value, onChange }) => {
                 bottom: '4px',
                 left: `calc(${activeIndex * (100 / options.length)}% + 4px)`,
                 width: `calc(${100 / options.length}% - 8px)`,
-                background: '#fff',
+                background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff',
                 borderRadius: '8px',
                 boxShadow: '0 2px 4px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04)',
                 transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
@@ -81,7 +84,7 @@ const AnimatedSegmentControl = ({ options, value, onChange }) => {
                         border: 'none',
                         fontSize: '0.95rem',
                         fontWeight: value === option ? 600 : 500,
-                        color: value === option ? '#0f172a' : '#64748b',
+                        color: value === option ? isDark ? 'var(--text-primary)' : '#0f172a' : '#64748b',
                         cursor: 'pointer',
                         transition: 'color 0.2s',
                         display: 'flex',
@@ -97,6 +100,7 @@ const AnimatedSegmentControl = ({ options, value, onChange }) => {
 };
 
 const CustomMultiSelect = ({ options, value, onChange, placeholder, disabled, allowSelectAll = false }) => {
+    const { isDark } = useTheme();
     const [isOpen, setIsOpen] = useState(false);
     const containerRef = useRef(null);
 
@@ -128,10 +132,10 @@ const CustomMultiSelect = ({ options, value, onChange, placeholder, disabled, al
                     borderRadius: '6px',
                     border: '1px solid #cbd5e1',
                     fontSize: '0.9rem',
-                    color: '#334155',
+                    color: isDark ? 'var(--text-primary)' : '#334155',
                     outline: 'none',
                     transition: 'border-color 0.2s',
-                    background: disabled ? '#f8fafc' : '#fff',
+                    background: disabled ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc' : isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff',
                     cursor: disabled ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     justifyContent: 'space-between',
@@ -146,7 +150,7 @@ const CustomMultiSelect = ({ options, value, onChange, placeholder, disabled, al
             </div>
 
             {isOpen && !disabled && (
-                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px', marginTop: '4px', zIndex: 100, maxHeight: '200px', overflowY: 'auto', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}>
+                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', border: '1px solid #cbd5e1', borderRadius: '6px', marginTop: '4px', zIndex: 100, maxHeight: '200px', overflowY: 'auto', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}>
                     {allowSelectAll && options.length > 0 && (
                         <div
                             onClick={() => {
@@ -164,7 +168,7 @@ const CustomMultiSelect = ({ options, value, onChange, placeholder, disabled, al
                                 alignItems: 'center',
                                 gap: '10px',
                                 borderBottom: '2px solid #e2e8f0',
-                                background: '#f8fafc',
+                                background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc',
                                 fontWeight: 600
                             }}
                         >
@@ -174,7 +178,7 @@ const CustomMultiSelect = ({ options, value, onChange, placeholder, disabled, al
                                 readOnly
                                 style={{ width: '14px', height: '14px', cursor: 'pointer' }}
                             />
-                            <span style={{ fontSize: '0.9rem', color: '#0f172a' }}>Select All</span>
+                            <span style={{ fontSize: '0.9rem', color: isDark ? 'var(--text-primary)' : '#0f172a' }}>Select All</span>
                         </div>
                     )}
                     {options.length > 0 ? options.map(opt => (
@@ -188,7 +192,7 @@ const CustomMultiSelect = ({ options, value, onChange, placeholder, disabled, al
                                 alignItems: 'center',
                                 gap: '10px',
                                 borderBottom: '1px solid #f1f5f9',
-                                background: Array.isArray(value) && value.includes(opt) ? '#f8fafc' : '#fff'
+                                background: Array.isArray(value) && value.includes(opt) ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc' : isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff'
                             }}
                         >
                             <input
@@ -197,7 +201,7 @@ const CustomMultiSelect = ({ options, value, onChange, placeholder, disabled, al
                                 readOnly
                                 style={{ width: '14px', height: '14px', cursor: 'pointer' }}
                             />
-                            <span style={{ fontSize: '0.9rem', color: '#334155' }}>{opt}</span>
+                            <span style={{ fontSize: '0.9rem', color: isDark ? 'var(--text-primary)' : '#334155' }}>{opt}</span>
                         </div>
                     )) : (
                         <div style={{ padding: '12px', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>No options available</div>
@@ -211,6 +215,7 @@ const CustomMultiSelect = ({ options, value, onChange, placeholder, disabled, al
 // --- Main QuickFillModal Component ---
 
 const QuickFillModal = ({ isOpen, onClose, lead, onUpdate, getLookupValue, getLookupId, propertyConfig, lookups }) => {
+    const { isDark } = useTheme();
     const { projects: allProjects } = usePropertyConfig();
     const [locationTab, setLocationTab] = useState('search');
     const [projectData, setProjectData] = useState({});
@@ -458,17 +463,17 @@ const QuickFillModal = ({ isOpen, onClose, lead, onUpdate, getLookupValue, getLo
     };
 
     const modalStyle = {
-        backgroundColor: '#fff', width: '100%', maxWidth: '680px',
+        backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', width: '100%', maxWidth: '680px',
         borderRadius: '24px', padding: '32px', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
         maxHeight: '90vh', overflowY: 'auto'
     };
 
     const sectionCardStyle = {
-        background: '#f8fafc', padding: '20px', borderRadius: '16px', border: '1px solid #e2e8f0', marginBottom: '20px'
+        background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', padding: '20px', borderRadius: '16px', border: '1px solid #e2e8f0', marginBottom: '20px'
     };
 
     const labelStyle = { display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#475569', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.5px' };
-    const inputStyle = { width: '100%', padding: '12px 16px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b', boxSizing: 'border-box' };
+    const inputStyle = { width: '100%', padding: '12px 16px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: isDark ? 'var(--text-primary)' : '#1e293b', boxSizing: 'border-box' };
     
     const customSelectStyle = {
         width: '100%',
@@ -478,8 +483,8 @@ const QuickFillModal = ({ isOpen, onClose, lead, onUpdate, getLookupValue, getLo
         border: '1px solid #cbd5e1',
         fontSize: '0.9rem',
         outline: 'none',
-        background: '#fff',
-        color: '#1e293b',
+        background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff',
+        color: isDark ? 'var(--text-primary)' : '#1e293b',
         appearance: 'none',
         WebkitAppearance: 'none',
         MozAppearance: 'none',
@@ -497,7 +502,7 @@ const QuickFillModal = ({ isOpen, onClose, lead, onUpdate, getLookupValue, getLo
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '28px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                         <i className="fas fa-clipboard-list" style={{ color: '#2563eb', fontSize: '1.25rem' }}></i>
-                        <h2 style={{ fontSize: '1.3rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>Quick Fill Requirement</h2>
+                        <h2 style={{ fontSize: '1.3rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#0f172a', margin: 0 }}>Quick Fill Requirement</h2>
                     </div>
                     <button onClick={onClose} style={{ border: 'none', background: 'transparent', color: '#94a3b8', cursor: 'pointer', fontSize: '1.25rem' }}>
                         <i className="fas fa-times"></i>
@@ -543,7 +548,7 @@ const QuickFillModal = ({ isOpen, onClose, lead, onUpdate, getLookupValue, getLo
                                             padding: '10px 8px',
                                             borderRadius: '10px',
                                             border: isSelected ? '1.5px solid #2563eb' : '1px solid #cbd5e1',
-                                            background: isSelected ? '#eff6ff' : '#fff',
+                                            background: isSelected ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#eff6ff' : isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff',
                                             color: isSelected ? '#2563eb' : '#64748b',
                                             display: 'flex',
                                             flexDirection: 'column',
@@ -583,7 +588,7 @@ const QuickFillModal = ({ isOpen, onClose, lead, onUpdate, getLookupValue, getLo
                                                 padding: '8px 16px',
                                                 borderRadius: '20px',
                                                 border: isSelected ? '1px solid #2563eb' : '1px solid #cbd5e1',
-                                                background: isSelected ? '#eff6ff' : '#fff',
+                                                background: isSelected ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#eff6ff' : isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff',
                                                 color: isSelected ? '#2563eb' : '#475569',
                                                 fontSize: '0.85rem',
                                                 cursor: 'pointer',
@@ -694,7 +699,7 @@ const QuickFillModal = ({ isOpen, onClose, lead, onUpdate, getLookupValue, getLo
                                         padding: '6px 14px',
                                         borderRadius: '6px',
                                         border: 'none',
-                                        background: locationTab === 'search' ? '#fff' : 'transparent',
+                                        background: locationTab === 'search' ? isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff' : 'transparent',
                                         color: locationTab === 'search' ? '#2563eb' : '#64748b',
                                         fontWeight: 600,
                                         cursor: 'pointer',
@@ -711,7 +716,7 @@ const QuickFillModal = ({ isOpen, onClose, lead, onUpdate, getLookupValue, getLo
                                         padding: '6px 14px',
                                         borderRadius: '6px',
                                         border: 'none',
-                                        background: locationTab === 'select' ? '#fff' : 'transparent',
+                                        background: locationTab === 'select' ? isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff' : 'transparent',
                                         color: locationTab === 'select' ? '#2563eb' : '#64748b',
                                         fontWeight: 600,
                                         cursor: 'pointer',
@@ -862,7 +867,7 @@ const QuickFillModal = ({ isOpen, onClose, lead, onUpdate, getLookupValue, getLo
                 <div style={{ display: 'flex', gap: '16px', marginTop: '28px' }}>
                     <button
                         onClick={onClose}
-                        style={{ flex: 1, padding: '14px', borderRadius: '12px', border: '1px solid #cbd5e1', background: '#fff', color: '#64748b', fontWeight: 700, cursor: 'pointer', transition: 'background 0.2s' }}
+                        style={{ flex: 1, padding: '14px', borderRadius: '12px', border: '1px solid #cbd5e1', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', color: '#64748b', fontWeight: 700, cursor: 'pointer', transition: 'background 0.2s' }}
                         onMouseOver={(e) => { e.currentTarget.style.background = '#f8fafc'; }}
                         onMouseOut={(e) => { e.currentTarget.style.background = '#fff'; }}
                     >

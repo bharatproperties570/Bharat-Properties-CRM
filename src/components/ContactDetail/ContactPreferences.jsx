@@ -1,3 +1,5 @@
+import { useTheme } from '../../context/ThemeContext';
+
 import React from 'react';
 
 const ContactPreferences = React.memo(function ContactPreferences({
@@ -6,11 +8,12 @@ const ContactPreferences = React.memo(function ContactPreferences({
     toggleSection,
     aiStats
 }) {
+    const { isDark } = useTheme();
     if (!expandedSections.includes('pref')) {
         return (
             <div className="glass-card" style={{ borderRadius: '16px' }}>
-                <div onClick={() => toggleSection('pref')} style={{ padding: '14px 20px', background: 'rgba(248, 250, 252, 0.5)', borderBottom: '1px solid rgba(226, 232, 240, 0.8)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
-                    <span style={{ fontSize: '0.75rem', fontWeight: 900, color: '#475569', textTransform: 'uppercase', letterSpacing: '1px' }}>Property Preferences</span>
+                <div onClick={() => toggleSection('pref')} style={{ padding: '14px 20px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(248, 250, 252, 0.5)', borderBottom: '1px solid rgba(226, 232, 240, 0.8)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 900, color: isDark ? 'var(--text-muted)' : '#475569', textTransform: 'uppercase', letterSpacing: '1px' }}>Property Preferences</span>
                     <i className="fas fa-chevron-down" style={{ fontSize: '0.8rem', color: '#94a3b8' }}></i>
                 </div>
             </div>
@@ -19,8 +22,8 @@ const ContactPreferences = React.memo(function ContactPreferences({
 
     return (
         <div className="glass-card" style={{ borderRadius: '16px' }}>
-            <div onClick={() => toggleSection('pref')} style={{ padding: '14px 20px', background: 'rgba(248, 250, 252, 0.5)', borderBottom: '1px solid rgba(226, 232, 240, 0.8)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
-                <span style={{ fontSize: '0.75rem', fontWeight: 900, color: '#475569', textTransform: 'uppercase', letterSpacing: '1px' }}>Property Preferences</span>
+            <div onClick={() => toggleSection('pref')} style={{ padding: '14px 20px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(248, 250, 252, 0.5)', borderBottom: '1px solid rgba(226, 232, 240, 0.8)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: 900, color: isDark ? 'var(--text-muted)' : '#475569', textTransform: 'uppercase', letterSpacing: '1px' }}>Property Preferences</span>
                 <i className="fas fa-chevron-up" style={{ fontSize: '0.8rem', color: '#94a3b8' }}></i>
             </div>
             <div style={{ padding: '20px 16px', display: 'flex', flexDirection: 'column', gap: '24px', background: 'transparent' }}>
@@ -33,23 +36,23 @@ const ContactPreferences = React.memo(function ContactPreferences({
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '24px' }}>
                         <div>
                             <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Lead Source</label>
-                            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{aiStats.preferences.source}</div>
+                            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>{aiStats.preferences.source}</div>
                         </div>
                         <div>
                             <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Sub-Source</label>
-                            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{aiStats.preferences.subSource}</div>
+                            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>{aiStats.preferences.subSource}</div>
                         </div>
                         <div>
                             <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Campaign</label>
-                            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{aiStats.preferences.campaign}</div>
+                            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>{aiStats.preferences.campaign}</div>
                         </div>
                         <div>
                             <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Visibility Scope</label>
-                            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0f172a' }}>{contact.visibleTo || 'Everyone'}</div>
+                            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>{contact.visibleTo || 'Everyone'}</div>
                         </div>
                         <div style={{ gridColumn: 'span 2' }}>
                                 <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Lead Description</label>
-                                <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#475569', background: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #f1f5f9', wordBreak: 'break-word' }}>
+                                <div style={{ fontSize: '0.8rem', fontWeight: 600, color: isDark ? 'var(--text-muted)' : '#475569', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #f1f5f9', wordBreak: 'break-word' }}>
                                     {aiStats.preferences.description || 'No description provided.'}
                                 </div>
                             </div>
@@ -57,7 +60,7 @@ const ContactPreferences = React.memo(function ContactPreferences({
                                 <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '8px' }}>Lead Tags</label>
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                                     {aiStats.preferences.tags.length > 0 ? aiStats.preferences.tags.map((tag, idx) => (
-                                        <span key={idx} style={{ padding: '4px 12px', background: '#eff6ff', color: '#3b82f6', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 700, border: '1px solid #dbeafe' }}>{tag}</span>
+                                        <span key={idx} style={{ padding: '4px 12px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#eff6ff', color: '#3b82f6', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 700, border: '1px solid #dbeafe' }}>{tag}</span>
                                     )) : <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>No tags assigned</span>}
                                 </div>
                             </div>

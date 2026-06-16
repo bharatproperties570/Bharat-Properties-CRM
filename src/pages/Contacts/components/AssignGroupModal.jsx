@@ -1,3 +1,5 @@
+import { useTheme } from '../../../context/ThemeContext';
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../../../utils/api';
 import toast from 'react-hot-toast';
@@ -74,7 +76,7 @@ function AssignGroupModal({ isOpen, onClose, selectedContacts, onComplete }) {
     };
 
     const modalStyle = {
-        backgroundColor: '#fff', borderRadius: '16px',
+        backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', borderRadius: '16px',
         width: '450px', maxWidth: '95vw', maxHeight: '90vh',
         boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
         display: 'flex', flexDirection: 'column', overflow: 'hidden',
@@ -95,16 +97,16 @@ function AssignGroupModal({ isOpen, onClose, selectedContacts, onComplete }) {
                     <button className="close-btn" onClick={onClose} style={{ border: 'none', background: 'none', fontSize: '1.5rem', cursor: 'pointer', color: '#94a3b8' }}>&times;</button>
                 </div>
                 <div className="modal-body" style={{ padding: '24px' }}>
-                    <p style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '15px' }}>
+                    <p style={{ fontSize: '0.85rem', color: isDark ? 'var(--text-muted)' : '#64748b', marginBottom: '15px' }}>
                         Updating group assignment for <strong>{selectedContacts.length}</strong> contacts.
                     </p>
 
                     <div style={{ display: 'flex', gap: '15px', marginBottom: '20px' }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', cursor: 'pointer', fontWeight: 600, color: actionType === 'add' ? 'var(--primary-color)' : '#64748b' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', cursor: 'pointer', fontWeight: 600, color: actionType === 'add' ? 'var(--primary-color)' : isDark ? 'var(--text-muted)' : '#64748b' }}>
                             <input type="radio" name="actionType" value="add" checked={actionType === 'add'} onChange={() => { setActionType('add'); setSelectedGroupId(''); }} style={{ cursor: 'pointer' }} />
                             Add to Group
                         </label>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', cursor: activeGroupIds.size > 0 ? 'pointer' : 'not-allowed', fontWeight: 600, color: activeGroupIds.size === 0 ? '#cbd5e1' : (actionType === 'remove' ? '#ef4444' : '#64748b') }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', cursor: activeGroupIds.size > 0 ? 'pointer' : 'not-allowed', fontWeight: 600, color: activeGroupIds.size === 0 ? isDark ? 'var(--border-color)' : '#cbd5e1' : (actionType === 'remove' ? '#ef4444' : isDark ? 'var(--text-muted)' : '#64748b') }}>
                             <input type="radio" name="actionType" value="remove" checked={actionType === 'remove'} onChange={() => { setActionType('remove'); setSelectedGroupId(''); }} style={{ cursor: activeGroupIds.size > 0 ? 'pointer' : 'not-allowed' }} disabled={activeGroupIds.size === 0} />
                             Remove from Group
                         </label>
@@ -136,8 +138,8 @@ function AssignGroupModal({ isOpen, onClose, selectedContacts, onComplete }) {
                         </select>
                     </div>
                 </div>
-                <div className="modal-footer" style={{ padding: '16px 24px', borderTop: '1px solid #f1f5f9', backgroundColor: '#f8fafc', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-                    <button className="btn-outline" onClick={onClose} style={{ padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', border: '1px solid #cbd5e1', background: '#fff' }}>Cancel</button>
+                <div className="modal-footer" style={{ padding: '16px 24px', borderTop: '1px solid #f1f5f9', backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                    <button className="btn-outline" onClick={onClose} style={{ padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', border: '1px solid #cbd5e1', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff' }}>Cancel</button>
                     <button className="btn-primary" onClick={handleAssign} disabled={loading} style={{ padding: '10px 24px', borderRadius: '8px', background: actionType === 'remove' ? '#ef4444' : 'var(--primary-color)', color: '#fff', border: 'none', fontWeight: 700, cursor: 'pointer' }}>
                         {loading ? <i className="fas fa-spinner fa-spin"></i> : actionType === 'remove' ? "Remove" : "Assign Now"}
                     </button>

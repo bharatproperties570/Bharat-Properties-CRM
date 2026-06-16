@@ -1,6 +1,8 @@
+import { useTheme } from '../../../context/ThemeContext';
 import { FormLabel, FormSelect, ActivityCard, SectionTitle } from '../ActivityCommon';
 
 const TaskActivitySection = ({ formData, handleChange, errors, activityMasterFields }) => {
+    const { isDark } = useTheme();
     const isCompleted = formData.status === 'Completed';
     const taskAct = activityMasterFields?.activities?.find(a => a.name === 'Task');
 

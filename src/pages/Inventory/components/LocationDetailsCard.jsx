@@ -1,9 +1,11 @@
+import { useTheme } from '../../../context/ThemeContext';
 import React from 'react';
 import { renderValue } from '../../../utils/renderUtils';
 import ProfessionalMap from '../../../components/ProfessionalMap';
 import { getCoordinates, getPinPosition, MAP_CENTER } from '../../../utils/mapUtils';
 
 const LocationDetailsCard = ({ inventory, getLookupValue, onUpdateLocation }) => {
+    const { isDark } = useTheme();
     // Correctly extract coordinates from the inventory item
     const rawCoords = getCoordinates(inventory);
     const hasValidCoords = rawCoords !== null;

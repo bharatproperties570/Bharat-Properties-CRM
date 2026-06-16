@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
 import { useTheme } from '../../../context/ThemeContext';
+import { useState, useEffect, useRef } from 'react';
+
 import { createPortal } from 'react-dom';
 import { PROPERTY_CATEGORIES } from '../../../constants/propertyConstants';
 import { PROJECTS_LIST } from '../../../constants/projectConstants';
@@ -56,7 +57,7 @@ const styles = {
         backgroundSize: '16px'
     },
     activeBtn: {
-        backgroundColor: '#eff6ff',
+        backgroundColor: 'var(--bg-light)',
         borderColor: '#0066ff',
         color: '#0066ff',
         boxShadow: '0 1px 2px rgba(0, 102, 255, 0.1)'
@@ -401,8 +402,8 @@ const LeadFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                                     <label style={{ ...styles.label, marginBottom: 0 }}>Size</label>
                                     <div style={{ display: 'flex', backgroundColor: 'var(--bg-gray)', padding: '2px', borderRadius: '6px' }}>
-                                        <button onClick={() => { setSizeMode('type'); updateFilter('sizeMode', 'type'); }} style={{ padding: '4px 12px', fontSize: '0.75rem', borderRadius: '4px', border: 'none', fontWeight: '600', cursor: 'pointer', backgroundColor: sizeMode === 'type' ? '#fff' : 'transparent', color: sizeMode === 'type' ? '#0f172a' : '#64748b', boxShadow: sizeMode === 'type' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none' }}>Type</button>
-                                        <button onClick={() => { setSizeMode('range'); updateFilter('sizeMode', 'range'); }} style={{ padding: '4px 12px', fontSize: '0.75rem', borderRadius: '4px', border: 'none', fontWeight: '600', cursor: 'pointer', backgroundColor: sizeMode === 'range' ? '#fff' : 'transparent', color: sizeMode === 'range' ? '#0f172a' : '#64748b', boxShadow: sizeMode === 'range' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none' }}>Min/Max</button>
+                                        <button onClick={() => { setSizeMode('type'); updateFilter('sizeMode', 'type'); }} style={{ padding: '4px 12px', fontSize: '0.75rem', borderRadius: '4px', border: 'none', fontWeight: '600', cursor: 'pointer', backgroundColor: sizeMode === 'type' ? isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff' : 'transparent', color: sizeMode === 'type' ? isDark ? 'var(--text-primary)' : '#0f172a' : '#64748b', boxShadow: sizeMode === 'type' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none' }}>Type</button>
+                                        <button onClick={() => { setSizeMode('range'); updateFilter('sizeMode', 'range'); }} style={{ padding: '4px 12px', fontSize: '0.75rem', borderRadius: '4px', border: 'none', fontWeight: '600', cursor: 'pointer', backgroundColor: sizeMode === 'range' ? isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff' : 'transparent', color: sizeMode === 'range' ? isDark ? 'var(--text-primary)' : '#0f172a' : '#64748b', boxShadow: sizeMode === 'range' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none' }}>Min/Max</button>
                                     </div>
                                 </div>
                                 {sizeMode === 'type' ? (

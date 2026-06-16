@@ -1,3 +1,4 @@
+import { useTheme } from '../context/ThemeContext';
 import { useMemo, useState } from 'react';
 import {
     CheckCircle,
@@ -33,6 +34,7 @@ const MAIN_STAGES = [
 ];
 
 const EnterprisePipeline = ({ contact, activities = [] }) => {
+    const { isDark } = useTheme();
     const [selectedStage, setSelectedStage] = useState(null);
 
     // ─── LIFECYCLE LOGIC (LIVEDATA FROM BACKEND) ──────────────────────────────
@@ -327,7 +329,7 @@ const EnterprisePipeline = ({ contact, activities = [] }) => {
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                 <stage.icon size={15} color={stage.status === 'future' ? '#94a3b8' : stage.color} />
-                                <span style={{ fontSize: '0.85rem', fontWeight: 850, color: stage.status === 'future' ? '#64748b' : '#0f172a', whiteSpace: 'nowrap' }}>{stage.label}</span>
+                                <span style={{ fontSize: '0.85rem', fontWeight: 850, color: stage.status === 'future' ? '#64748b' : isDark ? 'var(--text-primary)' : '#0f172a', whiteSpace: 'nowrap' }}>{stage.label}</span>
                                 {stage.status === 'current' && <div className="pulse-box" style={{ marginLeft: '4px' }} />}
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -339,11 +341,11 @@ const EnterprisePipeline = ({ contact, activities = [] }) => {
                         {/* Mid Row: In Time & Duration */}
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.65rem', marginBottom: '8px', color: '#475569' }}>
                             <div style={{ display: 'flex', gap: '10px' }}>
-                                <span><span style={{ fontWeight: 600 }}>IN:</span> <span style={{ fontWeight: 800, color: '#0f172a' }}>{stage.enteredDateStr ? stage.enteredDateStr : '--'}</span></span>
-                                <span><span style={{ fontWeight: 600 }}>DUR:</span> <span style={{ fontWeight: 800, color: stage.isStuck ? '#ef4444' : '#0f172a' }}>{stage.timeSpentLabel}</span></span>
+                                <span><span style={{ fontWeight: 600 }}>IN:</span> <span style={{ fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>{stage.enteredDateStr ? stage.enteredDateStr : '--'}</span></span>
+                                <span><span style={{ fontWeight: 600 }}>DUR:</span> <span style={{ fontWeight: 800, color: stage.isStuck ? '#ef4444' : isDark ? 'var(--text-primary)' : '#0f172a' }}>{stage.timeSpentLabel}</span></span>
                             </div>
                             {idx < lifecycle.stages.length - 1 && lifecycle.transitions[idx].delay && (
-                                <div style={{ background: 'rgba(255,255,255,0.7)', padding: '2px 6px', borderRadius: '4px', border: '1px solid #e2e8f0', color: '#4f46e5', fontWeight: 800, fontSize: '0.55rem', marginLeft: '6px', whiteSpace: 'nowrap' }}>
+                                <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(255,255,255,0.7)', padding: '2px 6px', borderRadius: '4px', border: '1px solid #e2e8f0', color: '#4f46e5', fontWeight: 800, fontSize: '0.55rem', marginLeft: '6px', whiteSpace: 'nowrap' }}>
                                     Wait: {lifecycle.transitions[idx].delay}d
                                 </div>
                             )}
@@ -351,7 +353,7 @@ const EnterprisePipeline = ({ contact, activities = [] }) => {
 
                         {/* Bottom Row: Activity Density */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.65rem', fontWeight: 700 }}>
-                            <span style={{ background: 'rgba(255,255,255,0.5)', padding: '2px 6px', borderRadius: '4px', color: '#334155', border: '1px solid rgba(0,0,0,0.05)', whiteSpace: 'nowrap' }}>
+                            <span style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(255,255,255,0.5)', padding: '2px 6px', borderRadius: '4px', color: isDark ? 'var(--text-muted)' : '#334155', border: '1px solid rgba(0,0,0,0.05)', whiteSpace: 'nowrap' }}>
                                 {stage.totalActivities} Acts
                             </span>
                             <div style={{ display: 'flex', gap: '6px', color: '#475569', alignItems: 'center' }}>
@@ -366,7 +368,7 @@ const EnterprisePipeline = ({ contact, activities = [] }) => {
                         {stage.id === 'closed' && lifecycle.isClosed && (
                             <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: '1px dashed rgba(0,0,0,0.1)', fontSize: '0.65rem', fontWeight: 850, color: lifecycle.closedType === 'won' ? '#10b981' : '#ef4444', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <span>{lifecycle.closedType.toUpperCase()} OUTCOME</span>
-                                <span style={{ color: '#475569' }}>Total Life: <span style={{ color: '#0f172a' }}>{lifecycle.totals.duration}d</span></span>
+                                <span style={{ color: '#475569' }}>Total Life: <span style={{ color: isDark ? 'var(--text-primary)' : '#0f172a' }}>{lifecycle.totals.duration}d</span></span>
                             </div>
                         )}
                     </div>
@@ -380,29 +382,29 @@ const EnterprisePipeline = ({ contact, activities = [] }) => {
                     <div className="side-panel">
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '40px' }}>
                             <div>
-                                <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 950, color: '#0f172a', letterSpacing: '-0.5px' }}>{selectedStage.label} Ledger</h2>
+                                <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 950, color: isDark ? 'var(--text-primary)' : '#0f172a', letterSpacing: '-0.5px' }}>{selectedStage.label} Ledger</h2>
                                 <p style={{ margin: '6px 0 0 0', fontSize: '0.85rem', fontWeight: 600, color: '#64748b' }}>Technical Activity Sigs & Recordings</p>
                             </div>
-                            <button onClick={() => setSelectedStage(null)} style={{ background: '#f1f5f9', border: 'none', padding: '12px', borderRadius: '12px', cursor: 'pointer', transition: 'all 0.2s' }}>
+                            <button onClick={() => setSelectedStage(null)} style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9', border: 'none', padding: '12px', borderRadius: '12px', cursor: 'pointer', transition: 'all 0.2s' }}>
                                 <X size={20} color="#0f172a" strokeWidth={3} />
                             </button>
                         </div>
 
                         <div style={{ display: 'flex', gap: '16px', marginBottom: '40px', flexWrap: 'wrap' }}>
-                            <div style={{ flex: 1, minWidth: '150px', padding: '20px', background: '#f8fafc', borderRadius: '18px', border: '1px solid #e2e8f0' }}>
+                            <div style={{ flex: 1, minWidth: '150px', padding: '20px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', borderRadius: '18px', border: '1px solid #e2e8f0' }}>
                                 <div style={{ fontSize: '0.7rem', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '6px' }}>Current Owner</div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 950, color: '#1e293b' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 950, color: isDark ? 'var(--text-primary)' : '#1e293b' }}>
                                     <User size={16} /> {selectedStage.agent}
                                 </div>
                             </div>
-                            <div style={{ flex: 1, minWidth: '150px', padding: '20px', background: '#f8fafc', borderRadius: '18px', border: '1px solid #e2e8f0' }}>
+                            <div style={{ flex: 1, minWidth: '150px', padding: '20px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', borderRadius: '18px', border: '1px solid #e2e8f0' }}>
                                 <div style={{ fontSize: '0.7rem', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '6px' }}>Time in Stage</div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 950, color: '#4f46e5' }}>
                                     <Clock size={16} /> {selectedStage.timeSpentLabel}
                                 </div>
                             </div>
                             {contact.unitNo && (
-                                <div style={{ flex: 1, minWidth: '150px', padding: '20px', background: '#eff6ff', borderRadius: '18px', border: '1px solid #bfdbfe' }}>
+                                <div style={{ flex: 1, minWidth: '150px', padding: '20px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#eff6ff', borderRadius: '18px', border: '1px solid #bfdbfe' }}>
                                     <div style={{ fontSize: '0.7rem', fontWeight: 900, color: '#3b82f6', textTransform: 'uppercase', marginBottom: '6px' }}>Selected Unit</div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 950, color: '#1d4ed8' }}>
                                         <Home size={16} /> #{contact.unitNo}
@@ -412,7 +414,7 @@ const EnterprisePipeline = ({ contact, activities = [] }) => {
                         </div>
 
                         <div style={{ flex: 1, overflowY: 'auto', paddingRight: '15px' }} className="no-scrollbar">
-                            <h4 style={{ fontSize: '0.75rem', fontWeight: 950, color: '#0f172a', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '24px' }}>Stage Activity Timeline</h4>
+                            <h4 style={{ fontSize: '0.75rem', fontWeight: 950, color: isDark ? 'var(--text-primary)' : '#0f172a', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '24px' }}>Stage Activity Timeline</h4>
                             {selectedStage.ledger.map((item, i) => (
                                 <div key={i} className="ledger-item">
                                     <div className="ledger-dot" style={{ background: item.color }} />
@@ -420,7 +422,7 @@ const EnterprisePipeline = ({ contact, activities = [] }) => {
                                         <span style={{ fontSize: '0.8rem', fontWeight: 950, color: item.color, textTransform: 'uppercase' }}>{item.type}</span>
                                         <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#94a3b8' }}>{item.date}</span>
                                     </div>
-                                    <p style={{ margin: '0 0 10px 0', fontSize: '0.95rem', fontWeight: 600, color: '#334155', lineHeight: '1.6' }}>{item.note}</p>
+                                    <p style={{ margin: '0 0 10px 0', fontSize: '0.95rem', fontWeight: 600, color: isDark ? 'var(--text-muted)' : '#334155', lineHeight: '1.6' }}>{item.note}</p>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.7rem', fontWeight: 700, color: '#94a3b8' }}>
                                         <User size={12} /> {item.agent}
                                     </div>

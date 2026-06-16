@@ -1,3 +1,4 @@
+import { useTheme } from '../../../context/ThemeContext';
 import React from 'react';
 import { renderValue } from '../../../utils/renderUtils';
 
@@ -21,6 +22,7 @@ const InventoryDetailHeader = ({
     startCall,
     getTargetContacts
 }) => {
+    const { isDark } = useTheme();
     const [showCallMenu, setShowCallMenu] = React.useState(false);
     const activeStatusNames = ['Available', 'Active', 'Interested / Warm', 'Interested / Hot', 'Request Call Back', 'Busy / Driving', 'Market Feedback', 'General Inquiry', 'Blocked', 'Booked', 'Interested'];
     const rawStatus = getLookupValue('Status', inventory.status) || 'Available';
@@ -204,7 +206,7 @@ const InventoryDetailHeader = ({
                                 <div style={{ height: '1px', background: 'var(--bg-gray)', margin: '4px 0' }}></div>
                                 <button onClick={handleWhatsAppShare} style={menuItemStyle}><i className="fab fa-whatsapp" style={{ color: '#25D366', width: '16px' }}></i> WhatsApp Share</button>
                                 <button onClick={handleCopyDetails} style={menuItemStyle}>
-                                    <i className={isCopying ? "fas fa-check" : "fas fa-copy"} style={{ color: isCopying ? '#10b981' : '#64748b', width: '16px' }}></i> 
+                                    <i className={isCopying ? "fas fa-check" : "fas fa-copy"} style={{ color: isCopying ? '#10b981' : isDark ? 'var(--text-muted)' : '#64748b', width: '16px' }}></i> 
                                     {isCopying ? 'Copied' : 'Copy Details'}
                                 </button>
                             </div>

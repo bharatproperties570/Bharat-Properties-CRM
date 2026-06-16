@@ -1,3 +1,5 @@
+import { useTheme } from '../../context/ThemeContext';
+
 import React from 'react';
 // Indian Numbering System price formatter for enterprise-grade real estate CRM
 const formatPrice = (price) => {
@@ -74,6 +76,7 @@ const ContactRelatedDeals = React.memo(function ContactRelatedDeals({
     renderLookup,
     onNavigate
 }) {
+    const { isDark } = useTheme();
     return (
         <>
             <style>

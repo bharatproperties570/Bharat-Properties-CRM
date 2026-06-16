@@ -326,7 +326,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
     if (currentView === 'ledger') {
         return (
             <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-                <div style={{ background: 'var(--bg-card)', borderBottom: '1px solid var(--border-color)', padding: '10px 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ background: isDark ? 'rgba(30, 41, 59, 0.7)' : 'var(--bg-card)', backdropFilter: isDark ? 'blur(10px)' : 'none', borderBottom: '1px solid var(--border-color)', padding: '10px 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                         <button onClick={() => setCurrentView('deals')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>
                             <i className="fas fa-arrow-left"></i> Back to Bookings
@@ -335,7 +335,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                     </div>
                     <div style={{ background: 'var(--bg-gray)', padding: '4px', borderRadius: '8px', display: 'flex', gap: '4px' }}>
                         <button onClick={() => setCurrentView('deals')} style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', background: 'transparent', color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}>Bookings</button>
-                        <button onClick={() => setCurrentView('ledger')} style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', background: 'var(--bg-card)', color: 'var(--text-main)', fontWeight: 600, fontSize: '0.85rem', boxShadow: '0 1px 2px rgba(0,0,0,0.05)', cursor: 'default' }}>Ledger</button>
+                        <button onClick={() => setCurrentView('ledger')} style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', background: isDark ? 'rgba(30, 41, 59, 0.7)' : 'var(--bg-card)', backdropFilter: isDark ? 'blur(10px)' : 'none', color: 'var(--text-main)', fontWeight: 600, fontSize: '0.85rem', boxShadow: '0 1px 2px rgba(0,0,0,0.05)', cursor: 'default' }}>Ledger</button>
                     </div >
                 </div >
                 <div style={{ flex: 1, overflow: 'hidden' }}>
@@ -358,7 +358,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
     if (currentView === 'analytics') {
         return (
             <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-                <div style={{ background: 'var(--bg-card)', borderBottom: '1px solid var(--border-color)', padding: '10px 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ background: isDark ? 'rgba(30, 41, 59, 0.7)' : 'var(--bg-card)', backdropFilter: isDark ? 'blur(10px)' : 'none', borderBottom: '1px solid var(--border-color)', padding: '10px 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                         <button onClick={() => setCurrentView('deals')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>
                             <i className="fas fa-arrow-left"></i> Back to Bookings
@@ -367,7 +367,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                     </div>
                     <div style={{ background: 'var(--bg-gray)', padding: '4px', borderRadius: '8px', display: 'flex', gap: '4px' }}>
                         <button onClick={() => setCurrentView('deals')} style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', background: 'transparent', color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}>Bookings</button>
-                        <button onClick={() => setCurrentView('analytics')} style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', background: 'var(--bg-card)', color: 'var(--text-main)', fontWeight: 600, fontSize: '0.85rem', boxShadow: '0 1px 2px rgba(0,0,0,0.05)', cursor: 'default' }}>Analytics</button>
+                        <button onClick={() => setCurrentView('analytics')} style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', background: isDark ? 'rgba(30, 41, 59, 0.7)' : 'var(--bg-card)', backdropFilter: isDark ? 'blur(10px)' : 'none', color: 'var(--text-main)', fontWeight: 600, fontSize: '0.85rem', boxShadow: '0 1px 2px rgba(0,0,0,0.05)', cursor: 'default' }}>Analytics</button>
                         <button onClick={() => setCurrentView('ledger')} style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', background: 'transparent', color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}>Ledger</button>
                     </div >
                 </div >
@@ -380,7 +380,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
 
     return (
         <section className="main-content" style={{ background: 'var(--bg-gray)', height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-            <div style={{ background: 'var(--bg-card)', borderBottom: '1px solid var(--border-color)', padding: '20px 32px' }}>
+            <div style={{ background: isDark ? 'rgba(30, 41, 59, 0.7)' : 'var(--bg-card)', backdropFilter: isDark ? 'blur(10px)' : 'none', borderBottom: '1px solid var(--border-color)', padding: '20px 32px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                     <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
@@ -443,7 +443,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                 )}
             </div >
 
-            <div style={{ padding: '16px 32px', background: 'var(--bg-card)', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: '72px' }}>
+            <div style={{ padding: '16px 32px', background: isDark ? 'rgba(30, 41, 59, 0.7)' : 'var(--bg-card)', backdropFilter: isDark ? 'blur(10px)' : 'none', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: '72px' }}>
                 {selectedCount > 0 ? (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '16px', width: '100%', animation: 'fadeIn 0.2s ease-in-out' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginRight: '8px' }}>
@@ -455,7 +455,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                             <button
                                 onClick={() => handleViewLedger(selectedIds[0])}
                                 className="action-btn"
-                                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: '0.85rem', cursor: 'pointer' }}
+                                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', background: isDark ? 'rgba(30, 41, 59, 0.7)' : 'var(--bg-card)', backdropFilter: isDark ? 'blur(10px)' : 'none', color: 'var(--text-muted)', fontSize: '0.85rem', cursor: 'pointer' }}
                             >
                                 <i className="fas fa-wallet" style={{ color: '#0ea5e9' }}></i> View Ledger
                             </button>
@@ -471,25 +471,25 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                         </button>
                         <button className="action-btn" title="Activities"><i className="fas fa-calendar-check"></i> Activities</button>
                         <div style={{ position: 'relative' }}>
-                            <button onClick={() => setShowDocOptions(!showDocOptions)} className="action-btn" style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: '0.85rem', cursor: 'pointer' }}>
+                            <button onClick={() => setShowDocOptions(!showDocOptions)} className="action-btn" style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', background: isDark ? 'rgba(30, 41, 59, 0.7)' : 'var(--bg-card)', backdropFilter: isDark ? 'blur(10px)' : 'none', color: 'var(--text-muted)', fontSize: '0.85rem', cursor: 'pointer' }}>
                                 <i className="fas fa-file-contract"></i> Documents
                                 <i className={`fas fa-chevron-${showDocOptions ? 'up' : 'down'}`} style={{ fontSize: '0.7rem', marginLeft: '4px' }}></i>
                             </button>
                             {showDocOptions && (
-                                <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: '4px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 50, minWidth: '220px', overflow: 'hidden' }}>
-                                    <button onClick={() => handleGenerateDoc('Sale Agreement')} style={{ display: 'block', width: '100%', padding: '10px 16px', textAlign: 'left', border: 'none', background: 'var(--bg-card)', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--text-main)', borderBottom: '1px solid var(--border-color)', fontWeight: 600 }}>
+                                <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: '4px', background: isDark ? 'rgba(30, 41, 59, 0.7)' : 'var(--bg-card)', backdropFilter: isDark ? 'blur(10px)' : 'none', border: '1px solid var(--border-color)', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 50, minWidth: '220px', overflow: 'hidden' }}>
+                                    <button onClick={() => handleGenerateDoc('Sale Agreement')} style={{ display: 'block', width: '100%', padding: '10px 16px', textAlign: 'left', border: 'none', background: isDark ? 'rgba(30, 41, 59, 0.7)' : 'var(--bg-card)', backdropFilter: isDark ? 'blur(10px)' : 'none', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--text-main)', borderBottom: '1px solid var(--border-color)', fontWeight: 600 }}>
                                         <i className="fas fa-file-contract" style={{ marginRight: '8px', color: '#3b82f6' }}></i> Detailed Sale Agreement
                                     </button>
-                                    <button onClick={() => handleGenerateDoc('Short Agreement')} style={{ display: 'block', width: '100%', padding: '10px 16px', textAlign: 'left', border: 'none', background: 'var(--bg-card)', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--text-main)', borderBottom: '1px solid var(--border-color)' }}>
+                                    <button onClick={() => handleGenerateDoc('Short Agreement')} style={{ display: 'block', width: '100%', padding: '10px 16px', textAlign: 'left', border: 'none', background: isDark ? 'rgba(30, 41, 59, 0.7)' : 'var(--bg-card)', backdropFilter: isDark ? 'blur(10px)' : 'none', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--text-main)', borderBottom: '1px solid var(--border-color)' }}>
                                         <i className="fas fa-file-signature" style={{ marginRight: '8px', color: '#6366f1' }}></i> Short Agreement
                                     </button>
-                                    <button onClick={() => handleGenerateDoc('Token Receipt')} style={{ display: 'block', width: '100%', padding: '10px 16px', textAlign: 'left', border: 'none', background: 'var(--bg-card)', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--text-main)', borderBottom: '1px solid var(--border-color)' }}>
+                                    <button onClick={() => handleGenerateDoc('Token Receipt')} style={{ display: 'block', width: '100%', padding: '10px 16px', textAlign: 'left', border: 'none', background: isDark ? 'rgba(30, 41, 59, 0.7)' : 'var(--bg-card)', backdropFilter: isDark ? 'blur(10px)' : 'none', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--text-main)', borderBottom: '1px solid var(--border-color)' }}>
                                         <i className="fas fa-receipt" style={{ marginRight: '8px', color: '#10b981' }}></i> Token Receipt
                                     </button>
-                                    <button onClick={() => handleGenerateDoc('Demand Letter')} style={{ display: 'block', width: '100%', padding: '10px 16px', textAlign: 'left', border: 'none', background: 'var(--bg-card)', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--text-main)', borderBottom: '1px solid var(--border-color)' }}>
+                                    <button onClick={() => handleGenerateDoc('Demand Letter')} style={{ display: 'block', width: '100%', padding: '10px 16px', textAlign: 'left', border: 'none', background: isDark ? 'rgba(30, 41, 59, 0.7)' : 'var(--bg-card)', backdropFilter: isDark ? 'blur(10px)' : 'none', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--text-main)', borderBottom: '1px solid var(--border-color)' }}>
                                         <i className="fas fa-envelope-open-text" style={{ marginRight: '8px', color: '#f59e0b' }}></i> Demand Letter
                                     </button>
-                                    <button onClick={() => handleGenerateDoc('Brokerage Invoice')} style={{ display: 'block', width: '100%', padding: '10px 16px', textAlign: 'left', border: 'none', background: 'var(--bg-card)', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--text-main)' }}>
+                                    <button onClick={() => handleGenerateDoc('Brokerage Invoice')} style={{ display: 'block', width: '100%', padding: '10px 16px', textAlign: 'left', border: 'none', background: isDark ? 'rgba(30, 41, 59, 0.7)' : 'var(--bg-card)', backdropFilter: isDark ? 'blur(10px)' : 'none', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--text-main)' }}>
                                         <i className="fas fa-file-invoice-dollar" style={{ marginRight: '8px', color: '#8b5cf6' }}></i> Brokerage Invoice
                                     </button>
                                 </div>
@@ -611,7 +611,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                     </div >
                 ) : (
                     <div style={{ flex: 1, overflow: 'auto', padding: '0px' }}>
-                        <div style={{ background: 'var(--bg-card)', borderTop: '1px solid var(--border-color)', overflow: 'hidden' }}>
+                        <div style={{ background: isDark ? 'rgba(30, 41, 59, 0.7)' : 'var(--bg-card)', backdropFilter: isDark ? 'blur(10px)' : 'none', borderTop: '1px solid var(--border-color)', overflow: 'hidden' }}>
                                 {/* Risk Alert Banner */}
                                 {stats.atRiskDeals > 0 && (
                                     <div style={{ background: stats.criticalCount > 0 ? isDark ? 'linear-gradient(135deg, rgba(239, 68, 68, 0.2), rgba(248, 113, 113, 0.1))' : 'linear-gradient(135deg, #fef2f2, #fee2e2)' : isDark ? 'linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(251, 191, 36, 0.1))' : 'linear-gradient(135deg, #fffbeb, #fef3c7)', padding: '12px 20px', display: 'flex', alignItems: 'center', gap: '12px', borderBottom: isDark ? '1px solid #ef4444' : '1px solid #fecaca' }}>
@@ -619,7 +619,7 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
                                         <span style={{ fontWeight: 700, color: stats.criticalCount > 0 ? '#991b1b' : isDark ? '#fcd34d' : '#92400e', fontSize: '0.85rem' }}>
                                             {stats.criticalCount > 0 ? `🚨 ${stats.criticalCount} booking(s) CRITICAL` : `⚠️ ${stats.atRiskDeals} booking(s) at risk`} — review payment timelines
                                         </span>
-                                        <button onClick={() => { setActiveTab('All'); setActiveFilters(prev => ({ ...prev, health: ['At Risk', 'Delayed', 'Critical'] })); }} style={{ marginLeft: 'auto', fontSize: '0.78rem', padding: '4px 10px', background: 'var(--bg-card)', border: isDark ? '1px solid #ef4444' : '1px solid #fecaca', borderRadius: '6px', color: '#dc2626', fontWeight: 600, cursor: 'pointer' }}>
+                                        <button onClick={() => { setActiveTab('All'); setActiveFilters(prev => ({ ...prev, health: ['At Risk', 'Delayed', 'Critical'] })); }} style={{ marginLeft: 'auto', fontSize: '0.78rem', padding: '4px 10px', background: isDark ? 'rgba(30, 41, 59, 0.7)' : 'var(--bg-card)', backdropFilter: isDark ? 'blur(10px)' : 'none', border: isDark ? '1px solid #ef4444' : '1px solid #fecaca', borderRadius: '6px', color: '#dc2626', fontWeight: 600, cursor: 'pointer' }}>
                                             View At Risk <i className="fas fa-arrow-right" />
                                         </button>
                                     </div>
@@ -777,8 +777,10 @@ const BookingPage = ({ onNavigate, initialContextId }) => {
     );
 };
 
-const SummaryFooter = ({ stats, formatCurrency }) => (
-    <div style={{ background: 'var(--bg-card)', borderTop: '2px solid #e2e8f0', padding: '14px 32px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '24px', position: 'sticky', bottom: 0, zIndex: 10 }}>
+const SummaryFooter = ({ stats, formatCurrency }) => {
+    const { isDark } = useTheme();
+    return (
+    <div style={{ background: isDark ? 'rgba(30, 41, 59, 0.7)' : 'var(--bg-card)', backdropFilter: isDark ? 'blur(10px)' : 'none', borderTop: '2px solid #e2e8f0', padding: '14px 32px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '24px', position: 'sticky', bottom: 0, zIndex: 10 }}>
         {[
             { label: 'Total Active Bookings', value: stats.totalDeals, subValue: null, color: '#10b981', icon: 'fa-home' },
             { label: 'Active Pipeline Value', value: formatCurrency(stats.totalValue), subValue: null, color: '#0ea5e9', icon: 'fa-rupee-sign' },
@@ -797,6 +799,6 @@ const SummaryFooter = ({ stats, formatCurrency }) => (
             </div>
         ))}
     </div>
-);
+)};
 
 export default BookingPage;

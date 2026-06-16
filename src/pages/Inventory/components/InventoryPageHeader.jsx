@@ -1,6 +1,8 @@
+import { useTheme } from '../../../context/ThemeContext';
 import React from 'react';
 
 const InventoryPageHeader = ({ viewMode, setViewMode, setIsFilterPanelOpen, activeFiltersCount, onShowAll, onNavigate }) => {
+    const { isDark } = useTheme();
     return (
         <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0', paddingBottom: '10px' }}>
             <div
@@ -8,7 +10,7 @@ const InventoryPageHeader = ({ viewMode, setViewMode, setIsFilterPanelOpen, acti
                 title="Click to show all inventory"
                 onClick={onShowAll}
             >
-                <div style={{ width: '38px', height: '38px', background: '#f0fdf4', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ width: '38px', height: '38px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f0fdf4', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <i className="fas fa-warehouse" style={{ color: '#16a34a', fontSize: '1.1rem' }}></i>
                 </div>
                 <div>

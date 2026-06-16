@@ -1,11 +1,13 @@
+import { useTheme } from '../../context/ThemeContext';
 import { PriceCard, TableContainer } from './DealCommon';
 import { formatIndianCurrency, numberToIndianWords } from '../../utils/numberToWords';
 
 const DealFinancialSection = ({ deal, setIsOfferModalOpen }) => {
+    const { isDark } = useTheme();
     const cardStyle = {
-        background: '#fff',
+        background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff',
         borderRadius: '20px',
-        border: '1px solid #e2e8f0',
+        border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0',
         boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05)',
         marginBottom: '24px',
         overflow: 'hidden'
@@ -13,7 +15,7 @@ const DealFinancialSection = ({ deal, setIsOfferModalOpen }) => {
 
     const sectionHeaderStyle = {
         padding: '20px 24px',
-        borderBottom: '1px solid #f1f5f9',
+        borderBottom: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #f1f5f9',
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
@@ -23,7 +25,7 @@ const DealFinancialSection = ({ deal, setIsOfferModalOpen }) => {
     const sectionTitleStyle = {
         fontSize: '0.95rem',
         fontWeight: 900,
-        color: '#0f172a',
+        color: isDark ? 'var(--text-primary)' : '#0f172a',
         textTransform: 'uppercase',
         letterSpacing: '0.05em',
         margin: 0,
@@ -32,8 +34,8 @@ const DealFinancialSection = ({ deal, setIsOfferModalOpen }) => {
         gap: '12px'
     };
 
-    const thStyle = { padding: '14px 20px', fontSize: '0.65rem', fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' };
-    const tdStyle = { padding: '16px 20px', fontSize: '0.85rem', color: '#1e293b' };
+    const thStyle = { padding: '14px 20px', fontSize: '0.65rem', fontWeight: 900, color: isDark ? 'var(--text-muted)' : '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' };
+    const tdStyle = { padding: '16px 20px', fontSize: '0.85rem', color: isDark ? 'var(--text-primary)' : '#1e293b' };
 
     return (
         <div style={cardStyle}>
@@ -50,7 +52,7 @@ const DealFinancialSection = ({ deal, setIsOfferModalOpen }) => {
                     </span>
                 </div>
             </div>
-            <div style={{ padding: '28px', background: '#fff' }}>
+            <div style={{ padding: '28px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff' }}>
                 {/* High Level Price Matrix */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px', marginBottom: '32px' }}>
                     <PriceCard label="Target Price" value={deal.price} subValue={numberToIndianWords(deal.price)} theme="indigo" />
@@ -65,7 +67,7 @@ const DealFinancialSection = ({ deal, setIsOfferModalOpen }) => {
                 </div>
 
                 {/* Offer History */}
-                <div style={{ ...cardStyle, boxShadow: 'none', border: '1px solid #f1f5f9', background: '#f8fafc' }}>
+                <div style={{ ...cardStyle, boxShadow: 'none', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #f1f5f9', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc' }}>
                     <div style={{ ...sectionHeaderStyle, background: 'transparent', padding: '16px 20px' }}>
                         <h3 style={{ ...sectionTitleStyle, fontSize: '0.85rem' }}>
                             <i className="fas fa-comments-dollar text-indigo-600 mr-2"></i> Transaction History
@@ -86,7 +88,7 @@ const DealFinancialSection = ({ deal, setIsOfferModalOpen }) => {
                             <TableContainer>
                                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                                     <thead>
-                                        <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                                        <tr style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', borderBottom: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0' }}>
                                             <th style={thStyle}>Date</th>
                                             <th style={thStyle}>Offer By</th>
                                             <th style={thStyle}>Amount</th>
@@ -96,22 +98,22 @@ const DealFinancialSection = ({ deal, setIsOfferModalOpen }) => {
                                     </thead>
                                     <tbody>
                                         {deal.negotiationRounds.map((round, idx) => (
-                                            <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                            <tr key={idx} style={{ borderBottom: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #f1f5f9' }}>
                                                 <td style={tdStyle}>{new Date(round.date || Date.now()).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</td>
                                                 <td style={tdStyle}>
-                                                    <span style={{ fontWeight: 600, color: '#475569' }}>{round.offerBy || 'Buyer'}</span>
+                                                    <span style={{ fontWeight: 600, color: isDark ? 'var(--text-primary)' : '#475569' }}>{round.offerBy || 'Buyer'}</span>
                                                     {round.notes && <div style={{ fontSize: '0.65rem', color: '#94a3b8', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{round.notes}</div>}
                                                 </td>
                                                 <td style={tdStyle}>
-                                                    <span style={{ fontWeight: 800, color: '#1e293b' }}>{formatIndianCurrency(round.buyerOffer)}</span>
+                                                    <span style={{ fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#1e293b' }}>{formatIndianCurrency(round.buyerOffer)}</span>
                                                 </td>
                                                 <td style={tdStyle}>
-                                                    <span style={{ fontWeight: 800, color: '#64748b' }}>{formatIndianCurrency(round.ownerCounter)}</span>
+                                                    <span style={{ fontWeight: 800, color: isDark ? 'var(--text-muted)' : '#64748b' }}>{formatIndianCurrency(round.ownerCounter)}</span>
                                                 </td>
                                                 <td style={tdStyle}>
                                                     <span style={{
                                                         fontSize: '0.65rem', fontWeight: 800, padding: '4px 10px', borderRadius: '20px',
-                                                        background: '#f0fdf4', color: '#166534', border: '1px solid #dcfce7', textTransform: 'uppercase'
+                                                        background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f0fdf4', color: '#166534', border: '1px solid #dcfce7', textTransform: 'uppercase'
                                                     }}>
                                                         {round.status || 'Active'}
                                                     </span>
@@ -123,11 +125,11 @@ const DealFinancialSection = ({ deal, setIsOfferModalOpen }) => {
                             </TableContainer>
                         ) : (
                             <div style={{ padding: '40px', textAlign: 'center' }}>
-                                <div style={{ width: '48px', height: '48px', background: '#f1f5f9', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+                                <div style={{ width: '48px', height: '48px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
                                     <i className="fas fa-inbox text-slate-400" style={{ fontSize: '1.2rem' }}></i>
                                 </div>
-                                <p style={{ fontSize: '0.9rem', fontWeight: 700, color: '#1e293b', margin: '0 0 4px 0' }}>No Offers Yet</p>
-                                <p style={{ fontSize: '0.8rem', color: '#64748b', margin: 0 }}>Start the negotiation by adding the first offer.</p>
+                                <p style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#1e293b', margin: '0 0 4px 0' }}>No Offers Yet</p>
+                                <p style={{ fontSize: '0.8rem', color: isDark ? 'var(--text-muted)' : '#64748b', margin: 0 }}>Start the negotiation by adding the first offer.</p>
                             </div>
                         )}
                     </div>

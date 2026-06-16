@@ -1,6 +1,8 @@
+import { useTheme } from '../../../context/ThemeContext';
 import { FormLabel, FormSelect, ActivityCard, SectionTitle } from '../ActivityCommon';
 
 const EmailActivitySection = ({ formData, handleChange, errors, activityMasterFields }) => {
+    const { isDark } = useTheme();
     const isCompleted = formData.status === 'Completed';
     const emailAct = activityMasterFields?.activities?.find(a => a.name === 'Email');
     const purpose = emailAct?.purposes?.find(p => p.name === formData.purpose);

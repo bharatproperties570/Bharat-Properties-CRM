@@ -1,3 +1,4 @@
+import { useTheme } from '../../../context/ThemeContext';
 import React from 'react';
 import { renderValue } from '../../../utils/renderUtils';
 import usePermissions, { PermissionGate } from '../../../hooks/usePermissions';
@@ -36,6 +37,7 @@ const InventoryToolbar = ({
     filters,
     setIsFilterPanelOpen
 }) => {
+    const { isDark } = useTheme();
     const getSelectedProperty = () => inventoryItems.find(p => p._id === selectedIds[0]);
 
     return (
@@ -154,9 +156,9 @@ const InventoryToolbar = ({
                                         display: 'flex', alignItems: 'center', gap: '6px', 
                                         padding: '6px 12px', border: '1px solid var(--border-color)', borderRight: 'none', 
                                         borderRadius: '6px 0 0 6px', 
-                                        background: (currentPage <= 1 || loading) ? '#f8fafc' : '#fff', 
+                                        background: (currentPage <= 1 || loading) ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc' : isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', 
                                         fontSize: '0.75rem', fontWeight: 700, 
-                                        color: (currentPage <= 1 || loading) ? '#cbd5e1' : '#64748b', 
+                                        color: (currentPage <= 1 || loading) ? '#cbd5e1' : isDark ? 'var(--text-muted)' : '#64748b', 
                                         cursor: (currentPage <= 1 || loading) ? 'not-allowed' : 'pointer',
                                         transition: 'all 0.2s ease'
                                     }}
@@ -174,9 +176,9 @@ const InventoryToolbar = ({
                                         display: 'flex', alignItems: 'center', gap: '6px', 
                                         padding: '6px 12px', border: '1px solid var(--border-color)', borderLeft: 'none', 
                                         borderRadius: '0 6px 6px 0', 
-                                        background: (currentPage >= totalPages || loading) ? '#f8fafc' : '#fff', 
+                                        background: (currentPage >= totalPages || loading) ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc' : isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', 
                                         fontSize: '0.75rem', fontWeight: 700, 
-                                        color: (currentPage >= totalPages || loading) ? '#cbd5e1' : '#64748b', 
+                                        color: (currentPage >= totalPages || loading) ? '#cbd5e1' : isDark ? 'var(--text-muted)' : '#64748b', 
                                         cursor: (currentPage >= totalPages || loading) ? 'not-allowed' : 'pointer',
                                         transition: 'all 0.2s ease',
                                         marginRight: '10px'
@@ -193,8 +195,8 @@ const InventoryToolbar = ({
                                             display: 'flex', alignItems: 'center', justifyContent: 'center', 
                                             width: '32px', height: '32px', borderRadius: '8px',
                                             border: '1px solid var(--border-color)',
-                                            background: isSortOpen ? 'var(--primary-color)' : '#fff',
-                                            color: isSortOpen ? '#fff' : '#64748b',
+                                            background: isSortOpen ? 'var(--primary-color)' : isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff',
+                                            color: isSortOpen ? '#fff' : isDark ? 'var(--text-muted)' : '#64748b',
                                             cursor: 'pointer', transition: 'all 0.2s'
                                         }}
                                         onClick={() => setIsSortOpen(!isSortOpen)}
@@ -230,7 +232,7 @@ const InventoryToolbar = ({
                                                                 padding: '10px 15px', 
                                                                 fontSize: '0.85rem',
                                                                 fontWeight: sortConfig.label === opt.label ? 700 : 500,
-                                                                color: sortConfig.label === opt.label ? '#fff' : '#1e293b',
+                                                                color: sortConfig.label === opt.label ? '#fff' : isDark ? 'var(--text-primary)' : '#1e293b',
                                                                 background: sortConfig.label === opt.label ? 'var(--primary-color)' : 'transparent',
                                                                 cursor: 'pointer',
                                                                 marginBottom: '2px',

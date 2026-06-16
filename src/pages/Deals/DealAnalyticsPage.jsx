@@ -93,7 +93,7 @@ const KPICard = ({ icon, iconBg, label, value, sub, trend, trendDir, color }) =>
 
 // ── Main Component ───────────────────────────────────────────────
 const DealAnalyticsPage = ({ onNavigate }) => {
-  const { isDark } = useTheme();
+    const { isDark } = useTheme();
   const { sizes, getLookupValue } = usePropertyConfig();
   const tickColor   = isDark ? '#64748b' : '#94a3b8';
   const gridStroke  = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)';
@@ -246,7 +246,7 @@ const DealAnalyticsPage = ({ onNavigate }) => {
       const intent = d.intent || 'Sell';
       map[intent] = (map[intent] || 0) + 1;
     });
-    return Object.entries(map).map(([name, value]) => ({ name, value, color: INTENT_COLORS[name] || '#64748b' }));
+    return Object.entries(map).map(([name, value]) => ({ name, value, color: INTENT_COLORS[name] || isDark ? 'var(--text-muted)' : '#64748b' }));
   }, [filteredDeals]);
 
   // ── Price Band Distribution ───────────────────────────────────
@@ -851,7 +851,7 @@ const DealAnalyticsPage = ({ onNavigate }) => {
                           <td>
                             <span className="stage-chip-mini" style={{
                               background: (STAGE_COLORS[deal.stage] || '#64748b') + '20',
-                              color: STAGE_COLORS[deal.stage] || '#64748b',
+                              color: STAGE_COLORS[deal.stage] || isDark ? 'var(--text-muted)' : '#64748b',
                               border: `1px solid ${(STAGE_COLORS[deal.stage] || '#64748b')}30`
                             }}>{deal.stage || 'Open'}</span>
                           </td>
@@ -884,7 +884,7 @@ const DealAnalyticsPage = ({ onNavigate }) => {
         </div>
 
         {/* Footer */}
-        <div style={{ textAlign: 'center', color: '#334155', fontSize: '0.7rem', paddingBottom: '1rem' }}>
+        <div style={{ textAlign: 'center', color: isDark ? 'var(--text-primary)' : '#334155', fontSize: '0.7rem', paddingBottom: '1rem' }}>
           <i className="fas fa-chart-line" style={{ marginRight: 6 }} />
           Bharat Properties CRM — Deal Intelligence Analytics · Data updates every 5 minutes
         </div>

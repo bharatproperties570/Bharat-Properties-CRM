@@ -1,13 +1,15 @@
+import { useTheme } from '../../context/ThemeContext';
 import React from 'react';
 import { renderValue } from '../../utils/renderUtils';
 import ProfessionalMap from '../../components/ProfessionalMap';
 import { getCoordinates, MAP_CENTER } from '../../utils/mapUtils';
 
 const DealGeography = ({ deal, getLookupValue }) => {
+    const { isDark } = useTheme();
     const cardStyle = {
-        background: '#fff',
+        background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff',
         borderRadius: '20px',
-        border: '1px solid #e2e8f0',
+        border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0',
         boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05)',
         marginBottom: '24px',
         overflow: 'hidden'
@@ -26,7 +28,7 @@ const DealGeography = ({ deal, getLookupValue }) => {
             padding: '12px 14px', 
             background: 'rgba(248, 250, 252, 0.5)', 
             borderRadius: '14px', 
-            border: '1px solid #f1f5f9',
+            border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #f1f5f9',
             display: 'flex',
             flexDirection: 'column',
             gap: '4px'
@@ -35,7 +37,7 @@ const DealGeography = ({ deal, getLookupValue }) => {
                 <i className={`fas fa-${icon}`} style={{ fontSize: '0.55rem', color: '#cbd5e1' }}></i>
                 {label}
             </p>
-            <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 800, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {renderValue(value) || '-'}
             </p>
         </div>
@@ -55,13 +57,13 @@ const DealGeography = ({ deal, getLookupValue }) => {
 
     return (
         <div style={cardStyle}>
-            <div style={{ padding: '20px 24px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: '12px', background: 'linear-gradient(to right, #fff, #f8fafc)' }}>
+            <div style={{ padding: '20px 24px', borderBottom: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: '12px', background: 'linear-gradient(to right, #fff, #f8fafc)' }}>
                 <div style={{ width: '40px', height: '40px', background: 'rgba(239, 68, 68, 0.1)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <i className="fas fa-map-marker-alt" style={{ color: '#ef4444' }}></i>
                 </div>
                 <div>
-                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, color: '#0f172a', letterSpacing: '-0.3px' }}>Location Intelligence</h3>
-                    <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>Geospatial data & verified address</p>
+                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, color: isDark ? 'var(--text-primary)' : '#0f172a', letterSpacing: '-0.3px' }}>Location Intelligence</h3>
+                    <p style={{ margin: 0, fontSize: '0.75rem', color: isDark ? 'var(--text-muted)' : '#64748b', fontWeight: 600 }}>Geospatial data & verified address</p>
                 </div>
             </div>
 
@@ -95,13 +97,13 @@ const DealGeography = ({ deal, getLookupValue }) => {
                         <p style={{ margin: '0 0 8px 0', fontSize: '0.65rem', fontWeight: 900, color: '#4f46e5', textTransform: 'uppercase', letterSpacing: '0.8px' }}>
                             <i className="fas fa-file-alt" style={{ marginRight: '8px' }}></i> FULL OFFICIAL ADDRESS
                         </p>
-                        <p style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: '#1e293b', lineHeight: '1.6' }}>
+                        <p style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#1e293b', lineHeight: '1.6' }}>
                             {fullAddress}
                         </p>
                     </div>
                 </div>
 
-                <div style={{ height: '320px', borderRadius: '24px', overflow: 'hidden', border: '1px solid #e2e8f0', position: 'relative', boxShadow: '0 8px 30px rgba(0,0,0,0.06)' }}>
+                <div style={{ height: '320px', borderRadius: '24px', overflow: 'hidden', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0', position: 'relative', boxShadow: '0 8px 30px rgba(0,0,0,0.06)' }}>
                     <ProfessionalMap
                         items={hasValidCoords ? [inventory] : []}
                         center={coords}
@@ -127,7 +129,7 @@ const DealGeography = ({ deal, getLookupValue }) => {
                         position: 'absolute', bottom: '16px', right: '16px',
                         background: 'rgba(255,255,255,0.95)', backdropFilter: 'blur(10px)',
                         padding: '10px 18px', borderRadius: '14px', border: '1px solid #fff',
-                        fontSize: '0.65rem', fontWeight: 900, color: '#1e293b',
+                        fontSize: '0.65rem', fontWeight: 900, color: isDark ? 'var(--text-primary)' : '#1e293b',
                         boxShadow: '0 10px 30px rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', gap: '8px',
                         textTransform: 'uppercase', letterSpacing: '0.5px'
                     }}>

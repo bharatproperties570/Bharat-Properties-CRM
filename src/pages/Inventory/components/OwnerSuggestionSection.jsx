@@ -1,3 +1,4 @@
+import { useTheme } from '../../../context/ThemeContext';
 import React, { useState, useEffect } from 'react';
 import { api } from '../../../utils/api';
 import { renderValue } from '../../../utils/renderUtils';
@@ -5,6 +6,7 @@ import { getInitials } from '../../../utils/helpers';
 import toast from 'react-hot-toast';
 
 const OwnerSuggestionSection = ({ inventory, onRefresh }) => {
+    const { isDark } = useTheme();
     const [suggestions, setSuggestions] = useState([]);
     const [loading, setLoading] = useState(true);
     const [showLocationMatches, setShowLocationMatches] = useState(false);
@@ -132,7 +134,7 @@ const OwnerSuggestionSection = ({ inventory, onRefresh }) => {
                             background: contact.matchConfidence === 100 ? 'rgba(34, 197, 94, 0.1)' : 
                                         contact.matchConfidence === 80 ? 'rgba(59, 130, 246, 0.1)' : 'rgba(100, 116, 139, 0.1)',
                             color: contact.matchConfidence === 100 ? '#22c55e' : 
-                                   contact.matchConfidence === 80 ? '#3b82f6' : '#64748b',
+                                   contact.matchConfidence === 80 ? '#3b82f6' : isDark ? 'var(--text-muted)' : '#64748b',
                             border: contact.matchConfidence === 100 ? '1px solid rgba(34, 197, 94, 0.2)' : 
                                     contact.matchConfidence === 80 ? '1px solid rgba(59, 130, 246, 0.2)' : '1px solid rgba(100, 116, 139, 0.2)'
                         }}>
@@ -207,7 +209,7 @@ const OwnerSuggestionSection = ({ inventory, onRefresh }) => {
                                 style={{
                                     width: '100%',
                                     padding: '8px 12px',
-                                    background: showLocationMatches ? '#f1f5f9' : '#fff',
+                                    background: showLocationMatches ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9' : isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff',
                                     border: '1px solid var(--border-color)',
                                     borderRadius: '10px',
                                     display: 'flex',

@@ -1,7 +1,9 @@
+import { useTheme } from '../../context/ThemeContext';
 import { useState, useRef } from 'react';
 import { Play, Pause, ExternalLink } from 'lucide-react';
 
 const RecordingPlayer = ({ url, duration }) => {
+    const { isDark } = useTheme();
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
     const audioRef = useRef(null);

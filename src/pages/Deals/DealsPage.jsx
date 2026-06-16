@@ -33,6 +33,7 @@ import { AutoSizer } from 'react-virtualized-auto-sizer';
 
 // Helper: colored stage chip for deals
 const DealStageChip = ({ stage }) => {
+    const { isDark } = useTheme();
     const DEAL_STAGES = {
         'Open': { color: '#3b82f6', prob: 20 },
         'Quote': { color: '#8b5cf6', prob: 40 },
@@ -74,7 +75,47 @@ function DealsPage({ onNavigate, onAddActivity }) {
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isQuoteModalOpen, setIsQuoteModalOpen] = useState(false);
     const [isOfferModalOpen, setIsOfferModalOpen] = useState(false);
-    const [activeRowMenu, setActiveRowMenu] = useState(null); // dealId of open menu
+    const [activeRowMenu, setActiveRowMenu] = useState(null);
+    const [activeMatchPopover, setActiveMatchPopover] = useState(null); // {dealId, x, y}
+    const [previewMatches, setPreviewMatches] = useState([]);
+    const [loadingMatches, setLoadingMatches] = useState(false);
+
+    // --- Professional Match Fetching ---
+    useEffect(() => {
+        if (!activeMatchPopover) {
+            setPreviewMatches([]);
+            return;
+        }
+
+        const fetchMatches = async () => {
+            setLoadingMatches(true);
+            try {
+                const res = await api.get('leads/match', { params: { dealId: activeMatchPopover.dealId } });
+                if (res.data && res.data.success) {
+                    setPreviewMatches((res.data.matchingLeads || []).slice(0, 5).map(m => ({
+                        ...m,
+                        name: m.name || (m.firstName ? (m.firstName + ' ' + (m.lastName || '')).trim() : 'Lead'),
+                        matchPercentage: m.matchPercentage || m.score,
+                        id: m._id || m.id
+                    })));
+                } else {
+                    setPreviewMatches([]);
+                }
+            } catch (err) {
+                console.error("Match fetch error:", err);
+                setPreviewMatches([]);
+            } finally {
+                setLoadingMatches(false);
+            }
+        };
+
+        const timeout = setTimeout(() => {
+            fetchMatches();
+        }, 300); // debounce hover
+
+        return () => clearTimeout(timeout);
+    }, [activeMatchPopover]);
+ // dealId of open menu
     const [editingDeal, setEditingDeal] = useState(null);
     const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
     const [filters, setFilters] = useState({});
@@ -476,6 +517,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
     };
 
     return (
+        <>
         <section id="dealsView" className="view-section active">
             <div className="view-scroll-wrapper">
                 <div className="page-header">
@@ -917,7 +959,8 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                             getTeamName,
                                             dealScores,
                                             handleAction,
-                                            sizes
+                                            sizes,
+                                            setActiveMatchPopover
                                         }}
                                         rowComponent={VirtualizedDealRow}
                                         overscanCount={5}
@@ -1256,13 +1299,85 @@ function DealsPage({ onNavigate, onAddActivity }) {
                 </div>
             </footer>
         </section >
+            {/* Top Matches Popover (Professional Engine) */}
+            {
+                activeMatchPopover && (() => {
+                    return (
+                        <div
+                            style={{ position: 'fixed', top: activeMatchPopover.y, left: activeMatchPopover.x, zIndex: 2000, background: isDark ? 'var(--bg-main)' : '#fff', backdropFilter: 'blur(24px) saturate(200%)', color: 'var(--text-main)', padding: '16px', borderRadius: '12px', boxShadow: '0 10px 40px rgba(0,0,0,0.5)', border: '1px solid var(--border-color)', minWidth: '320px' }}
+                            onMouseLeave={() => setActiveMatchPopover(null)}
+                        >
+                            <div style={{ fontSize: '0.7rem', fontWeight: 900, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '12px', letterSpacing: '0.5px', display: 'flex', justifyContent: 'space-between' }}>
+                                <span>Top 5 Matches (AI Engine)</span>
+                                {loadingMatches ? <span className="loading-dots">Updating</span> : <span style={{ color: 'var(--primary-color)' }}>{previewMatches.length} Found</span>}
+                            </div>
+
+                            {loadingMatches ? (
+                                <div style={{ padding: '20px 0', textAlign: 'center' }}>
+                                    <div className="spinner" style={{ width: '20px', height: '20px', margin: '0 auto', border: '3px solid var(--border-color)', borderTop: '3px solid var(--primary-color)', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+                                </div>
+                            ) : (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                    {previewMatches.map((item, i) => (
+                                        <div
+                                            key={i}
+                                            className="match-item-hover"
+                                            onClick={() => onNavigate('deal-matching', activeMatchPopover.dealId)}
+                                            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', borderRadius: '8px', cursor: 'pointer', transition: 'all 0.2s', border: '1px solid transparent' }}
+                                        >
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'linear-gradient(135deg, var(--primary-color) 0%, #a855f7 100%)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 800 }}>
+                                                    {item.name ? item.name.charAt(0).toUpperCase() : 'L'}
+                                                </div>
+                                                <div>
+                                                    <div style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '2px' }}>{item.name}</div>
+                                                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Lead • {item.maxBudget ? (item.maxBudget >= 10000000 ? (item.maxBudget / 10000000).toFixed(2) + ' Cr' : (item.maxBudget / 100000).toFixed(2) + ' Lac') : 'N/A'}</div>
+                                                </div>
+                                            </div>
+                                            <div style={{ 
+                                                background: item.matchPercentage > 80 
+                                                    ? (isDark ? 'rgba(74, 222, 128, 0.15)' : '#dcfce7') 
+                                                    : (isDark ? 'rgba(250, 204, 21, 0.15)' : '#fef3c7'), 
+                                                color: item.matchPercentage > 80 
+                                                    ? (isDark ? '#4ade80' : '#166534') 
+                                                    : (isDark ? '#facc15' : '#92400e'), 
+                                                padding: '2px 8px', 
+                                                borderRadius: '6px', 
+                                                fontSize: '0.7rem', 
+                                                fontWeight: 900, 
+                                                flexShrink: 0 
+                                            }}>
+                                                {item.matchPercentage}%
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {previewMatches.length === 0 && (
+                                        <div style={{ textAlign: 'center', padding: '16px 0', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+                                            No direct matches found.
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            <button
+                                onClick={() => onNavigate('deal-matching', activeMatchPopover.dealId)}
+                                style={{ width: '100%', marginTop: '16px', padding: '10px', background: 'var(--primary-color)', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', boxShadow: '0 4px 12px rgba(79, 70, 229, 0.3)' }}
+                            >
+                                Open Professional Matching Center
+                            </button>
+                            <style>{`.match-item-hover:hover { background: var(--bg-gray); transform: translateX(4px); }`}</style>
+                        </div>
+                    );
+                })()
+            }
+        </>
     );
 }
 
 
 // --- MEMOIZED COMPONENTS FOR PERFORMANCE ---
 
-const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLookupValue, resolveDealLookup, activeRowMenu, setActiveRowMenu, onAction, dealScores = {}, getUserName, getTeamName, sizes, style }) => {
+const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLookupValue, resolveDealLookup, activeRowMenu, setActiveRowMenu, onAction, dealScores = {}, getUserName, getTeamName, sizes, style, setActiveMatchPopover }) => {
     const { isDark } = useTheme();
     
     const s = dealScores[deal._id];
@@ -1413,7 +1528,15 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
             <div style={{ lineHeight: 1.4, padding: '8px', background: 'var(--bg-gray)', borderRadius: '6px' }}>
                 <div style={{ fontWeight: 800, color: 'var(--text-main)', fontSize: '0.8rem', textTransform: 'capitalize', marginBottom: '4px' }}>{renderValue(resolveDealLookup(deal.intent, 'Intent'))}</div>
                 <div style={{ fontSize: '0.7rem' }}>
-                    <span style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: '#fff', fontWeight: 700, padding: '3px 10px', borderRadius: '12px', boxShadow: '0 2px 4px rgba(102, 126, 234, 0.3)' }}>{deal.matched} Matches</span>
+                    <span 
+                        onMouseEnter={(e) => {
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            setActiveMatchPopover({ dealId: deal._id, x: rect.left, y: rect.bottom + 10 });
+                        }}
+                        style={{ cursor: 'pointer', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: '#fff', fontWeight: 700, padding: '3px 10px', borderRadius: '12px', boxShadow: '0 2px 4px rgba(102, 126, 234, 0.3)' }}
+                    >
+                        {deal.matched} Matches
+                    </span>
                 </div>
             </div>
 
@@ -1557,7 +1680,7 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
 });
 // --- VIRTUALIZED WRAPPER ---
 const VirtualizedDealRow = React.memo((props) => {
-    const { index, style, deals, selectedIds, toggleSelect, onNavigate, getLookupValue, resolveDealLookup, activeRowMenu, setActiveRowMenu, getUserName, getTeamName, dealScores, handleAction, sizes } = props;
+    const { index, style, deals, selectedIds, toggleSelect, onNavigate, getLookupValue, resolveDealLookup, activeRowMenu, setActiveRowMenu, getUserName, getTeamName, dealScores, handleAction, sizes, setActiveMatchPopover } = props;
     const deal = deals[index];
     if (!deal) return null;
     return (
@@ -1571,6 +1694,7 @@ const VirtualizedDealRow = React.memo((props) => {
             getLookupValue={getLookupValue}
             resolveDealLookup={resolveDealLookup}
             activeRowMenu={activeRowMenu}
+                                        setActiveMatchPopover={setActiveMatchPopover}
             setActiveRowMenu={setActiveRowMenu}
             getUserName={getUserName}
             getTeamName={getTeamName}

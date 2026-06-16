@@ -1,3 +1,4 @@
+import { useTheme } from '../../context/ThemeContext';
 
 const HeaderActionMenu = ({ 
     onAddContact, 
@@ -9,6 +10,7 @@ const HeaderActionMenu = ({
     onAddActivity,
     onAddBooking
 }) => {
+    const { isDark } = useTheme();
     return (
         <div className="add-dropdown">
             <button className="add-btn" id="addBtn">

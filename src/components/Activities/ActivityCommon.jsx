@@ -1,3 +1,4 @@
+import { useTheme } from '../../context/ThemeContext';
 
 export const ModalOverlay = ({ isOpen, children }) => (
     <div style={{
@@ -46,10 +47,10 @@ export const FormInput = React.forwardRef(({ hasError, ...props }, ref) => (
             borderRadius: '10px',
             border: `1px solid ${hasError ? '#ef4444' : '#e2e8f0'}`,
             fontSize: '0.9rem',
-            color: '#1e293b',
+            color: isDark ? 'var(--text-primary)' : '#1e293b',
             outline: 'none',
             transition: 'all 0.2s',
-            backgroundColor: '#f8fafc',
+            backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc',
             ...props.style
         }}
     />
@@ -66,10 +67,10 @@ export const FormSelect = ({ hasError, children, ...props }) => (
                 borderRadius: '10px',
                 border: `1px solid ${hasError ? '#ef4444' : '#e2e8f0'}`,
                 fontSize: '0.9rem',
-                color: '#1e293b',
+                color: isDark ? 'var(--text-primary)' : '#1e293b',
                 outline: 'none',
                 transition: 'all 0.2s',
-                backgroundColor: '#f8fafc',
+                backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc',
                 appearance: 'none',
                 cursor: 'pointer',
                 ...props.style

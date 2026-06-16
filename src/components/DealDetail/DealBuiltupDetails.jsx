@@ -1,3 +1,4 @@
+import { useTheme } from '../../context/ThemeContext';
 import React, { useState, useEffect } from 'react';
 import { renderValue } from '../../utils/renderUtils';
 import { api } from '../../utils/api';
@@ -5,6 +6,7 @@ import toast from 'react-hot-toast';
 import { fixDriveUrl } from '../../utils/helpers';
 
 const DealBuiltupDetails = ({ deal, getLookupValue, onRefresh }) => {
+    const { isDark } = useTheme();
     const [selectedImageUrl, setSelectedImageUrl] = useState(null);
 
     const gridStyle = { 
@@ -162,9 +164,9 @@ const DealBuiltupDetails = ({ deal, getLookupValue, onRefresh }) => {
 
     return (
         <div style={{ 
-            background: '#fff',
+            background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff',
             borderRadius: '20px',
-            border: '1px solid #e2e8f0',
+            border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0',
             boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05)',
             marginBottom: '24px',
             overflow: 'hidden',
@@ -177,8 +179,8 @@ const DealBuiltupDetails = ({ deal, getLookupValue, onRefresh }) => {
                         <i className="fas fa-building" style={{ color: '#4f46e5' }}></i>
                     </div>
                     <div>
-                        <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, color: '#0f172a', letterSpacing: '-0.3px' }}>Built-up Details</h3>
-                        <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>Structure, floors & furnishing status</p>
+                        <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, color: isDark ? 'var(--text-primary)' : '#0f172a', letterSpacing: '-0.3px' }}>Built-up Details</h3>
+                        <p style={{ margin: 0, fontSize: '0.75rem', color: isDark ? 'var(--text-muted)' : '#64748b', fontWeight: 600 }}>Structure, floors & furnishing status</p>
                     </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -241,11 +243,11 @@ const DealBuiltupDetails = ({ deal, getLookupValue, onRefresh }) => {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                 {/* Floor Wise Details Table list */}
                 {builtupDetails.map((floor, fIdx) => (
-                    <div key={fIdx} style={{ padding: '20px', background: 'rgba(248, 250, 252, 0.4)', borderRadius: '20px', border: '1px solid #f1f5f9' }}>
+                    <div key={fIdx} style={{ padding: '20px', background: 'rgba(248, 250, 252, 0.4)', borderRadius: '20px', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #f1f5f9' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px dashed #e2e8f0', paddingBottom: '10px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                 <i className="fas fa-layer-group" style={{ color: '#4f46e5', fontSize: '0.9rem' }}></i>
-                                <span style={{ fontSize: '0.85rem', fontWeight: 900, color: '#0f172a', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                <span style={{ fontSize: '0.85rem', fontWeight: 900, color: isDark ? 'var(--text-primary)' : '#0f172a', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                                     {floor.floor || `Level ${fIdx + 1}`}
                                 </span>
                             </div>
@@ -284,7 +286,7 @@ const DealBuiltupDetails = ({ deal, getLookupValue, onRefresh }) => {
                                             height: '65px', 
                                             borderRadius: '12px', 
                                             overflow: 'hidden', 
-                                            border: '1px solid #e2e8f0', 
+                                            border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0', 
                                             cursor: 'pointer',
                                             boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)'
                                         }}
@@ -328,7 +330,7 @@ const DealBuiltupDetails = ({ deal, getLookupValue, onRefresh }) => {
                                             gap: '6px', 
                                             width: '100px', 
                                             padding: '8px 0', 
-                                            background: '#f0fdf4', 
+                                            background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f0fdf4', 
                                             border: '1px solid #bbf7d0', 
                                             borderRadius: '10px', 
                                             color: '#16a34a', 
@@ -371,7 +373,7 @@ const DealBuiltupDetails = ({ deal, getLookupValue, onRefresh }) => {
                         </p>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                             {(furnishedItems || '').split(',').map((item, idx) => (
-                                <span key={idx} style={{ padding: '6px 12px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 700, color: '#475569', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                                <span key={idx} style={{ padding: '6px 12px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#475569', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
                                     {item.trim()}
                                 </span>
                             ))}
@@ -397,20 +399,20 @@ const DealBuiltupDetails = ({ deal, getLookupValue, onRefresh }) => {
                     padding: '20px'
                 }}>
                     <div style={{
-                        background: '#fff',
+                        background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff',
                         borderRadius: '24px',
                         width: '100%',
                         maxWidth: '520px',
                         boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.18)',
-                        border: '1px solid #e2e8f0',
+                        border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0',
                         overflow: 'hidden',
                         animation: 'fadeIn 0.3s ease'
                     }}>
                         {/* Modal Header */}
-                        <div style={{ padding: '24px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ padding: '24px', borderBottom: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <div>
-                                <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 900, color: '#0f172a' }}>Add Built-up Detail</h3>
-                                <p style={{ margin: '4px 0 0 0', fontSize: '0.75rem', color: '#64748b' }}>Configure structural layer specification</p>
+                                <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 900, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>Add Built-up Detail</h3>
+                                <p style={{ margin: '4px 0 0 0', fontSize: '0.75rem', color: isDark ? 'var(--text-muted)' : '#64748b' }}>Configure structural layer specification</p>
                             </div>
                             <button 
                                 onClick={() => setIsModalOpen(false)}
@@ -424,11 +426,11 @@ const DealBuiltupDetails = ({ deal, getLookupValue, onRefresh }) => {
                         <form onSubmit={handleSubmit} style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
                             {/* Floor select */}
                             <div>
-                                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Floor Level</label>
+                                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#475569', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Floor Level</label>
                                 <select 
                                     value={newFloor} 
                                     onChange={(e) => setNewFloor(e.target.value)}
-                                    style={{ width: '100%', height: '42px', padding: '0 12px', border: '1px solid #cbd5e1', borderRadius: '8px', outline: 'none', fontSize: '0.9rem' }}
+                                    style={{ width: '100%', height: '42px', padding: '0 12px', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #cbd5e1', borderRadius: '8px', outline: 'none', fontSize: '0.9rem' }}
                                 >
                                     <option>Ground Floor</option>
                                     <option>First Floor</option>
@@ -440,7 +442,7 @@ const DealBuiltupDetails = ({ deal, getLookupValue, onRefresh }) => {
 
                             {/* Plan/Cluster selector with list and custom text entry */}
                             <div>
-                                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Component / Plan</label>
+                                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#475569', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Component / Plan</label>
                                 <div style={{ display: 'flex', gap: '12px' }}>
                                     <select 
                                         onChange={(e) => {
@@ -450,7 +452,7 @@ const DealBuiltupDetails = ({ deal, getLookupValue, onRefresh }) => {
                                                 setNewCluster('');
                                             }
                                         }}
-                                        style={{ width: '45%', height: '42px', padding: '0 12px', border: '1px solid #cbd5e1', borderRadius: '8px', outline: 'none', fontSize: '0.9rem' }}
+                                        style={{ width: '45%', height: '42px', padding: '0 12px', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #cbd5e1', borderRadius: '8px', outline: 'none', fontSize: '0.9rem' }}
                                     >
                                         <option value="">Select Plan</option>
                                         <option>Type A</option>
@@ -463,7 +465,7 @@ const DealBuiltupDetails = ({ deal, getLookupValue, onRefresh }) => {
                                         placeholder="Or type component name"
                                         value={newCluster}
                                         onChange={(e) => setNewCluster(e.target.value)}
-                                        style={{ flex: 1, height: '42px', padding: '0 12px', border: '1px solid #cbd5e1', borderRadius: '8px', outline: 'none', fontSize: '0.9rem' }}
+                                        style={{ flex: 1, height: '42px', padding: '0 12px', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #cbd5e1', borderRadius: '8px', outline: 'none', fontSize: '0.9rem' }}
                                     />
                                 </div>
                             </div>
@@ -471,24 +473,24 @@ const DealBuiltupDetails = ({ deal, getLookupValue, onRefresh }) => {
                             {/* Width & Length */}
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                                 <div>
-                                    <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Width (ft)</label>
+                                    <label style={{ fontSize: '0.75rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#475569', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Width (ft)</label>
                                     <input 
                                         type="number"
                                         placeholder="e.g. 15"
                                         value={newWidth}
                                         onChange={(e) => setNewWidth(e.target.value)}
-                                        style={{ width: '100%', height: '42px', padding: '0 12px', border: '1px solid #cbd5e1', borderRadius: '8px', outline: 'none', fontSize: '0.9rem' }}
+                                        style={{ width: '100%', height: '42px', padding: '0 12px', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #cbd5e1', borderRadius: '8px', outline: 'none', fontSize: '0.9rem' }}
                                         required
                                     />
                                 </div>
                                 <div>
-                                    <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Length (ft)</label>
+                                    <label style={{ fontSize: '0.75rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#475569', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Length (ft)</label>
                                     <input 
                                         type="number"
                                         placeholder="e.g. 20"
                                         value={newLength}
                                         onChange={(e) => setNewLength(e.target.value)}
-                                        style={{ width: '100%', height: '42px', padding: '0 12px', border: '1px solid #cbd5e1', borderRadius: '8px', outline: 'none', fontSize: '0.9rem' }}
+                                        style={{ width: '100%', height: '42px', padding: '0 12px', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #cbd5e1', borderRadius: '8px', outline: 'none', fontSize: '0.9rem' }}
                                         required
                                     />
                                 </div>
@@ -496,13 +498,13 @@ const DealBuiltupDetails = ({ deal, getLookupValue, onRefresh }) => {
 
                             {/* Total Area */}
                             <div>
-                                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total Area (Sq.Ft.)</label>
+                                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#475569', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total Area (Sq.Ft.)</label>
                                 <input 
                                     type="number"
                                     placeholder="Calculated area"
                                     value={newTotalArea}
                                     onChange={(e) => setNewTotalArea(e.target.value)}
-                                    style={{ width: '100%', height: '42px', padding: '0 12px', border: '1px solid #cbd5e1', borderRadius: '8px', outline: 'none', fontSize: '0.9rem', background: '#f8fafc' }}
+                                    style={{ width: '100%', height: '42px', padding: '0 12px', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #cbd5e1', borderRadius: '8px', outline: 'none', fontSize: '0.9rem', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc' }}
                                     required
                                 />
                             </div>
@@ -510,11 +512,11 @@ const DealBuiltupDetails = ({ deal, getLookupValue, onRefresh }) => {
                             {/* Layout Plan Image & Walkthrough Video */}
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                                 <div>
-                                    <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Layout Plan Image</label>
+                                    <label style={{ fontSize: '0.75rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#475569', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Layout Plan Image</label>
                                     {newImageUrl ? (
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '6px 10px', background: '#f8fafc', height: '42px', boxSizing: 'border-box' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0', borderRadius: '8px', padding: '6px 10px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', height: '42px', boxSizing: 'border-box' }}>
                                             <img src={fixDriveUrl(newImageUrl)} alt="Preview" style={{ width: '28px', height: '28px', borderRadius: '4px', objectFit: 'cover' }} />
-                                            <span style={{ fontSize: '0.75rem', color: '#64748b', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', flex: 1 }}>Uploaded</span>
+                                            <span style={{ fontSize: '0.75rem', color: isDark ? 'var(--text-muted)' : '#64748b', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', flex: 1 }}>Uploaded</span>
                                             <button type="button" onClick={() => setNewImageUrl('')} style={{ border: 'none', background: 'none', color: '#ef4444', cursor: 'pointer' }}>
                                                 <i className="fas fa-trash-alt"></i>
                                             </button>
@@ -525,25 +527,25 @@ const DealBuiltupDetails = ({ deal, getLookupValue, onRefresh }) => {
                                         </div>
                                     ) : (
                                         <div style={{ display: 'flex', gap: '8px' }}>
-                                            <label htmlFor="modal-image-upload" style={{ flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px', height: '42px', border: '1px dashed #cbd5e1', borderRadius: '8px', background: '#fff', fontSize: '0.75rem', fontWeight: 600, color: '#64748b', cursor: 'pointer', boxSizing: 'border-box' }}>
+                                            <label htmlFor="modal-image-upload" style={{ flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px', height: '42px', border: '1px dashed #cbd5e1', borderRadius: '8px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', fontSize: '0.75rem', fontWeight: 600, color: isDark ? 'var(--text-muted)' : '#64748b', cursor: 'pointer', boxSizing: 'border-box' }}>
                                                 <i className="fas fa-cloud-upload-alt"></i> Upload
                                             </label>
                                             <input id="modal-image-upload" type="file" accept="image/*" onChange={e => handleImageUpload(e.target.files[0])} style={{ display: 'none' }} />
                                             <button type="button" onClick={() => {
                                                 const url = window.prompt("Enter Layout Plan Image URL:");
                                                 if (url !== null) setNewImageUrl(url.trim());
-                                            }} style={{ padding: '0 12px', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '8px', color: '#64748b', cursor: 'pointer' }} title="Add Link">
+                                            }} style={{ padding: '0 12px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #cbd5e1', borderRadius: '8px', color: isDark ? 'var(--text-muted)' : '#64748b', cursor: 'pointer' }} title="Add Link">
                                                 <i className="fas fa-link"></i>
                                             </button>
                                         </div>
                                     )}
                                 </div>
                                 <div>
-                                    <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Walkthrough Video</label>
+                                    <label style={{ fontSize: '0.75rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#475569', display: 'block', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Walkthrough Video</label>
                                     {newVideoUrl ? (
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '6px 10px', background: '#f8fafc', height: '42px', boxSizing: 'border-box' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0', borderRadius: '8px', padding: '6px 10px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', height: '42px', boxSizing: 'border-box' }}>
                                             <i className="fas fa-video" style={{ color: '#16a34a' }}></i>
-                                            <span style={{ fontSize: '0.75rem', color: '#64748b', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', flex: 1 }}>Uploaded</span>
+                                            <span style={{ fontSize: '0.75rem', color: isDark ? 'var(--text-muted)' : '#64748b', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', flex: 1 }}>Uploaded</span>
                                             <button type="button" onClick={() => setNewVideoUrl('')} style={{ border: 'none', background: 'none', color: '#ef4444', cursor: 'pointer' }}>
                                                 <i className="fas fa-trash-alt"></i>
                                             </button>
@@ -554,14 +556,14 @@ const DealBuiltupDetails = ({ deal, getLookupValue, onRefresh }) => {
                                         </div>
                                     ) : (
                                         <div style={{ display: 'flex', gap: '8px' }}>
-                                            <label htmlFor="modal-video-upload" style={{ flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px', height: '42px', border: '1px dashed #cbd5e1', borderRadius: '8px', background: '#fff', fontSize: '0.75rem', fontWeight: 600, color: '#64748b', cursor: 'pointer', boxSizing: 'border-box' }}>
+                                            <label htmlFor="modal-video-upload" style={{ flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px', height: '42px', border: '1px dashed #cbd5e1', borderRadius: '8px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', fontSize: '0.75rem', fontWeight: 600, color: isDark ? 'var(--text-muted)' : '#64748b', cursor: 'pointer', boxSizing: 'border-box' }}>
                                                 <i className="fas fa-cloud-upload-alt"></i> Upload
                                             </label>
                                             <input id="modal-video-upload" type="file" accept="video/*" onChange={e => handleVideoUpload(e.target.files[0])} style={{ display: 'none' }} />
                                             <button type="button" onClick={() => {
                                                 const url = window.prompt("Enter Walkthrough Video URL:");
                                                 if (url !== null) setNewVideoUrl(url.trim());
-                                            }} style={{ padding: '0 12px', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '8px', color: '#64748b', cursor: 'pointer' }} title="Add Link">
+                                            }} style={{ padding: '0 12px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #cbd5e1', borderRadius: '8px', color: isDark ? 'var(--text-muted)' : '#64748b', cursor: 'pointer' }} title="Add Link">
                                                 <i className="fas fa-link"></i>
                                             </button>
                                         </div>
@@ -574,7 +576,7 @@ const DealBuiltupDetails = ({ deal, getLookupValue, onRefresh }) => {
                                 <button 
                                     type="button"
                                     onClick={() => setIsModalOpen(false)}
-                                    style={{ height: '42px', padding: '0 20px', border: '1px solid #cbd5e1', borderRadius: '8px', background: '#fff', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 600 }}
+                                    style={{ height: '42px', padding: '0 20px', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #cbd5e1', borderRadius: '8px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 600 }}
                                 >
                                     Cancel
                                 </button>
@@ -649,14 +651,17 @@ const DealBuiltupDetails = ({ deal, getLookupValue, onRefresh }) => {
     );
 };
 
-const InfoItem = ({ label, value, icon }) => (
-    <div style={{ padding: '14px', background: 'rgba(248, 250, 252, 0.5)', borderRadius: '16px', border: '1px solid #f1f5f9' }}>
+const InfoItem = ({ label, value, icon }) => {
+    const { isDark } = useTheme();
+    return (
+<div style={{ padding: '14px', background: 'rgba(248, 250, 252, 0.5)', borderRadius: '16px', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #f1f5f9' }}>
         <p style={{ margin: '0 0 6px 0', fontSize: '0.6rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <i className={`fas fa-${icon}`} style={{ width: '12px', textAlign: 'center', color: '#cbd5e1' }}></i>
             {label}
         </p>
-        <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 700, color: '#1e293b' }}>{value || '-'}</p>
+        <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#1e293b' }}>{value || '-'}</p>
     </div>
-);
+    );
+};
 
 export default DealBuiltupDetails;

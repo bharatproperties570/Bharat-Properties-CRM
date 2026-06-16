@@ -1,9 +1,11 @@
+import { useTheme } from '../../context/ThemeContext';
 
 const DealDocuments = ({ deal, setIsDocumentModalOpen }) => {
+    const { isDark } = useTheme();
     const cardStyle = {
-        background: '#fff',
+        background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff',
         borderRadius: '20px',
-        border: '1px solid #e2e8f0',
+        border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0',
         boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05)',
         marginBottom: '24px',
         overflow: 'hidden'
@@ -11,7 +13,7 @@ const DealDocuments = ({ deal, setIsDocumentModalOpen }) => {
 
     const sectionHeaderStyle = {
         padding: '20px 24px',
-        borderBottom: '1px solid #f1f5f9',
+        borderBottom: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #f1f5f9',
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
@@ -21,7 +23,7 @@ const DealDocuments = ({ deal, setIsDocumentModalOpen }) => {
     const sectionTitleStyle = {
         fontSize: '0.95rem',
         fontWeight: 900,
-        color: '#0f172a',
+        color: isDark ? 'var(--text-primary)' : '#0f172a',
         textTransform: 'uppercase',
         letterSpacing: '0.05em',
         margin: 0,
@@ -47,13 +49,13 @@ const DealDocuments = ({ deal, setIsDocumentModalOpen }) => {
                 {deal.inventoryId?.documents?.length > 0 ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                         {deal.inventoryId.documents.map((doc, idx) => (
-                            <div key={idx} style={{ padding: '10px 14px', background: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                <div style={{ width: '32px', height: '32px', background: '#eff6ff', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6' }}>
+                            <div key={idx} style={{ padding: '10px 14px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', borderRadius: '10px', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <div style={{ width: '32px', height: '32px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#eff6ff', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6' }}>
                                     <i className="fas fa-file-pdf"></i>
                                 </div>
                                 <div style={{ flex: 1, overflow: 'hidden' }}>
-                                    <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{doc.name || 'Property Document'}</div>
-                                    <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 600 }}>{doc.type || 'Legal'} • {new Date(doc.uploadedAt || Date.now()).toLocaleDateString()}</div>
+                                    <div style={{ fontSize: '0.75rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{doc.name || 'Property Document'}</div>
+                                    <div style={{ fontSize: '0.65rem', color: isDark ? 'var(--text-muted)' : '#64748b', fontWeight: 600 }}>{doc.type || 'Legal'} • {new Date(doc.uploadedAt || Date.now()).toLocaleDateString()}</div>
                                 </div>
                                 <a href={doc.url} target="_blank" rel="noreferrer" style={{ color: '#94a3b8' }}>
                                     <i className="fas fa-external-link-alt"></i>

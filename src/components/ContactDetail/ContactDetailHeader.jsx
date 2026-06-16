@@ -1,3 +1,5 @@
+import { useTheme } from '../../context/ThemeContext';
+
 import React, { useState } from 'react';
 import RevivalModal from '../RevivalModal';
 
@@ -23,6 +25,7 @@ const ContactDetailHeader = React.memo(function ContactDetailHeader({
     setIsAssignModalOpen,
     setIsActivityModalOpen
 }) {
+    const { isDark } = useTheme();
     const [isRevivalModalOpen, setIsRevivalModalOpen] = useState(false);
     return (
         <header style={{

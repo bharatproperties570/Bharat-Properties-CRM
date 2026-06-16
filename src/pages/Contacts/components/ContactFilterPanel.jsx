@@ -1,3 +1,5 @@
+import { useTheme } from '../../../context/ThemeContext';
+
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
@@ -94,6 +96,7 @@ const styles = {
 
 // MultiSelect Component
 const MultiSelectDropdown = ({ options, selected, onChange, placeholder, disabled }) => {
+    const { isDark } = useTheme();
     const [isOpen, setIsOpen] = useState(false);
     const containerRef = useRef(null);
 
@@ -168,6 +171,7 @@ const MultiSelectDropdown = ({ options, selected, onChange, placeholder, disable
 };
 
 const ContactFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
+    const { isDark } = useTheme();
     const { masterFields } = usePropertyConfig();
     const { professionalConfig } = useContactConfig();
     const [isVisible, setIsVisible] = useState(false);
