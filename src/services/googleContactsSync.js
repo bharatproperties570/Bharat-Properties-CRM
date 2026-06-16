@@ -172,7 +172,7 @@ class GoogleContactsSync {
     async updateContact(resourceName, googleContact) {
         const response = await window.gapi.client.people.people.updateContact({
             resourceName: resourceName,
-            updatePersonFields: 'names,phoneNumbers,emailAddresses,addresses,biographies',
+            updatePersonFields: 'names,phoneNumbers,emailAddresses,addresses,biographies,userDefined',
             resource: googleContact
         });
 
@@ -251,11 +251,20 @@ class GoogleContactsSync {
             }];
         }
 
-        // Notes/Bio (include source, budget, lead type)
+        // Notes/Bio (include source, budget, lead type, tags)
         const notes = [];
         if (contact.source) notes.push(`Source: ${contact.source}`);
         if (contact.budget) notes.push(`Budget: ${contact.budget}`);
         if (contact.leadType) notes.push(`Lead Type: ${contact.leadType}`);
+        
+        let tagsStr = '';
+        if (contact.tags) {
+            tagsStr = Array.isArray(contact.tags) ? contact.tags.join(', ') : contact.tags;
+            if (tagsStr && tagsStr !== '-') {
+                notes.push(`Tags: ${tagsStr}`);
+            }
+        }
+        
         if (contact.notes) notes.push(contact.notes);
 
         if (notes.length > 0) {
@@ -263,6 +272,15 @@ class GoogleContactsSync {
                 value: notes.join('\n'),
                 contentType: 'TEXT_PLAIN'
             }];
+        }
+
+        // Custom Fields
+        googleContact.userDefined = [];
+        if (contact._id) {
+            googleContact.userDefined.push({ key: 'CRM_ID', value: contact._id.toString() });
+        }
+        if (tagsStr && tagsStr !== '-') {
+            googleContact.userDefined.push({ key: 'Tags', value: tagsStr });
         }
 
         return googleContact;

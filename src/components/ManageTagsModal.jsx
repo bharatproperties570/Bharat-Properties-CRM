@@ -20,9 +20,13 @@ const ManageTagsModal = ({ isOpen, onClose, selectedContacts = [], onUpdateTags 
             } else if (selectedContacts.length === 1) {
                 // Pre-fill existing tags for single contact
                 // Split string 'Tag1, Tag2' into array, handle empty cases
-                const existing = selectedContacts[0].tags && selectedContacts[0].tags !== '-'
-                    ? selectedContacts[0].tags.split(',').map(t => t.trim())
-                    : [];
+                let existing = [];
+                const rawTags = selectedContacts[0].tags;
+                if (Array.isArray(rawTags)) {
+                    existing = rawTags;
+                } else if (typeof rawTags === 'string' && rawTags !== '-') {
+                    existing = rawTags.split(',').map(t => t.trim());
+                }
                 setCurrentTags(existing);
             }
         }

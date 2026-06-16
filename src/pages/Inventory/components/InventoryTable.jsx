@@ -184,18 +184,24 @@ const InventoryTable = ({
                                                 width: 'auto',
                                                 height: '26px', 
                                                 padding: '0 8px',
-                                                background: isActive ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#dcfce7' : isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9', 
+                                                background: isActive 
+                                                    ? (isDark ? '#065f46' : '#dcfce7') 
+                                                    : (isDark ? '#334155' : '#f1f5f9'), 
                                                 borderRadius: '6px',
                                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                                                 fontSize: '0.85rem', fontWeight: 900, 
-                                                color: isActive ? '#15803d' : isDark ? 'var(--text-primary)' : '#1e293b',
-                                                border: isActive ? '1px solid #bdf4c9' : '1px solid #e2e8f0'
+                                                color: isActive 
+                                                    ? (isDark ? '#6ee7b7' : '#15803d') 
+                                                    : (isDark ? '#cbd5e1' : '#1e293b'),
+                                                border: isActive 
+                                                    ? (isDark ? '1px solid #047857' : '1px solid #bdf4c9') 
+                                                    : (isDark ? '1px solid #475569' : '1px solid #e2e8f0')
                                             }}
                                             onClick={(e) => { e.stopPropagation(); onNavigate('inventory-detail', item._id); }}
                                         >
                                             {renderValue(item.unitNo)}
                                         </div>
-                                        <div style={{ fontSize: '0.62rem', fontWeight: 800, color: '#2563eb', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                        <div style={{ fontSize: '0.62rem', fontWeight: 800, color: isDark ? 'var(--gold)' : '#2563eb', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                                             {(() => {
                                                 if (item.isCorner) return 'CORNER';
                                                 if (item.isTwoSideOpen) return 'TWO SIDE OPEN';
@@ -208,7 +214,7 @@ const InventoryTable = ({
                                         <div style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--text-main)', lineHeight: 1.1 }}>
                                             {renderValue(resolveInventoryLookup(item.category, 'Category'))} | {renderValue(resolveInventoryLookup(item.subCategory, 'SubCategory'))}
                                         </div>
-                                        <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#2563eb', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <div style={{ fontSize: '0.72rem', fontWeight: 800, color: isDark ? 'var(--gold)' : '#2563eb', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                             <i className="fas fa-expand-arrows-alt" style={{ fontSize: '0.65rem' }}></i>
                                             {(() => {
                                                 const sizeStr = resolveInventoryLookup(item.sizeConfig, 'Size') || 
@@ -232,7 +238,7 @@ const InventoryTable = ({
                                     <div style={{ 
                                         fontSize: '0.85rem', 
                                         fontWeight: 800, 
-                                        color: '#2563eb', 
+                                        color: isDark ? 'var(--gold)' : '#2563eb', 
                                         marginBottom: '2px',
                                         whiteSpace: 'nowrap',
                                         overflow: 'hidden',
@@ -302,7 +308,7 @@ const InventoryTable = ({
 
                                 {/* Col 5: Owner Profile */}
                                 <div className="super-cell">
-                                    <div style={{ fontSize: '0.82rem', fontWeight: 800, color: '#2563eb', marginBottom: '2px' }}>
+                                    <div style={{ fontSize: '0.82rem', fontWeight: 800, color: isDark ? 'var(--gold)' : '#2563eb', marginBottom: '2px' }}>
                                         {renderValue(item.owners?.[0]?.name) || renderValue(item.ownerName) || 'No owner data'}
                                     </div>
                                     <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-main)' }}>
@@ -318,7 +324,7 @@ const InventoryTable = ({
                                             <div style={{ fontSize: '0.82rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '2px' }}>
                                                 {renderValue(item.associates[0]?.contact?.name) || renderValue(item.associates[0]?.name)}
                                             </div>
-                                            <div style={{ fontSize: '0.7rem', color: '#2563eb', fontWeight: 700 }}>
+                                            <div style={{ fontSize: '0.7rem', color: isDark ? 'var(--gold)' : '#2563eb', fontWeight: 700 }}>
                                                 {renderValue(item.associates[0]?.contact?.phones?.[0]?.number) || renderValue(item.associates[0]?.mobile) || ''}
                                             </div>
                                             {renderContactAddress(item.associates[0]?.contact)}
@@ -380,7 +386,7 @@ const InventoryTable = ({
                                                         </div>
                                                     )}
                                                     {followUp && (
-                                                        <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#2563eb', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                        <div style={{ fontSize: '0.65rem', fontWeight: 800, color: isDark ? 'var(--gold)' : '#2563eb', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                             <i className="far fa-calendar-alt" style={{ fontSize: '0.6rem' }}></i>
                                                             Follow-up: {followUp}
                                                         </div>

@@ -50,17 +50,21 @@ const InventoryMapList = ({ items = [], onItemClick, getLookupValue, activeItemI
                         const isSelected = activeItemId === item._id;
 
                         const getUnitBg = () => {
-                            if (intent === 'sell') return '#fce7f3'; // pink
-                            if (intent === 'rent') return '#fef3c7'; // yellow
-                            if (intent === 'lease') return '#dbeafe'; // blue
-                            return isActiveStatus ? '#dcfce7' : '#f1f5f9';
+                            if (intent === 'sell') return isDark ? 'rgba(219, 39, 119, 0.15)' : '#fce7f3';
+                            if (intent === 'rent') return isDark ? 'rgba(217, 119, 6, 0.15)' : '#fef3c7';
+                            if (intent === 'lease') return isDark ? 'rgba(37, 99, 235, 0.15)' : '#dbeafe';
+                            return isActiveStatus 
+                                ? (isDark ? '#065f46' : '#dcfce7') 
+                                : (isDark ? '#334155' : '#f1f5f9');
                         };
 
                         const getUnitColor = () => {
-                            if (intent === 'sell') return '#db2777';
-                            if (intent === 'rent') return '#d97706';
-                            if (intent === 'lease') return '#2563eb';
-                            return isActiveStatus ? '#15803d' : '#475569';
+                            if (intent === 'sell') return isDark ? '#f472b6' : '#db2777';
+                            if (intent === 'rent') return isDark ? '#fbbf24' : '#d97706';
+                            if (intent === 'lease') return isDark ? '#60a5fa' : '#2563eb';
+                            return isActiveStatus 
+                                ? (isDark ? '#6ee7b7' : '#15803d') 
+                                : (isDark ? '#cbd5e1' : '#475569');
                         };
 
                         return (
@@ -108,7 +112,7 @@ const InventoryMapList = ({ items = [], onItemClick, getLookupValue, activeItemI
                                         </div>
 
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
-                                            <div style={{ fontSize: '0.68rem', fontWeight: 800, color: '#2563eb', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                            <div style={{ fontSize: '0.68rem', fontWeight: 800, color: isDark ? 'var(--gold)' : '#2563eb', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                 <i className="fas fa-expand-arrows-alt" style={{ fontSize: '0.6rem' }}></i>
                                                 {renderValue(getLookupValue('Size', item.sizeConfig)) || renderValue(item.sizeLabel) || `${renderValue(item.size)} ${renderValue(item.sizeUnit)}`}
                                             </div>

@@ -602,7 +602,7 @@ function CompanyPage({ onEdit, onNavigate }) {
                                         <div style={{ overflow: 'hidden' }}>
                                             <div
                                                 onClick={(e) => { e.stopPropagation(); onNavigate('company-detail', company._id); }}
-                                                style={{ fontWeight: 800, color: 'var(--primary-color)', fontSize: '0.95rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer' }}
+                                                style={{ fontWeight: 800, color: isDark ? 'var(--gold)' : 'var(--primary-color)', fontSize: '0.95rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer' }}
                                                 className="hover:underline"
                                             >
                                                 {company.name}
@@ -762,7 +762,7 @@ function CompanyPage({ onEdit, onNavigate }) {
                                             <div style={{ flex: 1, overflow: 'hidden' }}>
                                                 <div
                                                     onClick={(e) => { e.stopPropagation(); onNavigate('company-detail', company._id); }}
-                                                    style={{ fontWeight: 800, color: 'var(--primary-color)', fontSize: '1.05rem', marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer' }}
+                                                    style={{ fontWeight: 800, color: isDark ? 'var(--gold)' : 'var(--primary-color)', fontSize: '1.05rem', marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer' }}
                                                     className="hover:underline"
                                                 >
                                                     {company.name}

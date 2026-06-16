@@ -5,6 +5,7 @@ import { api } from '../../../utils/api';
 import toast from 'react-hot-toast';
 
 function AssignGroupModal({ isOpen, onClose, selectedContacts, onComplete }) {
+    const { isDark } = useTheme();
     const [groups, setGroups] = useState([]);
     const [loading, setLoading] = useState(false);
     const [selectedGroupId, setSelectedGroupId] = useState('');

@@ -523,7 +523,7 @@ function DealsPage({ onNavigate, onAddActivity }) {
                 <div className="page-header">
                     <div className="page-title-group" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                         <div style={{ width: '40px', height: '40px', background: isDark ? 'rgba(59, 130, 246, 0.15)' : '#eff6ff', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <i className="fas fa-handshake" style={{ color: '#2563eb', fontSize: '1.2rem' }}></i>
+                            <i className="fas fa-handshake" style={{ color: isDark ? 'var(--gold)' : '#2563eb', fontSize: '1.2rem' }}></i>
                         </div>
                         <div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -1046,8 +1046,8 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                                     {deal.subCategory ? ` - ${renderValue(resolveDealLookup(deal.subCategory, 'SubCategory'))}` : ''}
                                                 </div>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                    <i className="fas fa-expand-arrows-alt" style={{ fontSize: '0.65rem', color: '#2563eb' }}></i>
-                                                    <span style={{ fontWeight: 700, color: '#2563eb' }}>
+                                                    <i className="fas fa-expand-arrows-alt" style={{ fontSize: '0.65rem', color: isDark ? 'var(--gold)' : '#2563eb' }}></i>
+                                                    <span style={{ fontWeight: 700, color: isDark ? 'var(--gold)' : '#2563eb' }}>
                                                         {(() => {
                                                             const sizeFromLookup = resolveDealLookup(deal.sizeConfig, 'Size');
                                                             if (sizeFromLookup) return renderValue(sizeFromLookup);
@@ -1494,7 +1494,7 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
                         {renderValue(resolveDealLookup(deal.category, 'Category') || resolveDealLookup(deal.propertyType, 'PropertyType'), 'N/A')}
                         {deal.subCategory ? ` - ${renderValue(resolveDealLookup(deal.subCategory, 'SubCategory'))}` : ''}
                     </div>
-                    <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#2563eb', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <div style={{ fontSize: '0.72rem', fontWeight: 800, color: isDark ? 'var(--gold)' : '#2563eb', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <i className="fas fa-expand-arrows-alt" style={{ fontSize: '0.65rem' }}></i>
                         {(() => {
                             const sizeFromLookup = resolveDealLookup(deal.sizeConfig, 'Size');

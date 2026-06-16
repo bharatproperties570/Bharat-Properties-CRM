@@ -37,7 +37,9 @@ export const FormLabel = ({ children, required, style }) => (
 
 import React from 'react';
 
-export const FormInput = React.forwardRef(({ hasError, ...props }, ref) => (
+export const FormInput = React.forwardRef(({ hasError, ...props }, ref) => {
+    const { isDark } = useTheme();
+    return (
     <input
         {...props}
         ref={ref}
@@ -54,9 +56,12 @@ export const FormInput = React.forwardRef(({ hasError, ...props }, ref) => (
             ...props.style
         }}
     />
-));
+    );
+});
 
-export const FormSelect = ({ hasError, children, ...props }) => (
+export const FormSelect = ({ hasError, children, ...props }) => {
+    const { isDark } = useTheme();
+    return (
     <div style={{ position: 'relative' }}>
         <select
             {...props}
@@ -90,7 +95,8 @@ export const FormSelect = ({ hasError, children, ...props }) => (
             <i className="fas fa-chevron-down"></i>
         </div>
     </div>
-);
+    );
+};
 
 export const SectionTitle = ({ icon, children, color = '#334155', style }) => (
     <h4 style={{

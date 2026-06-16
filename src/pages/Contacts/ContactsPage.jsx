@@ -344,6 +344,7 @@ const ContactCard = memo(function ContactCard({
 // ─── MAIN CONTACTS PAGE ───────────────────────────────────────────────────────
 
 function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
+  const { isDark } = useTheme();
   const { startCall } = useCall();
   const { executeDistribution } = useDistribution();
   const [contacts, setContacts] = useState([]);

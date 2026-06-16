@@ -71,6 +71,15 @@ html.dark-mode,
     --bg-light: #07162B; /* Navy Royal */
     --bg-gray: rgba(255, 255, 255, 0.04); /* Surface Glass */
     --border-color: rgba(201, 146, 26, 0.15); /* Gold Faint */
+    
+    /* Global Gold Variables */
+    --gold: #C9921A;
+    --gold-l: #FAD87A;
+    --gold-dark: #916812;
+
+    /* Theme Overrides */
+    --primary: var(--gold);
+    --primary-hover: var(--gold-l);
     --text-main: #EEE8D8; /* Warm White */
     --text-muted: #A89E88; /* Warm Grey */
     --sidebar-bg: #07162B;

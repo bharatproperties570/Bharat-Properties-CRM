@@ -10,15 +10,42 @@ export const createGoogleContact = async (contact) => {
     if (!people) return null;
 
     try {
-        const response = await people.people.createContact({
-            requestBody: {
-                names: [{ givenName: contact.name, familyName: contact.surname || '' }],
-                phoneNumbers: contact.phones?.map(p => ({ value: p.number, type: p.type || 'mobile' })) || [],
-                emailAddresses: contact.emails?.map(e => ({ value: e.address, type: e.type || 'home' })) || [],
-                userDefined: [
-                    { key: 'CRM_ID', value: contact._id.toString() }
-                ]
+        const notes = [];
+        if (contact.source) notes.push(`Source: ${contact.source}`);
+        if (contact.budget) notes.push(`Budget: ${contact.budget}`);
+        if (contact.leadType) notes.push(`Lead Type: ${contact.leadType}`);
+        
+        let tagsStr = '';
+        if (contact.tags) {
+            tagsStr = Array.isArray(contact.tags) ? contact.tags.join(', ') : contact.tags;
+            if (tagsStr && tagsStr !== '-') {
+                notes.push(`Tags: ${tagsStr}`);
             }
+        }
+        if (contact.notes) notes.push(contact.notes);
+
+        const requestBody = {
+            names: [{ givenName: contact.name, familyName: contact.surname || '' }],
+            phoneNumbers: contact.phones?.map(p => ({ value: p.number, type: p.type || 'mobile' })) || [],
+            emailAddresses: contact.emails?.map(e => ({ value: e.address, type: e.type || 'home' })) || [],
+            userDefined: [
+                { key: 'CRM_ID', value: contact._id.toString() }
+            ]
+        };
+
+        if (tagsStr && tagsStr !== '-') {
+            requestBody.userDefined.push({ key: 'Tags', value: tagsStr });
+        }
+
+        if (notes.length > 0) {
+            requestBody.biographies = [{
+                value: notes.join('\n'),
+                contentType: 'TEXT_PLAIN'
+            }];
+        }
+
+        const response = await people.people.createContact({
+            requestBody
         });
         return response.data.resourceName; // This is the Google ID
     } catch (error) {
@@ -38,15 +65,45 @@ export const updateGoogleContact = async (googleContactId, contact) => {
             personFields: 'names,phoneNumbers,emailAddresses,metadata'
         });
 
+        const notes = [];
+        if (contact.source) notes.push(`Source: ${contact.source}`);
+        if (contact.budget) notes.push(`Budget: ${contact.budget}`);
+        if (contact.leadType) notes.push(`Lead Type: ${contact.leadType}`);
+        
+        let tagsStr = '';
+        if (contact.tags) {
+            tagsStr = Array.isArray(contact.tags) ? contact.tags.join(', ') : contact.tags;
+            if (tagsStr && tagsStr !== '-') {
+                notes.push(`Tags: ${tagsStr}`);
+            }
+        }
+        if (contact.notes) notes.push(contact.notes);
+
+        const requestBody = {
+            etag: current.data.etag,
+            names: [{ givenName: contact.name, familyName: contact.surname || '' }],
+            phoneNumbers: contact.phones?.map(p => ({ value: p.number, type: p.type || 'mobile' })) || [],
+            emailAddresses: contact.emails?.map(e => ({ value: e.address, type: e.type || 'home' })) || [],
+            userDefined: [
+                { key: 'CRM_ID', value: contact._id.toString() }
+            ]
+        };
+
+        if (tagsStr && tagsStr !== '-') {
+            requestBody.userDefined.push({ key: 'Tags', value: tagsStr });
+        }
+
+        if (notes.length > 0) {
+            requestBody.biographies = [{
+                value: notes.join('\n'),
+                contentType: 'TEXT_PLAIN'
+            }];
+        }
+
         await people.people.updateContact({
             resourceName: googleContactId,
-            updatePersonFields: 'names,phoneNumbers,emailAddresses',
-            requestBody: {
-                etag: current.data.etag,
-                names: [{ givenName: contact.name, familyName: contact.surname || '' }],
-                phoneNumbers: contact.phones?.map(p => ({ value: p.number, type: p.type || 'mobile' })) || [],
-                emailAddresses: contact.emails?.map(e => ({ value: e.address, type: e.type || 'home' })) || []
-            }
+            updatePersonFields: 'names,phoneNumbers,emailAddresses,biographies,userDefined',
+            requestBody
         });
         return true;
     } catch (error) {
