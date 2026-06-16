@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useActivities } from '../context/ActivityContext';
+import { useImport } from '../context/ImportContext';
 import Sidebar from '../components/Sidebar';
 import Header from '../components/Header';
 
@@ -49,6 +50,7 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
 
     // Global Context
     const { addActivity } = useActivities();
+    const { activeImports, clearImport } = useImport();
 
     const handleSaveGlobalActivity = (activityData) => {
         // activityData is already restructured by CreateActivityModal
@@ -394,6 +396,66 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
                             }
                         }}
                     />
+                )}
+                {/* Background Import Tracking Widget */}
+                {activeImports.length > 0 && (
+                    <div style={{
+                        position: 'fixed',
+                        bottom: '24px',
+                        right: '24px',
+                        width: '320px',
+                        zIndex: 9999,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '12px'
+                    }}>
+                        {activeImports.map(imp => (
+                            <div key={imp.id} style={{
+                                background: '#fff',
+                                borderRadius: '12px',
+                                padding: '16px',
+                                boxShadow: '0 10px 25px rgba(0,0,0,0.1)',
+                                borderLeft: `4px solid ${imp.status === 'completed' ? '#16a34a' : imp.status === 'error' ? '#dc2626' : '#3b82f6'}`,
+                                position: 'relative'
+                            }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                    <h4 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 700, color: '#1e293b' }}>
+                                        {imp.moduleLabel} Import
+                                    </h4>
+                                    <button 
+                                        onClick={() => clearImport(imp.id)}
+                                        style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '1rem' }}
+                                    >
+                                        <i className="fas fa-times"></i>
+                                    </button>
+                                </div>
+                                
+                                {imp.status === 'running' && (
+                                    <>
+                                        <div style={{ height: '6px', background: '#e2e8f0', borderRadius: '3px', overflow: 'hidden', marginBottom: '8px' }}>
+                                            <div style={{ height: '100%', width: `${imp.progress}%`, background: '#3b82f6', transition: 'width 0.3s' }}></div>
+                                        </div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>
+                                            <span>{imp.processedRecords} / {imp.totalRecords}</span>
+                                            <span>{imp.progress}%</span>
+                                        </div>
+                                    </>
+                                )}
+                                
+                                {imp.status === 'completed' && (
+                                    <div style={{ fontSize: '0.8rem', color: '#16a34a', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <i className="fas fa-check-circle"></i> Completed ({imp.stats.success} added/updated)
+                                    </div>
+                                )}
+
+                                {imp.status === 'error' && (
+                                    <div style={{ fontSize: '0.8rem', color: '#dc2626', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <i className="fas fa-exclamation-circle"></i> Failed to complete
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
                 )}
             </main>
         </div>

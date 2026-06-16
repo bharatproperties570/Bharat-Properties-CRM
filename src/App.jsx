@@ -20,6 +20,7 @@ import { AutomatedActionsProvider } from './context/AutomatedActionsContext';
 import { CallProvider, useCall } from './context/CallContext'; // Import CallProvider and hook
 import { ParsingProvider } from './context/ParsingContext'; // Import ParsingProvider
 import { UserProvider, useUserContext } from './context/UserContext';
+import { ImportProvider } from './context/ImportContext';
 import LoginPage from './pages/Auth/LoginPage';
 import ForgotPasswordPage from './pages/Auth/ForgotPasswordPage';
 import ResetPasswordPage from './pages/Auth/ResetPasswordPage';
@@ -376,11 +377,13 @@ function App() {
                                                 <AutomatedActionsProvider>
                                                     <TriggersProvider>
                                                         <CallProvider>
-                                                            {isWeb && <Toaster 
-                                                                position="top-right" 
-                                                                containerStyle={{ zIndex: 999999 }}
-                                                            />}
-                                                            <AppContent />
+                                                            <ImportProvider>
+                                                                {isWeb && <Toaster 
+                                                                    position="top-right" 
+                                                                    containerStyle={{ zIndex: 999999 }}
+                                                                />}
+                                                                <AppContent />
+                                                            </ImportProvider>
                                                         </CallProvider>
                                                     </TriggersProvider>
                                                 </AutomatedActionsProvider>

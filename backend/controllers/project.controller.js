@@ -167,10 +167,64 @@ export const updateProject = async (req, res) => {
             return res.status(400).json({ success: false, error: "Invalid Project ID format" });
         }
         const visibilityFilter = await getVisibilityFilter(req.user);
+
+        // 1. Fetch old project to detect block name changes
+        const oldProject = await Project.findOne({ _id: req.params.id, ...visibilityFilter }).lean();
+        if (!oldProject) return res.status(404).json({ success: false, error: "Project not found or access denied" });
+
+        // 2. Identify block name changes
+        const oldBlocks = oldProject.blocks || [];
+        const newBlocks = req.body.blocks || [];
+        const blockNameChanges = [];
+
+        newBlocks.forEach(newBlock => {
+            if (newBlock._id) {
+                const oldBlock = oldBlocks.find(ob => ob._id.toString() === newBlock._id.toString());
+                if (oldBlock && oldBlock.name !== newBlock.name) {
+                    blockNameChanges.push({ oldName: oldBlock.name, newName: newBlock.name });
+                }
+            }
+        });
+
+        // 3. Update the project
         const project = await Project.findOneAndUpdate({ _id: req.params.id, ...visibilityFilter }, req.body, { new: true }).populate(projectPopulateFields);
-        if (!project) return res.status(404).json({ success: false, error: "Project not found or access denied" });
+
+        // 4. Cascade block name changes
+        if (blockNameChanges.length > 0) {
+            const Inventory = mongoose.model('Inventory');
+            const Deal = mongoose.model('Deal');
+            const Lookup = mongoose.model('Lookup');
+
+            for (const change of blockNameChanges) {
+                if (change.oldName && change.newName) {
+                    // Update Inventory
+                    await Inventory.updateMany(
+                        { projectId: project._id, block: change.oldName },
+                        { $set: { block: change.newName } }
+                    );
+                    
+                    // Update Deals
+                    await Deal.updateMany(
+                        { projectId: project._id, block: change.oldName },
+                        { $set: { block: change.newName } }
+                    );
+
+                    // Update Lookups (e.g. Size lookups bound to this block)
+                    await Lookup.updateMany(
+                        { 
+                            lookup_type: 'Size', 
+                            'metadata.projectId': String(project._id),
+                            'metadata.block': change.oldName
+                        },
+                        { $set: { 'metadata.block': change.newName } }
+                    );
+                }
+            }
+        }
+
         res.json({ success: true, data: project });
     } catch (error) {
+        console.error("Error updating project:", error);
         res.status(500).json({ success: false, error: error.message });
     }
 };

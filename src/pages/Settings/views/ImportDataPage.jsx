@@ -4,8 +4,10 @@ import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import { useUserContext } from '../../../context/UserContext';
 import toast from 'react-hot-toast';
 import { api } from '../../../utils/api';
+import { useImport } from '../../../context/ImportContext';
 
 const ImportDataPage = () => {
+    const { startBackgroundImport } = useImport();
     const { projects, refreshSizes } = usePropertyConfig();
     const { users, teams, refreshData } = useUserContext();
     const [step, setStep] = useState(1);
@@ -432,72 +434,53 @@ const ImportDataPage = () => {
             if (module === 'sizes') endpoint = '/lookups/import';
             else if (module === 'propertyOwners') endpoint = '/inventory/bulk-update-owners';
 
-            // Loop through data in chunks
-            for (let i = 0; i < totalRecords; i += chunkSize) {
-                const chunk = transformedData.slice(i, i + chunkSize);
-                
-                let payload = {
-                    data: chunk,
-                    updateDuplicates: updateDuplicates,
-                    teams: selectedTeams.length > 0 ? selectedTeams : undefined,
-                    resolutions: module === 'propertyOwners' ? resolutions : undefined
+            const basePayload = {
+                updateDuplicates: updateDuplicates,
+                teams: selectedTeams.length > 0 ? selectedTeams : undefined,
+                resolutions: module === 'propertyOwners' ? resolutions : undefined
+            };
+
+            if (module === 'sizes') {
+                basePayload.lookup_type = 'Size';
+                basePayload.metadata = {
+                    projectName: projects.find(p => String(p._id || p.id) === String(selectedProject))?.name,
+                    projectId: selectedProject,
+                    block: selectedBlock,
+                    module: module
                 };
-
-                if (module === 'sizes') {
-                    payload.lookup_type = 'Size';
-                    payload.metadata = {
-                        projectName: projects.find(p => String(p._id || p.id) === String(selectedProject))?.name,
-                        projectId: selectedProject,
-                        block: selectedBlock,
-                        module: module
-                    };
-                } else if (module === 'inventory') {
-                    payload.projectId = selectedProject;
-                    payload.metadata = {
-                        projectName: projects.find(p => String(p._id || p.id) === String(selectedProject))?.name,
-                        projectId: selectedProject,
-                        block: selectedBlock,
-                        module: module
-                    };
-                }
-
-                const response = await api.post(endpoint, payload);
-
-                if (response.data.success) {
-                    const { successCount, errorCount, newCount, updatedCount, errors } = response.data;
-                    
-                    totalSuccessCount += (successCount || 0);
-                    totalErrorCount += (errorCount || 0);
-                    totalNewCount += (newCount || 0);
-                    totalUpdatedCount += (updatedCount || 0);
-                    if (errors) aggregatedErrors = [...aggregatedErrors, ...errors];
-                    if (response.data.successLogs) aggregatedSuccess = [...aggregatedSuccess, ...response.data.successLogs];
-
-                    // Update live progress
-                    const currentProgress = Math.min(Math.round(((i + chunk.length) / totalRecords) * 100), 100);
-                    setProgress(currentProgress);
-                } else {
-                    console.error(`Batch at index ${i} failed:`, response.data.message);
-                    totalErrorCount += chunk.length;
-                    aggregatedErrors.push({ row: i + 1, name: 'Batch Failure', reason: response.data.message || 'Server rejected batch' });
-                }
+            } else if (module === 'inventory') {
+                basePayload.projectId = selectedProject;
+                basePayload.metadata = {
+                    projectName: projects.find(p => String(p._id || p.id) === String(selectedProject))?.name,
+                    projectId: selectedProject,
+                    block: selectedBlock,
+                    module: module
+                };
             }
 
-            // Final Summary Display
-            setImportStats({
-                success: totalSuccessCount,
-                failed: totalErrorCount,
-                newCount: totalNewCount,
-                updatedCount: totalUpdatedCount
+            startBackgroundImport({
+                module,
+                moduleLabel: MODULE_CONFIG[module]?.label || module,
+                endpoint,
+                transformedData,
+                chunkSize: 10,
+                basePayload,
+                onComplete: (results) => {
+                    setImportStats({
+                        success: results.success,
+                        failed: results.failed,
+                        newCount: results.newCount,
+                        updatedCount: results.updatedCount
+                    });
+                    setImportErrors(results.errors);
+                    setImportSuccessLogs(results.successLogs);
+                    setActiveReportTab(results.errors.length > 0 ? 'error' : 'success');
+                    if (module === 'sizes') refreshSizes();
+                }
             });
-            setImportErrors(aggregatedErrors);
-            setImportSuccessLogs(aggregatedSuccess);
-            setActiveReportTab(aggregatedErrors.length > 0 ? 'error' : 'success');
-            
-            if (module === 'sizes') refreshSizes();
-            
-            setStep(5);
-            toast.success('Import process completed!');
+
+            setStep(6);
+            toast.success('Import started in background!');
 
         } catch (err) {
             console.error('Import Error:', err);
@@ -1333,6 +1316,47 @@ const ImportDataPage = () => {
                                 </div>
                             </div>
                         )}
+                    </div>
+                )}
+
+                {/* Step 6: Background Processing */}
+                {step === 6 && (
+                    <div style={{ maxWidth: '600px', margin: '40px auto', textAlign: 'center', padding: '40px', background: '#f8fafc', borderRadius: '16px', border: '1px dashed #cbd5e1' }}>
+                        <div style={{
+                            width: '80px', height: '80px', background: '#eff6ff', color: '#3b82f6',
+                            borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: '2.5rem', margin: '0 auto 24px'
+                        }}>
+                            <i className="fas fa-rocket"></i>
+                        </div>
+                        <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#1e293b', margin: '0 0 12px' }}>
+                            Import Running in Background
+                        </h2>
+                        <p style={{ color: '#64748b', fontSize: '1.1rem', margin: '0 0 24px', lineHeight: '1.6' }}>
+                            Your import task has been successfully dispatched. You can safely navigate away from this page and continue working.
+                        </p>
+                        <p style={{ color: '#475569', fontSize: '0.95rem', margin: '0' }}>
+                            A global progress indicator will keep you updated in the main layout.
+                        </p>
+                        <button 
+                            onClick={() => {
+                                setStep(1);
+                                setFile(null);
+                                setFileData({ headers: [], data: [] });
+                                setMapping({});
+                            }}
+                            style={{ marginTop: '32px', padding: '12px 24px', background: '#3b82f6', color: '#fff', fontWeight: 700, borderRadius: '8px', border: 'none', cursor: 'pointer' }}
+                        >
+                            Start New Import
+                        </button>
+                        <div style={{ marginTop: '20px' }}>
+                            <button
+                                onClick={() => setStep(5)}
+                                style={{ padding: '8px 16px', background: 'transparent', color: '#64748b', fontWeight: 600, border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
+                            >
+                                View Results (if completed)
+                            </button>
+                        </div>
                     </div>
                 )}
 
