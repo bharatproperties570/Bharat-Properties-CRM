@@ -10,7 +10,7 @@ const selectStyle = { ...inputStyle, appearance: 'none', background: '#fff', cur
 const disabledStyle = { ...selectStyle, background: '#f8fafc', color: '#94a3b8', cursor: 'not-allowed' };
 
 const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjectId, onAddSuccess }) => {
-    const { sizes } = usePropertyConfig();
+    const { sizes, masterFields } = usePropertyConfig();
     const [step, setStep] = useState(1);
     const [loading, setLoading] = useState(false);
     const [isMapPickerOpen, setIsMapPickerOpen] = useState(false);
@@ -248,7 +248,20 @@ const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjec
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                                 <div>
                                     <label style={labelStyle}>Size / Config</label>
-                                    <select style={selectStyle} value={formData.sizeConfig} onChange={e => setFormData({...formData, sizeConfig: e.target.value})}>
+                                    <select style={selectStyle} value={formData.sizeConfig} onChange={e => {
+                                        const selectedValue = e.target.value;
+                                        const selectedSize = sizes.find(s => s.value === selectedValue && s.project === formData.projectName && s.block === formData.block);
+                                        let width = selectedSize?.width || selectedSize?.metadata?.width || '';
+                                        if (!width && selectedSize?.label) {
+                                            const match = selectedSize.label.match(/(\d+)\s*[xX*]\s*(\d+)/);
+                                            if (match) width = match[1]; // First number usually indicates frontage/width
+                                        }
+                                        setFormData({
+                                            ...formData, 
+                                            sizeConfig: selectedValue,
+                                            distance: width || formData.distance
+                                        });
+                                    }}>
                                         <option value="">Select Size (Optional)</option>
                                         {sizes.filter(s => s.project === formData.projectName && s.block === formData.block).map(s => (
                                             <option key={s.id} value={s.value}>{s.label}</option>
@@ -286,16 +299,16 @@ const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjec
                                 <div>
                                     <label style={labelStyle}>Facing</label>
                                     <select style={selectStyle} value={formData.facing} onChange={e => setFormData({...formData, facing: e.target.value})}>
-                                        <option value="">Facing</option>
-                                        <option value="Park Facing">Park Facing</option>
-                                        <option value="Road Facing">Road Facing</option>
-                                        <option value="Club Facing">Club Facing</option>
-                                        <option value="Pool Facing">Pool Facing</option>
+                                        <option value="">Select Facing</option>
+                                        {masterFields?.facings?.map(f => <option key={f} value={f}>{f}</option>)}
                                     </select>
                                 </div>
                                 <div>
                                     <label style={labelStyle}>Road Width</label>
-                                    <input type="text" style={inputStyle} value={formData.roadWidth} onChange={e => setFormData({...formData, roadWidth: e.target.value})} placeholder="e.g. 30 Ft" />
+                                    <select style={selectStyle} value={formData.roadWidth} onChange={e => setFormData({...formData, roadWidth: e.target.value})}>
+                                        <option value="">Select Road Width</option>
+                                        {masterFields?.roadWidths?.map(r => <option key={r} value={r}>{r}</option>)}
+                                    </select>
                                 </div>
                             </div>
 
@@ -320,12 +333,12 @@ const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjec
                                 </div>
                                 <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '16px', alignItems: 'center', marginTop: '4px' }}>
                                     <div>
-                                        <label style={labelStyle}>Distance b/w units (meters)</label>
-                                        <input type="number" style={inputStyle} value={formData.distance} onChange={e => setFormData({...formData, distance: e.target.value})} placeholder="e.g. 10" />
+                                        <label style={labelStyle}>Plot Width / Distance (meters)</label>
+                                        <input type="number" style={inputStyle} value={formData.distance} onChange={e => setFormData({...formData, distance: e.target.value})} placeholder="e.g. 10 (Auto-fetched from Size)" />
                                     </div>
                                     <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
                                         <i className="fas fa-magic" style={{ color: '#8b5cf6', marginRight: '6px' }}></i> 
-                                        <strong>Auto-Calculate:</strong> Set a distance and a Direction (above). The system will automatically calculate accurate coordinates for all subsequent units in that direction!
+                                        <strong>Auto-Calculate:</strong> Selecting a Size auto-fills its width. Set a Direction (above) and the system will mathematically calculate exact GPS coordinates for all subsequent units!
                                     </div>
                                 </div>
                             </div>
