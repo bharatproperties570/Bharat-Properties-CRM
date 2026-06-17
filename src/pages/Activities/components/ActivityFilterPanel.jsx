@@ -36,7 +36,7 @@ const ActivityFilterPanel = ({ isOpen, onClose, filters, onFilterChange, onReset
             }}></div>
             <div className={`filter-panel ${isOpen ? 'open' : ''}`} style={{
                 position: 'fixed', top: 0, right: 0, bottom: 0,
-                width: '380px', backgroundColor: 'var(--bg-card)', boxShadow: '-4px 0 15px rgba(0,0,0,0.1)',
+                width: '380px', backgroundColor: isDark ? '#1e293b' : '#ffffff', boxShadow: '-4px 0 15px rgba(0,0,0,0.1)',
                 zIndex: 1000, transform: isOpen ? 'translateX(0)' : 'translateX(100%)',
                 transition: 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
                 display: 'flex', flexDirection: 'column'
@@ -45,7 +45,7 @@ const ActivityFilterPanel = ({ isOpen, onClose, filters, onFilterChange, onReset
                 <div style={{
                     padding: '20px 24px', borderBottom: '1px solid var(--border-color)',
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    background: 'var(--bg-card)'
+                    background: isDark ? '#1e293b' : '#ffffff'
                 }}>
                     <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <i className="fas fa-filter" style={{ color: 'var(--text-muted)', fontSize: '1rem' }}></i> Filters

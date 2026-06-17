@@ -148,7 +148,7 @@ const MultiSelectDropdown = ({ options, selected, onChange, placeholder, disable
             {isOpen && !disabled && (
                 <div style={{
                     position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '4px',
-                    backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '8px',
+                    backgroundColor: isDark ? '#1e293b' : '#ffffff', border: '1px solid var(--border-color)', borderRadius: '8px',
                     boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)', zIndex: 2001, maxHeight: '200px', overflowY: 'auto'
                 }}>
                     {options.map(option => (
@@ -309,10 +309,10 @@ const DealsFilterPanel = ({ isOpen, onClose, filters, onFilterChange, portalTarg
         <div style={{ position: portalTarget === document.body ? 'fixed' : 'absolute', inset: 0, zIndex: 2000, display: 'flex', justifyContent: 'flex-end', fontFamily: "'Inter', sans-serif" }}>
             <div style={{ position: 'absolute', inset: 0, background: 'rgba(15, 23, 42, 0.3)', opacity: isOpen ? 1 : 0, transition: 'opacity 200ms ease' }} onClick={onClose}></div>
             <div style={{
-                position: 'relative', width: '420px', height: '100%', background: 'var(--bg-card)', boxShadow: '-10px 0 40px rgba(0,0,0,0.1)',
+                position: 'relative', width: '420px', height: '100%', background: isDark ? '#1e293b' : '#ffffff', boxShadow: '-10px 0 40px rgba(0,0,0,0.1)',
                 display: 'flex', flexDirection: 'column', transform: isOpen ? 'translateX(0)' : 'translateX(100%)', transition: 'transform 300ms cubic-bezier(0.16, 1, 0.3, 1)'
             }}>
-                <header style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--bg-card)' }}>
+                <header style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: isDark ? '#1e293b' : '#ffffff' }}>
                     <div>
                         <h2 style={{ fontSize: '1.25rem', fontWeight: '700', color: 'var(--text-main)', letterSpacing: '-0.025em', margin: 0 }}>Filter Deals</h2>
                         <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '4px', margin: 0 }}>Real-time filtering enabled</p>
@@ -620,7 +620,7 @@ const DealsFilterPanel = ({ isOpen, onClose, filters, onFilterChange, portalTarg
                     </section>
                 </div>
 
-                <footer style={{ padding: '24px', borderTop: '1px solid var(--border-color)', backgroundColor: 'var(--bg-card)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <footer style={{ padding: '24px', borderTop: '1px solid var(--border-color)', backgroundColor: isDark ? '#1e293b' : '#ffffff', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     <button onClick={onClose} style={styles.applyBtn}>
                         View {Object.keys(filters).length > 0 ? 'Filtered Results' : 'All Deals'}
                     </button>
