@@ -663,12 +663,18 @@ function ActivitiesPage() {
                                     <div className="action-panel" style={{ display: 'flex', gap: '8px', alignItems: 'center', width: '100%', overflowX: 'auto', paddingTop: '4px', paddingBottom: '2px' }}>
                                         <div className="selection-count" style={{ marginRight: '10px', fontWeight: 600, color: 'var(--primary-color)', whiteSpace: 'nowrap' }}>{selectedIds.length} Selected</div>
                                         {selectedIds.length === 1 && (
-                                            <>
-                                                <button className="action-btn" title="Edit Activity" onClick={handleEditActivity}><i className="fas fa-edit"></i> Edit</button>
-                                                <button className="action-btn" title="Reschedule" onClick={handleEditActivity}><i className="fas fa-calendar-alt"></i> Reschedule</button>
-                                                <button className="action-btn" title="Mark Complete" onClick={() => handleOpenCompleteModal(filteredActivities.find(a => a._id === selectedIds[0]))}><i className="fas fa-check-circle"></i> Complete</button>
-                                                <div style={{ width: '1px', height: '24px', background: 'var(--border-color)', margin: '0 4px' }}></div>
-                                            </>
+                                            (() => {
+                                                const selectedActivity = filteredActivities.find(a => a._id === selectedIds[0]);
+                                                const isCompleted = selectedActivity?.status?.toLowerCase() === 'completed';
+                                                return (
+                                                    <>
+                                                        <button className="action-btn" title="Edit Activity" onClick={handleEditActivity}><i className="fas fa-edit"></i> Edit</button>
+                                                        {!isCompleted && <button className="action-btn" title="Reschedule" onClick={handleEditActivity}><i className="fas fa-calendar-alt"></i> Reschedule</button>}
+                                                        {!isCompleted && <button className="action-btn" title="Mark Complete" onClick={() => handleOpenCompleteModal(selectedActivity)}><i className="fas fa-check-circle"></i> Complete</button>}
+                                                        <div style={{ width: '1px', height: '24px', background: 'var(--border-color)', margin: '0 4px' }}></div>
+                                                    </>
+                                                );
+                                            })()
                                         )}
                                         <button className="action-btn" title="Add Note" onClick={selectedIds.length === 1 ? handleEditActivity : () => {}}><i className="fas fa-sticky-note"></i> Note</button>
                                         <div style={{ flex: 1 }}></div>
