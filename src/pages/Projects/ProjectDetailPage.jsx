@@ -10,6 +10,7 @@ import { fixDriveUrl, getYoutubeId } from '../../utils/helpers';
 import PublishModal from '../../components/Marketing/PublishModal';
 import SocialPostModal from '../../components/SocialPostModal';
 import BulkInventoryModal from '../../components/Inventory/BulkInventoryModal';
+import AddInventoryModal from '../../components/AddInventoryModal';
 
 const ProjectDetailPage = ({ projectId, onBack, onNavigate, onEditProject }) => {
     const { isDark } = useTheme();
@@ -23,6 +24,8 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onEditProject }) => 
     const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
     const [isSocialModalOpen, setIsSocialModalOpen] = useState(false);
     const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
+    const [isEditUnitModalOpen, setIsEditUnitModalOpen] = useState(false);
+    const [selectedUnit, setSelectedUnit] = useState(null);
     const [mediaViewer, setMediaViewer] = useState({ isOpen: false, data: null });
 
     const fetchProjectDetails = useCallback(async () => {
@@ -51,9 +54,10 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onEditProject }) => 
 
     const fetchInventory = async (pid) => {
         try {
-            const response = await api.get(`inventory?projectId=${pid}`);
+            // Fetch up to 1000 units to ensure all project inventory is loaded, sorted by unit number
+            const response = await api.get(`inventory?projectId=${pid}&limit=1000&sortBy=unitNo&sortOrder=1`);
             if (response.data && response.data.success) {
-                setInventoryData(response.data.data || []);
+                setInventoryData(response.data.records || response.data.data || []);
             }
         } catch (err) {
             console.error("Error fetching project inventory:", err);
@@ -69,6 +73,25 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onEditProject }) => 
         } catch (err) {
             console.error("Error fetching project deals:", err);
         }
+    };
+
+    const handleDeleteUnit = async (unitId) => {
+        if (!window.confirm("Are you sure you want to delete this unit?")) return;
+        try {
+            const res = await api.delete(`inventory/${unitId}`);
+            if (res.data?.success) {
+                toast.success("Unit deleted successfully");
+                fetchInventory(projectId);
+            }
+        } catch (err) {
+            console.error("Failed to delete unit:", err);
+            toast.error("Failed to delete unit");
+        }
+    };
+
+    const handleEditUnit = (unit) => {
+        setSelectedUnit(unit);
+        setIsEditUnitModalOpen(true);
     };
 
      useEffect(() => {
@@ -357,19 +380,70 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onEditProject }) => 
                                             </div>
                                         </div>
                                     </div>
-                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '12px' }}>
-                                        {inventoryData.map((unit, idx) => (
-                                            <div key={idx} style={{ padding: '12px', border: '1px solid var(--border-color)', borderRadius: '12px', background: 'var(--bg-card)', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '4px' }}>
-                                                    <div style={{ fontWeight: 800, color: 'var(--text-main)', fontSize: '0.9rem' }}>Unit {unit.unitNo}</div>
-                                                    <span style={{ fontSize: '0.6rem', padding: '2px 6px', borderRadius: '4px', background: unit.status === 'Available' ? '#dcfce7' : '#fee2e2', color: unit.status === 'Available' ? '#166534' : '#991b1b', fontWeight: 800 }}>
-                                                        {renderValue(unit.status)}
-                                                    </span>
-                                                </div>
-                                                <div style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '12px' }}>{renderValue(unit.unitType)}</div>
-                                                <button onClick={() => onNavigate('inventory-detail', unit._id)} style={{ width: '100%', padding: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-gray)', borderRadius: '6px', color: '#2563eb', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer' }}>View Details</button>
-                                            </div>
-                                        ))}
+                                    <div style={{ background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                                        <div style={{ overflowX: 'auto' }}>
+                                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'left' }}>
+                                                <thead>
+                                                    <tr style={{ background: 'var(--bg-gray)', color: 'var(--text-muted)', borderBottom: '1px solid var(--border-color)' }}>
+                                                        <th style={{ padding: '12px 16px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Block / Unit</th>
+                                                        <th style={{ padding: '12px 16px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Unit Type</th>
+                                                        <th style={{ padding: '12px 16px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Attributes</th>
+                                                        <th style={{ padding: '12px 16px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Status</th>
+                                                        <th style={{ padding: '12px 16px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', textAlign: 'right' }}>Actions</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {inventoryData.map((unit, idx) => (
+                                                        <tr key={unit._id || unit.id || idx} style={{ borderBottom: '1px solid var(--border-color)', transition: 'background 0.2s' }} className="hover-row">
+                                                            <td style={{ padding: '12px 16px' }}>
+                                                                <div 
+                                                                    onClick={(e) => { e.stopPropagation(); onNavigate('inventory-detail', unit._id || unit.id); }}
+                                                                    style={{ fontWeight: 800, color: '#3b82f6', fontSize: '0.85rem', cursor: 'pointer', textDecoration: 'underline' }}
+                                                                    title="View Unit Details"
+                                                                    className="hover-text-blue"
+                                                                >
+                                                                    {unit.unitNo || unit.unitNumber}
+                                                                </div>
+                                                                <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: 600 }}>{renderValue(unit.block) || 'Default Block'}</div>
+                                                            </td>
+                                                            <td style={{ padding: '12px 16px' }}>
+                                                                <div style={{ fontWeight: 700, color: 'var(--text-main)' }}>{renderValue(unit.unitType) || renderValue(unit.category) || 'N/A'}</div>
+                                                            </td>
+                                                            <td style={{ padding: '12px 16px' }}>
+                                                                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                                                                    {unit.facing && <span style={{ padding: '2px 6px', background: 'var(--bg-gray)', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 600, color: 'var(--text-muted)' }}>{renderValue(unit.facing)} Facing</span>}
+                                                                    {unit.direction && <span style={{ padding: '2px 6px', background: 'var(--bg-gray)', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 600, color: 'var(--text-muted)' }}>{renderValue(unit.direction)}</span>}
+                                                                    {!unit.facing && !unit.direction && <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>-</span>}
+                                                                </div>
+                                                            </td>
+                                                            <td style={{ padding: '12px 16px' }}>
+                                                                <span style={{ fontSize: '0.7rem', padding: '4px 8px', borderRadius: '6px', background: unit.status === 'Available' ? '#dcfce7' : (unit.status === 'Sold Out' ? '#fee2e2' : '#fef3c7'), color: unit.status === 'Available' ? '#166534' : (unit.status === 'Sold Out' ? '#991b1b' : '#92400e'), fontWeight: 800 }}>
+                                                                    {renderValue(unit.status)}
+                                                                </span>
+                                                            </td>
+                                                            <td style={{ padding: '12px 16px', textAlign: 'right' }}>
+                                                                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', alignItems: 'center' }}>
+                                                                    <button onClick={(e) => { e.stopPropagation(); handleEditUnit(unit); }} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: '1rem', transition: 'color 0.2s' }} title="Edit Unit" className="hover-text-blue">
+                                                                        <i className="fas fa-edit"></i>
+                                                                    </button>
+                                                                    <button onClick={(e) => { e.stopPropagation(); handleDeleteUnit(unit._id || unit.id); }} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '1rem', transition: 'color 0.2s' }} title="Delete Unit" className="hover-text-red">
+                                                                        <i className="fas fa-trash"></i>
+                                                                    </button>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                    {inventoryData.length === 0 && (
+                                                        <tr>
+                                                            <td colSpan="5" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                                                                <i className="fas fa-box-open" style={{ fontSize: '2rem', marginBottom: '12px', opacity: 0.5, display: 'block' }}></i>
+                                                                No units added to this project yet. Use "Bulk Add" to create inventory.
+                                                            </td>
+                                                        </tr>
+                                                    )}
+                                                </tbody>
+                                            </table>
+                                        </div>
                                     </div>
                                 </div>
                             )}
@@ -566,6 +640,18 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onEditProject }) => 
                     imageUrl: project.primaryImage || project.media?.[0]?.url
                 } : null}
             />
+            
+            {isEditUnitModalOpen && (
+                <AddInventoryModal
+                    isOpen={isEditUnitModalOpen}
+                    onClose={() => setIsEditUnitModalOpen(false)}
+                    property={selectedUnit}
+                    onSave={() => {
+                        setIsEditUnitModalOpen(false);
+                        fetchInventory(projectId);
+                    }}
+                />
+            )}
         </div>
     );
 };

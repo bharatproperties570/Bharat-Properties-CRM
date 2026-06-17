@@ -77,7 +77,8 @@ const AddInventoryModal = ({ isOpen, onClose, onSave, initialProject = null, pro
         evaluateAndEnroll,
         validateAsync,
         onClose,
-        onSave
+        onSave,
+        activeTab
     );
 
     useEffect(() => {

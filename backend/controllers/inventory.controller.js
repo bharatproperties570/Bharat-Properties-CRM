@@ -156,11 +156,13 @@ export const getInventory = async (req, res) => {
         const { 
             page = 1, limit = 10, search = "", sortBy, sortOrder,
             category, subCategory, unitType, status, 
-            project, block, location, area, contactId, 
+            project, projectId, block, location, area, contactId, 
             statusCategory, ownerPhone, feedbackOutcome, feedbackReason,
             minSize, maxSize, sizeMin, sizeMax, sizeType,
             followUpFrom, followUpTo
         } = req.query;
+        
+        const finalProject = project || projectId;
         const visibilityFilter = await getVisibilityFilter(req.user);
 
         // 🛠️ SENIOR DIAGNOSTIC LOG (Harden for potential undefined user)
@@ -444,16 +446,21 @@ export const getInventory = async (req, res) => {
             if (followUpTo) query.followUpDate.$lte = new Date(followUpTo);
         }
 
-        if (project) {
-            let projectVals = Array.isArray(project) ? project : String(project).split(',').map(s => s.trim()).filter(Boolean);
+        if (finalProject) {
+            let projectVals = Array.isArray(finalProject) ? finalProject : String(finalProject).split(',').map(s => s.trim()).filter(Boolean);
             if (projectVals.length > 0) {
                 const projectIds = projectVals.filter(v => mongoose.Types.ObjectId.isValid(v));
-                const projectNames = projectVals; 
+                const projectNames = projectVals.filter(v => !mongoose.Types.ObjectId.isValid(v)); 
                 
-                const projectConditions = [
-                    { projectId: { $in: projectIds } },
-                    { projectName: { $in: projectNames } }
-                ].filter(c => (Array.isArray(c.projectId?.$in) && c.projectId.$in.length > 0) || (Array.isArray(c.projectName?.$in) && c.projectName.$in.length > 0));
+                const projectConditions = [];
+                if (projectIds.length > 0) {
+                    projectConditions.push({ projectId: { $in: projectIds } });
+                    projectConditions.push({ project: { $in: projectIds } }); // Support legacy project string reference
+                }
+                if (projectNames.length > 0) {
+                    projectConditions.push({ projectName: { $in: projectNames } });
+                    projectConditions.push({ project: { $in: projectNames } });
+                }
 
                 if (projectConditions.length > 0) {
                     if (query.$or) {
@@ -470,6 +477,7 @@ export const getInventory = async (req, res) => {
 
         // Only populate fields that are reliably ObjectIds (Contact references)
         // category, status, etc. in Inventory seem to be stored as objects or strings already
+        console.log(`[INVENTORY_QUERY] projectId:`, finalProject, `Query:`, JSON.stringify(query, null, 2));
         const populateFields = [
             { path: "owners", select: "name phones emails title personalAddress correspondenceAddress" },
             { path: "associates.contact", select: "name phones emails title personalAddress correspondenceAddress" },

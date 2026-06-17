@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { api } from '../utils/api';
 import toast from 'react-hot-toast';
 
-export const useInventoryForm = (isOpen, initialProject, property, allProjects, sizes, getLookupId, getLookupValue, executeDistribution, fireEvent, evaluateAndEnroll, validateAsync, onClose, onSave) => {
+export const useInventoryForm = (isOpen, initialProject, property, allProjects, sizes, getLookupId, getLookupValue, executeDistribution, fireEvent, evaluateAndEnroll, validateAsync, onClose, onSave, activeTab) => {
     const [formData, setFormData] = useState({
         // Unit Details
         projectName: initialProject || '',
@@ -196,7 +196,7 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
 
     // Google Maps Integration
     useEffect(() => {
-        if (!isOpen) return;
+        if (!isOpen || activeTab !== 'Location') return;
 
         const fetchAddressFromCoordinates = (lat, lng) => {
             if (!window.google || !window.google.maps) return;
@@ -309,7 +309,7 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
         }, 100);
 
         return () => clearTimeout(timer);
-    }, [isOpen, formData.latitude, formData.longitude]);
+    }, [isOpen, activeTab, formData.latitude, formData.longitude]);
 
     const handleProjectChange = async (e) => {
         const name = e.target.value;

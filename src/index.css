@@ -3492,3 +3492,4 @@ html.dark-mode .dropdown-menu a {
 html.dark-mode .dropdown-menu a:hover {
     background: var(--contact-row-hover) !important;
 }
+.hover-row:hover { background: #f8fafc !important; }
