@@ -24,7 +24,7 @@ const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjec
         sizeConfig: '',
         status: 'Available',
         intent: ['For Sale'],
-        price: '',
+        orientation: '',
         unitGenMethod: 'range', // 'range' or 'comma'
         prefix: '',
         rangeStart: '',
@@ -104,7 +104,7 @@ const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjec
             sizeConfig: formData.sizeConfig,
             status: formData.status,
             intent: formData.intent,
-            price: { value: Number(formData.price) || 0, currency: 'INR' }
+            orientation: formData.orientation
         }));
 
         setPreviewUnits(preview);
@@ -193,8 +193,18 @@ const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjec
                                     </select>
                                 </div>
                                 <div>
-                                    <label style={labelStyle}>Base Price (₹)</label>
-                                    <input type="number" style={inputStyle} value={formData.price} onChange={e => setFormData({...formData, price: e.target.value})} placeholder="e.g. 5000000" />
+                                    <label style={labelStyle}>Orientation / Facing</label>
+                                    <select style={selectStyle} value={formData.orientation} onChange={e => setFormData({...formData, orientation: e.target.value})}>
+                                        <option value="">Select Orientation</option>
+                                        <option value="East">East</option>
+                                        <option value="West">West</option>
+                                        <option value="North">North</option>
+                                        <option value="South">South</option>
+                                        <option value="North-East">North-East</option>
+                                        <option value="North-West">North-West</option>
+                                        <option value="South-East">South-East</option>
+                                        <option value="South-West">South-West</option>
+                                    </select>
                                 </div>
                             </div>
 
