@@ -950,11 +950,11 @@ export const evaluateAndTransition = async (leadId, activityType, outcome, reaso
                 continue;
             }
 
-            // Case 2: Check mapping if fields exist on lead
+            // Case 2: Check mapping if fields exist on lead or were just submitted
             const mappedFields = FORM_FIELD_MAPPING[formName];
             if (mappedFields && mappedFields.length > 0) {
                 const hasData = mappedFields.some(field => {
-                    const val = lead[field];
+                    const val = stageFormData[field] !== undefined ? stageFormData[field] : lead[field];
                     return val !== undefined && val !== null && val !== '' && !(Array.isArray(val) && val.length === 0);
                 });
                 
