@@ -934,6 +934,7 @@ export const evaluateAndTransition = async (leadId, activityType, outcome, reaso
                 newStage: rule.newStage,
                 requiredForms,
                 missingFields,
+                requiredFields: leadRequiredFields, // Fix: Ensure frontend knows what to render
                 ruleId: rule.id
             };
         }
@@ -959,6 +960,11 @@ export const evaluateAndTransition = async (leadId, activityType, outcome, reaso
                 });
                 
                 if (hasData) continue; // Form is effectively filled
+            } else {
+                // Form is NOT in mapping (legacy or custom rule). Use fallback field 'notes' to unblock.
+                if (stageFormData['notes'] !== undefined && stageFormData['notes'] !== '') {
+                    continue; // Effectively filled via fallback
+                }
             }
 
             // Case 3: Check if it was just provided in this context
@@ -983,14 +989,14 @@ export const evaluateAndTransition = async (leadId, activityType, outcome, reaso
 
             // Map missing forms to canonical fields so the frontend StageTransitionModal can render them
             const derivedMissingFields = [];
-            if (missingForms.includes('Requirement Form')) {
-                derivedMissingFields.push('propertyType', 'budgetMin', 'budgetMax', 'locCity', 'timeline');
-            }
-            if (missingForms.includes('Meetings Form')) {
-                derivedMissingFields.push('notes');
-            }
-            if (missingForms.includes('Quotation Form') || missingForms.includes('Offer Form')) {
-                derivedMissingFields.push('budgetMax', 'notes');
+            for (const form of missingForms) {
+                const mapped = FORM_FIELD_MAPPING[form];
+                if (mapped && mapped.length > 0) {
+                    // Push the first 4 essential fields of the form so the modal isn't too crowded
+                    derivedMissingFields.push(...mapped.slice(0, 4));
+                } else {
+                    derivedMissingFields.push('notes'); // Fallback field
+                }
             }
 
             // Deduplicate
