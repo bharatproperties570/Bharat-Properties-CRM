@@ -24,7 +24,12 @@ const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjec
         sizeConfig: '',
         status: 'Available',
         intent: ['For Sale'],
-        orientation: '',
+        direction: '',
+        facing: '',
+        roadWidth: '',
+        ownership: '',
+        latitude: '',
+        longitude: '',
         unitGenMethod: 'range', // 'range' or 'comma'
         prefix: '',
         rangeStart: '',
@@ -44,6 +49,12 @@ const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjec
                 projectId: defaultProjectId || '',
                 block: '',
                 sizeConfig: '',
+                direction: '',
+                facing: '',
+                roadWidth: '',
+                ownership: '',
+                latitude: '',
+                longitude: '',
                 prefix: '',
                 rangeStart: '',
                 rangeEnd: '',
@@ -104,7 +115,12 @@ const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjec
             sizeConfig: formData.sizeConfig,
             status: formData.status,
             intent: formData.intent,
-            orientation: formData.orientation
+            direction: formData.direction,
+            facing: formData.facing,
+            roadWidth: formData.roadWidth,
+            ownership: formData.ownership,
+            latitude: formData.latitude,
+            longitude: formData.longitude
         }));
 
         setPreviewUnits(preview);
@@ -193,9 +209,23 @@ const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjec
                                     </select>
                                 </div>
                                 <div>
-                                    <label style={labelStyle}>Orientation / Facing</label>
-                                    <select style={selectStyle} value={formData.orientation} onChange={e => setFormData({...formData, orientation: e.target.value})}>
-                                        <option value="">Select Orientation</option>
+                                    <label style={labelStyle}>Ownership</label>
+                                    <select style={selectStyle} value={formData.ownership} onChange={e => setFormData({...formData, ownership: e.target.value})}>
+                                        <option value="">Select Ownership</option>
+                                        <option value="Freehold">Freehold</option>
+                                        <option value="Leasehold">Leasehold</option>
+                                        <option value="Power of Attorney">Power of Attorney</option>
+                                        <option value="Co-operative Society">Co-operative Society</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            {/* Additional Attributes Row */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
+                                <div>
+                                    <label style={labelStyle}>Direction</label>
+                                    <select style={selectStyle} value={formData.direction} onChange={e => setFormData({...formData, direction: e.target.value})}>
+                                        <option value="">Direction</option>
                                         <option value="East">East</option>
                                         <option value="West">West</option>
                                         <option value="North">North</option>
@@ -205,6 +235,35 @@ const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjec
                                         <option value="South-East">South-East</option>
                                         <option value="South-West">South-West</option>
                                     </select>
+                                </div>
+                                <div>
+                                    <label style={labelStyle}>Facing</label>
+                                    <select style={selectStyle} value={formData.facing} onChange={e => setFormData({...formData, facing: e.target.value})}>
+                                        <option value="">Facing</option>
+                                        <option value="Park Facing">Park Facing</option>
+                                        <option value="Road Facing">Road Facing</option>
+                                        <option value="Club Facing">Club Facing</option>
+                                        <option value="Pool Facing">Pool Facing</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label style={labelStyle}>Road Width</label>
+                                    <input type="text" style={inputStyle} value={formData.roadWidth} onChange={e => setFormData({...formData, roadWidth: e.target.value})} placeholder="e.g. 30 Ft" />
+                                </div>
+                            </div>
+
+                            {/* Geo Location Row */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', background: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px dashed #cbd5e1' }}>
+                                <div>
+                                    <label style={labelStyle}>Default Latitude</label>
+                                    <input type="text" style={inputStyle} value={formData.latitude} onChange={e => setFormData({...formData, latitude: e.target.value})} placeholder="e.g. 28.7041" />
+                                </div>
+                                <div>
+                                    <label style={labelStyle}>Default Longitude</label>
+                                    <input type="text" style={inputStyle} value={formData.longitude} onChange={e => setFormData({...formData, longitude: e.target.value})} placeholder="e.g. 77.1025" />
+                                </div>
+                                <div style={{ gridColumn: '1 / -1', fontSize: '0.75rem', color: '#64748b' }}>
+                                    <i className="fas fa-info-circle"></i> These coordinates will apply to all units generated below. You can edit them individually in the next step.
                                 </div>
                             </div>
 
@@ -254,12 +313,49 @@ const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjec
                                 <i className="fas fa-info-circle" style={{ marginRight: '8px' }}></i>
                                 You are about to create <strong>{previewUnits.length}</strong> units for <strong>{formData.projectName} - {formData.block}</strong>.
                             </div>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(80px, 1fr))', gap: '8px', maxHeight: '300px', overflowY: 'auto', padding: '4px' }}>
-                                {previewUnits.map(u => (
-                                    <div key={u.unitNo} style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', padding: '8px', borderRadius: '6px', textAlign: 'center', fontSize: '0.85rem', fontWeight: 600, color: '#334155' }}>
-                                        {u.unitNo}
-                                    </div>
-                                ))}
+                            <div style={{ maxHeight: '400px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+                                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                                    <thead style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 1 }}>
+                                        <tr>
+                                            <th style={{ padding: '12px', borderBottom: '1px solid #cbd5e1', color: '#475569', fontSize: '0.85rem' }}>Unit No</th>
+                                            <th style={{ padding: '12px', borderBottom: '1px solid #cbd5e1', color: '#475569', fontSize: '0.85rem' }}>Latitude</th>
+                                            <th style={{ padding: '12px', borderBottom: '1px solid #cbd5e1', color: '#475569', fontSize: '0.85rem' }}>Longitude</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {previewUnits.map((u, idx) => (
+                                            <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                                                <td style={{ padding: '12px', fontWeight: 600, color: '#334155' }}>{u.unitNo}</td>
+                                                <td style={{ padding: '8px' }}>
+                                                    <input 
+                                                        type="text" 
+                                                        style={{...inputStyle, padding: '6px 10px'}} 
+                                                        value={u.latitude || ''} 
+                                                        onChange={(e) => {
+                                                            const newPreview = [...previewUnits];
+                                                            newPreview[idx].latitude = e.target.value;
+                                                            setPreviewUnits(newPreview);
+                                                        }}
+                                                        placeholder="Lat"
+                                                    />
+                                                </td>
+                                                <td style={{ padding: '8px' }}>
+                                                    <input 
+                                                        type="text" 
+                                                        style={{...inputStyle, padding: '6px 10px'}} 
+                                                        value={u.longitude || ''} 
+                                                        onChange={(e) => {
+                                                            const newPreview = [...previewUnits];
+                                                            newPreview[idx].longitude = e.target.value;
+                                                            setPreviewUnits(newPreview);
+                                                        }}
+                                                        placeholder="Long"
+                                                    />
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
                     )}
