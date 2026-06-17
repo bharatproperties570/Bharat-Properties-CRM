@@ -918,7 +918,7 @@ const DealIntakePage = () => {
                     <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                             <i className="fas fa-magic" style={{ color: '#6366f1' }}></i>
-                            <h2 style={{ fontSize: '1rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#1e293b', margin: 0 }}>Unified Intake Engine</h2>
+                            <h2 style={{ fontSize: '1rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#1e293b', margin: 0 }}>Unified Intake Engine</h2>
                         </div>
                         <p style={{ fontSize: '0.75rem', color: isDark ? 'var(--text-muted)' : '#64748b', margin: 0 }}>Processing Queue: {intakeItems.length} items</p>
                     </div>
@@ -1150,7 +1150,7 @@ const DealIntakePage = () => {
                                         </button>
                                     </div>
                                 </div>
-                                <div style={{ fontSize: '0.8rem', color: isDark ? 'var(--text-primary)' : '#334155', lineHeight: '1.4', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                                <div style={{ fontSize: '0.8rem', color: isDark ? 'var(--text-main)' : '#334155', lineHeight: '1.4', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                                     {item.contentSnippet || item.content}
                                 </div>
                             </div>
@@ -1169,7 +1169,7 @@ const DealIntakePage = () => {
                                     cursor: 'pointer',
                                     fontSize: '0.8rem',
                                     fontWeight: 600,
-                                    color: isDark ? 'var(--text-primary)' : '#475569',
+                                    color: isDark ? 'var(--text-main)' : '#475569',
                                     width: '100%'
                                 }}
                             >
@@ -1190,7 +1190,7 @@ const DealIntakePage = () => {
                         flexDirection: 'column', gap: '12px', backdropFilter: 'blur(2px)'
                     }}>
                         <div className="spinner" style={{ width: '40px', height: '40px', border: '4px solid #f3f3f3', borderTop: '4px solid #3b82f6', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
-                        <div style={{ fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#1e293b' }}>Processing Deal Data...</div>
+                        <div style={{ fontWeight: 700, color: isDark ? 'var(--text-main)' : '#1e293b' }}>Processing Deal Data...</div>
                         <style>{`
                             @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
                         `}</style>
@@ -1208,7 +1208,7 @@ const DealIntakePage = () => {
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                                 <div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                        <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#0f172a', margin: 0 }}>Intake #{currentItem?._id ? currentItem._id.slice(-6).toUpperCase() : renderValue(currentItem?.id)}</h2>
+                                        <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#0f172a', margin: 0 }}>Intake #{currentItem?._id ? currentItem._id.slice(-6).toUpperCase() : renderValue(currentItem?.id)}</h2>
                                         <div style={{
                                             padding: '2px 8px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 800,
                                             background: intakeType === 'BUYER' ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#f0fdf4' : isDark ? 'rgba(255, 255, 255, 0.03)' : '#eff6ff',
@@ -1267,7 +1267,7 @@ const DealIntakePage = () => {
                                                     borderRadius: '6px',
                                                     border: activeDealIndex === idx ? '2px solid #3b82f6' : '1px solid #cbd5e1',
                                                     background: activeDealIndex === idx ? isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff' : isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9',
-                                                    color: activeDealIndex === idx ? isDark ? 'var(--text-primary)' : '#1e293b' : isDark ? 'var(--text-muted)' : '#64748b',
+                                                    color: activeDealIndex === idx ? isDark ? 'var(--text-main)' : '#1e293b' : isDark ? 'var(--text-muted)' : '#64748b',
                                                     fontSize: '0.75rem',
                                                     fontWeight: 700,
                                                     cursor: 'pointer',
@@ -1283,7 +1283,7 @@ const DealIntakePage = () => {
 
                             {/* Raw Source Data Box */}
                             <div style={{ padding: '16px 40px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                                <div style={{ fontSize: '0.85rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#475569', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <div style={{ fontSize: '0.85rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : '#475569', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                     <i className="fas fa-align-left"></i> Original Raw Message
                                 </div>
                                 <div style={{ 
@@ -1292,7 +1292,7 @@ const DealIntakePage = () => {
                                     borderRadius: '6px', 
                                     padding: '12px', 
                                     fontSize: '0.85rem', 
-                                    color: isDark ? 'var(--text-primary)' : '#1e293b', 
+                                    color: isDark ? 'var(--text-main)' : '#1e293b', 
                                     whiteSpace: 'pre-wrap', 
                                     maxHeight: '150px', 
                                     overflowY: 'auto',
@@ -1331,7 +1331,7 @@ const DealIntakePage = () => {
                                     }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                             <i className="fas fa-robot" style={{ color: '#6366f1' }}></i>
-                                            <span style={{ fontWeight: 800, fontSize: '0.9rem', color: isDark ? 'var(--text-primary)' : '#1e293b' }}>AI Verification Layer</span>
+                                            <span style={{ fontWeight: 800, fontSize: '0.9rem', color: isDark ? 'var(--text-main)' : '#1e293b' }}>AI Verification Layer</span>
                                         </div>
                                         <div style={{ display: 'flex', gap: '8px' }}>
                                             {/* Confidence Score Badge */}
@@ -1350,7 +1350,7 @@ const DealIntakePage = () => {
                                                 <span style={{
                                                     fontSize: '0.75rem', fontWeight: 700, padding: '4px 10px', borderRadius: '12px',
                                                     background: currentItem.verification_status === 'verified' ? '#d1fae5' : currentItem.verification_status === 'suspicious' ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#fee2e2' : isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9',
-                                                    color: currentItem.verification_status === 'verified' ? '#059669' : currentItem.verification_status === 'suspicious' ? '#b91c1c' : isDark ? 'var(--text-primary)' : '#475569',
+                                                    color: currentItem.verification_status === 'verified' ? '#059669' : currentItem.verification_status === 'suspicious' ? '#b91c1c' : isDark ? 'var(--text-main)' : '#475569',
                                                     border: '1px solid currentColor'
                                                 }}>
                                                     {currentItem.verification_status.toUpperCase().replace('_', ' ')}
@@ -1388,7 +1388,7 @@ const DealIntakePage = () => {
                                             {(!currentItem.verification_notes || currentItem.verification_notes.length === 0) ? (
                                                 <div style={{ fontSize: '0.85rem', color: '#94a3b8' }}>No notes available.</div>
                                             ) : (
-                                                <ul style={{ margin: 0, paddingLeft: '16px', fontSize: '0.85rem', color: isDark ? 'var(--text-primary)' : '#475569' }}>
+                                                <ul style={{ margin: 0, paddingLeft: '16px', fontSize: '0.85rem', color: isDark ? 'var(--text-main)' : '#475569' }}>
                                                     {currentItem.verification_notes.map((note, i) => (
                                                         <li key={i} style={{ marginBottom: '4px' }}>{note}</li>
                                                     ))}
@@ -1437,11 +1437,11 @@ const DealIntakePage = () => {
                                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
                                                 <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', border: '1px solid #e2e8f0', padding: '10px', borderRadius: '6px' }}>
                                                     <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#94a3b8', marginBottom: '4px' }}>SUMMARY</div>
-                                                    <div style={{ fontSize: '0.85rem', color: isDark ? 'var(--text-primary)' : '#334155', fontWeight: 600 }}>{currentItem.ai_assistant.summary}</div>
+                                                    <div style={{ fontSize: '0.85rem', color: isDark ? 'var(--text-main)' : '#334155', fontWeight: 600 }}>{currentItem.ai_assistant.summary}</div>
                                                 </div>
                                                 <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', border: '1px solid #e2e8f0', padding: '10px', borderRadius: '6px' }}>
                                                     <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#94a3b8', marginBottom: '4px' }}>SELLER INTENT</div>
-                                                    <div style={{ fontSize: '0.85rem', color: isDark ? 'var(--text-primary)' : '#334155', fontWeight: 600 }}>{currentItem.ai_assistant.seller_intent}</div>
+                                                    <div style={{ fontSize: '0.85rem', color: isDark ? 'var(--text-main)' : '#334155', fontWeight: 600 }}>{currentItem.ai_assistant.seller_intent}</div>
                                                 </div>
                                                 <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', border: '1px solid #e2e8f0', padding: '10px', borderRadius: '6px' }}>
                                                     <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#94a3b8', marginBottom: '4px' }}>RECOMMENDED ACTION</div>
@@ -1449,7 +1449,7 @@ const DealIntakePage = () => {
                                                 </div>
                                                 <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', border: '1px solid #e2e8f0', padding: '10px', borderRadius: '6px' }}>
                                                     <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#94a3b8', marginBottom: '4px' }}>URGENCY</div>
-                                                    <div style={{ fontSize: '0.85rem', color: currentItem.ai_assistant.urgency === 'High' ? '#dc2626' : currentItem.ai_assistant.urgency === 'Medium' ? '#d97706' : isDark ? 'var(--text-primary)' : '#334155', fontWeight: 600 }}>{currentItem.ai_assistant.urgency}</div>
+                                                    <div style={{ fontSize: '0.85rem', color: currentItem.ai_assistant.urgency === 'High' ? '#dc2626' : currentItem.ai_assistant.urgency === 'Medium' ? '#d97706' : isDark ? 'var(--text-main)' : '#334155', fontWeight: 600 }}>{currentItem.ai_assistant.urgency}</div>
                                                 </div>
                                             </div>
 
@@ -1466,7 +1466,7 @@ const DealIntakePage = () => {
                                             {currentItem.ai_assistant.verification_actions && currentItem.ai_assistant.verification_actions.length > 0 && (
                                                 <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', border: '1px solid #e2e8f0', padding: '10px', borderRadius: '6px' }}>
                                                     <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#94a3b8', marginBottom: '4px' }}>VERIFICATION ACTIONS</div>
-                                                    <ul style={{ margin: 0, paddingLeft: '16px', fontSize: '0.8rem', color: isDark ? 'var(--text-primary)' : '#475569' }}>
+                                                    <ul style={{ margin: 0, paddingLeft: '16px', fontSize: '0.8rem', color: isDark ? 'var(--text-main)' : '#475569' }}>
                                                         {currentItem.ai_assistant.verification_actions.map((action, idx) => (
                                                             <li key={idx}>{action}</li>
                                                         ))}
@@ -1481,7 +1481,7 @@ const DealIntakePage = () => {
 
                             <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden', marginBottom: '16px' }}>
                                 {/* Header: Raw Text */}
-                                <div style={{ padding: '12px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', borderBottom: '1px solid #e2e8f0', fontSize: '0.85rem', color: isDark ? 'var(--text-primary)' : '#475569', display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                                <div style={{ padding: '12px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', borderBottom: '1px solid #e2e8f0', fontSize: '0.85rem', color: isDark ? 'var(--text-main)' : '#475569', display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
                                     <i className="fas fa-quote-left" style={{ color: '#cbd5e1', marginTop: '2px' }}></i>
                                     <div style={{ lineHeight: '1.6' }}>
                                         {(() => {
@@ -1537,7 +1537,7 @@ const DealIntakePage = () => {
                                                     <div style={{ fontSize: '0.7rem', color: isDark ? 'var(--text-muted)' : '#64748b', fontWeight: 700, marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                         <i className={`fas ${field.icon}`} style={{ fontSize: '0.6rem' }}></i> {field.label.toUpperCase()}
                                                     </div>
-                                                    <div style={{ fontSize: '0.9rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>
+                                                    <div style={{ fontSize: '0.9rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#0f172a' }}>
                                                         {renderValue(field.value) || '-'}
                                                     </div>
                                                 </div>
@@ -1578,7 +1578,7 @@ const DealIntakePage = () => {
                                             toast.success("Text Copied!");
                                         }
                                     }}
-                                    style={{ padding: '6px 12px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', color: isDark ? 'var(--text-primary)' : '#475569', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    style={{ padding: '6px 12px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', color: isDark ? 'var(--text-main)' : '#475569', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                             <i className="far fa-copy"></i> Copy Text
                                 </button>
                                 <button
@@ -1623,7 +1623,7 @@ const DealIntakePage = () => {
                                         <>
                                             {stage === 1 && (
                                                 <div className="animate-fade-in">
-                                                    <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#1e293b', marginBottom: '16px' }}>1. Confirm Property Owner</h3>
+                                                    <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#1e293b', marginBottom: '16px' }}>1. Confirm Property Owner</h3>
                                                     {detectedContacts.length === 0 ? (
                                                         <div style={{ padding: '20px', background: '#fff1f2', color: '#be123c', borderRadius: '8px', border: '1px solid #fb7185', textAlign: 'center' }}>
                                                             No phone numbers detected. <button onClick={() => handleOpenAddContact()} style={{ border: 'none', background: 'none', textDecoration: 'underline', fontWeight: 700, cursor: 'pointer', color: '#be123c' }}>Add Manually</button>
@@ -1920,14 +1920,14 @@ const DealIntakePage = () => {
                                             <div style={{ display: 'flex', gap: '20px' }}>
                                                 {/* Left: Contact Info */}
                                                 <div style={{ flex: 1, background: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px' }}>
-                                                    <h3 style={{ marginTop: 0, fontSize: '1rem', color: isDark ? 'var(--text-primary)' : '#475569', marginBottom: '15px' }}>1. Lead Classification</h3>
+                                                    <h3 style={{ marginTop: 0, fontSize: '1rem', color: isDark ? 'var(--text-main)' : '#475569', marginBottom: '15px' }}>1. Lead Classification</h3>
 
                                                     {detectedContacts.length > 0 ? (
                                                         <div style={{ padding: '15px', background: buyerContact?.isBroker ? '#FEF2F2' : (buyerContact?.isNew ? '#F0F9FF' : '#F0FDF4'), border: '1px solid', borderColor: buyerContact?.isBroker ? '#FECACA' : (buyerContact?.isNew ? '#BAE6FD' : '#BBF7D0'), borderRadius: '8px', marginBottom: '15px' }}>
                                                             {/* Header Row */}
                                                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
                                                                 <div>
-                                                                    <div style={{ fontSize: '1rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>
+                                                                    <div style={{ fontSize: '1rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : '#0f172a' }}>
                                                                         {buyerContact?.name || "Unknown"}
                                                                     </div>
                                                                     <div style={{ fontSize: '0.85rem', color: isDark ? 'var(--text-muted)' : '#64748b', display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -1948,16 +1948,16 @@ const DealIntakePage = () => {
                                                             {!buyerContact?.isNew && buyerContact?.stats && (
                                                                 <div style={{ display: 'flex', gap: '8px', marginTop: '12px', flexWrap: 'wrap' }}>
                                                                     {buyerContact.stats.deals > 0 && (
-                                                                        <span title="Deals" style={{ fontSize: '0.7rem', padding: '3px 8px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', color: isDark ? 'var(--text-primary)' : '#0f172a', fontWeight: 600 }}><i className="fas fa-handshake" style={{ color: '#3b82f6', marginRight: '4px' }}></i> {buyerContact.stats.deals} Deals</span>
+                                                                        <span title="Deals" style={{ fontSize: '0.7rem', padding: '3px 8px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', color: isDark ? 'var(--text-main)' : '#0f172a', fontWeight: 600 }}><i className="fas fa-handshake" style={{ color: '#3b82f6', marginRight: '4px' }}></i> {buyerContact.stats.deals} Deals</span>
                                                                     )}
                                                                     {buyerContact.stats.inventory > 0 && (
-                                                                        <span title="Inventory" style={{ fontSize: '0.7rem', padding: '3px 8px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', color: isDark ? 'var(--text-primary)' : '#0f172a', fontWeight: 600 }}><i className="fas fa-building" style={{ color: '#8b5cf6', marginRight: '4px' }}></i> {buyerContact.stats.inventory} Unit</span>
+                                                                        <span title="Inventory" style={{ fontSize: '0.7rem', padding: '3px 8px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', color: isDark ? 'var(--text-main)' : '#0f172a', fontWeight: 600 }}><i className="fas fa-building" style={{ color: '#8b5cf6', marginRight: '4px' }}></i> {buyerContact.stats.inventory} Unit</span>
                                                                     )}
                                                                     {buyerContact.stats.leads > 0 && (
-                                                                        <span title="Leads" style={{ fontSize: '0.7rem', padding: '3px 8px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', color: isDark ? 'var(--text-primary)' : '#0f172a', fontWeight: 600 }}><i className="fas fa-filter" style={{ color: '#f59e0b', marginRight: '4px' }}></i> {buyerContact.stats.leads} Leads</span>
+                                                                        <span title="Leads" style={{ fontSize: '0.7rem', padding: '3px 8px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', color: isDark ? 'var(--text-main)' : '#0f172a', fontWeight: 600 }}><i className="fas fa-filter" style={{ color: '#f59e0b', marginRight: '4px' }}></i> {buyerContact.stats.leads} Leads</span>
                                                                     )}
                                                                     {buyerContact.stats.activities > 0 && (
-                                                                        <span title="Activities" style={{ fontSize: '0.7rem', padding: '3px 8px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', color: isDark ? 'var(--text-primary)' : '#0f172a', fontWeight: 600 }}><i className="fas fa-clock" style={{ color: isDark ? 'var(--text-muted)' : '#64748b', marginRight: '4px' }}></i> {buyerContact.stats.activities} Actv.</span>
+                                                                        <span title="Activities" style={{ fontSize: '0.7rem', padding: '3px 8px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', color: isDark ? 'var(--text-main)' : '#0f172a', fontWeight: 600 }}><i className="fas fa-clock" style={{ color: isDark ? 'var(--text-muted)' : '#64748b', marginRight: '4px' }}></i> {buyerContact.stats.activities} Actv.</span>
                                                                     )}
                                                                 </div>
                                                             )}
@@ -1980,7 +1980,7 @@ const DealIntakePage = () => {
                                                                 checked={isTemporaryLead}
                                                                 onChange={(e) => setIsTemporaryLead(e.target.checked)}
                                                             />
-                                                            <span style={{ fontWeight: 600, color: isDark ? 'var(--text-primary)' : '#334155' }}>Mark as Temporary Lead (15-Day Expiry)</span>
+                                                            <span style={{ fontWeight: 600, color: isDark ? 'var(--text-main)' : '#334155' }}>Mark as Temporary Lead (15-Day Expiry)</span>
                                                         </label>
                                                         <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginLeft: '24px', marginTop: '2px' }}>
                                                             {isTemporaryLead ? 'This lead will expire automatically in 15 days.' : 'This lead will follow the standard long-term lifecycle.'}
@@ -1990,7 +1990,7 @@ const DealIntakePage = () => {
 
                                                 {/* Right: Requirements */}
                                                 <div style={{ flex: 1, background: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px' }}>
-                                                    <h3 style={{ marginTop: 0, fontSize: '1rem', color: isDark ? 'var(--text-primary)' : '#475569', marginBottom: '15px' }}>2. Requirement Parsing</h3>
+                                                    <h3 style={{ marginTop: 0, fontSize: '1rem', color: isDark ? 'var(--text-main)' : '#475569', marginBottom: '15px' }}>2. Requirement Parsing</h3>
                                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                                                         <div>
                                                             <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#94a3b8' }}>Type</label>
@@ -2029,7 +2029,7 @@ const DealIntakePage = () => {
                                                 <button className="btn-outline" onClick={() => setStage(1)} style={{ fontSize: '0.8rem', background: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff' }}>Edit</button>
                                             </div>
 
-                                            <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#1e293b', marginBottom: '16px' }}>
+                                            <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#1e293b', marginBottom: '16px' }}>
                                                 3. Matching Active Deals ({matchedDeals.length})
                                             </h3>
 
@@ -2043,7 +2043,7 @@ const DealIntakePage = () => {
                                                         <div key={idx} style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                                             <div>
                                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                                                                    <div style={{ fontWeight: 700, fontSize: '1rem', color: isDark ? 'var(--text-primary)' : '#0f172a' }}>{match.deal.title}</div>
+                                                                    <div style={{ fontWeight: 700, fontSize: '1rem', color: isDark ? 'var(--text-main)' : '#0f172a' }}>{match.deal.title}</div>
                                                                     <div style={{ padding: '2px 8px', background: '#e2e8f0', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 700 }}>{typeof match.deal.status === 'object' ? (match.deal.status.lookup_value || match.deal.status.name) : match.deal.status}</div>
                                                                     <div style={{ padding: '2px 8px', background: '#FEF3C7', color: '#B45309', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 700 }}>{match.deal.price}</div>
                                                                 </div>
@@ -2071,7 +2071,7 @@ const DealIntakePage = () => {
                                                         setCurrentItem(null);
                                                         toast.success("Buyer Intake Completed");
                                                     }}
-                                                    style={{ padding: '12px 30px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#475569', cursor: 'pointer' }}
+                                                    style={{ padding: '12px 30px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: 700, color: isDark ? 'var(--text-main)' : '#475569', cursor: 'pointer' }}
                                                 >
                                                     Fast Close
                                                 </button>
@@ -2105,7 +2105,7 @@ const DealIntakePage = () => {
 
                             {/* Campaign Details Fields */}
                             <div style={{ marginBottom: '16px' }}>
-                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#475569', marginBottom: '8px' }}>Campaign Source</label>
+                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : '#475569', marginBottom: '8px' }}>Campaign Source</label>
                                 <select
                                     value={campaignSource}
                                     onChange={e => setCampaignSource(e.target.value)}
@@ -2125,7 +2125,7 @@ const DealIntakePage = () => {
 
 
                             <div style={{ marginBottom: '20px' }}>
-                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#475569', marginBottom: '8px' }}>Content Input</label>
+                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : '#475569', marginBottom: '8px' }}>Content Input</label>
 
                                 {/* Paste/Import Toggle */}
                                 <div style={{ display: 'flex', gap: '10px', marginBottom: '12px' }}>
@@ -2289,7 +2289,7 @@ const DealIntakePage = () => {
                                         setNewSourceContent('');
                                         setContentInputMode('paste');
                                     }}
-                                    style={{ padding: '10px 20px', borderRadius: '6px', border: '1px solid #cbd5e1', background: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', color: isDark ? 'var(--text-primary)' : '#475569', fontWeight: 600, cursor: 'pointer' }}
+                                    style={{ padding: '10px 20px', borderRadius: '6px', border: '1px solid #cbd5e1', background: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', color: isDark ? 'var(--text-main)' : '#475569', fontWeight: 600, cursor: 'pointer' }}
                                 >
                                     Cancel
                                 </button>
@@ -2314,7 +2314,7 @@ const DealIntakePage = () => {
                             <div style={{ width: '60px', height: '60px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#eff6ff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
                                 <i className="fas fa-cloud-upload-alt" style={{ fontSize: '1.5rem', color: '#3b82f6' }}></i>
                             </div>
-                            <h3 style={{ marginTop: 0, fontSize: '1.25rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#1e293b' }}>Import Data</h3>
+                            <h3 style={{ marginTop: 0, fontSize: '1.25rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#1e293b' }}>Import Data</h3>
                             <p style={{ color: isDark ? 'var(--text-muted)' : '#64748b', fontSize: '0.9rem', marginBottom: '24px' }}>
                                 Upload <strong>WhatsApp Export (.zip)</strong> or <br /> <strong>Tribune Advertisement (.pdf)</strong>
                             </p>
@@ -2341,7 +2341,7 @@ const DealIntakePage = () => {
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
                                         <i className="fas fa-file-alt" style={{ fontSize: '1.5rem', color: isDark ? 'var(--text-muted)' : '#64748b' }}></i>
                                         <div style={{ textAlign: 'left', flex: 1 }}>
-                                            <div style={{ fontWeight: 700, fontSize: '0.9rem', color: isDark ? 'var(--text-primary)' : '#1e293b' }}>{selectedFile.name}</div>
+                                            <div style={{ fontWeight: 700, fontSize: '0.9rem', color: isDark ? 'var(--text-main)' : '#1e293b' }}>{selectedFile.name}</div>
                                             <div style={{ fontSize: '0.8rem', color: isDark ? 'var(--text-muted)' : '#64748b' }}>{(selectedFile.size / 1024).toFixed(1)} KB</div>
                                         </div>
                                         <button onClick={() => setSelectedFile(null)} style={{ border: 'none', background: 'none', color: '#ef4444', cursor: 'pointer' }}>
@@ -2414,7 +2414,7 @@ const DealIntakePage = () => {
                 <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
                     <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff', width: '600px', borderRadius: '16px', padding: '30px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                            <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#1e293b' }}>
+                            <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#1e293b' }}>
                                 <i className="fas fa-redo-alt" style={{ color: '#8b5cf6', marginRight: '10px' }}></i>
                                 Daily Monitored URLs
                             </h3>
@@ -2434,10 +2434,10 @@ const DealIntakePage = () => {
                                 monitoredSources.map(source => (
                                     <div key={source._id} style={{ padding: '15px', border: '1px solid #e2e8f0', borderRadius: '12px', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '15px', background: source.is_active ? isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff' : isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc' }}>
                                         <div style={{ flex: 1 }}>
-                                            <div style={{ fontWeight: 700, color: source.is_active ? isDark ? 'var(--text-primary)' : '#1e293b' : '#94a3b8', fontSize: '0.9rem', marginBottom: '4px' }}>{source.source}</div>
+                                            <div style={{ fontWeight: 700, color: source.is_active ? isDark ? 'var(--text-main)' : '#1e293b' : '#94a3b8', fontSize: '0.9rem', marginBottom: '4px' }}>{source.source}</div>
                                             <div style={{ fontSize: '0.75rem', color: isDark ? 'var(--text-muted)' : '#64748b', wordBreak: 'break-all' }}>{source.url}</div>
                                             <div style={{ marginTop: '8px', display: 'flex', gap: '10px', alignItems: 'center' }}>
-                                                <span style={{ fontSize: '0.65rem', padding: '2px 6px', borderRadius: '4px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9', color: isDark ? 'var(--text-primary)' : '#475569', fontWeight: 700 }}>DAILY</span>
+                                                <span style={{ fontSize: '0.65rem', padding: '2px 6px', borderRadius: '4px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9', color: isDark ? 'var(--text-main)' : '#475569', fontWeight: 700 }}>DAILY</span>
                                                 {source.last_run_at && (
                                                     <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>Last run: {new Date(source.last_run_at).toLocaleString()}</span>
                                                 )}

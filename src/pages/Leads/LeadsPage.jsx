@@ -1661,7 +1661,7 @@ const LeadItem = React.memo(function LeadItem({
                         </div>
                     )}
                     {(lead.locHNo || lead.locStreet) && (
-                        <div style={{ color: isDark ? 'var(--text-primary)' : '#334155', fontSize: '0.7rem' }}>
+                        <div style={{ color: isDark ? 'var(--text-main)' : '#334155', fontSize: '0.7rem' }}>
                             <i className="fas fa-home" style={{ marginRight: '6px', color: 'var(--text-muted)', fontSize: '0.65rem' }}></i>
                             {[lead.locHNo, lead.locStreet].map(v => renderValue(v)).filter(Boolean).join(', ')}
                         </div>
@@ -1956,7 +1956,7 @@ const LeadCard = React.memo(function LeadCard({
                     }
                     return null;
                 })()}
-                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: isDark ? 'var(--text-primary)' : '#334155' }}>
+                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: isDark ? 'var(--text-main)' : '#334155' }}>
                     {(() => {
                         const cat = Array.isArray(lead.reqDisplay?.category)
                             ? lead.reqDisplay.category.map(s => {

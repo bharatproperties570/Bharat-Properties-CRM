@@ -224,7 +224,7 @@ const ContactDocuments = React.memo(function ContactDocuments({
 
                                             {/* Right Column: Document Type Name, Linked Inventory */}
                                             <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '1px' }}>
-                                                <span style={{ fontSize: '0.8rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', paddingRight: '12px' }}>
+                                                <span style={{ fontSize: '0.8rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', paddingRight: '12px' }}>
                                                     {docTypeText}
                                                 </span>
                                                 {(doc.unitNumber || doc.projectName) && (

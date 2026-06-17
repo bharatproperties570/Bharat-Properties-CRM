@@ -837,7 +837,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                                 <div style={{ width: '32px', height: '32px', background: 'rgba(100, 116, 139, 0.1)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                     <i className="fas fa-history" style={{ color: isDark ? 'var(--text-muted)' : '#64748b', fontSize: '0.8rem' }}></i>
                                 </div>
-                                <h3 style={{ margin: 0, fontSize: '0.85rem', fontWeight: 900, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>Property History</h3>
+                                <h3 style={{ margin: 0, fontSize: '0.85rem', fontWeight: 900, color: isDark ? 'var(--text-main)' : '#0f172a' }}>Property History</h3>
                             </div>
                             <div style={{ paddingLeft: '14px', borderLeft: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '2px solid #f1f5f9', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                 {inventory ? (
@@ -845,7 +845,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                                         (inventory.ownerHistory || []).reverse().slice(0, 5).map((item, idx) => (
                                             <div key={idx} style={{ position: 'relative' }}>
                                                 <div style={{ position: 'absolute', left: '-20px', top: '4px', width: '8px', height: '8px', background: '#10b981', borderRadius: '50%', border: '2px solid #fff' }}></div>
-                                                <p style={{ margin: 0, fontSize: '0.75rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#1e293b' }}>{renderValue(item.contactName)}</p>
+                                                <p style={{ margin: 0, fontSize: '0.75rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#1e293b' }}>{renderValue(item.contactName)}</p>
                                                 <p style={{ margin: 0, fontSize: '0.6rem', color: isDark ? 'var(--text-muted)' : '#64748b' }}>{new Date(item.date).toLocaleDateString()}</p>
                                             </div>
                                         ))
@@ -860,7 +860,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
 
                         {/* Inventory Lifecycle */}
                         <div className="glass-card">
-                            <h3 style={{ fontSize: '0.75rem', fontWeight: 900, color: isDark ? 'var(--text-primary)' : '#0f172a', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.6px' }}>Lifecycle Analytics</h3>
+                            <h3 style={{ fontSize: '0.75rem', fontWeight: 900, color: isDark ? 'var(--text-main)' : '#0f172a', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.6px' }}>Lifecycle Analytics</h3>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                                 <LifecycleMetric label="Acquired" value={inventory?.createdAt ? new Date(inventory.createdAt).toLocaleDateString() : '-'} icon="calendar-plus" color="#10b981" />
                                 <LifecycleMetric label="Modified" value={inventory?.updatedAt ? new Date(inventory.updatedAt).toLocaleDateString() : '-'} icon="edit" color="#3b82f6" />
@@ -1076,7 +1076,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                                     <i className="fas fa-globe" style={{ color: '#2563eb', fontSize: '1.1rem' }}></i>
                                 </div>
                                 <div>
-                                    <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#1e293b', margin: 0 }}>Website Publishing Settings</h3>
+                                    <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : '#1e293b', margin: 0 }}>Website Publishing Settings</h3>
                                     <p style={{ margin: 0, fontSize: '0.75rem', color: isDark ? 'var(--text-muted)' : '#64748b' }}>Configure privacy and listing description</p>
                                 </div>
                             </div>
@@ -1093,14 +1093,14 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                             
                             {/* Privacy Settings Card */}
                             <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', padding: '16px 20px', borderRadius: '12px', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0' }}>
-                                <h5 style={{ margin: '0 0 14px 0', fontSize: '0.85rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#1e293b', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <h5 style={{ margin: '0 0 14px 0', fontSize: '0.85rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : '#1e293b', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                     <i className="fas fa-shield-alt" style={{ color: '#2563eb' }}></i> Privacy & Display Settings
                                 </h5>
                                 
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                                         <div>
-                                            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: isDark ? 'var(--text-primary)' : '#334155', display: 'block' }}>Display Unit Number</span>
+                                            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: isDark ? 'var(--text-main)' : '#334155', display: 'block' }}>Display Unit Number</span>
                                             <span style={{ fontSize: '0.7rem', color: isDark ? 'var(--text-muted)' : '#64748b' }}>Show the exact unit number on the public website.</span>
                                         </div>
                                         <label className="switch" style={{ position: 'relative', display: 'inline-block', width: '40px', height: '20px' }}>
@@ -1125,7 +1125,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                                     
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px dashed #e2e8f0', paddingTop: '12px' }}>
                                         <div>
-                                            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: isDark ? 'var(--text-primary)' : '#334155', display: 'block' }}>Display Map Location</span>
+                                            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: isDark ? 'var(--text-main)' : '#334155', display: 'block' }}>Display Map Location</span>
                                             <span style={{ fontSize: '0.7rem', color: isDark ? 'var(--text-muted)' : '#64748b' }}>Share precise geographical details on website maps.</span>
                                         </div>
                                         <label className="switch" style={{ position: 'relative', display: 'inline-block', width: '40px', height: '20px' }}>
@@ -1155,7 +1155,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                                 <div style={{ position: 'absolute', top: '-50px', right: '-50px', width: '120px', height: '120px', background: 'radial-gradient(circle, rgba(99, 102, 241, 0.1) 0%, rgba(255,255,255,0) 70%)', pointerEvents: 'none' }}></div>
                                 
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                    <label style={{ fontSize: '0.85rem', color: isDark ? 'var(--text-primary)' : '#1e293b', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <label style={{ fontSize: '0.85rem', color: isDark ? 'var(--text-main)' : '#1e293b', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
                                         <i className="fas fa-globe text-blue-600"></i> Public Website Listing Description
                                     </label>
                                     <button
@@ -1213,7 +1213,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                         <div style={{ padding: '16px 24px', borderTop: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: '12px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff' }}>
                             <button 
                                 onClick={() => setIsPublishModalOpen(false)} 
-                                style={{ padding: '8px 16px', borderRadius: '8px', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #cbd5e1', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', color: isDark ? 'var(--text-primary)' : '#475569', fontWeight: 600, cursor: 'pointer', fontSize: '0.85rem' }}
+                                style={{ padding: '8px 16px', borderRadius: '8px', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #cbd5e1', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', color: isDark ? 'var(--text-main)' : '#475569', fontWeight: 600, cursor: 'pointer', fontSize: '0.85rem' }}
                             >
                                 Cancel
                             </button>
@@ -1256,7 +1256,7 @@ const LifecycleMetric = ({ label, value, icon, color }) => {
             <i className={`fas fa-${icon}`} style={{ fontSize: '0.6rem', color: color }}></i>
             <span style={{ fontSize: '0.5rem', fontWeight: 800, color: isDark ? 'var(--text-muted)' : '#64748b', textTransform: 'uppercase' }}>{label}</span>
         </div>
-        <div style={{ fontSize: '0.75rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#1e293b' }}>{value}</div>
+        <div style={{ fontSize: '0.75rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#1e293b' }}>{value}</div>
     </div>
     );
 };

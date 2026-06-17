@@ -170,7 +170,7 @@ const TransactionCard = ({ active, onToggle, onAction, icon, color, label, desc,
             </div>
         </div>
         <div>
-            <h4 style={{ margin: 0, fontSize: '0.8rem', fontWeight: 900, color: active ? isDark ? 'var(--text-primary)' : '#0f172a' : isDark ? 'var(--text-muted)' : '#64748b', letterSpacing: '0.5px' }}>{label}</h4>
+            <h4 style={{ margin: 0, fontSize: '0.8rem', fontWeight: 900, color: active ? isDark ? 'var(--text-main)' : '#0f172a' : isDark ? 'var(--text-muted)' : '#64748b', letterSpacing: '0.5px' }}>{label}</h4>
             <p style={{ margin: '2px 0 0 0', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700 }}>{desc}</p>
         </div>
         <button
@@ -179,7 +179,7 @@ const TransactionCard = ({ active, onToggle, onAction, icon, color, label, desc,
             style={{
                 width: '100%', padding: '10px', borderRadius: '10px', border: 'none',
                 background: disabled ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9' : (active ? color : isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9'), 
-                color: disabled ? '#cbd5e1' : (active ? '#fff' : isDark ? 'var(--text-primary)' : '#475569'),
+                color: disabled ? '#cbd5e1' : (active ? '#fff' : isDark ? 'var(--text-main)' : '#475569'),
                 fontSize: '0.75rem', fontWeight: 800, cursor: disabled ? 'not-allowed' : 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
                 transition: 'all 0.2s'
@@ -217,7 +217,7 @@ const SpecItem = ({ label, value, icon, highlight = false }) => {
             margin: 0, 
             fontSize: highlight ? '1rem' : '0.85rem', 
             fontWeight: highlight ? 900 : 700, 
-            color: highlight ? isDark ? 'var(--text-primary)' : '#0f172a' : isDark ? 'var(--text-primary)' : '#1e293b',
+            color: highlight ? isDark ? 'var(--text-main)' : '#0f172a' : isDark ? 'var(--text-main)' : '#1e293b',
             letterSpacing: highlight ? '-0.3px' : 'normal'
         }}>
             {value || '-'}

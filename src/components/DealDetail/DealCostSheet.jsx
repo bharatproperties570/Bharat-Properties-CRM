@@ -26,7 +26,7 @@ const DealCostSheet = ({ financials, deal }) => {
                         <i className="fas fa-file-invoice-dollar" style={{ color: 'var(--premium-blue)', fontSize: '1.2rem' }}></i>
                     </div>
                     <div>
-                        <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, color: isDark ? 'var(--text-primary)' : '#0f172a', letterSpacing: '-0.3px' }}>Cost Sheet</h3>
+                        <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, color: isDark ? 'var(--text-main)' : '#0f172a', letterSpacing: '-0.3px' }}>Cost Sheet</h3>
                         <p style={{ margin: 0, fontSize: '0.75rem', color: isDark ? 'var(--text-muted)' : '#64748b', fontWeight: 600 }}>Purchase summary & charges</p>
                     </div>
                 </div>
@@ -55,7 +55,7 @@ const DealCostSheet = ({ financials, deal }) => {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px', background: 'rgba(248, 250, 252, 0.5)', borderRadius: '12px', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #f1f5f9' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <span style={{ fontSize: '0.85rem', fontWeight: 700, color: isDark ? 'var(--text-muted)' : '#64748b' }}>Basic Sale Consideration</span>
-                            <span style={{ fontSize: '0.95rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>{formatCurrency(financials.dealValue)}</span>
+                            <span style={{ fontSize: '0.95rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#0f172a' }}>{formatCurrency(financials.dealValue)}</span>
                         </div>
                         
                         {/* Flexible/Collector Rate Breakdown */}
@@ -63,7 +63,7 @@ const DealCostSheet = ({ financials, deal }) => {
                             <div style={{ borderTop: '1px dashed #e2e8f0', paddingTop: '8px', marginTop: '4px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem' }}>
                                     <span style={{ color: isDark ? 'var(--text-muted)' : '#64748b', fontWeight: 600 }}>White / Registry Component:</span>
-                                    <span style={{ color: isDark ? 'var(--text-primary)' : '#0f172a', fontWeight: 700 }}>{formatCurrency(financials.valuationData?.stampDutyBase || financials.applicableValue)}</span>
+                                    <span style={{ color: isDark ? 'var(--text-main)' : '#0f172a', fontWeight: 700 }}>{formatCurrency(financials.valuationData?.stampDutyBase || financials.applicableValue)}</span>
                                 </div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem' }}>
                                     <span style={{ color: isDark ? 'var(--text-muted)' : '#64748b', fontWeight: 600 }}>Cash / Black Component:</span>
@@ -77,7 +77,7 @@ const DealCostSheet = ({ financials, deal }) => {
                     <div style={{ padding: '16px', background: 'rgba(248, 250, 252, 0.3)', borderRadius: '16px', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #f1f5f9' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
                             <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Government Charges</span>
-                            <span style={{ fontSize: '0.85rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>{formatCurrency(financials.totalGovtCharges)}</span>
+                            <span style={{ fontSize: '0.85rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#0f172a' }}>{formatCurrency(financials.totalGovtCharges)}</span>
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                             <SubRow label="Stamp Duty" value={financials.stampDutyAmount} />
@@ -89,7 +89,7 @@ const DealCostSheet = ({ financials, deal }) => {
                     {/* Brokerage */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', background: 'rgba(248, 250, 252, 0.5)', borderRadius: '12px', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #f1f5f9' }}>
                         <span style={{ fontSize: '0.85rem', fontWeight: 700, color: isDark ? 'var(--text-muted)' : '#64748b' }}>Service / Brokerage Fee</span>
-                        <span style={{ fontSize: '0.95rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>{formatCurrency(financials.brokerageAmount)}</span>
+                        <span style={{ fontSize: '0.95rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#0f172a' }}>{formatCurrency(financials.brokerageAmount)}</span>
                     </div>
 
                     {/* Divider */}
@@ -117,7 +117,7 @@ const SubRow = ({ label, value }) => {
     return (
 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ fontSize: '0.8rem', color: isDark ? 'var(--text-muted)' : '#64748b', fontWeight: 600 }}>{label}</span>
-        <span style={{ fontSize: '0.85rem', color: isDark ? 'var(--text-primary)' : '#475569', fontWeight: 700 }}>{formatCurrency(value)}</span>
+        <span style={{ fontSize: '0.85rem', color: isDark ? 'var(--text-main)' : '#475569', fontWeight: 700 }}>{formatCurrency(value)}</span>
     </div>
     );
 };

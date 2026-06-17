@@ -24,7 +24,7 @@ const DealMatchedLeads = ({ matchingLeads, onNavigate, deal }) => {
     const sectionTitleStyle = {
         fontSize: '0.95rem',
         fontWeight: 900,
-        color: isDark ? 'var(--text-primary)' : '#0f172a',
+        color: isDark ? 'var(--text-main)' : '#0f172a',
         textTransform: 'uppercase',
         letterSpacing: '0.05em',
         margin: 0,
@@ -60,7 +60,7 @@ const DealMatchedLeads = ({ matchingLeads, onNavigate, deal }) => {
 
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px', paddingLeft: '8px' }}>
                             <div>
-                                <h4 style={{ fontSize: '0.9rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#1e293b', margin: '0 0 2px 0' }}>{lead.name}</h4>
+                                <h4 style={{ fontSize: '0.9rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#1e293b', margin: '0 0 2px 0' }}>{lead.name}</h4>
                                 <p style={{ fontSize: '0.75rem', color: isDark ? 'var(--text-muted)' : '#64748b', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
                                     <i className="fas fa-phone-alt" style={{ fontSize: '0.6rem', opacity: 0.7 }}></i> {lead.mobile || lead.phone || lead.contactDetails?.phones?.[0]?.number || 'No Phone'}
                                 </p>
@@ -81,7 +81,7 @@ const DealMatchedLeads = ({ matchingLeads, onNavigate, deal }) => {
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                                 <span style={{
                                     fontSize: '0.65rem', fontWeight: 800, padding: '2px 6px', borderRadius: '4px',
-                                    background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9', color: isDark ? 'var(--text-primary)' : '#475569', textTransform: 'uppercase'
+                                    background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9', color: isDark ? 'var(--text-main)' : '#475569', textTransform: 'uppercase'
                                 }}>
                                     {lead.category || 'Lead'}
                                 </span>

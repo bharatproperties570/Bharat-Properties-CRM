@@ -80,7 +80,7 @@ const SiteVisitActivitySection = ({
                             }}>
                                 <div style={{ flex: 1.5 }}>
                                     <div style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748b' }}>PROPERTY</div>
-                                    <div style={{ fontSize: '0.85rem', fontWeight: 600, color: isDark ? 'var(--text-primary)' : '#1e293b' }}>
+                                    <div style={{ fontSize: '0.85rem', fontWeight: 600, color: isDark ? 'var(--text-main)' : '#1e293b' }}>
                                         {row.project || 'No Project'} - {row.property || 'No Unit'}
                                     </div>
                                 </div>

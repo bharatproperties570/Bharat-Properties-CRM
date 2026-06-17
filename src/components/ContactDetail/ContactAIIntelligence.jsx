@@ -52,7 +52,7 @@ const ContactAIIntelligence = React.memo(function ContactAIIntelligence({
                                         zIndex: 2
                                     }}></div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <span style={{ fontSize: '0.8rem', fontWeight: st.status === 'active' ? 900 : 700, color: st.status === 'pending' ? '#94a3b8' : isDark ? 'var(--text-primary)' : '#0f172a' }}>{st.label}</span>
+                                        <span style={{ fontSize: '0.8rem', fontWeight: st.status === 'active' ? 900 : 700, color: st.status === 'pending' ? '#94a3b8' : isDark ? 'var(--text-main)' : '#0f172a' }}>{st.label}</span>
                                         <span style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 800 }}>{st.prob}%</span>
                                     </div>
                                 </div>
@@ -125,7 +125,7 @@ const ContactAIIntelligence = React.memo(function ContactAIIntelligence({
                                         position: 'relative'
                                     }}>
                                         <i className={`fas fa-${reason.icon}`} style={{ color: reason.type === 'auto' ? '#8b5cf6' : '#f59e0b', fontSize: '0.8rem' }}></i>
-                                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>{reason.label}</span>
+                                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : '#0f172a' }}>{reason.label}</span>
                                         <span style={{ fontSize: '0.6rem', color: isDark ? 'var(--text-muted)' : '#64748b', fontWeight: 600 }}>{reason.confidence}%</span>
                                         <button
                                             style={{
@@ -239,7 +239,7 @@ const ContactAIIntelligence = React.memo(function ContactAIIntelligence({
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                 {aiStats.lossAnalysis.couldHaveSaved.map((item, i) => (
                                     <div key={i}>
-                                        <div style={{ fontSize: '0.75rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#1e293b' }}>{item.label}</div>
+                                        <div style={{ fontSize: '0.75rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#1e293b' }}>{item.label}</div>
                                         <div style={{ fontSize: '0.6rem', color: isDark ? 'var(--text-muted)' : '#64748b' }}>{item.description}</div>
                                     </div>
                                 ))}
@@ -346,8 +346,8 @@ const ContactAIIntelligence = React.memo(function ContactAIIntelligence({
                                 </div>
                                 <ul style={{ margin: 0, paddingLeft: '1.2rem', fontSize: '0.75rem', color: isDark ? 'var(--text-muted)' : '#475569', lineHeight: '1.6', fontWeight: 600 }}>
                                     <li>Converted Lead with Score <span style={{ color: aiStats.purchaseIntent.color, fontWeight: 800 }}>{aiStats.leadScore.total}</span></li>
-                                    <li><span style={{ fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>{aiStats.leadScore.detail.match * 0.7 + 5 | 0} property matches</span> identified during lead stage</li>
-                                    <li><span style={{ fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>{(aiStats.leadScore.detail.engagement / 10).toFixed(0)} recent calls</span></li>
+                                    <li><span style={{ fontWeight: 800, color: isDark ? 'var(--text-main)' : '#0f172a' }}>{aiStats.leadScore.detail.match * 0.7 + 5 | 0} property matches</span> identified during lead stage</li>
+                                    <li><span style={{ fontWeight: 800, color: isDark ? 'var(--text-main)' : '#0f172a' }}>{(aiStats.leadScore.detail.engagement / 10).toFixed(0)} recent calls</span></li>
                                 </ul>
                                 <div style={{ marginTop: '12px', fontSize: '0.7rem', color: isDark ? 'var(--text-muted)' : '#64748b', fontStyle: 'italic', borderTop: '1px solid rgba(0,0,0,0.05)', paddingTop: '10px', lineHeight: '1.4' }}>
                                     <i className="fas fa-exclamation-triangle" style={{ marginRight: '6px', color: '#f59e0b' }}></i>
@@ -364,7 +364,7 @@ const ContactAIIntelligence = React.memo(function ContactAIIntelligence({
                                 </div>
                                 <div style={{ textAlign: 'right' }}>
                                     <div style={{ fontSize: '0.6rem', color: '#94a3b8', fontWeight: 800 }}>Confidence</div>
-                                    <div style={{ fontSize: '0.85rem', fontWeight: 900, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>{aiStats.purchaseIntent.confidence}</div>
+                                    <div style={{ fontSize: '0.85rem', fontWeight: 900, color: isDark ? 'var(--text-main)' : '#0f172a' }}>{aiStats.purchaseIntent.confidence}</div>
                                 </div>
                             </div>
 

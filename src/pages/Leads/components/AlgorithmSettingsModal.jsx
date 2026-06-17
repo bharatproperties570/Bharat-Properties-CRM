@@ -80,7 +80,7 @@ const AlgorithmSettingsModal = ({ isOpen, onClose, weights, onSave }) => {
     const labelStyle = {
         fontSize: '0.9rem',
         fontWeight: 700,
-        color: isDark ? 'var(--text-primary)' : '#1e293b'
+        color: isDark ? 'var(--text-main)' : '#1e293b'
     };
 
     const valueStyle = {
@@ -107,7 +107,7 @@ const AlgorithmSettingsModal = ({ isOpen, onClose, weights, onSave }) => {
         <div style={overlayStyle} onClick={(e) => e.target === e.currentTarget && onClose()}>
             <div style={modalStyle}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#0f172a', margin: 0 }}>Algorithm Settings</h2>
+                    <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#0f172a', margin: 0 }}>Algorithm Settings</h2>
                     <button onClick={onClose} style={{ border: 'none', background: 'transparent', color: '#94a3b8', cursor: 'pointer', fontSize: '1.25rem' }}>
                         <i className="fas fa-times"></i>
                     </button>
@@ -138,7 +138,7 @@ const AlgorithmSettingsModal = ({ isOpen, onClose, weights, onSave }) => {
                 <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', padding: '16px', borderRadius: '16px', marginBottom: '32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
                         <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#64748b' }}>TOTAL POSSIBLE POINTS</span>
-                        <div style={{ fontSize: '1.1rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>{totalWeight} / 100</div>
+                        <div style={{ fontSize: '1.1rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#0f172a' }}>{totalWeight} / 100</div>
                     </div>
                     <button
                         onClick={handleReset}

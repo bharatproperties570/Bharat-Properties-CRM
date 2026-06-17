@@ -704,7 +704,7 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
             {/* 2. Timeline Section */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <h3 style={{ fontSize: '1rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : '#1e293b', margin: 0 }}>Activities Timeline</h3>
+                    <h3 style={{ fontSize: '1rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : isDark ? 'var(--text-main)' : '#1e293b', margin: 0 }}>Activities Timeline</h3>
                     <div style={{ display: 'flex', gap: '8px' }}>
                         <select
                             value={userFilter}
@@ -819,7 +819,7 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                                             }}>
                                                 <div className="timeline-header" style={{ marginBottom: '6px' }}>
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
-                                                        <div style={{ fontWeight: 800, fontSize: '0.85rem', color: isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : '#0f172a' }}>
+                                                        <div style={{ fontWeight: 800, fontSize: '0.85rem', color: isDark ? 'var(--text-main)' : isDark ? 'var(--text-main)' : '#0f172a' }}>
                                                             {item.title}
                                                             {item.metadata?.details?.recordingUrl && (
                                                                 <i className="fas fa-microphone" style={{ marginLeft: '8px', color: '#10b981', fontSize: '0.75rem' }} title="Recording available"></i>

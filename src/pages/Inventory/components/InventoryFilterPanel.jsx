@@ -124,7 +124,7 @@ const MultiSelectDropdown = ({ options, selected, onChange, placeholder, disable
                 onClick={() => !disabled && setIsOpen(!isOpen)}
                 style={{
                     ...styles.input,
-                    color: disabled ? '#94a3b8' : isDark ? 'var(--text-primary)' : '#0f172a',
+                    color: disabled ? '#94a3b8' : isDark ? 'var(--text-main)' : '#0f172a',
                     backgroundColor: disabled ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9' : isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff',
                     cursor: disabled ? 'not-allowed' : 'pointer',
                     display: 'flex',
@@ -157,7 +157,7 @@ const MultiSelectDropdown = ({ options, selected, onChange, placeholder, disable
                                 style={{
                                     padding: '8px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px',
                                     backgroundColor: selected.includes(option) ? (isDark ? 'rgba(59, 130, 246, 0.15)' : '#eff6ff') : 'transparent',
-                                    color: selected.includes(option) ? '#0066ff' : isDark ? 'var(--text-primary)' : '#0f172a', fontSize: '0.9rem'
+                                    color: selected.includes(option) ? '#0066ff' : isDark ? 'var(--text-main)' : '#0f172a', fontSize: '0.9rem'
                                 }}
                                 onMouseEnter={e => e.currentTarget.style.backgroundColor = selected.includes(option) ? '#eff6ff' : '#f8fafc'}
                                 onMouseLeave={e => e.currentTarget.style.backgroundColor = selected.includes(option) ? (isDark ? 'rgba(59, 130, 246, 0.15)' : '#eff6ff') : 'transparent'}
@@ -403,8 +403,8 @@ const InventoryFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                                     <label style={{ ...styles.label, marginBottom: 0 }}>Size</label>
                                     <div style={{ display: 'flex', backgroundColor: 'var(--bg-gray)', padding: '2px', borderRadius: '6px' }}>
-                                        <button onClick={() => { setSizeMode('type'); updateFilter('sizeMode', 'type'); }} style={{ padding: '4px 12px', fontSize: '0.75rem', borderRadius: '4px', border: 'none', fontWeight: '600', cursor: 'pointer', backgroundColor: sizeMode === 'type' ? isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff' : 'transparent', color: sizeMode === 'type' ? isDark ? 'var(--text-primary)' : '#0f172a' : isDark ? 'var(--text-muted)' : '#64748b', boxShadow: sizeMode === 'type' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none' }}>Type</button>
-                                        <button onClick={() => { setSizeMode('range'); updateFilter('sizeMode', 'range'); }} style={{ padding: '4px 12px', fontSize: '0.75rem', borderRadius: '4px', border: 'none', fontWeight: '600', cursor: 'pointer', backgroundColor: sizeMode === 'range' ? isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff' : 'transparent', color: sizeMode === 'range' ? isDark ? 'var(--text-primary)' : '#0f172a' : isDark ? 'var(--text-muted)' : '#64748b', boxShadow: sizeMode === 'range' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none' }}>Min/Max</button>
+                                        <button onClick={() => { setSizeMode('type'); updateFilter('sizeMode', 'type'); }} style={{ padding: '4px 12px', fontSize: '0.75rem', borderRadius: '4px', border: 'none', fontWeight: '600', cursor: 'pointer', backgroundColor: sizeMode === 'type' ? isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff' : 'transparent', color: sizeMode === 'type' ? isDark ? 'var(--text-main)' : '#0f172a' : isDark ? 'var(--text-muted)' : '#64748b', boxShadow: sizeMode === 'type' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none' }}>Type</button>
+                                        <button onClick={() => { setSizeMode('range'); updateFilter('sizeMode', 'range'); }} style={{ padding: '4px 12px', fontSize: '0.75rem', borderRadius: '4px', border: 'none', fontWeight: '600', cursor: 'pointer', backgroundColor: sizeMode === 'range' ? isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff' : 'transparent', color: sizeMode === 'range' ? isDark ? 'var(--text-main)' : '#0f172a' : isDark ? 'var(--text-muted)' : '#64748b', boxShadow: sizeMode === 'range' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none' }}>Min/Max</button>
                                     </div>
                                 </div>
                                 {sizeMode === 'type' ? (

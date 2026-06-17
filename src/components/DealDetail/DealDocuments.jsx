@@ -23,7 +23,7 @@ const DealDocuments = ({ deal, setIsDocumentModalOpen }) => {
     const sectionTitleStyle = {
         fontSize: '0.95rem',
         fontWeight: 900,
-        color: isDark ? 'var(--text-primary)' : '#0f172a',
+        color: isDark ? 'var(--text-main)' : '#0f172a',
         textTransform: 'uppercase',
         letterSpacing: '0.05em',
         margin: 0,
@@ -54,7 +54,7 @@ const DealDocuments = ({ deal, setIsDocumentModalOpen }) => {
                                     <i className="fas fa-file-pdf"></i>
                                 </div>
                                 <div style={{ flex: 1, overflow: 'hidden' }}>
-                                    <div style={{ fontSize: '0.75rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{doc.name || 'Property Document'}</div>
+                                    <div style={{ fontSize: '0.75rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{doc.name || 'Property Document'}</div>
                                     <div style={{ fontSize: '0.65rem', color: isDark ? 'var(--text-muted)' : '#64748b', fontWeight: 600 }}>{doc.type || 'Legal'} • {new Date(doc.uploadedAt || Date.now()).toLocaleDateString()}</div>
                                 </div>
                                 <a href={doc.url} target="_blank" rel="noreferrer" style={{ color: '#94a3b8' }}>

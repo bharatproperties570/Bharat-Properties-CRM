@@ -37,7 +37,7 @@ const DealGeography = ({ deal, getLookupValue }) => {
                 <i className={`fas fa-${icon}`} style={{ fontSize: '0.55rem', color: '#cbd5e1' }}></i>
                 {label}
             </p>
-            <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {renderValue(value) || '-'}
             </p>
         </div>
@@ -62,7 +62,7 @@ const DealGeography = ({ deal, getLookupValue }) => {
                     <i className="fas fa-map-marker-alt" style={{ color: '#ef4444' }}></i>
                 </div>
                 <div>
-                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, color: isDark ? 'var(--text-primary)' : '#0f172a', letterSpacing: '-0.3px' }}>Location Intelligence</h3>
+                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, color: isDark ? 'var(--text-main)' : '#0f172a', letterSpacing: '-0.3px' }}>Location Intelligence</h3>
                     <p style={{ margin: 0, fontSize: '0.75rem', color: isDark ? 'var(--text-muted)' : '#64748b', fontWeight: 600 }}>Geospatial data & verified address</p>
                 </div>
             </div>
@@ -97,7 +97,7 @@ const DealGeography = ({ deal, getLookupValue }) => {
                         <p style={{ margin: '0 0 8px 0', fontSize: '0.65rem', fontWeight: 900, color: '#4f46e5', textTransform: 'uppercase', letterSpacing: '0.8px' }}>
                             <i className="fas fa-file-alt" style={{ marginRight: '8px' }}></i> FULL OFFICIAL ADDRESS
                         </p>
-                        <p style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#1e293b', lineHeight: '1.6' }}>
+                        <p style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#1e293b', lineHeight: '1.6' }}>
                             {fullAddress}
                         </p>
                     </div>
@@ -129,7 +129,7 @@ const DealGeography = ({ deal, getLookupValue }) => {
                         position: 'absolute', bottom: '16px', right: '16px',
                         background: 'rgba(255,255,255,0.95)', backdropFilter: 'blur(10px)',
                         padding: '10px 18px', borderRadius: '14px', border: '1px solid #fff',
-                        fontSize: '0.65rem', fontWeight: 900, color: isDark ? 'var(--text-primary)' : '#1e293b',
+                        fontSize: '0.65rem', fontWeight: 900, color: isDark ? 'var(--text-main)' : '#1e293b',
                         boxShadow: '0 10px 30px rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', gap: '8px',
                         textTransform: 'uppercase', letterSpacing: '0.5px'
                     }}>

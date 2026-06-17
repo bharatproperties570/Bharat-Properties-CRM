@@ -110,7 +110,7 @@ const ContactOwnedProperties = React.memo(function ContactOwnedProperties({
                                         {/* Row 1: SubCategory + Unit Number (e.g. "3 BHK 101" instead of "Unit #101") & Role Badge */}
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                <span style={{ fontSize: '0.85rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>
+                                                <span style={{ fontSize: '0.85rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#0f172a' }}>
                                                     {subCategoryText} {unitNoText}
                                                 </span>
                                             </div>
@@ -146,7 +146,7 @@ const ContactOwnedProperties = React.memo(function ContactOwnedProperties({
                                                     return 'fa-building';
                                                 })()}`} style={{ color: '#10b981', fontSize: '0.75rem' }}></i>
                                             </div>
-                                            <span style={{ color: isDark ? 'var(--text-primary)' : '#1e293b', fontWeight: 700 }}>
+                                            <span style={{ color: isDark ? 'var(--text-main)' : '#1e293b', fontWeight: 700 }}>
                                                 {projectNameText}
                                             </span>
                                             {prop.block && String(prop.block).trim() !== 'null' && String(prop.block).trim() !== 'undefined' && (

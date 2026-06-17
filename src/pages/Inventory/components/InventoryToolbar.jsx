@@ -232,7 +232,7 @@ const InventoryToolbar = ({
                                                                 padding: '10px 15px', 
                                                                 fontSize: '0.85rem',
                                                                 fontWeight: sortConfig.label === opt.label ? 700 : 500,
-                                                                color: sortConfig.label === opt.label ? '#fff' : isDark ? 'var(--text-primary)' : '#1e293b',
+                                                                color: sortConfig.label === opt.label ? '#fff' : isDark ? 'var(--text-main)' : '#1e293b',
                                                                 background: sortConfig.label === opt.label ? 'var(--primary-color)' : 'transparent',
                                                                 cursor: 'pointer',
                                                                 marginBottom: '2px',

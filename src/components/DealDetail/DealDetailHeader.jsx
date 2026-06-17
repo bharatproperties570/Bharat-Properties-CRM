@@ -80,7 +80,7 @@ const DealDetailHeader = ({
                 <button onClick={onBack} style={{
                     background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0',
                     borderRadius: '14px', width: '44px', height: '44px',
-                    cursor: 'pointer', color: isDark ? 'var(--text-primary)' : '#475569', transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                    cursor: 'pointer', color: isDark ? 'var(--text-main)' : '#475569', transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
                 }} className="hover:border-indigo-400 hover:text-indigo-600 hover:shadow-md">
@@ -116,7 +116,7 @@ const DealDetailHeader = ({
                             letterSpacing: '0.08em' 
                         }}>{liveScoreData.label}</span>
                         
-                        <h1 style={{ fontSize: '1.5rem', fontWeight: 900, color: isDark ? 'var(--text-primary)' : '#0f172a', margin: 0, letterSpacing: '-0.03em', display: 'flex', alignItems: 'baseline', gap: '10px' }}>
+                        <h1 style={{ fontSize: '1.5rem', fontWeight: 900, color: isDark ? 'var(--text-main)' : '#0f172a', margin: 0, letterSpacing: '-0.03em', display: 'flex', alignItems: 'baseline', gap: '10px' }}>
                             {renderValue(deal.unitNo)}
                             <span style={{ fontSize: '1rem', fontWeight: 600, color: isDark ? 'var(--text-muted)' : '#64748b' }}>
                                 {renderValue(deal.unitType) || 'Unit'}
@@ -204,7 +204,7 @@ const DealDetailHeader = ({
                         <span className="mx-2 opacity-30">|</span>
                         <i className="fas fa-calendar-alt mr-1 opacity-50"></i> Created on {new Date(deal.createdAt || deal.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
                         <span className="mx-2 opacity-30">|</span>
-                        Source: <span style={{ color: isDark ? 'var(--text-primary)' : '#1e293b', fontWeight: 700 }}>{getLookupValue('Source', deal.source) || deal.source || 'Walk-in'}</span>
+                        Source: <span style={{ color: isDark ? 'var(--text-main)' : '#1e293b', fontWeight: 700 }}>{getLookupValue('Source', deal.source) || deal.source || 'Walk-in'}</span>
                     </p>
                 </div>
             </div>
@@ -246,7 +246,7 @@ const DealDetailHeader = ({
                                     setIsCallModalOpen(deal?.contactId || true);
                                 }
                             }}
-                            style={{ border: 'none', background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(241, 245, 249, 0.8)', color: isDark ? 'var(--text-primary)' : '#475569', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                            style={{ border: 'none', background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(241, 245, 249, 0.8)', color: isDark ? 'var(--text-main)' : '#475569', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
                         >
                             <i className="fas fa-phone-alt" style={{ color: '#16a34a' }}></i> CALL {callOptions.length > 1 && <i className="fas fa-chevron-down" style={{fontSize:'0.65rem', marginLeft:'2px'}}></i>}
                         </button>
@@ -264,7 +264,7 @@ const DealDetailHeader = ({
                                             setShowCallMenu(false);
                                             setIsCallModalOpen(opt.contactObj);
                                         }}
-                                        style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: isDark ? 'var(--text-primary)' : '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
+                                        style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: isDark ? 'var(--text-main)' : '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
                                         className="hover:bg-slate-50"
                                     >
                                         <i className="fas fa-phone" style={{ color: '#16a34a', width: '16px' }}></i>
@@ -279,13 +279,13 @@ const DealDetailHeader = ({
                     </div>
                     <button
                         onClick={() => setIsMessageOpen(true)}
-                        style={{ border: 'none', background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(241, 245, 249, 0.8)', color: isDark ? 'var(--text-primary)' : '#475569', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                        style={{ border: 'none', background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(241, 245, 249, 0.8)', color: isDark ? 'var(--text-main)' : '#475569', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
                     >
                         <i className="fas fa-comment-alt" style={{ color: '#3b82f6' }}></i> SMS
                     </button>
                     <button
                         onClick={() => setIsMailOpen(true)}
-                        style={{ border: 'none', background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(241, 245, 249, 0.8)', color: isDark ? 'var(--text-primary)' : '#475569', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                        style={{ border: 'none', background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(241, 245, 249, 0.8)', color: isDark ? 'var(--text-main)' : '#475569', padding: '8px 14px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
                     >
                         <i className="fas fa-envelope" style={{ color: '#8b5cf6' }}></i> EMAIL
                     </button>
@@ -297,7 +297,7 @@ const DealDetailHeader = ({
                         style={{ 
                             border: 'none', 
                             background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(241, 245, 249, 0.8)', 
-                            color: isDark ? 'var(--text-primary)' : '#475569', 
+                            color: isDark ? 'var(--text-main)' : '#475569', 
                             padding: '8px 14px', 
                             borderRadius: '10px', 
                             fontSize: '0.75rem', 
@@ -333,35 +333,35 @@ const DealDetailHeader = ({
                         }}>
                             <button
                                 onClick={() => { setIsBookingModalOpen(true); setShowMoreMenu(false); }}
-                                style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: isDark ? 'var(--text-primary)' : '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
+                                style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: isDark ? 'var(--text-main)' : '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
                                 className="hover:bg-slate-50"
                             >
                                 <i className="fas fa-book-medical" style={{ color: '#10b981', width: '16px' }}></i> Create Booking
                             </button>
                             <button
                                 onClick={() => { setIsTagsModalOpen(true); setShowMoreMenu(false); }}
-                                style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: isDark ? 'var(--text-primary)' : '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
+                                style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: isDark ? 'var(--text-main)' : '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
                                 className="hover:bg-slate-50"
                             >
                                 <i className="fas fa-tags" style={{ color: '#8b5cf6', width: '16px' }}></i> Manage Tags
                             </button>
                             <button
                                 onClick={() => { setIsUploadModalOpen(true); setShowMoreMenu(false); }}
-                                style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: isDark ? 'var(--text-primary)' : '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
+                                style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: isDark ? 'var(--text-main)' : '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
                                 className="hover:bg-slate-50"
                             >
                                 <i className="fas fa-cloud-upload-alt" style={{ color: '#f59e0b', width: '16px' }}></i> Upload
                             </button>
                             <button
                                 onClick={() => { setIsDocumentModalOpen(true); setShowMoreMenu(false); }}
-                                style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: isDark ? 'var(--text-primary)' : '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
+                                style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: isDark ? 'var(--text-main)' : '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
                                 className="hover:bg-slate-50"
                             >
                                 <i className="fas fa-file-alt" style={{ color: isDark ? 'var(--text-muted)' : '#64748b', width: '16px' }}></i> Document
                             </button>
                             <button
                                 onClick={() => { setIsBuiltupModalOpen(true); setShowMoreMenu(false); }}
-                                style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: isDark ? 'var(--text-primary)' : '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
+                                style={{ width: '100%', textAlign: 'left', padding: '10px 16px', background: 'transparent', border: 'none', fontSize: '0.8rem', fontWeight: 600, color: isDark ? 'var(--text-main)' : '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
                                 className="hover:bg-slate-50"
                             >
                                 <i className="fas fa-layer-group" style={{ color: '#2563eb', width: '16px' }}></i> Add Builtup Details
@@ -380,7 +380,7 @@ const DealDetailHeader = ({
                                     padding: '10px 16px',
                                     background: 'transparent',
                                     border: 'none',
-                                    color: isDark ? 'var(--text-primary)' : '#475569',
+                                    color: isDark ? 'var(--text-main)' : '#475569',
                                     fontSize: '0.8rem',
                                     fontWeight: 600,
                                     cursor: 'pointer',
@@ -415,7 +415,7 @@ const DealDetailHeader = ({
                 borderRadius: '8px'
             }}>
                 <div style={{ display: 'flex', flexDirection: 'column', lineHeight: '1.2' }}>
-                    <span style={{ fontSize: '0.75rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#0f172a', whiteSpace: 'nowrap' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#0f172a', whiteSpace: 'nowrap' }}>
                         {deal.assignedTo?.name || deal.partyStructure?.internalRM?.name || 'Unassigned'}
                     </span>
                     <span style={{ fontSize: '0.65rem', fontWeight: 600, color: isDark ? 'var(--text-muted)' : '#64748b', whiteSpace: 'nowrap' }}>

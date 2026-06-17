@@ -158,7 +158,7 @@ const MultiSelectDropdown = ({ options, selected, onChange, placeholder, disable
                             style={{
                                 padding: '8px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px',
                                 backgroundColor: selected.includes(option) ? (isDark ? 'rgba(59, 130, 246, 0.15)' : '#eff6ff') : 'transparent',
-                                color: selected.includes(option) ? '#0066ff' : isDark ? 'var(--text-primary)' : '#0f172a', fontSize: '0.9rem'
+                                color: selected.includes(option) ? '#0066ff' : isDark ? 'var(--text-main)' : '#0f172a', fontSize: '0.9rem'
                             }}
                             onMouseEnter={e => e.currentTarget.style.backgroundColor = selected.includes(option) ? (isDark ? 'rgba(59, 130, 246, 0.15)' : '#eff6ff') : 'var(--bg-gray)'}
                             onMouseLeave={e => e.currentTarget.style.backgroundColor = selected.includes(option) ? (isDark ? 'rgba(59, 130, 246, 0.15)' : '#eff6ff') : 'transparent'}

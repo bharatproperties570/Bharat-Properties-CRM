@@ -45,7 +45,7 @@ const PriceJourneyAnalysis = ({ dealId }) => {
 
     // Determine colors based on positioning
     const getBadgeStyle = (positioning) => {
-        if (!positioning) return { bg: '#f1f5f9', color: isDark ? 'var(--text-primary)' : '#475569' };
+        if (!positioning) return { bg: '#f1f5f9', color: isDark ? 'var(--text-main)' : '#475569' };
         if (positioning.includes('Above')) return { bg: '#fef2f2', color: '#ef4444' };
         if (positioning.includes('Below')) return { bg: '#ecfdf5', color: '#10b981' };
         return { bg: '#fefce8', color: '#eab308' }; // Fair
@@ -79,7 +79,7 @@ const PriceJourneyAnalysis = ({ dealId }) => {
                         <i className="fas fa-chart-line"></i>
                     </div>
                     <div>
-                        <div style={{ fontSize: '0.9rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#1e293b' }}>Price Journey Analysis</div>
+                        <div style={{ fontSize: '0.9rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#1e293b' }}>Price Journey Analysis</div>
                         <div style={{ fontSize: '0.7rem', color: isDark ? 'var(--text-muted)' : '#64748b', fontWeight: 600 }}>{subCategory} Benchmark</div>
                     </div>
                 </div>
@@ -126,12 +126,12 @@ const PriceJourneyAnalysis = ({ dealId }) => {
                                         transition: 'width 1s cubic-bezier(0.4, 0, 0.2, 1)'
                                     }}></div>
                                     <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: isDark ? 'var(--text-primary)' : '#334155', fontWeight: 700, fontSize: '0.8rem' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: isDark ? 'var(--text-main)' : '#334155', fontWeight: 700, fontSize: '0.8rem' }}>
                                             <i className={`fas ${step.icon}`} style={{ color: step.color }}></i>
                                             {stepData.label}
                                         </div>
                                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                                            <span style={{ fontSize: '0.9rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>{formatINRShort(stepData.price)}</span>
+                                            <span style={{ fontSize: '0.9rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#0f172a' }}>{formatINRShort(stepData.price)}</span>
                                             {stepData.ratePerUnit && (
                                                 <span style={{ fontSize: '0.65rem', color: isDark ? 'var(--text-muted)' : '#64748b', fontWeight: 600 }}>₹{stepData.ratePerUnit.toLocaleString()} {areaUnitLabel}</span>
                                             )}

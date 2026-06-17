@@ -23,7 +23,7 @@ const DealStakeholders = ({ deal }) => {
     const sectionTitleStyle = {
         fontSize: '0.95rem',
         fontWeight: 900,
-        color: isDark ? 'var(--text-primary)' : '#0f172a',
+        color: isDark ? 'var(--text-main)' : '#0f172a',
         textTransform: 'uppercase',
         letterSpacing: '0.05em',
         margin: 0,

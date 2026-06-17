@@ -175,7 +175,7 @@ const ActivityRelatedTo = ({ relatedTo = [], participants = [], onAddRelation, o
                                             <i className="fas fa-bullseye" style={{ fontSize: '0.8rem' }}></i>
                                         </div>
                                         <div>
-                                            <div style={{ fontSize: '0.85rem', fontWeight: 600, color: isDark ? 'var(--text-primary)' : '#1e293b' }}>{lead.fullName || lead.name}</div>
+                                            <div style={{ fontSize: '0.85rem', fontWeight: 600, color: isDark ? 'var(--text-main)' : '#1e293b' }}>{lead.fullName || lead.name}</div>
                                             <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{lead.mobile || lead.email || 'Lead'}</div>
                                         </div>
                                     </div>
@@ -199,7 +199,7 @@ const ActivityRelatedTo = ({ relatedTo = [], participants = [], onAddRelation, o
                                             <i className="fas fa-user" style={{ fontSize: '0.8rem' }}></i>
                                         </div>
                                         <div>
-                                            <div style={{ fontSize: '0.85rem', fontWeight: 600, color: isDark ? 'var(--text-primary)' : '#1e293b' }}>{contact.name || contact.fullName}</div>
+                                            <div style={{ fontSize: '0.85rem', fontWeight: 600, color: isDark ? 'var(--text-main)' : '#1e293b' }}>{contact.name || contact.fullName}</div>
                                             <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{contact.mobile || contact.email || 'Contact'}</div>
                                         </div>
                                     </div>

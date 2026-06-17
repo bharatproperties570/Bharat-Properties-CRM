@@ -13,7 +13,7 @@ const DealLifecycle = ({ deal, activities, currentStage, stageStyle, stageInfo, 
             zIndex: 40
         }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <span style={{ fontSize: '0.8rem', fontWeight: 900, color: isDark ? 'var(--text-primary)' : '#0f172a', textTransform: 'uppercase', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '0.8rem', fontWeight: 900, color: isDark ? 'var(--text-main)' : '#0f172a', textTransform: 'uppercase', letterSpacing: '1px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <i className="fas fa-route" style={{ color: '#4f46e5' }}></i> Deal Stage Pipeline
                 </span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>

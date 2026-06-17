@@ -36,19 +36,19 @@ const ContactPreferences = React.memo(function ContactPreferences({
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '24px' }}>
                         <div>
                             <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Lead Source</label>
-                            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>{aiStats.preferences.source}</div>
+                            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : '#0f172a' }}>{aiStats.preferences.source}</div>
                         </div>
                         <div>
                             <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Sub-Source</label>
-                            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>{aiStats.preferences.subSource}</div>
+                            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : '#0f172a' }}>{aiStats.preferences.subSource}</div>
                         </div>
                         <div>
                             <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Campaign</label>
-                            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>{aiStats.preferences.campaign}</div>
+                            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : '#0f172a' }}>{aiStats.preferences.campaign}</div>
                         </div>
                         <div>
                             <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Visibility Scope</label>
-                            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>{contact.visibleTo || 'Everyone'}</div>
+                            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : '#0f172a' }}>{contact.visibleTo || 'Everyone'}</div>
                         </div>
                         <div style={{ gridColumn: 'span 2' }}>
                                 <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Lead Description</label>

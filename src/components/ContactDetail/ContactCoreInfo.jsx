@@ -41,11 +41,11 @@ const ContactCoreInfo = React.memo(function ContactCoreInfo({
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                     {Array.isArray(contact.phones) ? contact.phones.map((p, i) => (
                                         <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                                            <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Phone', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : '#0f172a', wordBreak: 'break-word', minWidth: '0' }}>{p.number}</div>
+                                            <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Phone', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : isDark ? 'var(--text-main)' : '#0f172a', wordBreak: 'break-word', minWidth: '0' }}>{p.number}</div>
                                             <span style={{ fontSize: '0.65rem', color: isDark ? 'var(--text-muted)' : '#64748b', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>{p.type}</span>
                                         </div>
                                     )) : (
-                                        <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Phone', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : '#0f172a' }}>{contact.mobile}</div>
+                                        <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Phone', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : isDark ? 'var(--text-main)' : '#0f172a' }}>{contact.mobile}</div>
                                     )}
                                 </div>
                             </div>
@@ -54,11 +54,11 @@ const ContactCoreInfo = React.memo(function ContactCoreInfo({
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                     {Array.isArray(contact.emails) ? contact.emails.map((e, i) => (
                                         <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                                            <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Email', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : '#0f172a', wordBreak: 'break-all', minWidth: '0' }}>{e.address}</div>
+                                            <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Email', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : isDark ? 'var(--text-main)' : '#0f172a', wordBreak: 'break-all', minWidth: '0' }}>{e.address}</div>
                                             <span style={{ fontSize: '0.65rem', color: isDark ? 'var(--text-muted)' : '#64748b', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>{e.type}</span>
                                         </div>
                                     )) : (
-                                        <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Email', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : '#0f172a', wordBreak: 'break-all', minWidth: '0' }}>{contact.email || '-'}</div>
+                                        <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Email', e.target.innerText)} style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : isDark ? 'var(--text-main)' : '#0f172a', wordBreak: 'break-all', minWidth: '0' }}>{contact.email || '-'}</div>
                                     )}
                                 </div>
                             </div>
@@ -85,23 +85,23 @@ const ContactCoreInfo = React.memo(function ContactCoreInfo({
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                             <div>
                                 <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Father's Name</label>
-                                <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Father Name', e.target.innerText)} style={{ fontSize: '0.85rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : '#0f172a' }}>{contact.fatherName || '-'}</div>
+                                <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Father Name', e.target.innerText)} style={{ fontSize: '0.85rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : isDark ? 'var(--text-main)' : '#0f172a' }}>{contact.fatherName || '-'}</div>
                             </div>
                             <div>
                                 <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Gender</label>
-                                <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Gender', e.target.innerText)} style={{ fontSize: '0.85rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : '#0f172a' }}>{contact.gender || '-'}</div>
+                                <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Gender', e.target.innerText)} style={{ fontSize: '0.85rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : isDark ? 'var(--text-main)' : '#0f172a' }}>{contact.gender || '-'}</div>
                             </div>
                             <div>
                                 <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Birth Date</label>
-                                <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Birth Date', e.target.innerText)} style={{ fontSize: '0.85rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : '#0f172a' }}>{contact.birthDate || '-'}</div>
+                                <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Birth Date', e.target.innerText)} style={{ fontSize: '0.85rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : isDark ? 'var(--text-main)' : '#0f172a' }}>{contact.birthDate || '-'}</div>
                             </div>
                             <div>
                                 <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Marital Status</label>
-                                <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Marital Status', e.target.innerText)} style={{ fontSize: '0.85rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : '#0f172a' }}>{contact.maritalStatus || '-'}</div>
+                                <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Marital Status', e.target.innerText)} style={{ fontSize: '0.85rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : isDark ? 'var(--text-main)' : '#0f172a' }}>{contact.maritalStatus || '-'}</div>
                             </div>
                             <div style={{ gridColumn: 'span 2' }}>
                                 <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Anniversary Date</label>
-                                <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Anniversary Date', e.target.innerText)} style={{ fontSize: '0.85rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : '#0f172a' }}>{contact.anniversaryDate || '-'}</div>
+                                <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Anniversary Date', e.target.innerText)} style={{ fontSize: '0.85rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : isDark ? 'var(--text-main)' : '#0f172a' }}>{contact.anniversaryDate || '-'}</div>
                             </div>
                         </div>
                     </div>
@@ -117,11 +117,11 @@ const ContactCoreInfo = React.memo(function ContactCoreInfo({
                             <div style={{ display: 'flex', gap: '12px' }}>
                                 <div style={{ flex: 1, padding: '12px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(79, 70, 229, 0.02)', borderRadius: '10px', border: '1px solid #eef2f6' }}>
                                     <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>Category</div>
-                                    <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Category', e.target.innerText)} style={{ fontSize: '0.85rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : '#0f172a' }}>{renderLookup(contact.professionCategory)}</div>
+                                    <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Category', e.target.innerText)} style={{ fontSize: '0.85rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : isDark ? 'var(--text-main)' : '#0f172a' }}>{renderLookup(contact.professionCategory)}</div>
                                 </div>
                                 <div style={{ flex: 1, padding: '12px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(79, 70, 229, 0.02)', borderRadius: '10px', border: '1px solid #eef2f6' }}>
                                     <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>Sub-Category</div>
-                                    <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Sub-Category', e.target.innerText)} style={{ fontSize: '0.85rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : '#0f172a' }}>{renderLookup(contact.professionSubCategory)}</div>
+                                    <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Sub-Category', e.target.innerText)} style={{ fontSize: '0.85rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : isDark ? 'var(--text-main)' : '#0f172a' }}>{renderLookup(contact.professionSubCategory)}</div>
                                 </div>
                             </div>
                         </div>
@@ -140,7 +140,7 @@ const ContactCoreInfo = React.memo(function ContactCoreInfo({
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                             {contact.educations?.map((edu, i) => (
                                 <div key={i} style={{ paddingLeft: '12px', borderLeft: '2px solid #e2e8f0' }}>
-                                    <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Degree', e.target.innerText)} style={{ fontSize: '0.85rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : '#0f172a' }}>{renderLookup(edu.degree)}</div>
+                                    <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Degree', e.target.innerText)} style={{ fontSize: '0.85rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : isDark ? 'var(--text-main)' : '#0f172a' }}>{renderLookup(edu.degree)}</div>
                                     <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('School', e.target.innerText)} style={{ fontSize: '0.75rem', color: isDark ? 'var(--text-muted)' : '#64748b', fontWeight: 600 }}>{edu.school || '-'}</div>
                                     <div style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: '2px' }}>{renderLookup(edu.education)}</div>
                                 </div>
@@ -193,7 +193,7 @@ const ContactCoreInfo = React.memo(function ContactCoreInfo({
                     </div>
                     <div style={{ padding: '12px', background: 'rgba(248, 250, 252, 0.4)', borderRadius: '10px', border: '1px solid #f1f5f9' }}>
                         <label style={{ display: 'block', fontSize: '0.6rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Permanent Address</label>
-                        <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Permanent Address', e.target.innerText)} style={{ fontSize: '0.85rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : '#0f172a', lineHeight: '1.4' }}>
+                        <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Permanent Address', e.target.innerText)} style={{ fontSize: '0.85rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : isDark ? 'var(--text-main)' : '#0f172a', lineHeight: '1.4' }}>
                             {[
                                 contact.personalAddress?.hNo,
                                 contact.personalAddress?.street,
@@ -207,7 +207,7 @@ const ContactCoreInfo = React.memo(function ContactCoreInfo({
                     </div>
                     <div style={{ padding: '12px', background: 'rgba(248, 250, 252, 0.4)', borderRadius: '10px', border: '1px solid #f1f5f9' }}>
                         <label style={{ display: 'block', fontSize: '0.6rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Correspondence Address</label>
-                        <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Correspondence Address', e.target.innerText)} style={{ fontSize: '0.85rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : isDark ? 'var(--text-primary)' : '#0f172a', lineHeight: '1.4' }}>
+                        <div contentEditable suppressContentEditableWarning className="editable-field" onBlur={(e) => handleAutoSave('Correspondence Address', e.target.innerText)} style={{ fontSize: '0.85rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : isDark ? 'var(--text-main)' : '#0f172a', lineHeight: '1.4' }}>
                             {[
                                 contact.correspondenceAddress?.hNo,
                                 contact.correspondenceAddress?.street,

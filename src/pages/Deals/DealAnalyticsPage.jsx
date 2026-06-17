@@ -884,7 +884,7 @@ const DealAnalyticsPage = ({ onNavigate }) => {
         </div>
 
         {/* Footer */}
-        <div style={{ textAlign: 'center', color: isDark ? 'var(--text-primary)' : '#334155', fontSize: '0.7rem', paddingBottom: '1rem' }}>
+        <div style={{ textAlign: 'center', color: isDark ? 'var(--text-main)' : '#334155', fontSize: '0.7rem', paddingBottom: '1rem' }}>
           <i className="fas fa-chart-line" style={{ marginRight: 6 }} />
           Bharat Properties CRM — Deal Intelligence Analytics · Data updates every 5 minutes
         </div>

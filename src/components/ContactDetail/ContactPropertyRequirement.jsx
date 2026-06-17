@@ -42,11 +42,11 @@ const ContactPropertyRequirement = React.memo(function ContactPropertyRequiremen
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '24px' }}>
                             <div>
                                 <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Intent Type</label>
-                                <div style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>{aiStats.preferences.dealType || '-'}</div>
+                                <div style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : '#0f172a' }}>{aiStats.preferences.dealType || '-'}</div>
                             </div>
                             <div>
                                 <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Property Category</label>
-                                <div style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>{aiStats.preferences.type || '-'}</div>
+                                <div style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : '#0f172a' }}>{aiStats.preferences.type || '-'}</div>
                             </div>
                             <div>
                                 <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Sub-Categories</label>
@@ -54,7 +54,7 @@ const ContactPropertyRequirement = React.memo(function ContactPropertyRequiremen
                             </div>
                             <div>
                                 <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Area Specs</label>
-                                <div style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>{aiStats.preferences.area || '-'}</div>
+                                <div style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : '#0f172a' }}>{aiStats.preferences.area || '-'}</div>
                             </div>
                             <div>
                                 <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Preferred Sizes</label>
@@ -62,7 +62,7 @@ const ContactPropertyRequirement = React.memo(function ContactPropertyRequiremen
                             </div>
                             <div>
                                 <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Furnishing Status</label>
-                                <div style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>{aiStats.preferences.furnishing || '-'}</div>
+                                <div style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : '#0f172a' }}>{aiStats.preferences.furnishing || '-'}</div>
                             </div>
                         </div>
                     </div>
@@ -77,15 +77,15 @@ const ContactPropertyRequirement = React.memo(function ContactPropertyRequiremen
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '24px' }}>
                             <div>
                                 <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Budget Bracket</label>
-                                <div style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>{aiStats.preferences.budget || '-'}</div>
+                                <div style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : '#0f172a' }}>{aiStats.preferences.budget || '-'}</div>
                             </div>
                             <div>
                                 <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Transaction Type</label>
-                                <div style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>{aiStats.preferences.transactionType || '-'} <span style={{ color: '#6366f1', fontSize: '0.75rem' }}>(W: {aiStats.preferences.flexibility || '0'})</span></div>
+                                <div style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : '#0f172a' }}>{aiStats.preferences.transactionType || '-'} <span style={{ color: '#6366f1', fontSize: '0.75rem' }}>(W: {aiStats.preferences.flexibility || '0'})</span></div>
                             </div>
                             <div>
                                 <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Funding</label>
-                                <div style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>{aiStats.preferences.funding || '-'}</div>
+                                <div style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : '#0f172a' }}>{aiStats.preferences.funding || '-'}</div>
                             </div>
                             <div>
                                 <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Timeline</label>
@@ -93,7 +93,7 @@ const ContactPropertyRequirement = React.memo(function ContactPropertyRequiremen
                             </div>
                             <div style={{ gridColumn: 'span 2' }}>
                                 <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Search Locations (Radius: {aiStats.preferences.range || '0'})</label>
-                                <div style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#0f172a', display: 'flex', alignItems: 'center', gap: '6px', wordBreak: 'break-word', minWidth: '0' }}>
+                                <div style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : '#0f172a', display: 'flex', alignItems: 'center', gap: '6px', wordBreak: 'break-word', minWidth: '0' }}>
                                     <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.8rem' }}></i>
                                     {aiStats.preferences.locations?.join(', ') || 'No locations specified'}
                                 </div>

@@ -74,7 +74,7 @@ const MeetingActivitySection = ({ formData, handleChange, errors, activityMaster
                 <FormLabel>Meeting Location</FormLabel>
                 <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
                     {['Office', 'On-Site', 'Virtual', 'Developer Office'].map(type => (
-                        <label key={type} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, color: isDark ? 'var(--text-primary)' : '#334155' }}>
+                        <label key={type} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, color: isDark ? 'var(--text-main)' : '#334155' }}>
                             <input
                                 type="radio"
                                 name="meetingType"

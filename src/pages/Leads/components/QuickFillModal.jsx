@@ -84,7 +84,7 @@ const AnimatedSegmentControl = ({ options, value, onChange }) => {
                         border: 'none',
                         fontSize: '0.95rem',
                         fontWeight: value === option ? 600 : 500,
-                        color: value === option ? isDark ? 'var(--text-primary)' : '#0f172a' : '#64748b',
+                        color: value === option ? isDark ? 'var(--text-main)' : '#0f172a' : '#64748b',
                         cursor: 'pointer',
                         transition: 'color 0.2s',
                         display: 'flex',
@@ -132,7 +132,7 @@ const CustomMultiSelect = ({ options, value, onChange, placeholder, disabled, al
                     borderRadius: '6px',
                     border: '1px solid #cbd5e1',
                     fontSize: '0.9rem',
-                    color: isDark ? 'var(--text-primary)' : '#334155',
+                    color: isDark ? 'var(--text-main)' : '#334155',
                     outline: 'none',
                     transition: 'border-color 0.2s',
                     background: disabled ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc' : isDark ? 'rgba(255, 255, 255, 0.03)' : isDark ? 'rgba(255,255,255,0.03)' : '#fff',
@@ -178,7 +178,7 @@ const CustomMultiSelect = ({ options, value, onChange, placeholder, disabled, al
                                 readOnly
                                 style={{ width: '14px', height: '14px', cursor: 'pointer' }}
                             />
-                            <span style={{ fontSize: '0.9rem', color: isDark ? 'var(--text-primary)' : '#0f172a' }}>Select All</span>
+                            <span style={{ fontSize: '0.9rem', color: isDark ? 'var(--text-main)' : '#0f172a' }}>Select All</span>
                         </div>
                     )}
                     {options.length > 0 ? options.map(opt => (
@@ -201,7 +201,7 @@ const CustomMultiSelect = ({ options, value, onChange, placeholder, disabled, al
                                 readOnly
                                 style={{ width: '14px', height: '14px', cursor: 'pointer' }}
                             />
-                            <span style={{ fontSize: '0.9rem', color: isDark ? 'var(--text-primary)' : '#334155' }}>{opt}</span>
+                            <span style={{ fontSize: '0.9rem', color: isDark ? 'var(--text-main)' : '#334155' }}>{opt}</span>
                         </div>
                     )) : (
                         <div style={{ padding: '12px', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>No options available</div>
@@ -473,7 +473,7 @@ const QuickFillModal = ({ isOpen, onClose, lead, onUpdate, getLookupValue, getLo
     };
 
     const labelStyle = { display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#475569', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.5px' };
-    const inputStyle = { width: '100%', padding: '12px 16px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: isDark ? 'var(--text-primary)' : '#1e293b', boxSizing: 'border-box' };
+    const inputStyle = { width: '100%', padding: '12px 16px', borderRadius: '10px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: isDark ? 'var(--text-main)' : '#1e293b', boxSizing: 'border-box' };
     
     const customSelectStyle = {
         width: '100%',
@@ -484,7 +484,7 @@ const QuickFillModal = ({ isOpen, onClose, lead, onUpdate, getLookupValue, getLo
         fontSize: '0.9rem',
         outline: 'none',
         background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff',
-        color: isDark ? 'var(--text-primary)' : '#1e293b',
+        color: isDark ? 'var(--text-main)' : '#1e293b',
         appearance: 'none',
         WebkitAppearance: 'none',
         MozAppearance: 'none',
@@ -502,7 +502,7 @@ const QuickFillModal = ({ isOpen, onClose, lead, onUpdate, getLookupValue, getLo
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '28px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                         <i className="fas fa-clipboard-list" style={{ color: '#2563eb', fontSize: '1.25rem' }}></i>
-                        <h2 style={{ fontSize: '1.3rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#0f172a', margin: 0 }}>Quick Fill Requirement</h2>
+                        <h2 style={{ fontSize: '1.3rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#0f172a', margin: 0 }}>Quick Fill Requirement</h2>
                     </div>
                     <button onClick={onClose} style={{ border: 'none', background: 'transparent', color: '#94a3b8', cursor: 'pointer', fontSize: '1.25rem' }}>
                         <i className="fas fa-times"></i>

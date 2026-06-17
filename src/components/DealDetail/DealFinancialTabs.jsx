@@ -5,7 +5,7 @@ import { formatIndianCurrency } from '../../utils/numberToWords';
 export const NegotiationTracker = ({ rounds = [] }) => {
     const { isDark } = useTheme();
     const thStyle = { padding: '14px 20px', fontSize: '0.65rem', fontWeight: 900, color: isDark ? 'var(--text-muted)' : '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' };
-    const tdStyle = { padding: '16px 20px', fontSize: '0.85rem', color: isDark ? 'var(--text-primary)' : '#1e293b' };
+    const tdStyle = { padding: '16px 20px', fontSize: '0.85rem', color: isDark ? 'var(--text-main)' : '#1e293b' };
 
     return (
         <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', borderRadius: '16px', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0', overflow: 'hidden' }}>
@@ -26,11 +26,11 @@ export const NegotiationTracker = ({ rounds = [] }) => {
                                 <tr key={idx} style={{ borderBottom: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #f1f5f9' }}>
                                     <td style={tdStyle}>{new Date(round.date || Date.now()).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</td>
                                     <td style={tdStyle}>
-                                        <span style={{ fontWeight: 600, color: isDark ? 'var(--text-primary)' : '#475569' }}>{round.offerBy || 'Buyer'}</span>
+                                        <span style={{ fontWeight: 600, color: isDark ? 'var(--text-main)' : '#475569' }}>{round.offerBy || 'Buyer'}</span>
                                         {round.notes && <div style={{ fontSize: '0.65rem', color: '#94a3b8', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{round.notes}</div>}
                                     </td>
                                     <td style={tdStyle}>
-                                        <span style={{ fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#1e293b' }}>{formatIndianCurrency(round.buyerOffer)}</span>
+                                        <span style={{ fontWeight: 800, color: isDark ? 'var(--text-main)' : '#1e293b' }}>{formatIndianCurrency(round.buyerOffer)}</span>
                                     </td>
                                     <td style={tdStyle}>
                                         <span style={{ fontWeight: 800, color: isDark ? 'var(--text-muted)' : '#64748b' }}>{formatIndianCurrency(round.ownerCounter)}</span>
@@ -53,7 +53,7 @@ export const NegotiationTracker = ({ rounds = [] }) => {
                     <div style={{ width: '48px', height: '48px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
                         <i className="fas fa-inbox text-slate-400" style={{ fontSize: '1.2rem' }}></i>
                     </div>
-                    <p style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#1e293b', margin: '0 0 4px 0' }}>No Offer History</p>
+                    <p style={{ fontSize: '0.9rem', fontWeight: 700, color: isDark ? 'var(--text-main)' : '#1e293b', margin: '0 0 4px 0' }}>No Offer History</p>
                     <p style={{ fontSize: '0.8rem', color: isDark ? 'var(--text-muted)' : '#64748b', margin: 0 }}>All negotiation rounds will be tracked here.</p>
                 </div>
             )}
@@ -65,7 +65,7 @@ export const FinancialBreakdown = ({ details = [] }) => {
     const { isDark } = useTheme();
     const data = Array.isArray(details) ? details : [];
     const thStyle = { padding: '14px 20px', fontSize: '0.65rem', fontWeight: 900, color: isDark ? 'var(--text-muted)' : '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' };
-    const tdStyle = { padding: '16px 20px', fontSize: '0.85rem', color: isDark ? 'var(--text-primary)' : '#1e293b' };
+    const tdStyle = { padding: '16px 20px', fontSize: '0.85rem', color: isDark ? 'var(--text-main)' : '#1e293b' };
 
     return (
         <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', borderRadius: '16px', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0', overflow: 'hidden' }}>
@@ -83,12 +83,12 @@ export const FinancialBreakdown = ({ details = [] }) => {
                         {data.map((item, idx) => (
                             <tr key={idx} style={{ borderBottom: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #f1f5f9' }}>
                                 <td style={tdStyle}>
-                                    <span style={{ fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#475569' }}>{item.component}</span>
+                                    <span style={{ fontWeight: 700, color: isDark ? 'var(--text-main)' : '#475569' }}>{item.component}</span>
                                 </td>
                                 <td style={tdStyle}>{formatIndianCurrency(item.value)}</td>
                                 <td style={tdStyle}>{formatIndianCurrency(item.tax)} ({item.gstPercent}%)</td>
                                 <td style={tdStyle}>
-                                    <span style={{ fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>{formatIndianCurrency(item.total)}</span>
+                                    <span style={{ fontWeight: 800, color: isDark ? 'var(--text-main)' : '#0f172a' }}>{formatIndianCurrency(item.total)}</span>
                                 </td>
                             </tr>
                         ))}
@@ -101,7 +101,7 @@ export const FinancialBreakdown = ({ details = [] }) => {
 
 export const CommissionDetails = ({ commission = {} }) => {
     const thStyle = { padding: '14px 20px', fontSize: '0.65rem', fontWeight: 900, color: isDark ? 'var(--text-muted)' : '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' };
-    const tdStyle = { padding: '16px 20px', fontSize: '0.85rem', color: isDark ? 'var(--text-primary)' : '#1e293b' };
+    const tdStyle = { padding: '16px 20px', fontSize: '0.85rem', color: isDark ? 'var(--text-main)' : '#1e293b' };
 
     return (
         <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', borderRadius: '16px', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0', overflow: 'hidden' }}>
@@ -116,7 +116,7 @@ export const CommissionDetails = ({ commission = {} }) => {
                 </div>
                 <div>
                     <span style={{ display: 'block', fontSize: '0.65rem', fontWeight: 800, color: isDark ? 'var(--text-muted)' : '#64748b', textTransform: 'uppercase', marginBottom: '4px' }}>Split</span>
-                    <span style={{ fontSize: '1rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#1e293b' }}>{commission.splitType || 'Full'}</span>
+                    <span style={{ fontSize: '1rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#1e293b' }}>{commission.splitType || 'Full'}</span>
                 </div>
             </div>
             
@@ -139,14 +139,14 @@ export const CommissionDetails = ({ commission = {} }) => {
                                             <i className="fas fa-user-tie text-indigo-600" style={{ fontSize: '0.8rem' }}></i>
                                         </div>
                                         <div>
-                                            <span style={{ fontWeight: 700, color: isDark ? 'var(--text-primary)' : '#1e293b', display: 'block' }}>{split.name}</span>
+                                            <span style={{ fontWeight: 700, color: isDark ? 'var(--text-main)' : '#1e293b', display: 'block' }}>{split.name}</span>
                                             <span style={{ fontSize: '0.7rem', color: isDark ? 'var(--text-muted)' : '#64748b' }}>{typeof split.role === 'object' ? split.role?.name : split.role}</span>
                                         </div>
                                     </div>
                                 </td>
                                 <td style={tdStyle}>{split.percent}%</td>
                                 <td style={tdStyle}>
-                                    <span style={{ fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#1e293b' }}>{formatIndianCurrency(split.amount)}</span>
+                                    <span style={{ fontWeight: 800, color: isDark ? 'var(--text-main)' : '#1e293b' }}>{formatIndianCurrency(split.amount)}</span>
                                 </td>
                                 <td style={tdStyle}>
                                     <span style={{ fontSize: '0.7rem', fontWeight: 800, color: isDark ? 'var(--text-muted)' : '#64748b' }}>{split.status || 'Verified'}</span>
@@ -198,14 +198,14 @@ export const CostSheet = ({ financials, deal }) => {
                     <tr><td colSpan="2" style={{ borderBottom: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '2px solid #e2e8f0', padding: '16px 0' }}></td></tr>
 
                     <tr style={{ fontSize: '1.25rem' }}>
-                        <td style={{ padding: '16px 0', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#0f172a' }}>Total Landed Cost (A+B+C)</td>
+                        <td style={{ padding: '16px 0', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#0f172a' }}>Total Landed Cost (A+B+C)</td>
                         <td style={{ padding: '16px 0', fontWeight: 900, color: '#2563eb', textAlign: 'right' }}>{formatIndianCurrency(financials.grandTotal)}</td>
                     </tr>
                 </tbody>
             </table>
 
             <div style={{ marginTop: '40px', padding: '24px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', borderRadius: '12px', border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid #e2e8f0' }}>
-                <h4 style={{ fontSize: '0.9rem', fontWeight: 800, color: isDark ? 'var(--text-primary)' : '#334155', marginBottom: '12px' }}>Payment Schedule</h4>
+                <h4 style={{ fontSize: '0.9rem', fontWeight: 800, color: isDark ? 'var(--text-main)' : '#334155', marginBottom: '12px' }}>Payment Schedule</h4>
                 <p style={{ fontSize: '0.85rem', color: isDark ? 'var(--text-muted)' : '#64748b', fontStyle: 'italic' }}>As per agreed payment plan.</p>
             </div>
         </div>
@@ -225,7 +225,7 @@ const CostRow = ({ label, value, bold, indent }) => {
             padding: '8px 0',
             paddingLeft: indent ? '24px' : '0',
             fontWeight: bold ? 700 : 500,
-            color: bold ? isDark ? 'var(--text-primary)' : '#334155' : isDark ? 'var(--text-muted)' : '#64748b',
+            color: bold ? isDark ? 'var(--text-main)' : '#334155' : isDark ? 'var(--text-muted)' : '#64748b',
             fontSize: indent ? '0.85rem' : '0.9rem'
         }}>
             {label}
@@ -233,7 +233,7 @@ const CostRow = ({ label, value, bold, indent }) => {
         <td style={{
             textAlign: 'right', padding: '8px 0',
             fontWeight: bold ? 800 : 600,
-            color: bold ? isDark ? 'var(--text-primary)' : '#1e293b' : isDark ? 'var(--text-muted)' : '#64748b'
+            color: bold ? isDark ? 'var(--text-main)' : '#1e293b' : isDark ? 'var(--text-muted)' : '#64748b'
         }}>
             {formatIndianCurrency(value)}
         </td>
