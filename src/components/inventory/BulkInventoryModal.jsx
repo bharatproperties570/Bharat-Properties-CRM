@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../../utils/api';
 import toast from 'react-hot-toast';
 import { usePropertyConfig } from '../../context/PropertyConfigContext';
+import MapPickerModal from '../common/MapPickerModal';
 
 const labelStyle = { fontSize: '0.85rem', fontWeight: 600, color: '#475569', marginBottom: '6px', display: 'block' };
 const inputStyle = { width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.9rem' };
@@ -12,6 +13,7 @@ const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjec
     const { sizes } = usePropertyConfig();
     const [step, setStep] = useState(1);
     const [loading, setLoading] = useState(false);
+    const [isMapPickerOpen, setIsMapPickerOpen] = useState(false);
     
     const [dynamicBlocks, setDynamicBlocks] = useState([]);
     const [formData, setFormData] = useState({
@@ -34,7 +36,8 @@ const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjec
         prefix: '',
         rangeStart: '',
         rangeEnd: '',
-        commaList: ''
+        commaList: '',
+        distance: ''
     });
 
     const [previewUnits, setPreviewUnits] = useState([]);
@@ -58,7 +61,8 @@ const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjec
                 prefix: '',
                 rangeStart: '',
                 rangeEnd: '',
-                commaList: ''
+                commaList: '',
+                distance: ''
             }));
         }
     }, [isOpen, defaultProjectName, defaultProjectId]);
@@ -85,6 +89,46 @@ const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjec
 
     if (!isOpen) return null;
 
+    const getBearing = (dir) => {
+        switch(dir) {
+            case 'North': return 0;
+            case 'North-East': return 45;
+            case 'East': return 90;
+            case 'South-East': return 135;
+            case 'South': return 180;
+            case 'South-West': return 225;
+            case 'West': return 270;
+            case 'North-West': return 315;
+            default: return 0;
+        }
+    };
+
+    const calculateCoordinate = (startLat, startLng, distanceStr, directionStr, index) => {
+        let lat = parseFloat(startLat);
+        let lng = parseFloat(startLng);
+        let dist = parseFloat(distanceStr) * index;
+        
+        if (isNaN(lat) || isNaN(lng) || isNaN(dist) || dist === 0 || !directionStr) {
+            return { lat: startLat, lng: startLng };
+        }
+
+        const R = 6378137; // Earth’s radius in meters
+        const bearing = getBearing(directionStr) * Math.PI / 180;
+        const latRad = lat * Math.PI / 180;
+        const lngRad = lng * Math.PI / 180;
+
+        const newLatRad = Math.asin(Math.sin(latRad) * Math.cos(dist / R) +
+            Math.cos(latRad) * Math.sin(dist / R) * Math.cos(bearing));
+
+        const newLngRad = lngRad + Math.atan2(Math.sin(bearing) * Math.sin(dist / R) * Math.cos(latRad),
+            Math.cos(dist / R) - Math.sin(latRad) * Math.sin(newLatRad));
+
+        return {
+            lat: (newLatRad * 180 / Math.PI).toFixed(6),
+            lng: (newLngRad * 180 / Math.PI).toFixed(6)
+        };
+    };
+
     const handleGeneratePreview = () => {
         let units = [];
         if (formData.unitGenMethod === 'range') {
@@ -103,25 +147,28 @@ const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjec
 
         if (units.length === 0) return toast.error("No units generated.");
 
-        const preview = units.map(u => ({
-            projectName: formData.projectName,
-            projectId: formData.projectId,
-            block: formData.block,
-            unitNo: u,
-            unitNumber: u, // Store in both
-            category: formData.category,
-            subCategory: formData.subCategory,
-            unitType: formData.unitType,
-            sizeConfig: formData.sizeConfig,
-            status: formData.status,
-            intent: formData.intent,
-            direction: formData.direction,
-            facing: formData.facing,
-            roadWidth: formData.roadWidth,
-            ownership: formData.ownership,
-            latitude: formData.latitude,
-            longitude: formData.longitude
-        }));
+        const preview = units.map((u, index) => {
+            const { lat, lng } = calculateCoordinate(formData.latitude, formData.longitude, formData.distance, formData.direction, index);
+            return {
+                projectName: formData.projectName,
+                projectId: formData.projectId,
+                block: formData.block,
+                unitNo: u,
+                unitNumber: u, // Store in both
+                category: formData.category,
+                subCategory: formData.subCategory,
+                unitType: formData.unitType,
+                sizeConfig: formData.sizeConfig,
+                status: formData.status,
+                intent: formData.intent,
+                direction: formData.direction,
+                facing: formData.facing,
+                roadWidth: formData.roadWidth,
+                ownership: formData.ownership,
+                latitude: lat,
+                longitude: lng
+            };
+        });
 
         setPreviewUnits(preview);
         setStep(2);
@@ -253,17 +300,33 @@ const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjec
                             </div>
 
                             {/* Geo Location Row */}
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', background: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px dashed #cbd5e1' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', background: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px dashed #cbd5e1' }}>
                                 <div>
-                                    <label style={labelStyle}>Default Latitude</label>
+                                    <label style={labelStyle}>Start Latitude</label>
                                     <input type="text" style={inputStyle} value={formData.latitude} onChange={e => setFormData({...formData, latitude: e.target.value})} placeholder="e.g. 28.7041" />
                                 </div>
                                 <div>
-                                    <label style={labelStyle}>Default Longitude</label>
+                                    <label style={labelStyle}>Start Longitude</label>
                                     <input type="text" style={inputStyle} value={formData.longitude} onChange={e => setFormData({...formData, longitude: e.target.value})} placeholder="e.g. 77.1025" />
                                 </div>
-                                <div style={{ gridColumn: '1 / -1', fontSize: '0.75rem', color: '#64748b' }}>
-                                    <i className="fas fa-info-circle"></i> These coordinates will apply to all units generated below. You can edit them individually in the next step.
+                                <div>
+                                    <label style={labelStyle}>Map Picker</label>
+                                    <button 
+                                        onClick={() => setIsMapPickerOpen(true)}
+                                        style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #3b82f6', background: '#eff6ff', color: '#2563eb', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                                    >
+                                        <i className="fas fa-map-marker-alt"></i> Pick on Map
+                                    </button>
+                                </div>
+                                <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '16px', alignItems: 'center', marginTop: '4px' }}>
+                                    <div>
+                                        <label style={labelStyle}>Distance b/w units (meters)</label>
+                                        <input type="number" style={inputStyle} value={formData.distance} onChange={e => setFormData({...formData, distance: e.target.value})} placeholder="e.g. 10" />
+                                    </div>
+                                    <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                                        <i className="fas fa-magic" style={{ color: '#8b5cf6', marginRight: '6px' }}></i> 
+                                        <strong>Auto-Calculate:</strong> Set a distance and a Direction (above). The system will automatically calculate accurate coordinates for all subsequent units in that direction!
+                                    </div>
                                 </div>
                             </div>
 
@@ -386,6 +449,14 @@ const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjec
                     )}
                 </div>
             </div>
+
+            <MapPickerModal
+                isOpen={isMapPickerOpen}
+                onClose={() => setIsMapPickerOpen(false)}
+                initialLat={formData.latitude}
+                initialLng={formData.longitude}
+                onConfirm={(lat, lng) => setFormData(prev => ({...prev, latitude: lat.toFixed(6), longitude: lng.toFixed(6)}))}
+            />
         </div>
     );
 };
