@@ -10,7 +10,7 @@ const selectStyle = { ...inputStyle, appearance: 'none', background: '#fff', cur
 const disabledStyle = { ...selectStyle, background: '#f8fafc', color: '#94a3b8', cursor: 'not-allowed' };
 
 const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjectId, onAddSuccess }) => {
-    const { sizes, masterFields } = usePropertyConfig();
+    const { sizes, masterFields, propertyConfig } = usePropertyConfig();
     const [step, setStep] = useState(1);
     const [loading, setLoading] = useState(false);
     const [isMapPickerOpen, setIsMapPickerOpen] = useState(false);
@@ -226,21 +226,21 @@ const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjec
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                                 <div>
                                     <label style={labelStyle}>Category</label>
-                                    <select style={selectStyle} value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})}>
+                                    <select style={selectStyle} value={formData.category} onChange={e => setFormData({...formData, category: e.target.value, unitType: ''})}>
                                         <option value="Residential">Residential</option>
                                         <option value="Commercial">Commercial</option>
+                                        <option value="Industrial">Industrial</option>
+                                        <option value="Agricultural">Agricultural</option>
+                                        <option value="Institutional">Institutional</option>
                                     </select>
                                 </div>
                                 <div>
                                     <label style={labelStyle}>Unit Type</label>
                                     <select style={selectStyle} value={formData.unitType} onChange={e => setFormData({...formData, unitType: e.target.value})}>
-                                        <option value="1BHK">1 BHK</option>
-                                        <option value="2BHK">2 BHK</option>
-                                        <option value="3BHK">3 BHK</option>
-                                        <option value="4BHK">4 BHK</option>
-                                        <option value="Plot">Plot</option>
-                                        <option value="Shop">Shop</option>
-                                        <option value="Office">Office</option>
+                                        <option value="">Select Unit Type</option>
+                                        {((propertyConfig[formData.category] || {}).subCategories || []).map(sc => (
+                                            <option key={sc.name} value={sc.name}>{sc.name}</option>
+                                        ))}
                                     </select>
                                 </div>
                             </div>
