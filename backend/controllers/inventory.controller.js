@@ -3112,3 +3112,34 @@ export const getSuggestedOwners = async (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 };
+
+// ==========================================
+// BULK ADD INVENTORY
+// ==========================================
+export const bulkAddInventory = async (req, res) => {
+    try {
+        const { items } = req.body;
+        if (!items || !Array.isArray(items) || items.length === 0) {
+            return res.status(400).json({ success: false, message: "No inventory items provided" });
+        }
+
+        // Add creator info
+        const preparedItems = items.map(item => ({
+            ...item,
+            createdBy: req.user._id,
+            tenantId: req.user.tenantId
+        }));
+
+        // Insert many
+        const result = await Inventory.insertMany(preparedItems);
+
+        res.status(201).json({
+            success: true,
+            message: `Successfully created ${result.length} inventory units.`,
+            data: result
+        });
+    } catch (error) {
+        console.error("Error bulk adding inventory:", error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};

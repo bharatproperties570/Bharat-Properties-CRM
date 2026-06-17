@@ -9,6 +9,7 @@ import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import { fixDriveUrl, getYoutubeId } from '../../utils/helpers';
 import PublishModal from '../../components/Marketing/PublishModal';
 import SocialPostModal from '../../components/SocialPostModal';
+import BulkInventoryModal from '../../components/Inventory/BulkInventoryModal';
 
 const ProjectDetailPage = ({ projectId, onBack, onNavigate, onEditProject }) => {
     const { isDark } = useTheme();
@@ -21,6 +22,7 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onEditProject }) => 
     const [blocksData, setBlocksData] = useState([]);
     const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
     const [isSocialModalOpen, setIsSocialModalOpen] = useState(false);
+    const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
     const [mediaViewer, setMediaViewer] = useState({ isOpen: false, data: null });
 
     const fetchProjectDetails = useCallback(async () => {
@@ -338,7 +340,12 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onEditProject }) => 
                             {activeTab === 'inventory' && (
                                 <div className="inventory-tab">
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                                        <h4 style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--text-main)', margin: 0 }}>Project Units ({inventoryData.length})</h4>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                            <h4 style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--text-main)', margin: 0 }}>Project Units ({inventoryData.length})</h4>
+                                            <button onClick={() => setIsBulkModalOpen(true)} style={{ padding: '4px 10px', background: isDark ? 'rgba(59, 130, 246, 0.15)' : '#eff6ff', color: '#3b82f6', border: '1px solid #3b82f644', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>
+                                                <i className="fas fa-layer-group" style={{ marginRight: '4px' }}></i> Bulk Add
+                                            </button>
+                                        </div>
                                         <div style={{ display: 'flex', gap: '8px' }}>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                 <div style={{ width: '8px', height: '8px', background: '#10b981', borderRadius: '50%' }}></div>
@@ -536,6 +543,14 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onEditProject }) => 
                 onClose={() => setIsPublishModalOpen(false)}
                 project={{...project, deals: dealsData}}
                 onPublishSuccess={fetchProjectDetails}
+            />
+
+            <BulkInventoryModal
+                isOpen={isBulkModalOpen}
+                onClose={() => setIsBulkModalOpen(false)}
+                defaultProjectName={project?.name}
+                defaultProjectId={project?._id}
+                onAddSuccess={() => fetchInventory(projectId)}
             />
 
             <SocialPostModal
