@@ -39,10 +39,10 @@ const escapeRegExp = (string) => {
 
 // ━━ ENTERPRISE FORM MAPPING ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 const FORM_FIELD_MAPPING = {
-    'Requirement Form': ['requirement', 'budget', 'location', 'project'],
+    'Requirement Form': ['requirement', 'propertyType', 'budget', 'budgetMin', 'budgetMax', 'location', 'locCity', 'locArea', 'project'],
     'Meetings Form': ['notes', 'description'],
-    'Quotation Form': ['budget', 'notes'],
-    'Offer Form': ['budget', 'notes'],
+    'Quotation Form': ['budget', 'budgetMax', 'notes'],
+    'Offer Form': ['budget', 'budgetMax', 'notes'],
     'Site Visit Form': [] // Handled dynamically based on activity completion
 };
 
@@ -981,13 +981,29 @@ export const evaluateAndTransition = async (leadId, activityType, outcome, reaso
                 );
             } catch (_) {}
 
+            // Map missing forms to canonical fields so the frontend StageTransitionModal can render them
+            const derivedMissingFields = [];
+            if (missingForms.includes('Requirement Form')) {
+                derivedMissingFields.push('propertyType', 'budgetMin', 'budgetMax', 'locCity', 'timeline');
+            }
+            if (missingForms.includes('Meetings Form')) {
+                derivedMissingFields.push('notes');
+            }
+            if (missingForms.includes('Quotation Form') || missingForms.includes('Offer Form')) {
+                derivedMissingFields.push('budgetMax', 'notes');
+            }
+
+            // Deduplicate
+            const uniqueMissingFields = [...new Set(derivedMissingFields)];
+
             return {
                 stageChanged: false,
                 requiresForm: true,
                 newStage: rule.newStage,
                 requiredForms,
                 missingForms,
-                missingFields: [],
+                missingFields: uniqueMissingFields,
+                requiredFields: uniqueMissingFields, // Required for frontend to render
                 ruleId: rule.id,
                 notification: `Please fill ${missingForms.join(', ')} to move to ${rule.newStage}`
             };
