@@ -27,6 +27,7 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onEditProject }) => 
     const [isEditUnitModalOpen, setIsEditUnitModalOpen] = useState(false);
     const [selectedUnit, setSelectedUnit] = useState(null);
     const [mediaViewer, setMediaViewer] = useState({ isOpen: false, data: null });
+    const [isMenuOpen, setIsMenuOpen] = useState(false);
 
     const fetchProjectDetails = useCallback(async () => {
         setLoading(true);
@@ -242,14 +243,77 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onEditProject }) => 
                     <HeaderMetric label="Deals Running" value={activeDealsCount} color="#6366f1" />
                 </div>
 
-                 <div style={{ display: 'flex', gap: '10px' }}>
-                    <ActionButton icon="edit" label="Edit" onClick={() => onEditProject && onEditProject(project)} />
-                    <ActionButton icon="share-alt" label="Share" onClick={(e) => {
-                        if (e && e.stopPropagation) e.stopPropagation();
-                        setIsSocialModalOpen(true);
-                    }} />
-                    <ActionButton icon="plus-square" label="Add Block" />
-                    <ActionButton icon="plus" label="Inventory" primary />
+                 <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                    {/* Three Dot Menu */}
+                    <div style={{ position: 'relative' }}>
+                        <button 
+                            onClick={() => setIsMenuOpen(!isMenuOpen)}
+                            style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-main)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }}
+                        >
+                            <i className="fas fa-ellipsis-v"></i>
+                        </button>
+                        
+                        {isMenuOpen && (
+                            <>
+                                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 999 }} onClick={() => setIsMenuOpen(false)}></div>
+                                <div style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, width: '220px', background: 'var(--bg-card)', borderRadius: '12px', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)', border: '1px solid var(--border-color)', zIndex: 1000, overflow: 'hidden' }}>
+                                    <div onClick={() => { setIsMenuOpen(false); onEditProject && onEditProject(project); }} style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', borderBottom: '1px solid var(--border-color)' }}>
+                                        <i className="fas fa-edit text-blue-500" style={{ width: '16px' }}></i> Edit Project
+                                    </div>
+                                    <div onClick={() => { setIsMenuOpen(false); setIsSocialModalOpen(true); }} style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', borderBottom: '1px solid var(--border-color)' }}>
+                                        <i className="fas fa-share-alt text-green-500" style={{ width: '16px' }}></i> Share Project
+                                    </div>
+                                    <div onClick={() => { setIsMenuOpen(false); setActiveTab('inventory'); setIsBulkModalOpen(true); }} style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', borderBottom: '1px solid var(--border-color)' }}>
+                                        <i className="fas fa-layer-group text-purple-500" style={{ width: '16px' }}></i> Add Bulk Inventory
+                                    </div>
+                                    <div onClick={() => { setIsMenuOpen(false); onNavigate('project-master-plan', project._id); }} style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', borderBottom: '1px solid var(--border-color)' }}>
+                                        <i className="fas fa-map text-orange-500" style={{ width: '16px' }}></i> Master Plan Workspace
+                                    </div>
+                                    <div onClick={() => { setIsMenuOpen(false); toast('Add Block feature coming soon!', { icon: 'ℹ️' }); }} style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                                        <i className="fas fa-plus-square text-indigo-500" style={{ width: '16px' }}></i> Add Block
+                                    </div>
+                                </div>
+                            </>
+                        )}
+                    </div>
+
+                    {/* Full Assignment Data Plate */}
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        padding: '4px 12px 4px 6px',
+                        background: 'var(--bg-card)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                    }} className="hover:shadow-sm">
+                        <div style={{ width: '36px', height: '36px', borderRadius: '6px', background: 'var(--primary)', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', fontWeight: 700 }}>
+                            <i className="fas fa-users" style={{ color: '#ffffff' }}></i>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: '1.2' }}>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-main)', whiteSpace: 'nowrap' }}>
+                                {project.team?.name || (Array.isArray(project.team) && project.team[0]?.name) || (typeof project.team === 'string' ? project.team : 'Standard Team')}
+                            </span>
+                            { project.updatedAt && (
+                                <span style={{ fontSize: '0.6rem', fontWeight: 700, color: 'var(--text-muted)', marginTop: '2px' }}>
+                                    {new Date(project.updatedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })} {new Date(project.updatedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}
+                                </span>
+                            )}
+                        </div>
+
+                        <div style={{ width: '1px', height: '18px', background: 'var(--border-color)', margin: '0 4px' }}></div>
+
+                        <div title={`Visibility: ${project.visibleTo || 'Everyone'}`} style={{ display: 'flex', alignItems: 'center' }}>
+                            {(() => {
+                                const v = (project.visibleTo || 'Everyone').toLowerCase();
+                                if (v === 'private') return <i className="fas fa-lock" style={{ color: 'var(--danger-color)', fontSize: '0.85rem' }}></i>;
+                                if (v === 'team') return <i className="fas fa-users" style={{ color: '#3b82f6', fontSize: '0.85rem' }}></i>;
+                                return <i className="fas fa-globe" style={{ color: '#10b981', fontSize: '0.85rem' }}></i>;
+                            })()}
+                        </div>
+                    </div>
                 </div>
             </header>
 
@@ -347,6 +411,7 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onEditProject }) => 
                             <TabItem id="inventory" label="Inventory" active={activeTab === 'inventory'} onClick={setActiveTab} />
                             <TabItem id="deals" label="Deals" active={activeTab === 'deals'} onClick={setActiveTab} />
                             <TabItem id="financials" label="Analytics" active={activeTab === 'financials'} onClick={setActiveTab} />
+                            <div style={{ flex: 1 }}></div>
                         </div>
 
                         <div style={{ padding: '20px', flex: 1 }}>
@@ -398,9 +463,9 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onEditProject }) => 
                                                             <td style={{ padding: '12px 16px' }}>
                                                                 <div 
                                                                     onClick={(e) => { e.stopPropagation(); onNavigate('inventory-detail', unit._id || unit.id); }}
-                                                                    style={{ fontWeight: 800, color: '#3b82f6', fontSize: '0.85rem', cursor: 'pointer', textDecoration: 'underline' }}
+                                                                    style={{ fontWeight: 800, color: 'var(--primary, #3b82f6)', fontSize: '0.85rem', cursor: 'pointer', textDecoration: 'underline' }}
                                                                     title="View Unit Details"
-                                                                    className="hover-text-blue"
+                                                                    className="hover-text-primary"
                                                                 >
                                                                     {unit.unitNo || unit.unitNumber}
                                                                 </div>

@@ -68,7 +68,10 @@ const AppContent = () => {
         if (path === '/leads') return 'leads';
         if (path === '/activities') return 'activities';
         if (path === '/projects') return 'projects';
-        if (path.startsWith('/projects/')) return 'project-detail';
+        if (path.startsWith('/projects/')) {
+            if (path.endsWith('/master-plan')) return 'project-master-plan';
+            return 'project-detail';
+        }
         if (path === '/account') return 'account';
         if (path === '/deal-intake') return 'deal-intake';
         if (path.startsWith('/deals/match/')) return 'deal-matching';
@@ -109,10 +112,8 @@ const AppContent = () => {
             return path.split('/').pop();
         }
         if (path.startsWith('/projects/')) {
-            return path.split('/').pop();
-        }
-        if (path.startsWith('/projects/')) {
-            return path.split('/').pop();
+            const parts = path.split('/');
+            return parts[2];
         }
         if (path.startsWith('/company/')) {
             return path.split('/').pop();
@@ -137,6 +138,7 @@ const AppContent = () => {
         else if (view === 'deal-detail' && contactId) url = `/deals/${contactId}`;
         else if (view === 'deal-matching' && contactId) url = `/deals/match/${contactId}`;
         else if (view === 'lead-matching' && contactId) url = `/leads/match/${contactId}`;
+        else if (view === 'project-master-plan' && contactId) url = `/projects/${contactId}/master-plan`;
         else if (view === 'project-detail' && contactId) url = `/projects/${contactId}`;
         else if (view === 'company-detail' && contactId) url = `/company/${contactId}`;
         else if (view === 'dashboard') url = '/';

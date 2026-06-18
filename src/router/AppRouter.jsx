@@ -29,6 +29,7 @@ const LeadMatchingPage = lazy(() => import('../pages/Leads/views/LeadMatchingPag
 const DealDetailPage = lazy(() => import('../pages/Deals/DealDetailPage'));
 const DealAnalyticsPage = lazy(() => import('../pages/Deals/DealAnalyticsPage'));
 const ProjectDetailPage = lazy(() => import('../pages/Projects/ProjectDetailPage'));
+const ProjectMasterPlanPage = lazy(() => import('../pages/Projects/ProjectMasterPlanPage'));
 const CompanyDetailPage = lazy(() => import('../pages/Company/CompanyDetailPage'));
 const GoogleCallback = lazy(() => import('../pages/Settings/GoogleCallback'));
 
@@ -83,6 +84,11 @@ const AppRouter = ({ currentView, currentContactId, onNavigate, onEditContact, o
                     onAddInventory={onAddInventory}
                     onAddDeal={onAddDeal}
                     onAddContact={onEditContact}
+                />;
+            case 'project-master-plan':
+                return <ProjectMasterPlanPage 
+                    projectId={currentContactId} 
+                    onBack={() => onNavigate('project-detail', currentContactId)} 
                 />;
             case 'leads':
                 return <LeadsPage onAddActivity={onAddActivity} onEdit={onEditContact} onNavigate={onNavigate} />;

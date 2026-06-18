@@ -115,6 +115,19 @@ const ProjectSchema = new mongoose.Schema({
         possessionDate: Date
     }],
 
+    // Master Plan for Rapid Plotting
+    masterPlan: {
+        imageUrl: String,
+        bounds: {
+            north: Number,
+            south: Number,
+            east: Number,
+            west: Number
+        },
+        rotation: { type: Number, default: 0 },
+        isLocked: { type: Boolean, default: false }
+    },
+
     // Pricing
     pricing: {
         pricingType: String,

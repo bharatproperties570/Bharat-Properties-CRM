@@ -38,10 +38,28 @@ const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjec
         rangeStart: '',
         rangeEnd: '',
         commaList: '',
-        distance: ''
+        distance: '',
+        distanceUnit: 'Meters'
     });
 
     const [previewUnits, setPreviewUnits] = useState([]);
+    const [existingUnits, setExistingUnits] = useState([]);
+
+    useEffect(() => {
+        const fetchExistingUnits = async () => {
+            if (!formData.projectId) return;
+            try {
+                const res = await api.get(`/inventory?projectId=${formData.projectId}&limit=5000`);
+                if (res.data?.success && res.data.data) {
+                    const units = res.data.data.map(u => ({ block: u.block, unitNo: String(u.unitNo || u.unitNumber).toLowerCase() }));
+                    setExistingUnits(units);
+                }
+            } catch (err) {
+                console.error("Error fetching existing units for validation", err);
+            }
+        };
+        if (isOpen) fetchExistingUnits();
+    }, [formData.projectId, isOpen]);
 
     useEffect(() => {
         if (!isOpen) {
@@ -64,7 +82,8 @@ const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjec
                 rangeStart: '',
                 rangeEnd: '',
                 commaList: '',
-                distance: ''
+                distance: '',
+                distanceUnit: 'Meters'
             }));
         }
     }, [isOpen, defaultProjectName, defaultProjectId]);
@@ -105,10 +124,14 @@ const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjec
         }
     };
 
-    const calculateCoordinate = (startLat, startLng, distanceStr, directionStr, index) => {
+    const calculateCoordinate = (startLat, startLng, distanceStr, distanceUnit, directionStr, index) => {
         let lat = parseFloat(startLat);
         let lng = parseFloat(startLng);
-        let dist = parseFloat(distanceStr) * index;
+        let dist = parseFloat(distanceStr);
+        if (distanceUnit === 'Feet') {
+            dist = dist * 0.3048; // Convert feet to meters
+        }
+        dist = dist * index;
         
         if (isNaN(lat) || isNaN(lng) || isNaN(dist) || dist === 0 || !directionStr) {
             return { lat: startLat, lng: startLng };
@@ -149,8 +172,16 @@ const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjec
 
         if (units.length === 0) return toast.error("No units generated.");
 
+        const currentBlock = formData.block || '';
+        const currentExisting = existingUnits.filter(u => u.block === currentBlock).map(u => u.unitNo);
+        const duplicates = units.filter(u => currentExisting.includes(String(u).toLowerCase()));
+        
+        if (duplicates.length > 0) {
+            return toast.error(`Duplicate units exist in this block: ${duplicates.slice(0, 5).join(', ')}${duplicates.length > 5 ? '...' : ''}. Please adjust your input.`);
+        }
+
         const preview = units.map((u, index) => {
-            const { lat, lng } = calculateCoordinate(formData.latitude, formData.longitude, formData.distance, formData.forwardDirection, index);
+            const { lat, lng } = calculateCoordinate(formData.latitude, formData.longitude, formData.distance, formData.distanceUnit, formData.forwardDirection, index);
             return {
                 projectName: formData.projectName,
                 projectId: formData.projectId,
@@ -258,57 +289,40 @@ const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjec
                                 </div>
                             </div>
 
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                                <div>
-                                    <label style={labelStyle}>Size / Config</label>
-                                    <select style={selectStyle} value={formData.sizeConfig} onChange={e => {
-                                        const selectedValue = e.target.value;
-                                        const selectedSize = sizes.find(s => 
-                                            (s.value === selectedValue || s.name === selectedValue || s.id === selectedValue || s._id === selectedValue) && 
-                                            (s.project === formData.projectName || s.projectId === formData.projectId) && 
-                                            s.block === formData.block
-                                        );
-                                        let width = selectedSize?.width || selectedSize?.metadata?.width || '';
-                                        if (!width && selectedSize?.label) {
-                                            const match = (selectedSize.label || selectedSize.name || '').match(/(\d+)\s*[xX*]\s*(\d+)/);
-                                            if (match) width = match[1]; // First number usually indicates frontage/width
-                                        }
-                                        setFormData({
-                                            ...formData, 
-                                            sizeConfig: selectedValue,
-                                            distance: width || formData.distance
-                                        });
-                                    }}>
-                                        <option value="">Select Size (Optional)</option>
-                                        {sizes.filter(s => 
-                                            (s.project === formData.projectName || s.projectId === formData.projectId) && 
-                                            s.block === formData.block
-                                        ).map(s => (
-                                            <option key={s.id || s._id} value={s.value || s._id || s.name}>{s.label || s.name}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label style={labelStyle}>Ownership</label>
-                                    <select style={selectStyle} value={formData.ownership} onChange={e => setFormData({...formData, ownership: e.target.value})}>
-                                        <option value="">Select Ownership</option>
-                                        <option value="Freehold">Freehold</option>
-                                        <option value="Leasehold">Leasehold</option>
-                                        <option value="Power of Attorney">Power of Attorney</option>
-                                        <option value="Co-operative Society">Co-operative Society</option>
-                                    </select>
-                                </div>
+                            <div style={{ marginBottom: '16px' }}>
+                                <label style={labelStyle}>Size / Config</label>
+                                <select style={selectStyle} value={formData.sizeConfig} onChange={e => {
+                                    const selectedValue = e.target.value;
+                                    const selectedSize = sizes.find(s => 
+                                        (s.value === selectedValue || s.name === selectedValue || s.id === selectedValue || s._id === selectedValue) && 
+                                        (s.project === formData.projectName || s.projectId === formData.projectId) && 
+                                        s.block === formData.block
+                                    );
+                                    let width = selectedSize?.width || selectedSize?.metadata?.width || '';
+                                    if (!width && selectedSize?.label) {
+                                        const match = (selectedSize.label || selectedSize.name || '').match(/(\d+)\s*[xX*]\s*(\d+)/);
+                                        if (match) width = match[1]; // First number usually indicates frontage/width
+                                    }
+                                    setFormData({
+                                        ...formData, 
+                                        sizeConfig: selectedValue,
+                                        distance: width || formData.distance
+                                    });
+                                }}>
+                                    <option value="">Select Size (Optional)</option>
+                                    {sizes.filter(s => 
+                                        (s.project === formData.projectName || s.projectId === formData.projectId) && 
+                                        s.block === formData.block
+                                    ).map(s => (
+                                        <option key={s.id || s._id} value={s.value || s._id || s.name}>{s.label || s.name}</option>
+                                    ))}
+                                </select>
                             </div>
 
-                            {/* Additional Attributes Row */}
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
-                                <div>
-                                    <label style={labelStyle}>Status</label>
-                                    <select style={selectStyle} value={formData.status || 'Inactive'} onChange={e => setFormData({...formData, status: e.target.value})}>
-                                        <option value="Active">Active</option>
-                                        <option value="Inactive">Inactive</option>
-                                    </select>
-                                </div>
+                            <h4 style={{ margin: '20px 0 12px 0', fontSize: '1rem', color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <i className="fas fa-compass" style={{ color: '#10b981' }}></i> Orientation & Features
+                            </h4>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '16px' }}>
                                 <div>
                                     <label style={labelStyle}>Direction</label>
                                     <select style={selectStyle} value={formData.direction} onChange={e => setFormData({...formData, direction: e.target.value})}>
@@ -337,6 +351,16 @@ const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjec
                                         {masterFields?.roadWidths?.map(r => <option key={r} value={r}>{r}</option>)}
                                     </select>
                                 </div>
+                                <div>
+                                    <label style={labelStyle}>Ownership</label>
+                                    <select style={selectStyle} value={formData.ownership} onChange={e => setFormData({...formData, ownership: e.target.value})}>
+                                        <option value="">Select Ownership</option>
+                                        <option value="Freehold">Freehold</option>
+                                        <option value="Leasehold">Leasehold</option>
+                                        <option value="Power of Attorney">Power of Attorney</option>
+                                        <option value="Co-operative Society">Co-operative Society</option>
+                                    </select>
+                                </div>
                             </div>
 
                             {/* Geo Location Row */}
@@ -358,13 +382,19 @@ const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjec
                                         <i className="fas fa-map-marker-alt"></i> Pick on Map
                                     </button>
                                 </div>
-                                <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: '1fr 1fr 1.5fr', gap: '16px', alignItems: 'center', marginTop: '4px' }}>
+                                <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: '2fr 1fr 1.5fr', gap: '16px', alignItems: 'center', marginTop: '4px' }}>
                                     <div>
-                                        <label style={labelStyle}>Plot Width / Distance (meters)</label>
-                                        <input type="number" style={inputStyle} value={formData.distance} onChange={e => setFormData({...formData, distance: e.target.value})} placeholder="e.g. 10 (Auto-fetched from Size)" />
+                                        <label style={labelStyle}>Plot Width / Distance</label>
+                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                            <input type="number" style={{...inputStyle, flex: 1}} value={formData.distance} onChange={e => setFormData({...formData, distance: e.target.value})} placeholder="e.g. 10" />
+                                            <select style={{...selectStyle, width: '85px', padding: '10px 8px'}} value={formData.distanceUnit || 'Meters'} onChange={e => setFormData({...formData, distanceUnit: e.target.value})}>
+                                                <option value="Meters">Meters</option>
+                                                <option value="Feet">Feet</option>
+                                            </select>
+                                        </div>
                                     </div>
                                     <div>
-                                        <label style={labelStyle}>Forward To Direction</label>
+                                        <label style={labelStyle}>Forward</label>
                                         <select style={selectStyle} value={formData.forwardDirection} onChange={e => setFormData({...formData, forwardDirection: e.target.value})}>
                                             <option value="">Select Direction</option>
                                             <option value="East">East</option>
@@ -379,7 +409,7 @@ const BulkInventoryModal = ({ isOpen, onClose, defaultProjectName, defaultProjec
                                     </div>
                                     <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
                                         <i className="fas fa-magic" style={{ color: '#8b5cf6', marginRight: '6px' }}></i> 
-                                        <strong>Auto-Calculate:</strong> Selecting a Size auto-fills width. Set "Forward To Direction" to mathematically calculate exact GPS coordinates for all units!
+                                        <strong>Auto-Calculate:</strong> Selecting a Size auto-fills width. Set "Forward" to mathematically calculate exact GPS coordinates for all units!
                                     </div>
                                 </div>
                             </div>

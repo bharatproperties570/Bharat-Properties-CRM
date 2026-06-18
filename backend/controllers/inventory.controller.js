@@ -3138,12 +3138,35 @@ export const bulkAddInventory = async (req, res) => {
             tenantId: req.user.tenantId
         }));
 
-        // Insert many
-        const result = await Inventory.insertMany(preparedItems);
+        // Use bulkWrite with upsert to prevent duplicates and update existing units
+        const bulkOps = preparedItems.map(item => {
+            const { status, createdBy, tenantId, _id, ...updateFields } = item;
+            
+            const setOnInsert = { createdBy, tenantId };
+            // Preserve existing status if we are just updating the unit (e.g. from map plotting)
+            if (status) setOnInsert.status = status;
 
-        res.status(201).json({
+            return {
+                updateOne: {
+                    filter: { 
+                        projectId: item.projectId, 
+                        block: item.block || "", 
+                        unitNo: item.unitNo 
+                    },
+                    update: { 
+                        $set: updateFields,
+                        $setOnInsert: setOnInsert
+                    },
+                    upsert: true
+                }
+            };
+        });
+
+        const result = await Inventory.bulkWrite(bulkOps);
+
+        res.status(200).json({
             success: true,
-            message: `Successfully created ${result.length} inventory units.`,
+            message: `Successfully processed ${preparedItems.length} inventory units.`,
             data: result
         });
     } catch (error) {
