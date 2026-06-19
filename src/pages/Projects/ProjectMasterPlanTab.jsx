@@ -554,7 +554,7 @@ const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
                         
                         <button 
                             onClick={() => setIsPlottingMode(!isPlottingMode)} 
-                            style={{ padding: '6px 16px', background: isPlottingMode ? '#ef4444' : 'var(--primary)', color: '#fff', border: 'none', borderRadius: '20px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                            style={{ padding: '6px 16px', background: isPlottingMode ? '#ef4444' : 'var(--primary-color)', color: '#fff', border: 'none', borderRadius: '20px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
                         >
                             {isPlottingMode ? <><i className="fas fa-times"></i> Stop Plotting</> : <><i className="fas fa-bolt"></i> Start Rapid Plotting</>}
                         </button>
