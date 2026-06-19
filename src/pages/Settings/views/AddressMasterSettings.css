@@ -167,13 +167,13 @@
 }
 
 .workspace-card.selected {
-    background: #eff6ff;
+    background: rgba(59, 130, 246, 0.1);
     border-color: #3b82f6;
     box-shadow: 0 0 0 1px #3b82f6;
 }
 
 .workspace-card.selected:hover {
-    background: #dbeafe;
+    background: rgba(59, 130, 246, 0.2);
 }
 
 .card-drag-handle {
@@ -342,9 +342,9 @@
 }
 
 .po-sub-card.selected {
-    background: #eff6ff;
+    background: rgba(59, 130, 246, 0.15);
     border-color: #3b82f6;
-    color: #1d4ed8;
+    color: var(--text-main);
 }
 
 .pincode-sublist {
