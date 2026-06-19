@@ -175,7 +175,7 @@ const BulkUpdateInventoryModal = ({ isOpen, onClose, selectedIds, selectedProper
     const inputStyle = { width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.85rem', outline: 'none', background: '#fff' };
     const checkboxStyle = { marginRight: '8px', cursor: 'pointer' };
 
-    const renderField = (field, label, options, isLookup = false, disabledForce = false, overrideMsg = null) => {
+    const renderField = (field, label, options, isLookup = false, disabledForce = false, overrideMsg = null, onChangeOverride = null) => {
         const isDisabled = !selectedFields[field] || disabledForce;
         return (
             <div style={{ display: 'flex', flexDirection: 'column', background: selectedFields[field] ? '#f8fafc' : '#fff', padding: '10px', borderRadius: '8px', border: '1px solid #f1f5f9' }}>
@@ -189,13 +189,13 @@ const BulkUpdateInventoryModal = ({ isOpen, onClose, selectedIds, selectedProper
                     <select 
                         style={{ ...inputStyle, opacity: isDisabled ? 0.6 : 1, cursor: isDisabled ? 'not-allowed' : 'pointer' }} 
                         value={formData[field]} 
-                        onChange={(e) => handleInputChange(field, e.target.value)}
+                        onChange={(e) => onChangeOverride ? onChangeOverride(e.target.value) : handleInputChange(field, e.target.value)}
                         disabled={isDisabled}
                     >
                         <option value="">Select {label}...</option>
                         {options.map((opt, i) => {
-                            const val = isLookup ? opt.name || opt.lookup_value : opt._id || opt;
-                            const display = isLookup ? opt.name || opt.lookup_value : opt.name || opt.lookup_value || opt;
+                            const val = typeof opt === 'object' ? (opt._id || opt.id || opt.name || opt.lookup_value) : opt;
+                            const display = typeof opt === 'object' ? (opt.name || opt.lookup_value || opt._id) : opt;
                             return <option key={i} value={val}>{display}</option>;
                         })}
                     </select>
@@ -224,24 +224,45 @@ const BulkUpdateInventoryModal = ({ isOpen, onClose, selectedIds, selectedProper
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '16px', marginBottom: '32px' }}>
                         {renderField('block', 'Block', availableBlocks, false, !isSingleProject, !isSingleProject ? 'Disabled: Multiple projects selected' : null)}
                         {renderField('size', 'Size Label', sizes || [], true)}
-                        {renderField('category', 'Category', masterFields['Category'] || [], true)}
-                        {renderField('subCategory', 'Sub Category', masterFields['SubCategory'] || [], true)}
-                        {renderField('unitType', 'Unit Type', masterFields['UnitType'] || [], true)}
-                        {renderField('builtupType', 'Builtup Type', masterFields['BuiltupType'] || [], true)}
-                        {renderField('direction', 'Direction', masterFields['Direction'] || [], true)}
-                        {renderField('facing', 'Facing', masterFields['Facing'] || [], true)}
-                        {renderField('roadWidth', 'Road Width', masterFields['Road Width'] || [], true)}
+                        {renderField('category', 'Category', Object.keys(propertyConfig || {}), false)}
+                        {renderField('subCategory', 'Sub Category', (() => {
+                            if (formData.category && propertyConfig[formData.category]) {
+                                return (propertyConfig[formData.category].subCategories || []).map(sc => sc.name);
+                            }
+                            return Object.values(propertyConfig || {}).flatMap(c => c.subCategories || []).map(sc => sc.name);
+                        })(), true)}
+                        {renderField('unitType', 'Unit Type', masterFields.unitTypes || [], true)}
+                        {renderField('builtupType', 'Builtup Type', (() => {
+                            const subCats = formData.category && propertyConfig[formData.category] 
+                                ? (propertyConfig[formData.category].subCategories || []) 
+                                : Object.values(propertyConfig || {}).flatMap(c => c.subCategories || []);
+                            const subCat = formData.subCategory 
+                                ? subCats.find(sc => sc.name === formData.subCategory)
+                                : null;
+                            const targets = subCat ? [subCat] : subCats;
+                            const allBuiltup = new Set();
+                            targets.forEach(sc => {
+                                (sc.builtupTypes || []).forEach(bt => {
+                                    const name = typeof bt === 'object' ? bt.name : bt;
+                                    if (name) allBuiltup.add(name);
+                                });
+                            });
+                            return Array.from(allBuiltup);
+                        })(), true)}
+                        {renderField('direction', 'Direction', masterFields.directions || [], true)}
+                        {renderField('facing', 'Facing', masterFields.facings || [], true)}
+                        {renderField('roadWidth', 'Road Width', masterFields.roadWidths || [], true)}
                         {renderField('possessionStatus', 'Possession Status', ['Ready to Move', 'Under Construction'])}
                     </div>
 
                     <h4 style={{ fontSize: '1rem', marginBottom: '16px', color: '#334155', borderBottom: '2px solid #e2e8f0', paddingBottom: '8px' }}>Location</h4>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '16px', marginBottom: '32px' }}>
-                        {renderField('country', 'Country', locationLookups.countries)}
-                        {renderField('state', 'State', locationLookups.states)}
-                        {renderField('city', 'City', locationLookups.cities)}
-                        {renderField('location', 'Location', locationLookups.locations)}
-                        {renderField('tehsil', 'Tehsil', locationLookups.tehsils)}
-                        {renderField('postOffice', 'Post Office', locationLookups.postOffices)}
+                        {renderField('country', 'Country', locationLookups.countries, false, false, null, (val) => handleLocationChange('country', val, 'states', 'State'))}
+                        {renderField('state', 'State', locationLookups.states, false, false, null, (val) => handleLocationChange('state', val, 'cities', 'City'))}
+                        {renderField('city', 'City', locationLookups.cities, false, false, null, (val) => handleLocationChange('city', val, 'locations', 'Location'))}
+                        {renderField('location', 'Location', locationLookups.locations, false, false, null, (val) => handleLocationChange('location', val, 'tehsils', 'Tehsil'))}
+                        {renderField('tehsil', 'Tehsil', locationLookups.tehsils, false, false, null, (val) => handleLocationChange('tehsil', val, 'postOffices', 'Post Office'))}
+                        {renderField('postOffice', 'Post Office', locationLookups.postOffices, false, false, null, (val) => handleLocationChange('postOffice', val, null, null))}
                     </div>
 
                     <h4 style={{ fontSize: '1rem', marginBottom: '16px', color: '#334155', borderBottom: '2px solid #e2e8f0', paddingBottom: '8px' }}>Assignment</h4>

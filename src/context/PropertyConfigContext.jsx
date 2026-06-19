@@ -1223,33 +1223,51 @@ export const PropertyConfigProvider = ({ children }) => {
             const cat = newConfig[catKey];
             if (cat.subCategories) {
                 cat.subCategories.forEach(sub => {
+                    const hoistedBuiltupTypes = new Map();
+
+                    const processBt = (bt) => {
+                        const isNumericId = (obj) => obj && obj.id && !isNaN(obj.id) && String(obj.id).length > 10;
+                        if (typeof bt === 'string') {
+                            const id = builtupLookup.get(bt.trim().toLowerCase());
+                            if (id) {
+                                hasChanged = true;
+                                return { id: id.toString(), name: bt };
+                            }
+                            return { id: bt, name: bt };
+                        } else if (isNumericId(bt)) {
+                            const recoveredId = builtupLookup.get(bt.name.trim().toLowerCase());
+                            if (recoveredId && recoveredId !== bt.id) {
+                                hasChanged = true;
+                                return { ...bt, id: recoveredId.toString() };
+                            }
+                        }
+                        return bt;
+                    };
+
+                    if (Array.isArray(sub.builtupTypes)) {
+                        sub.builtupTypes.forEach(bt => {
+                            const processed = processBt(bt);
+                            hoistedBuiltupTypes.set(processed.name, processed);
+                        });
+                    }
+
                     if (sub.types) {
                         sub.types.forEach(type => {
                             if (Array.isArray(type.builtupTypes)) {
-                                type.builtupTypes = type.builtupTypes.map(bt => {
-                                    const isNumericId = (obj) => obj && obj.id && !isNaN(obj.id) && String(obj.id).length > 10;
-                                    
-                                    // Case 1: Legacy string
-                                    if (typeof bt === 'string') {
-                                        const id = builtupLookup.get(bt.trim().toLowerCase());
-                                        if (id) {
-                                            hasChanged = true;
-                                            return { id: id.toString(), name: bt };
-                                        }
-                                    } 
-                                    // Case 2: Inconsistent numeric ID (Timestamp fallback)
-                                    else if (isNumericId(bt)) {
-                                        const recoveredId = builtupLookup.get(bt.name.trim().toLowerCase());
-                                        if (recoveredId && recoveredId !== bt.id) {
-                                            console.log(`[PropertyConfigContext] Recovered professional ID for ${bt.name}: ${bt.id} -> ${recoveredId}`);
-                                            hasChanged = true;
-                                            return { ...bt, id: recoveredId.toString() };
-                                        }
-                                    }
-                                    return bt;
+                                type.builtupTypes.forEach(bt => {
+                                    const processed = processBt(bt);
+                                    hoistedBuiltupTypes.set(processed.name, processed);
                                 });
+                                delete type.builtupTypes;
+                                hasChanged = true;
                             }
                         });
+                    }
+
+                    if (hoistedBuiltupTypes.size > 0) {
+                        sub.builtupTypes = Array.from(hoistedBuiltupTypes.values());
+                    } else if (!sub.builtupTypes) {
+                        sub.builtupTypes = [];
                     }
                 });
             }
@@ -1307,26 +1325,39 @@ export const PropertyConfigProvider = ({ children }) => {
                         if (!sub.name) return;
                         const subCatId = subCatMap.get(`${catId}_${sub.name.toLowerCase()}`);
                         if (!subCatId) return;
+                        // Professional Hoisting: Aggregate BuiltupTypes at the SubCategory level
+                        let expectedBuiltups = builtupMap.get(subCatId) || [];
                         
+                        // Collect legacy builtup types attached to child Size Types
                         if (sub.types) {
                             sub.types.forEach(type => {
                                 if (!type.name) return;
                                 const typeId = typeMap.get(`${subCatId}_${type.name.toLowerCase()}`);
                                 if (typeId) {
-                                    const expectedBuiltups = builtupMap.get(typeId) || [];
-                                    const expectedLength = expectedBuiltups.length;
-                                    const currentLength = type.builtupTypes ? type.builtupTypes.length : 0;
-                                    
-                                    // Verify content equality to prevent infinite loops
-                                    const currentSet = new Set((type.builtupTypes || []).map(b => typeof b === 'object' ? (b.id || b._id) : b));
-                                    const isMatch = expectedLength === currentLength && expectedBuiltups.every(eb => currentSet.has(eb.id));
-                                    
-                                    if (!isMatch) {
-                                        type.builtupTypes = expectedBuiltups;
-                                        isHydrated = true;
-                                    }
+                                    const legacyBuiltups = builtupMap.get(typeId) || [];
+                                    expectedBuiltups = [...expectedBuiltups, ...legacyBuiltups];
                                 }
                             });
+                        }
+
+                        // Deduplicate by name
+                        const uniqueBuiltupsMap = new Map();
+                        expectedBuiltups.forEach(bt => {
+                            if (!uniqueBuiltupsMap.has(bt.name.toLowerCase())) {
+                                uniqueBuiltupsMap.set(bt.name.toLowerCase(), bt);
+                            }
+                        });
+                        expectedBuiltups = Array.from(uniqueBuiltupsMap.values());
+
+                        const expectedLength = expectedBuiltups.length;
+                        const currentLength = sub.builtupTypes ? sub.builtupTypes.length : 0;
+                        
+                        const currentSet = new Set((sub.builtupTypes || []).map(b => typeof b === 'object' ? (b.id || b._id) : b));
+                        const isMatch = expectedLength === currentLength && expectedBuiltups.every(eb => currentSet.has(eb.id));
+                        
+                        if (!isMatch) {
+                            sub.builtupTypes = expectedBuiltups;
+                            isHydrated = true;
                         }
                     });
                 }
@@ -1979,25 +2010,23 @@ export const PropertyConfigProvider = ({ children }) => {
         }
     }, [findLookup, refreshLookups]);
 
-    const syncBuiltupTypeLookup = useCallback(async (categoryName, subCategoryName, typeName, builtupTypeName, mode = 'add', oldName = null) => {
+    const syncBuiltupTypeLookup = useCallback(async (categoryName, subCategoryName, builtupTypeName, mode = 'add', oldName = null) => {
         try {
             const category = findLookup('Category', categoryName);
             if (!category) return null;
             const subCategory = findLookup('SubCategory', subCategoryName, category._id);
             if (!subCategory) return null;
-            const propertyType = findLookup('PropertyType', typeName, subCategory._id);
-            if (!propertyType) return null;
 
             let result = null;
             if (mode === 'add') {
-                result = await lookupsAPI.create({ lookup_type: 'BuiltupType', lookup_value: builtupTypeName, parent_lookup_id: propertyType._id, is_active: true });
+                result = await lookupsAPI.create({ lookup_type: 'BuiltupType', lookup_value: builtupTypeName, parent_lookup_id: subCategory._id, is_active: true });
             } else if (mode === 'update' && oldName) {
-                const existing = findLookup('BuiltupType', oldName, propertyType._id);
+                const existing = findLookup('BuiltupType', oldName, subCategory._id);
                 if (existing) {
                     result = await lookupsAPI.update(existing._id, { lookup_value: builtupTypeName });
                 }
             } else if (mode === 'delete') {
-                const existing = findLookup('BuiltupType', builtupTypeName, propertyType._id);
+                const existing = findLookup('BuiltupType', builtupTypeName, subCategory._id);
                 if (existing) {
                     await lookupsAPI.delete(existing._id);
                     result = true;

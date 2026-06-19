@@ -177,7 +177,19 @@ const InventoryUnitSection = ({
                                 style={{ ...((!formData.projectName || !formData.block) ? customSelectStyleDisabled : customSelectStyle), flex: 1 }}
                                 value={formData.size}
                                 disabled={!formData.projectName || !formData.block}
-                                onChange={e => setFormData(prev => ({ ...prev, size: e.target.value }))}
+                                onChange={e => {
+                                    const selectedSizeName = e.target.value;
+                                    const availableSizes = sizes || [];
+                                    const sizeObj = availableSizes.find(s => s.name === selectedSizeName && 
+                                        (s.project === formData.projectName || s.projectId === formData.projectId) && 
+                                        s.block === formData.block);
+                                    
+                                    setFormData(prev => ({ 
+                                        ...prev, 
+                                        size: selectedSizeName,
+                                        sizeType: sizeObj?.sizeType || prev.sizeType || ''
+                                    }));
+                                }}
                             >
                                 <option value="">
                                     {(!formData.projectName || !formData.block) ? "Select Project & Block first" : "Select Size"}
@@ -228,13 +240,12 @@ const InventoryUnitSection = ({
                         <select style={customSelectStyle} value={formData.direction} onChange={e => setFormData(prev => ({ ...prev, direction: e.target.value }))}>
                             <option value="">Select</option>
                             {(masterFields?.directions || []).map(d => {
-                                const val = typeof d === 'object' ? (d.lookup_value || d.name) : d;
-                                const id = typeof d === 'object' ? (d._id || d.id) : d;
-                                return (
-                                    <option key={id} value={val}>
-                                        {val}
-                                    </option>
-                                );
+                                 const id = typeof d === 'object' ? (d._id || d.id) : d;
+                                 return (
+                                     <option key={id} value={id}>
+                                         {renderValue(d)}
+                                     </option>
+                                 );
                             })}
                         </select>
                     </div>
@@ -296,17 +307,15 @@ const InventoryUnitSection = ({
                     <div>
                         <label style={labelStyle}>Built-up Type (Dependent on Sub Category)</label>
                         <select
-                            style={(!formData.subCategory || !formData.sizeType) ? customSelectStyleDisabled : customSelectStyle}
+                            style={!formData.subCategory ? customSelectStyleDisabled : customSelectStyle}
                             value={formData.builtupType}
-                            disabled={!formData.subCategory || !formData.sizeType}
+                            disabled={!formData.subCategory}
                             onChange={e => setFormData(prev => ({ ...prev, builtupType: e.target.value }))}
                         >
                             <option value="">
                                 {!formData.subCategory 
                                     ? "Select Sub-Category First" 
-                                    : !formData.sizeType 
-                                        ? "Select Size (Configuration) First" 
-                                        : "Select Type"}
+                                    : "Select Type"}
                             </option>
                             {builtUpTypes.map(t => (
                                 <option key={t._id || t.id || t.name} value={t.name}>

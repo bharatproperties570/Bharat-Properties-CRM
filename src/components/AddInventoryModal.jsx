@@ -120,25 +120,20 @@ const AddInventoryModal = ({ isOpen, onClose, onSave, initialProject = null, pro
     const currentCategoryConfig = propertyConfig[formData.category] || {};
     const subCategories = (currentCategoryConfig.subCategories || []).map(sc => sc.name);
     const builtUpTypes = (() => {
-        if (!formData.subCategory || !formData.sizeType) return [];
+        if (!formData.subCategory) return [];
         const subCatConfig = (currentCategoryConfig.subCategories || []).find(sc => sc.name === formData.subCategory);
         if (!subCatConfig) return [];
         
         const allBuiltUpTypes = new Set();
         
-        // [SENIOR FIX] Built-up Types are dependent on the selected Size Type (Configuration)
-        // Find the specific type configuration (e.g., "1 BHK", "3 BHK")
-        const typeConfig = (subCatConfig.types || []).find(t => t.name === formData.sizeType);
-        
-        if (typeConfig && Array.isArray(typeConfig.builtupTypes)) {
-            typeConfig.builtupTypes.forEach(bt => {
-                if (typeof bt === 'object' && bt !== null) {
-                    allBuiltUpTypes.add(JSON.stringify({ _id: bt._id || bt.id, name: bt.name }));
-                } else {
-                    allBuiltUpTypes.add(JSON.stringify({ name: bt }));
-                }
-            });
-        }
+        // Built-up Types are dependent on the selected Sub Category
+        (subCatConfig.builtupTypes || []).forEach(bt => {
+            if (typeof bt === 'object' && bt !== null) {
+                allBuiltUpTypes.add(JSON.stringify({ _id: bt._id || bt.id, name: bt.name }));
+            } else {
+                allBuiltUpTypes.add(JSON.stringify({ name: bt }));
+            }
+        });
         
         return Array.from(allBuiltUpTypes).map(s => JSON.parse(s));
     })();

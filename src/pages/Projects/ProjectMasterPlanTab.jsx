@@ -161,22 +161,19 @@ const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
     });
 
     const builtUpTypes = (() => {
-        if (!plotConfig.category || !plotConfig.subCategory || !plotConfig.sizeConfig) return [];
+        if (!plotConfig.category || !plotConfig.subCategory) return [];
         const subCatConfig = ((propertyConfig[plotConfig.category] || {}).subCategories || []).find(sc => sc.name === plotConfig.subCategory);
         if (!subCatConfig) return [];
         
         const allBuiltUpTypes = new Set();
-        const typeConfig = (subCatConfig.types || []).find(t => t.name === plotConfig.sizeConfig);
         
-        if (typeConfig && Array.isArray(typeConfig.builtupTypes)) {
-            typeConfig.builtupTypes.forEach(bt => {
-                if (typeof bt === 'object' && bt !== null) {
-                    allBuiltUpTypes.add(JSON.stringify({ _id: bt._id || bt.id, name: bt.name }));
-                } else {
-                    allBuiltUpTypes.add(JSON.stringify({ name: bt }));
-                }
-            });
-        }
+        (subCatConfig.builtupTypes || []).forEach(bt => {
+            if (typeof bt === 'object' && bt !== null) {
+                allBuiltUpTypes.add(JSON.stringify({ _id: bt._id || bt.id, name: bt.name }));
+            } else {
+                allBuiltUpTypes.add(JSON.stringify({ name: bt }));
+            }
+        });
         
         return Array.from(allBuiltUpTypes).map(s => JSON.parse(s));
     })();
