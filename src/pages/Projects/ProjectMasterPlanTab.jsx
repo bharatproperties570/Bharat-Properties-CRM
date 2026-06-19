@@ -348,6 +348,7 @@ const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
             intent: ['For Sale'],
             latitude: lat.toFixed(6),
             longitude: lng.toFixed(6),
+            address: project.address || {},
             team: teamId ? [teamId] : [],
             visibleTo: project.visibleTo || 'Everyone'
         };
