@@ -128,7 +128,7 @@ const ActivitySettingsPage = () => {
                         onKeyDown={(e) => e.key === 'Enter' && handleSaveItem()}
                     />
                     <div style={{ display: 'flex', gap: '8px' }}>
-                        <button onClick={handleSaveItem} style={{ flex: 1, padding: '6px', background: '#3b82f6', color: 'var(--bg-card)', border: 'none', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}>Save</button>
+                        <button onClick={handleSaveItem} style={{ flex: 1, padding: '6px', background: '#3b82f6', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}>Save</button>
                         <button onClick={() => setShowAddItemForm(false)} style={{ flex: 1, padding: '6px', background: 'var(--bg-card)', color: 'var(--text-muted)', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
                     </div>
                 </div>

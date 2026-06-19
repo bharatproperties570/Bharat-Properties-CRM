@@ -188,7 +188,7 @@ const AiAgentsSettingsPage = () => {
                     onClick={() => handleOpenModal()}
                     style={{
                         background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
-                        color: 'var(--bg-card)',
+                        color: '#ffffff',
                         border: 'none',
                         padding: '10px 20px',
                         borderRadius: '8px',
@@ -315,10 +315,10 @@ const AiAgentsSettingsPage = () => {
             <div style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', borderRadius: '16px', padding: '24px', marginBottom: '28px', border: '1px solid rgba(66,133,244,0.2)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
                     <div>
-                        <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--bg-card)', marginBottom: '4px' }}>🤖 Marketing OS — AI Agent Configuration</div>
+                        <div style={{ fontSize: '14px', fontWeight: 800, color: '#ffffff', marginBottom: '4px' }}>🤖 Marketing OS — AI Agent Configuration</div>
                         <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>4 specialized agents with model assignments for the Marketing Overview page</div>
                     </div>
-                    <button onClick={seedMarketingAgents} disabled={seeding} style={{ background: 'linear-gradient(135deg, #4285f4 0%, #3b82f6 100%)', color: 'var(--bg-card)', border: 'none', padding: '8px 16px', borderRadius: '8px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <button onClick={seedMarketingAgents} disabled={seeding} style={{ background: 'linear-gradient(135deg, #4285f4 0%, #3b82f6 100%)', color: '#ffffff', border: 'none', padding: '8px 16px', borderRadius: '8px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
                         {seeding ? '⏳ Seeding...' : '⚡ Seed 4 Marketing Agents'}
                     </button>
                 </div>
@@ -332,7 +332,7 @@ const AiAgentsSettingsPage = () => {
                         <div key={a.id} style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${a.color}30`, borderRadius: '10px', padding: '14px', display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
                             <div style={{ width: '36px', height: '36px', background: `${a.color}20`, borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', flexShrink: 0 }}>{a.icon}</div>
                             <div style={{ flex: 1 }}>
-                                <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--bg-card)', marginBottom: '2px' }}>{a.n}</div>
+                                <div style={{ fontSize: '12px', fontWeight: 800, color: '#ffffff', marginBottom: '2px' }}>{a.n}</div>
                                 <div style={{ fontSize: '10px', color: a.color, fontWeight: 700, marginBottom: '4px' }}>{a.provider} · {a.model}</div>
                                 <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)' }}>{a.task}</div>
                             </div>
@@ -490,7 +490,7 @@ const AiAgentsSettingsPage = () => {
                             
                             <div style={{ padding: '24px 32px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: 'auto', background: 'var(--bg-light)', borderRadius: '0 0 20px 20px', margin: '-32px' }}>
                                 <button type="button" onClick={() => setIsModalOpen(false)} style={{ padding: '10px 20px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '8px', color: 'var(--text-muted)', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
-                                <button type="submit" style={{ padding: '10px 24px', background: '#3b82f6', border: 'none', borderRadius: '8px', color: 'var(--bg-card)', fontWeight: 600, cursor: 'pointer', boxShadow: '0 4px 6px rgba(59, 130, 246, 0.2)' }}>
+                                <button type="submit" style={{ padding: '10px 24px', background: '#3b82f6', border: 'none', borderRadius: '8px', color: '#ffffff', fontWeight: 600, cursor: 'pointer', boxShadow: '0 4px 6px rgba(59, 130, 246, 0.2)' }}>
                                     {editingAgent ? 'Save Changes' : 'Build AI Agent'}
                                 </button>
                             </div>

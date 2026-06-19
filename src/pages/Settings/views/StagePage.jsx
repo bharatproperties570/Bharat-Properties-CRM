@@ -336,7 +336,7 @@ const StagePage = () => {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                         <div style={{ width: '48px', height: '48px', borderRadius: '14px', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <i className="fas fa-layer-group" style={{ color: 'var(--bg-card)', fontSize: '20px' }} />
+                            <i className="fas fa-layer-group" style={{ color: '#ffffff', fontSize: '20px' }} />
                         </div>
                         <div>
                             <h1 style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-main)', margin: 0 }}>Stage Computation Engine</h1>
@@ -360,7 +360,7 @@ const StagePage = () => {
                                 </button>
                                 <button
                                     onClick={() => setShowAddModal(true)}
-                                    style={{ padding: '8px 20px', background: '#6366f1', color: 'var(--bg-card)', border: 'none', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                                    style={{ padding: '8px 20px', background: '#6366f1', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: 700, fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
                                 >
                                     <i className="fas fa-plus" />+ Override Rule
                                 </button>

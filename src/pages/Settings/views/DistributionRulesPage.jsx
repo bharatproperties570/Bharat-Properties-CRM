@@ -93,7 +93,7 @@ const DistributionRulesPage = () => {
                                 borderRadius: '6px',
                                 fontSize: '14px',
                                 fontWeight: '500',
-                                color: 'var(--bg-card)',
+                                color: '#ffffff',
                                 cursor: 'pointer'
                             }}
                         >
@@ -177,7 +177,7 @@ const DistributionRulesPage = () => {
                             borderRadius: '6px',
                             fontSize: '14px',
                             fontWeight: '500',
-                            color: 'var(--bg-card)',
+                            color: '#ffffff',
                             cursor: 'pointer'
                         }}
                     >
@@ -208,7 +208,7 @@ const DistributionRulesPage = () => {
                                             <span style={{
                                                 padding: '4px 8px',
                                                 background: getModuleBadgeColor(rule.module),
-                                                color: 'var(--bg-card)',
+                                                color: '#ffffff',
                                                 fontSize: '11px',
                                                 fontWeight: '600',
                                                 borderRadius: '4px',
@@ -361,7 +361,7 @@ const DistributionRulesPage = () => {
                                     border: 'none',
                                     borderRadius: '6px',
                                     fontSize: '14px',
-                                    color: 'var(--bg-card)',
+                                    color: '#ffffff',
                                     cursor: 'pointer'
                                 }}
                             >

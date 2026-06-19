@@ -52,7 +52,7 @@ const FeedbackSettingsPage = () => {
                 </div>
                 <button
                     onClick={() => { setSelectedForm(null); setView('builder'); }}
-                    style={{ background: '#2563eb', color: 'var(--bg-card)', border: 'none', padding: '12px 24px', borderRadius: '12px', fontWeight: 700, cursor: 'pointer' }}
+                    style={{ background: '#2563eb', color: '#ffffff', border: 'none', padding: '12px 24px', borderRadius: '12px', fontWeight: 700, cursor: 'pointer' }}
                 >
                     Create New Survey
                 </button>

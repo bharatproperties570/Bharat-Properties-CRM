@@ -216,7 +216,7 @@ const CustomizeLeadPage = () => {
                             />
                             <button
                                 onClick={handleSaveFlatItem}
-                                style={{ padding: '6px 12px', background: '#3b82f6', color: 'var(--bg-card)', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
+                                style={{ padding: '6px 12px', background: '#3b82f6', color: '#ffffff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
                             >
                                 Save
                             </button>
@@ -286,7 +286,7 @@ const CustomizeLeadPage = () => {
                         onKeyDown={(e) => e.key === 'Enter' && handleSaveHierarchyItem()}
                     />
                     <div style={{ display: 'flex', gap: '6px' }}>
-                        <button onClick={handleSaveHierarchyItem} style={{ flex: 1, padding: '4px', background: '#3b82f6', color: 'var(--bg-card)', border: 'none', borderRadius: '4px', fontSize: '0.75rem', cursor: 'pointer' }}>Save</button>
+                        <button onClick={handleSaveHierarchyItem} style={{ flex: 1, padding: '4px', background: '#3b82f6', color: '#ffffff', border: 'none', borderRadius: '4px', fontSize: '0.75rem', cursor: 'pointer' }}>Save</button>
                         <button onClick={() => setShowAddItemForm(false)} style={{ flex: 1, padding: '4px', background: 'var(--bg-card)', color: 'var(--text-muted)', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.75rem', cursor: 'pointer' }}>Cancel</button>
                     </div>
                 </div>

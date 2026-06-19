@@ -172,7 +172,7 @@ const TemplateModal = ({ isOpen, onClose, onSave, initialData }) => {
                     <div style={{ marginBottom: '32px', cursor: 'pointer' }} onClick={() => setTemplateData({ ...templateData, shared: !templateData.shared })}>
                         <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
                             <div style={{ width: '18px', height: '18px', border: '2px solid var(--border-color)', borderRadius: '4px', background: templateData.shared ? 'var(--primary-color)' : 'var(--bg-card)', borderColor: templateData.shared ? 'var(--primary-color)' : 'var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: '2px' }}>
-                                {templateData.shared && <i className="fas fa-check" style={{ color: 'var(--bg-card)', fontSize: '0.65rem' }}></i>}
+                                {templateData.shared && <i className="fas fa-check" style={{ color: '#ffffff', fontSize: '0.65rem' }}></i>}
                             </div>
                             <div>
                                 <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-main)' }}>Share with everyone</div>

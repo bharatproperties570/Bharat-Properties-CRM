@@ -81,7 +81,7 @@ const SiteVisitSettingsPage = ({ onBack }) => {
                 </div>
                 <button
                     onClick={handleCreateNew}
-                    style={{ background: '#ec4899', color: 'var(--bg-card)', border: 'none', padding: '12px 24px', borderRadius: '12px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 4px 15px -3px rgba(236, 72, 153, 0.4)' }}
+                    style={{ background: '#ec4899', color: '#ffffff', border: 'none', padding: '12px 24px', borderRadius: '12px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 4px 15px -3px rgba(236, 72, 153, 0.4)' }}
                 >
                     <LucidePlus size={20} />
                     New Scheduler Form
@@ -173,21 +173,21 @@ const SiteVisitSettingsPage = ({ onBack }) => {
                                     navigator.clipboard.writeText(getEmbedCode(selectedForm?.slug));
                                     toast.success('Copied to clipboard');
                                 }}
-                                style={{ position: 'absolute', top: '16px', right: '16px', background: 'rgba(255,255,255,0.1)', border: 'none', color: 'var(--bg-card)', padding: '8px 12px', borderRadius: '8px', cursor: 'pointer', fontSize: '0.8rem' }}
+                                style={{ position: 'absolute', top: '16px', right: '16px', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#ffffff', padding: '8px 12px', borderRadius: '8px', cursor: 'pointer', fontSize: '0.8rem' }}
                             >
                                 Copy
                             </button>
                         </div>
 
                         <div style={{ marginTop: '32px', display: 'flex', gap: '16px', alignItems: 'center', padding: '20px', background: '#fdf2f8', borderRadius: '16px', border: '1px solid #fbcfe8' }}>
-                            <div style={{ width: '40px', height: '40px', background: '#ec4899', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--bg-card)' }}>
+                            <div style={{ width: '40px', height: '40px', background: '#ec4899', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff' }}>
                                 <LucideQrCode size={20} />
                             </div>
                             <div style={{ flex: 1 }}>
                                 <div style={{ fontSize: '0.9rem', fontWeight: 800, color: '#831843' }}>QR Code Access</div>
                                 <div style={{ fontSize: '0.8rem', color: '#9d174d' }}>Print this QR code at your site office for quick visitor check-ins.</div>
                             </div>
-                            <button style={{ background: '#ec4899', color: 'var(--bg-card)', border: 'none', padding: '8px 16px', borderRadius: '8px', fontWeight: 700, fontSize: '0.8rem', cursor: 'not-allowed' }}>Generate</button>
+                            <button style={{ background: '#ec4899', color: '#ffffff', border: 'none', padding: '8px 16px', borderRadius: '8px', fontWeight: 700, fontSize: '0.8rem', cursor: 'not-allowed' }}>Generate</button>
                         </div>
                     </div>
                 </div>

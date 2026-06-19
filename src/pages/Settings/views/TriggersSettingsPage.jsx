@@ -109,7 +109,7 @@ const TriggersSettingsPage = () => {
                     style={{
                         padding: '10px 20px',
                         background: '#3b82f6',
-                        color: 'var(--bg-card)',
+                        color: '#ffffff',
                         border: 'none',
                         borderRadius: '8px',
                         fontWeight: '600',
@@ -264,7 +264,7 @@ const TriggersSettingsPage = () => {
                                             <td style={{ padding: '16px' }}>
                                                 <span style={{
                                                     fontSize: '13px',
-                                                    color: 'var(--bg-card)',
+                                                    color: '#ffffff',
                                                     background: getModuleColor(trigger.module),
                                                     padding: '4px 8px',
                                                     borderRadius: '4px',
@@ -459,7 +459,7 @@ const TriggersSettingsPage = () => {
                             </button>
                             <button
                                 onClick={confirmDelete}
-                                style={{ padding: '10px 20px', background: '#ef4444', color: 'var(--bg-card)', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600' }}
+                                style={{ padding: '10px 20px', background: '#ef4444', color: '#ffffff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600' }}
                             >
                                 Delete
                             </button>

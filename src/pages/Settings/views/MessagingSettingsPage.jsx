@@ -241,7 +241,7 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
                         
                         return (
                             <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'var(--bg-card)', padding: '8px 12px', borderRadius: '8px', border: '1px solid #f1f5f9' }}>
-                                <div style={{ background: 'var(--text-main)', color: 'var(--bg-card)', width: '28px', height: '28px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 800 }}>
+                                <div style={{ background: 'var(--text-main)', color: '#ffffff', width: '28px', height: '28px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 800 }}>
                                     {idx}
                                 </div>
                                 <select 
@@ -355,7 +355,7 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
             <div style={{ background: 'var(--bg-card)', width: '1000px', maxHeight: '95vh', borderRadius: '16px', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
                 <div style={{ padding: '20px 32px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-card)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: channelType === 'rcs' ? '#4285F4' : 'var(--primary-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--bg-card)' }}>
+                        <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: channelType === 'rcs' ? '#4285F4' : 'var(--primary-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff' }}>
                             <i className={getChannelIcon()}></i>
                         </div>
                         <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-main)' }}>Add {getChannelTitle()} Template</h2>
@@ -404,7 +404,7 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
                         <div style={{ marginBottom: '32px', cursor: 'pointer' }} onClick={() => setTemplateData({ ...templateData, shared: !templateData.shared })}>
                             <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
                                 <div style={{ width: '20px', height: '20px', border: '2px solid var(--border-color)', borderRadius: '6px', background: templateData.shared ? 'var(--primary-color)' : 'var(--bg-card)', borderColor: templateData.shared ? 'var(--primary-color)' : 'var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: '2px' }}>
-                                    {templateData.shared && <i className="fas fa-check" style={{ color: 'var(--bg-card)', fontSize: '0.7rem' }}></i>}
+                                    {templateData.shared && <i className="fas fa-check" style={{ color: '#ffffff', fontSize: '0.7rem' }}></i>}
                                 </div>
                                 <div>
                                     <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-main)' }}>Share with everyone</div>
@@ -652,7 +652,7 @@ const VariableRegistryTab = () => {
                             return (
                                 <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9', background: isLocked ? '#fafafa' : 'var(--bg-card)' }}>
                                     <td style={{ padding: '12px 16px' }}>
-                                        <div style={{ background: 'var(--text-main)', color: 'var(--bg-card)', width: '32px', height: '32px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.75rem' }}>
+                                        <div style={{ background: 'var(--text-main)', color: '#ffffff', width: '32px', height: '32px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.75rem' }}>
                                             {idx}
                                         </div>
                                     </td>

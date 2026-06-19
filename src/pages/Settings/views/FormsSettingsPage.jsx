@@ -113,7 +113,7 @@ const FormsSettingsPage = ({ setActiveTab }) => {
                     </div>
                     <button 
                         onClick={handleCreateNew}
-                        style={{ background: 'var(--text-main)', color: 'var(--bg-card)', border: 'none', padding: '12px 24px', borderRadius: '12px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', transition: 'all 0.2s' }}
+                        style={{ background: 'var(--text-main)', color: '#ffffff', border: 'none', padding: '12px 24px', borderRadius: '12px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', transition: 'all 0.2s' }}
                     >
                         <LucidePlus size={20} />
                         Add New Form
@@ -240,7 +240,7 @@ const FormsSettingsPage = ({ setActiveTab }) => {
             </div>
 
             {/* Bottom Tip */}
-            <div style={{ marginTop: '40px', padding: '24px', background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', borderRadius: '20px', color: 'var(--bg-card)', display: 'flex', alignItems: 'center', gap: '20px' }}>
+            <div style={{ marginTop: '40px', padding: '24px', background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', borderRadius: '20px', color: '#ffffff', display: 'flex', alignItems: 'center', gap: '20px' }}>
                 <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: 'rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fbbf24', fontSize: '1.2rem' }}>
                     <i className="fas fa-magic"></i>
                 </div>

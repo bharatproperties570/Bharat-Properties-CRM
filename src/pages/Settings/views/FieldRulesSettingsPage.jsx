@@ -72,7 +72,7 @@ const FieldRulesSettingsPage = () => {
                     style={{
                         padding: '10px 20px',
                         background: 'var(--text-main)',
-                        color: 'var(--bg-card)',
+                        color: '#ffffff',
                         borderRadius: '6px',
                         fontWeight: 600,
                         border: 'none',
@@ -325,7 +325,7 @@ const FieldRulesSettingsPage = () => {
                                             conditions: [...(formData.conditions || []), { field: '', operator: 'equals', value: '' }]
                                         })}
                                         style={{
-                                            padding: '8px 16px', fontSize: '0.85rem', color: 'var(--bg-card)', background: '#3b82f6',
+                                            padding: '8px 16px', fontSize: '0.85rem', color: '#ffffff', background: '#3b82f6',
                                             borderRadius: '6px', border: 'none', cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px'
                                         }}
                                     >
@@ -402,7 +402,7 @@ const FieldRulesSettingsPage = () => {
 
                         <div style={{ padding: '20px 32px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', gap: '16px', background: 'var(--bg-card)' }}>
                             <button onClick={() => setIsModalOpen(false)} style={{ padding: '10px 24px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', fontWeight: 600, cursor: 'pointer', color: 'var(--text-muted)' }}>Cancel</button>
-                            <button onClick={handleSave} style={{ padding: '10px 24px', borderRadius: '8px', border: 'none', background: 'var(--text-main)', color: 'var(--bg-card)', fontWeight: 600, cursor: 'pointer' }}>Save Rule</button>
+                            <button onClick={handleSave} style={{ padding: '10px 24px', borderRadius: '8px', border: 'none', background: 'var(--text-main)', color: '#ffffff', fontWeight: 600, cursor: 'pointer' }}>Save Rule</button>
                         </div>
                     </div>
                 </div>

@@ -177,7 +177,7 @@ const ExportDataPage = () => {
                                             background: selectedColumns.includes(field.key) ? 'var(--primary-color)' : 'var(--bg-card)',
                                             borderColor: selectedColumns.includes(field.key) ? 'var(--primary-color)' : 'var(--border-color)'
                                         }}>
-                                            {selectedColumns.includes(field.key) && <i className="fas fa-check" style={{ color: 'var(--bg-card)', fontSize: '0.7rem' }}></i>}
+                                            {selectedColumns.includes(field.key) && <i className="fas fa-check" style={{ color: '#ffffff', fontSize: '0.7rem' }}></i>}
                                         </div>
                                         <span style={{ color: selectedColumns.includes(field.key) ? 'var(--text-main)' : 'var(--text-muted)' }}>{field.label}</span>
                                     </div>

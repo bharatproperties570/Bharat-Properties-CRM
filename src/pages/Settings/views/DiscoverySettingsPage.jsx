@@ -119,7 +119,7 @@ const DiscoverySettingsPage = () => {
                 </div>
                 <button
                     onClick={() => handleOpenModal()}
-                    style={{ background: '#3b82f6', color: 'var(--bg-card)', padding: '10px 20px', borderRadius: '8px', border: 'none', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+                    style={{ background: '#3b82f6', color: '#ffffff', padding: '10px 20px', borderRadius: '8px', border: 'none', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
                 >
                     <i className="fas fa-plus"></i> New Config
                 </button>
@@ -217,7 +217,7 @@ const DiscoverySettingsPage = () => {
 
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
                             <button onClick={() => setIsModalOpen(false)} style={{ padding: '10px 20px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-muted)', cursor: 'pointer', fontWeight: 600 }}>Cancel</button>
-                            <button onClick={handleSave} style={{ padding: '10px 20px', borderRadius: '6px', border: 'none', background: '#3b82f6', color: 'var(--bg-card)', cursor: 'pointer', fontWeight: 600 }}>Save Config</button>
+                            <button onClick={handleSave} style={{ padding: '10px 20px', borderRadius: '6px', border: 'none', background: '#3b82f6', color: '#ffffff', cursor: 'pointer', fontWeight: 600 }}>Save Config</button>
                         </div>
                     </div>
                 </div>

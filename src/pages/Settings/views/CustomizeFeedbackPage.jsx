@@ -117,7 +117,7 @@ const CustomizeFeedbackPage = ({ isEmbedded }) => {
                         <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Outcomes</h3>
                         <button
                             onClick={() => setShowOutcomeAdd(true)}
-                            style={{ background: '#3b82f6', color: 'var(--bg-card)', border: 'none', width: '28px', height: '28px', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                            style={{ background: '#3b82f6', color: '#ffffff', border: 'none', width: '28px', height: '28px', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                         >
                             <i className="fas fa-plus"></i>
                         </button>
@@ -132,8 +132,8 @@ const CustomizeFeedbackPage = ({ isEmbedded }) => {
                                 placeholder="e.g. Follow Up"
                                 style={{ flex: 1, padding: '8px 12px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }}
                             />
-                            <button onClick={handleAddOutcome} style={{ background: '#10b981', color: 'var(--bg-card)', border: 'none', padding: '0 12px', borderRadius: '6px', cursor: 'pointer' }}><i className="fas fa-check"></i></button>
-                            <button onClick={() => setShowOutcomeAdd(false)} style={{ background: '#ef4444', color: 'var(--bg-card)', border: 'none', padding: '0 12px', borderRadius: '6px', cursor: 'pointer' }}><i className="fas fa-times"></i></button>
+                            <button onClick={handleAddOutcome} style={{ background: '#10b981', color: '#ffffff', border: 'none', padding: '0 12px', borderRadius: '6px', cursor: 'pointer' }}><i className="fas fa-check"></i></button>
+                            <button onClick={() => setShowOutcomeAdd(false)} style={{ background: '#ef4444', color: '#ffffff', border: 'none', padding: '0 12px', borderRadius: '6px', cursor: 'pointer' }}><i className="fas fa-times"></i></button>
                         </div>
                     )}
 
@@ -192,7 +192,7 @@ const CustomizeFeedbackPage = ({ isEmbedded }) => {
                         />
                         <button
                             onClick={handleAddReason}
-                            style={{ background: '#3b82f6', color: 'var(--bg-card)', border: 'none', padding: '0 24px', borderRadius: '8px', fontWeight: 700, cursor: 'pointer' }}
+                            style={{ background: '#3b82f6', color: '#ffffff', border: 'none', padding: '0 24px', borderRadius: '8px', fontWeight: 700, cursor: 'pointer' }}
                         >
                             Add Reason
                         </button>

@@ -82,7 +82,7 @@ const IntegritySettingsView = ({ showToast }) => {
                             }}
                         >
                             {policy === opt.id && (
-                                <div style={{ position: 'absolute', top: '-10px', right: '12px', background: opt.color, color: 'var(--bg-card)', fontSize: '10px', fontWeight: 800, padding: '2px 8px', borderRadius: '20px', textTransform: 'uppercase', boxShadow: `0 4px 12px ${opt.color}40` }}>
+                                <div style={{ position: 'absolute', top: '-10px', right: '12px', background: opt.color, color: '#ffffff', fontSize: '10px', fontWeight: 800, padding: '2px 8px', borderRadius: '20px', textTransform: 'uppercase', boxShadow: `0 4px 12px ${opt.color}40` }}>
                                     Active
                                 </div>
                             )}
@@ -231,7 +231,7 @@ const DealDetailsPage = () => {
                             />
                             <button
                                 onClick={handleSaveFlatItem}
-                                style={{ padding: '6px 12px', background: '#3b82f6', color: 'var(--bg-card)', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
+                                style={{ padding: '6px 12px', background: '#3b82f6', color: '#ffffff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
                             >
                                 Save
                             </button>

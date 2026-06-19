@@ -72,7 +72,7 @@ const UserCard = ({ name, team, initials, isAdmin, count, hasAddIcon, isHighligh
                     top: '-10px',
                     left: '12px',
                     background: '#22c55e',
-                    color: 'var(--bg-card)',
+                    color: '#ffffff',
                     fontSize: '0.6rem',
                     fontWeight: 800,
                     padding: '2px 6px',
@@ -426,7 +426,7 @@ const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, o
                                     <td style={{ padding: '16px' }}>
                                         <span style={{
                                             background: user.status === 'Active' || user.isActive ? '#22c55e' : '#ef4444',
-                                            color: 'var(--bg-card)',
+                                            color: '#ffffff',
                                             padding: '2px 8px',
                                             borderRadius: '4px',
                                             fontSize: '0.65rem'
@@ -437,7 +437,7 @@ const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, o
                                             <>
                                                 <button
                                                     onClick={() => setOpenActionId(openActionId === (user._id || user.id) ? null : (user._id || user.id))}
-                                                    style={{ background: 'var(--primary-color)', color: 'var(--bg-card)', border: 'none', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer' }}
+                                                    style={{ background: 'var(--primary-color)', color: '#ffffff', border: 'none', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer' }}
                                                 >
                                                     <i className="fas fa-caret-down"></i>
                                                 </button>

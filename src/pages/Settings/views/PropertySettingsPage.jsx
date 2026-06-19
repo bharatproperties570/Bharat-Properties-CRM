@@ -301,7 +301,7 @@ const InputModal = ({ isOpen, onClose, onConfirm, title, defaultValue = '', plac
                     />
                     <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
                         <button type="button" onClick={onClose} style={{ padding: '8px 16px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, color: 'var(--text-muted)' }}>Cancel</button>
-                        <button type="submit" style={{ padding: '8px 16px', border: 'none', background: '#2563eb', color: 'var(--bg-card)', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}>Confirm</button>
+                        <button type="submit" style={{ padding: '8px 16px', border: 'none', background: '#2563eb', color: '#ffffff', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}>Confirm</button>
                     </div>
                 </form>
             </div>
@@ -319,7 +319,7 @@ const ConfirmationModal = ({ isOpen, onClose, onConfirm, message }) => {
                 <p style={{ margin: '0 0 24px 0', color: 'var(--text-muted)', fontSize: '0.95rem' }}>{message}</p>
                 <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
                     <button type="button" onClick={onClose} style={{ padding: '8px 16px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, color: 'var(--text-muted)' }}>Cancel</button>
-                    <button type="button" onClick={() => { onConfirm(); onClose(); }} style={{ padding: '8px 16px', border: 'none', background: '#ef4444', color: 'var(--bg-card)', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}>Delete</button>
+                    <button type="button" onClick={() => { onConfirm(); onClose(); }} style={{ padding: '8px 16px', border: 'none', background: '#ef4444', color: '#ffffff', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}>Delete</button>
                 </div>
             </div>
         </div>
@@ -925,7 +925,7 @@ const PropertySettingsPage = () => {
                                     className="btn-primary"
                                     type="button"
                                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIsModalOpen(true); }}
-                                    style={{ padding: '10px 20px', borderRadius: '8px', fontSize: '0.9rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: 'var(--bg-card)', border: 'none', cursor: 'pointer' }}
+                                    style={{ padding: '10px 20px', borderRadius: '8px', fontSize: '0.9rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#ffffff', border: 'none', cursor: 'pointer' }}
                                 >
                                     <i className="fas fa-plus"></i> Add Size
                                 </button>
@@ -1380,7 +1380,7 @@ const PropertySettingsPage = () => {
                                         const block = document.getElementById('exportBlockSelect').value;
                                         handleExportSizes(proj, block);
                                     }}
-                                    style={{ padding: '12px 24px', fontSize: '0.95rem', fontWeight: 700, flex: 1, background: '#10b981', border: 'none', color: 'var(--bg-card)', borderRadius: '8px', cursor: 'pointer' }}
+                                    style={{ padding: '12px 24px', fontSize: '0.95rem', fontWeight: 700, flex: 1, background: '#10b981', border: 'none', color: '#ffffff', borderRadius: '8px', cursor: 'pointer' }}
                                 >
                                     Download CSV
                                 </button>

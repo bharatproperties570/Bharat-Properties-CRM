@@ -1263,28 +1263,28 @@ const ImportDataPage = () => {
                                         <button
                                             onClick={() => handleImport('NEW_ONLY')}
                                             disabled={importSummary.newItems === 0}
-                                            style={{ background: '#16a34a', color: 'var(--bg-card)', padding: '12px 24px', borderRadius: '8px', fontSize: '0.9rem', cursor: importSummary.newItems === 0 ? 'not-allowed' : 'pointer', fontWeight: 700, border: 'none', opacity: importSummary.newItems === 0 ? 0.5 : 1 }}
+                                            style={{ background: '#16a34a', color: '#ffffff', padding: '12px 24px', borderRadius: '8px', fontSize: '0.9rem', cursor: importSummary.newItems === 0 ? 'not-allowed' : 'pointer', fontWeight: 700, border: 'none', opacity: importSummary.newItems === 0 ? 0.5 : 1 }}
                                         >
                                             <i className="fas fa-plus-circle" style={{ marginRight: '8px' }}></i> Add Only New
                                         </button>
                                         <button
                                             onClick={() => handleImport('UPDATE_ONLY')}
                                             disabled={importSummary.updateItems === 0}
-                                            style={{ background: '#2563eb', color: 'var(--bg-card)', padding: '12px 24px', borderRadius: '8px', fontSize: '0.9rem', cursor: importSummary.updateItems === 0 ? 'not-allowed' : 'pointer', fontWeight: 700, border: 'none', opacity: importSummary.updateItems === 0 ? 0.5 : 1 }}
+                                            style={{ background: '#2563eb', color: '#ffffff', padding: '12px 24px', borderRadius: '8px', fontSize: '0.9rem', cursor: importSummary.updateItems === 0 ? 'not-allowed' : 'pointer', fontWeight: 700, border: 'none', opacity: importSummary.updateItems === 0 ? 0.5 : 1 }}
                                         >
                                             <i className="fas fa-sync-alt" style={{ marginRight: '8px' }}></i> Update Matched
                                         </button>
                                         {importSummary.noMobileItems > 0 && (
                                             <button
                                                 onClick={() => handleImport('SPECIAL_ENTRY')}
-                                                style={{ background: '#ea580c', color: 'var(--bg-card)', padding: '12px 24px', borderRadius: '8px', fontSize: '0.9rem', cursor: 'pointer', fontWeight: 700, border: 'none' }}
+                                                style={{ background: '#ea580c', color: '#ffffff', padding: '12px 24px', borderRadius: '8px', fontSize: '0.9rem', cursor: 'pointer', fontWeight: 700, border: 'none' }}
                                             >
                                                 <i className="fas fa-user-tag" style={{ marginRight: '8px' }}></i> Add Special Entries
                                             </button>
                                         )}
                                         <button
                                             onClick={() => handleImport('ALL')}
-                                            style={{ background: 'var(--text-main)', color: 'var(--bg-card)', padding: '12px 24px', borderRadius: '8px', fontSize: '0.9rem', cursor: 'pointer', fontWeight: 700, border: 'none' }}
+                                            style={{ background: 'var(--text-main)', color: '#ffffff', padding: '12px 24px', borderRadius: '8px', fontSize: '0.9rem', cursor: 'pointer', fontWeight: 700, border: 'none' }}
                                         >
                                             <i className="fas fa-check-double" style={{ marginRight: '8px' }}></i> Proceed with All
                                         </button>
@@ -1345,7 +1345,7 @@ const ImportDataPage = () => {
                                 setFileData({ headers: [], data: [] });
                                 setMapping({});
                             }}
-                            style={{ marginTop: '32px', padding: '12px 24px', background: '#3b82f6', color: 'var(--bg-card)', fontWeight: 700, borderRadius: '8px', border: 'none', cursor: 'pointer' }}
+                            style={{ marginTop: '32px', padding: '12px 24px', background: '#3b82f6', color: '#ffffff', fontWeight: 700, borderRadius: '8px', border: 'none', cursor: 'pointer' }}
                         >
                             Start New Import
                         </button>

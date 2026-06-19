@@ -237,7 +237,7 @@ const VoiceSettingsPage = () => {
                         <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-muted)' }}>{outcome}</div>
                         <div style={{ display: 'flex', gap: '8px' }}>
                             <button className="btn-outline" style={{ padding: '4px 12px', fontSize: '0.75rem', background: 'var(--bg-card)' }}>Edit</button>
-                            <button style={{ padding: '4px 8px', border: 'none', background: '#ef4444', color: 'var(--bg-card)', borderRadius: '4px', cursor: 'pointer' }} onClick={() => setOutcomes(outcomes.filter(o => o !== outcome))}><i className="fas fa-times"></i></button>
+                            <button style={{ padding: '4px 8px', border: 'none', background: '#ef4444', color: '#ffffff', borderRadius: '4px', cursor: 'pointer' }} onClick={() => setOutcomes(outcomes.filter(o => o !== outcome))}><i className="fas fa-times"></i></button>
                         </div>
                     </div>
                 ))}

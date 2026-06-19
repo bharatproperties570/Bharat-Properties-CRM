@@ -78,7 +78,7 @@ const LeadCaptureSettingsPage = () => {
                 </div>
                 <button
                     onClick={handleCreateNew}
-                    style={{ background: 'var(--primary-color)', color: 'var(--bg-card)', border: 'none', padding: '12px 24px', borderRadius: '12px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 4px 15px -3px rgba(16, 185, 129, 0.4)' }}
+                    style={{ background: 'var(--primary-color)', color: '#ffffff', border: 'none', padding: '12px 24px', borderRadius: '12px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 4px 15px -3px rgba(16, 185, 129, 0.4)' }}
                 >
                     <i className="fas fa-plus"></i>
                     Create New Form
@@ -194,21 +194,21 @@ const LeadCaptureSettingsPage = () => {
                                     navigator.clipboard.writeText(getEmbedCode(selectedForm?.slug));
                                     toast.success('Copied to clipboard');
                                 }}
-                                style={{ position: 'absolute', top: '16px', right: '16px', background: 'rgba(255,255,255,0.1)', border: 'none', color: 'var(--bg-card)', padding: '8px 12px', borderRadius: '8px', cursor: 'pointer', fontSize: '0.8rem' }}
+                                style={{ position: 'absolute', top: '16px', right: '16px', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#ffffff', padding: '8px 12px', borderRadius: '8px', cursor: 'pointer', fontSize: '0.8rem' }}
                             >
                                 Copy
                             </button>
                         </div>
 
                         <div style={{ marginTop: '32px', display: 'flex', gap: '16px', alignItems: 'center', padding: '20px', background: 'var(--stat-property-bg)', borderRadius: '16px', border: '1px solid #dcfce7' }}>
-                            <div style={{ width: '40px', height: '40px', background: '#10b981', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--bg-card)' }}>
+                            <div style={{ width: '40px', height: '40px', background: '#10b981', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff' }}>
                                 <i className="fas fa-qrcode"></i>
                             </div>
                             <div style={{ flex: 1 }}>
                                 <div style={{ fontSize: '0.9rem', fontWeight: 800, color: '#14532d' }}>QR Code Access</div>
                                 <div style={{ fontSize: '0.8rem', color: '#166534' }}>Download QR for offline site-visit capture.</div>
                             </div>
-                            <button style={{ background: '#10b981', color: 'var(--bg-card)', border: 'none', padding: '8px 16px', borderRadius: '8px', fontWeight: 700, fontSize: '0.8rem', cursor: 'not-allowed' }}>Download</button>
+                            <button style={{ background: '#10b981', color: '#ffffff', border: 'none', padding: '8px 16px', borderRadius: '8px', fontWeight: 700, fontSize: '0.8rem', cursor: 'not-allowed' }}>Download</button>
                         </div>
                     </div>
                 </div>

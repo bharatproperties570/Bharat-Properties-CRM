@@ -992,7 +992,7 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                                 borderRadius: '12px', 
                                 border: 'none', 
                                 background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)', 
-                                color: 'var(--bg-card)', 
+                                color: '#ffffff', 
                                 fontWeight: 800, 
                                 fontSize: '0.9rem', 
                                 cursor: isSaving ? 'not-allowed' : 'pointer', 
@@ -1067,7 +1067,7 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                                             toast.error('Sync Failed: ' + err.message);
                                         }
                                     }}
-                                    style={{ padding: '8px 16px', borderRadius: '8px', border: 'none', background: '#3b82f6', color: 'var(--bg-card)', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', boxShadow: '0 4px 10px rgba(59, 130, 246, 0.2)' }}
+                                    style={{ padding: '8px 16px', borderRadius: '8px', border: 'none', background: '#3b82f6', color: '#ffffff', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', boxShadow: '0 4px 10px rgba(59, 130, 246, 0.2)' }}
                                 >
                                     <i className="fas fa-sync-alt"></i> Sync Now
                                 </button>
@@ -1089,7 +1089,7 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                                             toast.error('Connection Error: ' + err.message);
                                         }
                                     }}
-                                    style={{ width: '100%', padding: '14px', borderRadius: '12px', border: 'none', background: '#0077b5', color: 'var(--bg-card)', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginBottom: '15px' }}
+                                    style={{ width: '100%', padding: '14px', borderRadius: '12px', border: 'none', background: '#0077b5', color: '#ffffff', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginBottom: '15px' }}
                                 >
                                     <i className="fab fa-linkedin"></i> {connectionData?.status === 'connected' ? 'Re-Authorize LinkedIn' : (connectionData?.health === 'EXPIRED' ? 'Reconnect LinkedIn' : 'Connect LinkedIn via OAuth')}
                                 </button>
@@ -1115,7 +1115,7 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                             <button
                                 onClick={handleSave}
                                 disabled={isSaving}
-                                style={{ flex: 2, padding: '14px', borderRadius: '12px', border: 'none', background: 'var(--primary-color)', color: 'var(--bg-card)', fontWeight: 800, cursor: 'pointer', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', transition: '0.2s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                                style={{ flex: 2, padding: '14px', borderRadius: '12px', border: 'none', background: 'var(--primary-color)', color: '#ffffff', fontWeight: 800, cursor: 'pointer', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', transition: '0.2s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
                             >
                                 {isSaving ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-save"></i>}
                                 {type === 'linkedin' ? 'Step 1: Save Configuration' : 'Save & Validate Gateway'}
@@ -1454,7 +1454,7 @@ const IntegrationsSettingsPage = () => {
                                                     {item.status === 'connected' ? 'Update Settings' : 'Configure'}
                                                 </button>
                                                 {item.status === 'connected' && (
-                                                    <button style={{ padding: '10px 14px', borderRadius: '8px', border: 'none', background: 'var(--primary-color)', color: 'var(--bg-card)', fontSize: '0.85rem', cursor: 'pointer' }}>
+                                                    <button style={{ padding: '10px 14px', borderRadius: '8px', border: 'none', background: 'var(--primary-color)', color: '#ffffff', fontSize: '0.85rem', cursor: 'pointer' }}>
                                                         <i className="fas fa-paper-plane" title="Send Test"></i>
                                                     </button>
                                                 )}
@@ -1507,7 +1507,7 @@ const IntegrationsSettingsPage = () => {
                                                         </div>
                                                     </div>
                                                 ) : (
-                                                    <button onClick={handleConnectGoogle} style={{ marginTop: '20px', width: '100%', padding: '14px', borderRadius: '12px', background: '#4285F4', color: 'var(--bg-card)', fontWeight: 800, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
+                                                    <button onClick={handleConnectGoogle} style={{ marginTop: '20px', width: '100%', padding: '14px', borderRadius: '12px', background: '#4285F4', color: '#ffffff', fontWeight: 800, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
                                                         <i className="fab fa-google"></i> Connect Google Account
                                                     </button>
                                                 )}

@@ -481,7 +481,7 @@ const DealSettingsPage = () => {
 
     const btnPrimaryStyle = {
         background: '#2563eb',
-        color: 'var(--bg-card)',
+        color: '#ffffff',
         border: 'none',
         padding: '10px 20px',
         borderRadius: '8px',
@@ -1057,7 +1057,7 @@ const DealSettingsPage = () => {
                                             style={{
                                                 padding: '10px 24px',
                                                 background: '#2563eb',
-                                                color: 'var(--bg-card)',
+                                                color: '#ffffff',
                                                 border: 'none',
                                                 borderRadius: '10px',
                                                 fontSize: '0.9rem',

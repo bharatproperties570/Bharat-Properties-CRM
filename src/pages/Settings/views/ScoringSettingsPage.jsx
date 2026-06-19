@@ -507,7 +507,7 @@ const ScoringSettingsPage = () => {
                                             <div style={{ background: `${band.color}10`, padding: '12px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                                     <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: band.color, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                        <i className={`fas ${bandMeta.icon}`} style={{ color: 'var(--bg-card)', fontSize: '0.85rem' }} />
+                                                        <i className={`fas ${bandMeta.icon}`} style={{ color: '#ffffff', fontSize: '0.85rem' }} />
                                                     </div>
                                                     <div>
                                                         <div style={{ fontWeight: 800, color: band.color, fontSize: '1rem' }}>{band.label}</div>
@@ -564,7 +564,7 @@ const ScoringSettingsPage = () => {
                 {activeTab === 'ai' && (
                     <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border-color)', padding: '40px', maxWidth: '600px', textAlign: 'center', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}>
-                            <div style={{ width: '80px', height: '80px', background: 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)', borderRadius: '50%', margin: '0 auto 24px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--bg-card)', fontSize: '2rem' }}>
+                            <div style={{ width: '80px', height: '80px', background: 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)', borderRadius: '50%', margin: '0 auto 24px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff', fontSize: '2rem' }}>
                                 <i className="fas fa-magic"></i>
                             </div>
                             <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '16px' }}>"Why This Score?"</h2>

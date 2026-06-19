@@ -211,7 +211,7 @@ const CustomizeProjectPage = () => {
                                             />
                                             <button
                                                 onClick={handleSaveNewItem}
-                                                style={{ padding: '6px 12px', background: '#3b82f6', color: 'var(--bg-card)', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
+                                                style={{ padding: '6px 12px', background: '#3b82f6', color: '#ffffff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
                                             >
                                                 Save
                                             </button>
@@ -385,7 +385,7 @@ const CustomizeProjectPage = () => {
                                             </button>
                                             <button
                                                 onClick={handleAddAmenity}
-                                                style={{ padding: '10px 20px', borderRadius: '8px', border: 'none', background: '#3b82f6', color: 'var(--bg-card)', fontWeight: 600, cursor: 'pointer' }}
+                                                style={{ padding: '10px 20px', borderRadius: '8px', border: 'none', background: '#3b82f6', color: '#ffffff', fontWeight: 600, cursor: 'pointer' }}
                                             >
                                                 Add Amenity
                                             </button>

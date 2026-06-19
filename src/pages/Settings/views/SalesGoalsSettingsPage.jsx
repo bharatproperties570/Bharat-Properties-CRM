@@ -289,7 +289,7 @@ const SalesGoalsSettings = () => {
                     <p style={{ fontWeight: 600 }}>{error}</p>
                     <button 
                         onClick={fetchInitialData}
-                        style={{ marginTop: '16px', padding: '8px 20px', background: 'var(--text-main)', color: 'var(--bg-card)', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}
+                        style={{ marginTop: '16px', padding: '8px 20px', background: 'var(--text-main)', color: '#ffffff', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}
                     >
                         Try Again
                     </button>

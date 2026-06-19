@@ -111,7 +111,7 @@ const ParsingRulesPage = ({ isEmbedded = false }) => {
                                         placeholder="Add new city..."
                                         style={{ flex: 1, padding: '10px 12px', border: '1px solid var(--border-color)', borderRadius: '6px' }}
                                     />
-                                    <button type="submit" style={{ padding: '0 16px', background: '#3b82f6', color: 'var(--bg-card)', border: 'none', borderRadius: '6px', fontWeight: 700, cursor: 'pointer' }}>
+                                    <button type="submit" style={{ padding: '0 16px', background: '#3b82f6', color: '#ffffff', border: 'none', borderRadius: '6px', fontWeight: 700, cursor: 'pointer' }}>
                                         Add
                                     </button>
                                 </form>
@@ -148,7 +148,7 @@ const ParsingRulesPage = ({ isEmbedded = false }) => {
                                         placeholder="Add project or locality..."
                                         style={{ flex: 1, padding: '10px 12px', border: '1px solid var(--border-color)', borderRadius: '6px' }}
                                     />
-                                    <button type="submit" style={{ padding: '0 16px', background: '#10b981', color: 'var(--bg-card)', border: 'none', borderRadius: '6px', fontWeight: 700, cursor: 'pointer' }}>
+                                    <button type="submit" style={{ padding: '0 16px', background: '#10b981', color: '#ffffff', border: 'none', borderRadius: '6px', fontWeight: 700, cursor: 'pointer' }}>
                                         Add Pattern
                                     </button>
                                 </form>
@@ -200,7 +200,7 @@ const ParsingRulesPage = ({ isEmbedded = false }) => {
                                                     placeholder={`Add ${category} keyword...`}
                                                     style={{ flex: 1, padding: '8px 12px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }}
                                                 />
-                                                <button type="submit" style={{ padding: '0 12px', background: '#3b82f6', color: 'var(--bg-card)', border: 'none', borderRadius: '6px', fontWeight: 700, cursor: 'pointer', fontSize: '0.85rem' }}>
+                                                <button type="submit" style={{ padding: '0 12px', background: '#3b82f6', color: '#ffffff', border: 'none', borderRadius: '6px', fontWeight: 700, cursor: 'pointer', fontSize: '0.85rem' }}>
                                                     Add
                                                 </button>
                                             </form>
@@ -238,7 +238,7 @@ const ParsingRulesPage = ({ isEmbedded = false }) => {
                                 <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
                                     <button
                                         onClick={handleRunTest}
-                                        style={{ flex: 2, padding: '10px 24px', background: '#8b5cf6', color: 'var(--bg-card)', border: 'none', borderRadius: '6px', fontWeight: 700, cursor: 'pointer' }}
+                                        style={{ flex: 2, padding: '10px 24px', background: '#8b5cf6', color: '#ffffff', border: 'none', borderRadius: '6px', fontWeight: 700, cursor: 'pointer' }}
                                     >
                                         Run Analysis
                                     </button>
