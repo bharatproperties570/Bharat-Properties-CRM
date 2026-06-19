@@ -9,7 +9,7 @@ import { usePropertyConfig } from '../../context/PropertyConfigContext';
 import { fixDriveUrl, getYoutubeId } from '../../utils/helpers';
 import PublishModal from '../../components/Marketing/PublishModal';
 import SocialPostModal from '../../components/SocialPostModal';
-import BulkInventoryModal from '../../components/Inventory/BulkInventoryModal';
+import BulkInventoryModal from '../../components/inventory/BulkInventoryModal';
 import AddInventoryModal from '../../components/AddInventoryModal';
 
 const ProjectDetailPage = ({ projectId, onBack, onNavigate, onEditProject }) => {
