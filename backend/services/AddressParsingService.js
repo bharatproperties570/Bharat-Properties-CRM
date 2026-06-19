@@ -122,7 +122,7 @@ class AddressParsingService {
         return hasIndicators || spaceCount >= 3;
     }
 
-    async parseAddress(rawAddress) {
+    async parseAddress(rawAddress, skipAI = false) {
         if (!rawAddress || typeof rawAddress !== 'string' || !rawAddress.trim()) {
             return this._getEmptyAddress();
         }
@@ -143,7 +143,7 @@ class AddressParsingService {
             let structured = this._applyMasterRules(cleanedRawAddress);
             let normalized = this._normalizeStructuredAddress(structured);
             
-            if (!normalized.city && !normalized.location && !normalized.tehsil) {
+            if (!skipAI && !normalized.city && !normalized.location && !normalized.tehsil) {
                 console.log(`[AddressParsingService] Master Rules failed to find location data. Falling back to AI LLM for: "${rawAddress.substring(0, 30)}..."`);
                 const aiResult = await this._applyAIFallback(rawAddress);
                 if (aiResult) {
@@ -155,7 +155,7 @@ class AddressParsingService {
             normalized = await this._enrichFromMasterData(normalized);
 
             // Phase 2 Enrichment: AI Internet/Knowledge-base Search
-            if (!normalized.pincode || !normalized.city || !normalized.state || !normalized.tehsil) {
+            if (!skipAI && (!normalized.pincode || !normalized.city || !normalized.state || !normalized.tehsil)) {
                 normalized = await this._enrichFromAILLM(normalized);
             }
 

@@ -2441,7 +2441,7 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
 
                 if (combinedAddressToParse) {
                     try {
-                        const parsed = await AddressParsingService.parseAddress(combinedAddressToParse);
+                        const parsed = await AddressParsingService.parseAddress(combinedAddressToParse, true);
                         
                         // Override raw mapped fields with strictly validated Master Data fields
                         hNo = parsed.houseNo || hNo;
