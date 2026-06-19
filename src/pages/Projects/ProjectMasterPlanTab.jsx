@@ -157,16 +157,29 @@ const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
     // Plotting form state
     const [dynamicBlocks, setDynamicBlocks] = useState([]);
     const [plotConfig, setPlotConfig] = useState({
-        block: '',
-        category: 'Residential',
-        subCategory: 'Plot',
-        unitType: '',
-        direction: '',
-        facing: '',
-        roadWidth: '',
-        sizeConfig: '',
-        startNumber: '1'
+        block: '', category: 'Residential', subCategory: '', sizeConfig: '', unitType: '', builtupType: '', direction: '', roadWidth: '', startNumber: '1'
     });
+
+    const builtUpTypes = (() => {
+        if (!plotConfig.category || !plotConfig.subCategory || !plotConfig.sizeConfig) return [];
+        const subCatConfig = ((propertyConfig[plotConfig.category] || {}).subCategories || []).find(sc => sc.name === plotConfig.subCategory);
+        if (!subCatConfig) return [];
+        
+        const allBuiltUpTypes = new Set();
+        const typeConfig = (subCatConfig.types || []).find(t => t.name === plotConfig.sizeConfig);
+        
+        if (typeConfig && Array.isArray(typeConfig.builtupTypes)) {
+            typeConfig.builtupTypes.forEach(bt => {
+                if (typeof bt === 'object' && bt !== null) {
+                    allBuiltUpTypes.add(JSON.stringify({ _id: bt._id || bt.id, name: bt.name }));
+                } else {
+                    allBuiltUpTypes.add(JSON.stringify({ name: bt }));
+                }
+            });
+        }
+        
+        return Array.from(allBuiltUpTypes).map(s => JSON.parse(s));
+    })();
 
     const [sessionUnits, setSessionUnits] = useState([]); // Units created in this session
     const [isSavingUnits, setIsSavingUnits] = useState(false);
@@ -341,6 +354,7 @@ const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
             facing: plotConfig.facing,
             roadWidth: plotConfig.roadWidth,
             sizeConfig: plotConfig.sizeConfig,
+            builtupType: plotConfig.builtupType,
             unitNo: unitNumber,
             unitNumber: unitNumber,
             status: 'Inactive', 
@@ -619,7 +633,7 @@ const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
                         </div>
                         <div>
                             <label style={labelStyle}>Size / Config</label>
-                            <select style={selectStyle} value={plotConfig.sizeConfig} onChange={e => setPlotConfig({...plotConfig, sizeConfig: e.target.value})}>
+                            <select style={selectStyle} value={plotConfig.sizeConfig} onChange={e => setPlotConfig({...plotConfig, sizeConfig: e.target.value, builtupType: ''})}>
                                 <option value="">Select Size (Optional)</option>
                                 {sizes?.filter(s => 
                                     (s.project === project?.name || s.projectId === project?._id) && 
@@ -629,6 +643,32 @@ const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
                                 ))}
                             </select>
                         </div>
+                    </div>
+
+                    <div>
+                        <label style={labelStyle}>Built-up Type (Dependent on Sub Category)</label>
+                        <select 
+                            style={{...selectStyle, opacity: (!plotConfig.subCategory || !plotConfig.sizeConfig) ? 0.6 : 1, cursor: (!plotConfig.subCategory || !plotConfig.sizeConfig) ? 'not-allowed' : 'pointer'}} 
+                            value={plotConfig.builtupType} 
+                            disabled={!plotConfig.subCategory || !plotConfig.sizeConfig}
+                            onChange={e => setPlotConfig({...plotConfig, builtupType: e.target.value})}
+                        >
+                            <option value="">
+                                {!plotConfig.subCategory 
+                                    ? "Select Sub-Category First" 
+                                    : !plotConfig.sizeConfig 
+                                        ? "Select Size (Configuration) First" 
+                                        : "Select Built-up Type"}
+                            </option>
+                            {builtUpTypes.map(t => (
+                                <option key={t._id || t.id || t.name} value={t.name}>
+                                    {t.name}
+                                </option>
+                            ))}
+                            {plotConfig.builtupType && !builtUpTypes.some(t => t.name === plotConfig.builtupType) && (
+                                <option value={plotConfig.builtupType}>{plotConfig.builtupType}</option>
+                            )}
+                        </select>
                     </div>
 
                     <hr style={{ border: 'none', borderTop: '1px solid var(--border-color)', margin: '4px 0' }} />
