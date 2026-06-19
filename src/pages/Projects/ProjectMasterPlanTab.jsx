@@ -200,7 +200,7 @@ const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
             absoluteImageUrl, 
             googleMapRef.current, 
             currentRotation, 
-            isEditMode ? currentOpacity : (masterPlan.opacity || 1.0)
+            currentOpacity
         );
 
         if (isEditMode) {
@@ -235,7 +235,7 @@ const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
     useEffect(() => {
         if (overlayRef.current) {
             overlayRef.current.setRotation(currentRotation);
-            overlayRef.current.setOpacity(isEditMode ? currentOpacity : (masterPlan?.opacity || 1.0));
+            overlayRef.current.setOpacity(currentOpacity);
         }
     }, [currentRotation, currentOpacity, isEditMode, masterPlan?.opacity]);
 
