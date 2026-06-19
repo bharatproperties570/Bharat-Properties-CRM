@@ -124,6 +124,19 @@ html.dark-mode,
     --danger-bg: rgba(224, 82, 82, 0.15);
 }
 
+/* Premium Text Selection Override */
+html.dark-mode ::selection,
+.dark-mode ::selection {
+    background-color: var(--gold) !important;
+    color: #07162B !important; /* Navy Royal */
+}
+
+html:not(.dark-mode) ::selection,
+:root:not(.dark-mode) ::selection {
+    background-color: var(--primary-color);
+    color: #ffffff;
+}
+
 
 
 * {
