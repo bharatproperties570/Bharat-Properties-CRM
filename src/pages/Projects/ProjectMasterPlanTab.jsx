@@ -276,6 +276,15 @@ const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
 
         const unitNumber = `${plotConfig.startNumber}`;
         
+        // Extract project team ID safely
+        const teamData = project.teams || project.team;
+        let teamId = null;
+        if (Array.isArray(teamData) && teamData.length > 0) {
+            teamId = teamData[0]?._id || teamData[0];
+        } else if (teamData && !Array.isArray(teamData)) {
+            teamId = teamData._id || teamData;
+        }
+        
         const newUnit = {
             projectId: project._id,
             projectName: project.name,
@@ -293,7 +302,9 @@ const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
             isActive: true,
             intent: ['For Sale'],
             latitude: lat.toFixed(6),
-            longitude: lng.toFixed(6)
+            longitude: lng.toFixed(6),
+            team: teamId ? [teamId] : [],
+            visibleTo: project.visibleTo || 'Everyone'
         };
 
         setSessionUnits(prev => [...prev, newUnit]);

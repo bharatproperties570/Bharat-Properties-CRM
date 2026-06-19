@@ -3140,11 +3140,18 @@ export const bulkAddInventory = async (req, res) => {
 
         // Use bulkWrite with upsert to prevent duplicates and update existing units
         const bulkOps = preparedItems.map(item => {
-            const { status, createdBy, tenantId, _id, ...updateFields } = item;
+            const { status, createdBy, tenantId, _id, team, visibleTo, assignedTo, ...updateFields } = item;
             
-            const setOnInsert = { createdBy, tenantId };
-            // Preserve existing status if we are just updating the unit (e.g. from map plotting)
+            const setOnInsert = { 
+                createdBy, 
+                tenantId,
+                assignedTo: assignedTo || [req.user._id]
+            };
+            
+            // Preserve existing status and assignment if we are just updating the unit (e.g. from map plotting)
             if (status) setOnInsert.status = status;
+            if (team) setOnInsert.team = team;
+            if (visibleTo) setOnInsert.visibleTo = visibleTo;
 
             return {
                 updateOne: {
