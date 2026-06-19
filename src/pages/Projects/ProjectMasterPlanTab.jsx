@@ -669,7 +669,14 @@ const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
                         </div>
                         <div style={{ width: '80px' }}>
                             <label style={labelStyle}>Next #</label>
-                            <input type="text" style={inputStyle} value={plotConfig.startNumber} onChange={e => setPlotConfig({...plotConfig, startNumber: e.target.value})} />
+                            <input type="text" style={inputStyle} value={plotConfig.startNumber} onChange={e => {
+                                let val = e.target.value;
+                                // Automatically add space between numbers and letters
+                                val = val.replace(/(\d)([a-zA-Z])/g, '$1 $2').replace(/([a-zA-Z])(\d)/g, '$1 $2');
+                                // Replace multiple spaces with a single space
+                                val = val.replace(/\s+/g, ' ');
+                                setPlotConfig({...plotConfig, startNumber: val});
+                            }} />
                         </div>
                     </div>
 
