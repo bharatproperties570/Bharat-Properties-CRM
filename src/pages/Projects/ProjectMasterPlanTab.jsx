@@ -90,6 +90,51 @@ const getRotatableOverlayClass = () => {
     return RotatableOverlay;
 };
 
+// Helper to increment alphanumeric unit numbers (e.g. 100A -> 100B, Shop100 -> Shop101)
+const incrementUnitNumber = (unitNo) => {
+    if (!unitNo) return '1';
+    const str = unitNo.toString();
+    
+    // Ends with alphabet
+    const matchAlpha = str.match(/([a-zA-Z]+)$/);
+    if (matchAlpha) {
+        const letters = matchAlpha[1];
+        const prefix = str.slice(0, -letters.length);
+        let newLetters = '';
+        let carry = true;
+        for (let i = letters.length - 1; i >= 0; i--) {
+            if (!carry) {
+                newLetters = letters[i] + newLetters;
+                continue;
+            }
+            const charCode = letters.charCodeAt(i);
+            if (charCode === 90) { // 'Z'
+                newLetters = 'A' + newLetters;
+            } else if (charCode === 122) { // 'z'
+                newLetters = 'a' + newLetters;
+            } else {
+                newLetters = String.fromCharCode(charCode + 1) + newLetters;
+                carry = false;
+            }
+        }
+        if (carry) {
+            newLetters = (letters[0] === letters[0].toUpperCase() ? 'A' : 'a') + newLetters;
+        }
+        return prefix + newLetters;
+    }
+    
+    // Ends with numbers
+    const matchNum = str.match(/(\d+)$/);
+    if (matchNum) {
+        const numStr = matchNum[1];
+        const prefix = str.slice(0, -numStr.length);
+        const incrementedNum = (parseInt(numStr, 10) + 1).toString().padStart(numStr.length, '0');
+        return prefix + incrementedNum;
+    }
+    
+    return str + '1';
+};
+
 const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
     const { propertyConfig, sizes, masterFields } = usePropertyConfig();
     const mapRef = useRef(null);
@@ -120,7 +165,7 @@ const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
         facing: '',
         roadWidth: '',
         sizeConfig: '',
-        startNumber: 1
+        startNumber: '1'
     });
 
     const [sessionUnits, setSessionUnits] = useState([]); // Units created in this session
@@ -308,7 +353,7 @@ const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
         };
 
         setSessionUnits(prev => [...prev, newUnit]);
-        setPlotConfig(prev => ({ ...prev, startNumber: prev.startNumber + 1 }));
+        setPlotConfig(prev => ({ ...prev, startNumber: incrementUnitNumber(prev.startNumber) }));
 
         // Drop a marker for visual feedback
         const marker = new window.google.maps.Marker({
@@ -624,7 +669,7 @@ const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
                         </div>
                         <div style={{ width: '80px' }}>
                             <label style={labelStyle}>Next #</label>
-                            <input type="number" style={inputStyle} value={plotConfig.startNumber} onChange={e => setPlotConfig({...plotConfig, startNumber: parseInt(e.target.value) || 1})} />
+                            <input type="text" style={inputStyle} value={plotConfig.startNumber} onChange={e => setPlotConfig({...plotConfig, startNumber: e.target.value})} />
                         </div>
                     </div>
 
