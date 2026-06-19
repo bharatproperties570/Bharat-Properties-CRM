@@ -480,19 +480,6 @@ const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
                             />
                             <span style={{ fontSize: '0.8rem', fontWeight: 600, width: '30px', color: 'var(--text-main)' }}>{currentRotation}°</span>
                         </div>
-                        <div style={{ width: '1px', height: '20px', background: 'var(--border-color)', margin: '0 8px' }}></div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-main)' }}>Opacity:</label>
-                            <input 
-                                type="range" 
-                                min="0" max="1" step="0.1"
-                                value={currentOpacity} 
-                                onChange={(e) => setCurrentOpacity(Number(e.target.value))} 
-                                style={{ width: '60px' }}
-                            />
-                            <span style={{ fontSize: '0.8rem', fontWeight: 600, width: '30px', color: 'var(--text-main)' }}>{Math.round(currentOpacity * 100)}%</span>
-                        </div>
-                        <div style={{ width: '1px', height: '20px', background: 'var(--border-color)', margin: '0 8px' }}></div>
                         <button onClick={handleSaveLayout} style={{ padding: '6px 16px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '20px', fontWeight: 700, cursor: 'pointer' }}>
                             <i className="fas fa-lock" style={{marginRight: '6px'}}></i> Lock Layout
                         </button>
@@ -516,6 +503,19 @@ const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
                         </button>
                     </>
                 )}
+                
+                <div style={{ width: '1px', height: '20px', background: 'var(--border-color)', margin: '0 8px' }}></div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-main)' }}>Opacity:</label>
+                    <input 
+                        type="range" 
+                        min="0" max="1" step="0.1"
+                        value={currentOpacity} 
+                        onChange={(e) => setCurrentOpacity(Number(e.target.value))} 
+                        style={{ width: '60px' }}
+                    />
+                    <span style={{ fontSize: '0.8rem', fontWeight: 600, width: '30px', color: 'var(--text-main)' }}>{Math.round(currentOpacity * 100)}%</span>
+                </div>
             </div>
 
             {/* Rapid Plotting Sidebar */}
