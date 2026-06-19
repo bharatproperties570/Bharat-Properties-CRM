@@ -3524,3 +3524,17 @@ html.dark-mode select option:checked {
     background: var(--gold) !important;
     color: #07162B !important;
 }
+
+
+/* Global Form Controls for Dark Mode Override */
+html.dark-mode input:not([type="checkbox"]):not([type="radio"]),
+html.dark-mode textarea {
+    background-color: var(--input-bg) !important;
+    color: var(--input-text) !important;
+    border-color: var(--input-border) !important;
+}
+
+html.dark-mode input::placeholder,
+html.dark-mode textarea::placeholder {
+    color: var(--text-muted) !important;
+}
