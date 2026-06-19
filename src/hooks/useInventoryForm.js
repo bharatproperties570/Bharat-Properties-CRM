@@ -94,30 +94,43 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
     // Pre-fill form data if editing
     useEffect(() => {
         if (property && isOpen) {
+            const resolveField = (val, type) => {
+                if (!val) return '';
+                if (typeof val === 'object') {
+                    const label = val.lookup_value || val.name || val.label;
+                    if (label && !/^[0-9a-fA-F]{24}$/.test(String(label))) return label;
+                    val = val._id || val.id || val;
+                }
+                const resolved = getLookupValue(type, val);
+                if (resolved && !/^[0-9a-fA-F]{24}$/.test(String(resolved))) return String(resolved);
+                if (typeof val === 'string' && !/^[0-9a-fA-F]{24}$/.test(val)) return val;
+                return '';
+            };
+
             setFormData(prev => ({
                 ...prev,
                 ...property,
                 projectName: property.project?.name || property.projectName || (typeof property.project === 'string' ? property.project : ''),
                 projectId: property.project?._id || property.projectId || '',
                 unitNo: property.unitNo || property.unitNumber || '',
-                unitType: (property.unitType?.lookup_value || property.unitType?.name || property.unitType || '').toLowerCase(),
-                category: property.category?.name || property.category?.lookup_value || getLookupValue('Category', property.category) || property.category || 'Residential',
+                unitType: resolveField(property.unitType, 'UnitType').toLowerCase(),
+                category: resolveField(property.category, 'Category') || 'Residential',
                 block: property.block?.name || property.block || '',
                 size: property.sizeConfig?.lookup_value || property.sizeConfig?.name || property.sizeLabel || property.size || '',
-                sizeType: property.sizeType?.lookup_value || property.sizeType?.name || property.sizeType || '',
+                sizeType: resolveField(property.sizeType, 'PropertyType'),
                 locationSearch: property.locationSearch || property.location || '',
-                status: property.status?.name || property.status?.lookup_value || getLookupValue('Status', property.status) || property.status || 'Active',
-                intent: property.intent?.name || property.intent?.lookup_value || getLookupValue('Intent', property.intent) || property.intent || 'Sell',
-                subCategory: property.subCategory?.name || property.subCategory?.lookup_value || getLookupValue('SubCategory', property.subCategory) || property.subCategory || '',
-                facing: property.facing?.name || property.facing?.lookup_value || getLookupValue('Facing', property.facing) || property.facing || '',
-                direction: property.direction?.name || property.direction?.lookup_value || getLookupValue('Direction', property.direction) || property.direction || '',
-                roadWidth: property.roadWidth?.name || property.roadWidth?.lookup_value || getLookupValue('Road Width', property.roadWidth) || property.roadWidth || '',
-                builtupType: property.builtupType?.name || property.builtupType?.lookup_value || getLookupValue('BuiltupType', property.builtupType) || property.builtupType || '',
+                status: resolveField(property.status, 'Status') || 'Active',
+                intent: resolveField(property.intent, 'Intent') || 'Sell',
+                subCategory: resolveField(property.subCategory, 'SubCategory'),
+                facing: resolveField(property.facing, 'Facing'),
+                direction: resolveField(property.direction, 'Direction'),
+                roadWidth: resolveField(property.roadWidth, 'RoadWidth'),
+                builtupType: resolveField(property.builtupType, 'BuiltupType'),
                 assignedTo: property.assignedTo?._id || property.assignedTo || '',
                 team: property.team?._id || property.team || '',
                 visibleTo: property.visibleTo || 'Public',
-                possessionStatus: property.possessionStatus?.name || property.possessionStatus?.lookup_value || property.possessionStatus || '',
-                furnishType: property.furnishType?.name || property.furnishType?.lookup_value || property.furnishType || '',
+                possessionStatus: resolveField(property.possessionStatus, 'PossessionStatus'),
+                furnishType: resolveField(property.furnishType, 'FurnishType'),
                 furnishedItems: property.furnishedItems || '',
                 occupationDate: property.occupationDate ? new Date(property.occupationDate).toISOString().split('T')[0] : '',
                 ageOfConstruction: property.ageOfConstruction || '',
