@@ -36,7 +36,7 @@ const DistributionRulesPage = () => {
             case 'leads': return '#3b82f6';
             case 'activities': return '#10b981';
             case 'campaigns': return '#f59e0b';
-            default: return '#6b7280';
+            default: return 'var(--text-muted)';
         }
     };
 
@@ -58,10 +58,10 @@ const DistributionRulesPage = () => {
             <div style={{ marginBottom: '32px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                     <div>
-                        <h1 style={{ fontSize: '28px', fontWeight: '600', color: '#111827', margin: 0 }}>
+                        <h1 style={{ fontSize: '28px', fontWeight: '600', color: 'var(--text-main)', margin: 0 }}>
                             Distribution Rules
                         </h1>
-                        <p style={{ fontSize: '14px', color: '#6b7280', marginTop: '4px' }}>
+                        <p style={{ fontSize: '14px', color: 'var(--text-muted)', marginTop: '4px' }}>
                             Control who gets what work, when, and why
                         </p>
                     </div>
@@ -70,12 +70,12 @@ const DistributionRulesPage = () => {
                             onClick={() => setShowAnalytics(!showAnalytics)}
                             style={{
                                 padding: '10px 20px',
-                                background: 'white',
-                                border: '1px solid #e5e7eb',
+                                background: 'var(--bg-card)',
+                                border: '1px solid var(--border-color)',
                                 borderRadius: '6px',
                                 fontSize: '14px',
                                 fontWeight: '500',
-                                color: '#374151',
+                                color: 'var(--text-main)',
                                 cursor: 'pointer'
                             }}
                         >
@@ -93,7 +93,7 @@ const DistributionRulesPage = () => {
                                 borderRadius: '6px',
                                 fontSize: '14px',
                                 fontWeight: '500',
-                                color: 'white',
+                                color: 'var(--bg-card)',
                                 cursor: 'pointer'
                             }}
                         >
@@ -105,8 +105,8 @@ const DistributionRulesPage = () => {
                 {/* Analytics Panel */}
                 {showAnalytics && (
                     <div style={{
-                        background: 'white',
-                        border: '1px solid #e5e7eb',
+                        background: 'var(--bg-card)',
+                        border: '1px solid var(--border-color)',
                         borderRadius: '8px',
                         padding: '20px',
                         marginTop: '16px'
@@ -116,15 +116,15 @@ const DistributionRulesPage = () => {
                         </h3>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
                             <div>
-                                <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>
+                                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>
                                     Total Assignments
                                 </div>
-                                <div style={{ fontSize: '24px', fontWeight: '600', color: '#111827' }}>
+                                <div style={{ fontSize: '24px', fontWeight: '600', color: 'var(--text-main)' }}>
                                     {analytics.totalAssignments}
                                 </div>
                             </div>
                             <div>
-                                <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>
+                                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>
                                     Manual Overrides
                                 </div>
                                 <div style={{ fontSize: '24px', fontWeight: '600', color: '#f59e0b' }}>
@@ -132,7 +132,7 @@ const DistributionRulesPage = () => {
                                 </div>
                             </div>
                             <div>
-                                <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>
+                                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>
                                     Active Rules
                                 </div>
                                 <div style={{ fontSize: '24px', fontWeight: '600', color: '#10b981' }}>
@@ -140,10 +140,10 @@ const DistributionRulesPage = () => {
                                 </div>
                             </div>
                             <div>
-                                <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>
+                                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>
                                     Total Rules
                                 </div>
-                                <div style={{ fontSize: '24px', fontWeight: '600', color: '#6b7280' }}>
+                                <div style={{ fontSize: '24px', fontWeight: '600', color: 'var(--text-muted)' }}>
                                     {distributionRules.length}
                                 </div>
                             </div>
@@ -155,17 +155,17 @@ const DistributionRulesPage = () => {
             {/* Rules List */}
             {distributionRules.length === 0 ? (
                 <div style={{
-                    background: 'white',
+                    background: 'var(--bg-card)',
                     border: '2px dashed #e5e7eb',
                     borderRadius: '8px',
                     padding: '48px',
                     textAlign: 'center'
                 }}>
                     <div style={{ fontSize: '48px', marginBottom: '16px' }}>📋</div>
-                    <h3 style={{ fontSize: '18px', fontWeight: '600', color: '#111827', marginBottom: '8px' }}>
+                    <h3 style={{ fontSize: '18px', fontWeight: '600', color: 'var(--text-main)', marginBottom: '8px' }}>
                         No Distribution Rules Yet
                     </h3>
-                    <p style={{ fontSize: '14px', color: '#6b7280', marginBottom: '24px' }}>
+                    <p style={{ fontSize: '14px', color: 'var(--text-muted)', marginBottom: '24px' }}>
                         Create your first rule to start automating work assignment
                     </p>
                     <button
@@ -177,7 +177,7 @@ const DistributionRulesPage = () => {
                             borderRadius: '6px',
                             fontSize: '14px',
                             fontWeight: '500',
-                            color: 'white',
+                            color: 'var(--bg-card)',
                             cursor: 'pointer'
                         }}
                     >
@@ -192,8 +192,8 @@ const DistributionRulesPage = () => {
                             <div
                                 key={rule.id}
                                 style={{
-                                    background: 'white',
-                                    border: '1px solid #e5e7eb',
+                                    background: 'var(--bg-card)',
+                                    border: '1px solid var(--border-color)',
                                     borderRadius: '8px',
                                     padding: '20px',
                                     opacity: rule.enabled ? 1 : 0.6
@@ -202,13 +202,13 @@ const DistributionRulesPage = () => {
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
                                     <div style={{ flex: 1 }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
-                                            <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#111827', margin: 0 }}>
+                                            <h3 style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text-main)', margin: 0 }}>
                                                 {rule.name}
                                             </h3>
                                             <span style={{
                                                 padding: '4px 8px',
                                                 background: getModuleBadgeColor(rule.module),
-                                                color: 'white',
+                                                color: 'var(--bg-card)',
                                                 fontSize: '11px',
                                                 fontWeight: '600',
                                                 borderRadius: '4px',
@@ -218,8 +218,8 @@ const DistributionRulesPage = () => {
                                             </span>
                                             <span style={{
                                                 padding: '4px 8px',
-                                                background: '#f3f4f6',
-                                                color: '#374151',
+                                                background: 'var(--bg-light)',
+                                                color: 'var(--text-main)',
                                                 fontSize: '11px',
                                                 fontWeight: '500',
                                                 borderRadius: '4px'
@@ -240,7 +240,7 @@ const DistributionRulesPage = () => {
                                             )}
                                         </div>
 
-                                        <div style={{ fontSize: '13px', color: '#6b7280', marginBottom: '12px' }}>
+                                        <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '12px' }}>
                                             <strong>Trigger:</strong> {rule.triggerEvent} •
                                             <strong> Conditions:</strong> {rule.conditions?.length || 0} rule(s) •
                                             <strong> Targets:</strong> {rule.assignmentTarget?.ids?.length || 0} agent(s)
@@ -248,17 +248,17 @@ const DistributionRulesPage = () => {
 
                                         {rule.conditions && rule.conditions.length > 0 && (
                                             <div style={{
-                                                background: '#f9fafb',
+                                                background: 'var(--bg-light)',
                                                 padding: '12px',
                                                 borderRadius: '6px',
                                                 fontSize: '12px',
-                                                color: '#374151'
+                                                color: 'var(--text-main)'
                                             }}>
                                                 <strong>IF</strong>{' '}
                                                 {rule.conditions.map((cond, idx) => (
                                                     <span key={idx}>
                                                         {idx > 0 && <strong> {cond.logic || 'AND'} </strong>}
-                                                        <code style={{ background: '#e5e7eb', padding: '2px 6px', borderRadius: '3px' }}>
+                                                        <code style={{ background: 'var(--border-color)', padding: '2px 6px', borderRadius: '3px' }}>
                                                             {cond.field} {cond.operator} {cond.value}
                                                         </code>
                                                     </span>
@@ -275,17 +275,17 @@ const DistributionRulesPage = () => {
                                                 onChange={(e) => handleToggleRule(rule.id, e.target.checked)}
                                                 style={{ marginRight: '6px' }}
                                             />
-                                            <span style={{ fontSize: '13px', color: '#374151' }}>Enabled</span>
+                                            <span style={{ fontSize: '13px', color: 'var(--text-main)' }}>Enabled</span>
                                         </label>
                                         <button
                                             onClick={() => handleEditRule(rule)}
                                             style={{
                                                 padding: '6px 12px',
-                                                background: 'white',
-                                                border: '1px solid #e5e7eb',
+                                                background: 'var(--bg-card)',
+                                                border: '1px solid var(--border-color)',
                                                 borderRadius: '4px',
                                                 fontSize: '13px',
-                                                color: '#374151',
+                                                color: 'var(--text-main)',
                                                 cursor: 'pointer'
                                             }}
                                         >
@@ -295,7 +295,7 @@ const DistributionRulesPage = () => {
                                             onClick={() => setDeleteConfirm(rule.id)}
                                             style={{
                                                 padding: '6px 12px',
-                                                background: 'white',
+                                                background: 'var(--bg-card)',
                                                 border: '1px solid #fecaca',
                                                 borderRadius: '4px',
                                                 fontSize: '13px',
@@ -327,7 +327,7 @@ const DistributionRulesPage = () => {
                     zIndex: 10000
                 }}>
                     <div style={{
-                        background: 'white',
+                        background: 'var(--bg-card)',
                         borderRadius: '8px',
                         padding: '24px',
                         maxWidth: '400px',
@@ -336,7 +336,7 @@ const DistributionRulesPage = () => {
                         <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '12px' }}>
                             Delete Distribution Rule?
                         </h3>
-                        <p style={{ fontSize: '14px', color: '#6b7280', marginBottom: '24px' }}>
+                        <p style={{ fontSize: '14px', color: 'var(--text-muted)', marginBottom: '24px' }}>
                             This action cannot be undone. The rule will be permanently deleted.
                         </p>
                         <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
@@ -344,8 +344,8 @@ const DistributionRulesPage = () => {
                                 onClick={() => setDeleteConfirm(null)}
                                 style={{
                                     padding: '8px 16px',
-                                    background: 'white',
-                                    border: '1px solid #e5e7eb',
+                                    background: 'var(--bg-card)',
+                                    border: '1px solid var(--border-color)',
                                     borderRadius: '6px',
                                     fontSize: '14px',
                                     cursor: 'pointer'
@@ -361,7 +361,7 @@ const DistributionRulesPage = () => {
                                     border: 'none',
                                     borderRadius: '6px',
                                     fontSize: '14px',
-                                    color: 'white',
+                                    color: 'var(--bg-card)',
                                     cursor: 'pointer'
                                 }}
                             >

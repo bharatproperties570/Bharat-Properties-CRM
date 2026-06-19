@@ -12,11 +12,11 @@ const LiveClock = () => {
     }, []);
 
     return (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: '#64748b', background: '#f8fafc', padding: '6px 12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-            <i className="fas fa-calendar-alt" style={{ color: '#94a3b8' }}></i>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: 'var(--text-muted)', background: 'var(--bg-light)', padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+            <i className="fas fa-calendar-alt" style={{ color: 'var(--text-muted)' }}></i>
             <span>{time.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}</span>
-            <span style={{ width: '1px', height: '12px', background: '#cbd5e1', margin: '0 4px' }}></span>
-            <i className="fas fa-clock" style={{ color: '#94a3b8' }}></i>
+            <span style={{ width: '1px', height: '12px', background: 'var(--border-color)', margin: '0 4px' }}></span>
+            <i className="fas fa-clock" style={{ color: 'var(--text-muted)' }}></i>
             <span style={{ fontVariantNumeric: 'tabular-nums' }}>{time.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
         </div>
     );
@@ -206,10 +206,10 @@ const DealSettingsPage = () => {
 
     // --- Styles ---
     const sectionStyle = {
-        background: '#fff',
+        background: 'var(--bg-card)',
         padding: '24px',
         borderRadius: '12px',
-        border: '1px solid #e2e8f0',
+        border: '1px solid var(--border-color)',
         marginBottom: '24px'
     };
 
@@ -217,7 +217,7 @@ const DealSettingsPage = () => {
         display: 'block',
         fontSize: '0.85rem',
         fontWeight: 600,
-        color: '#64748b',
+        color: 'var(--text-muted)',
         marginBottom: '8px'
     };
 
@@ -225,7 +225,7 @@ const DealSettingsPage = () => {
         width: '100%',
         padding: '10px 12px',
         borderRadius: '8px',
-        border: '1px solid #cbd5e1',
+        border: '1px solid var(--border-color)',
         fontSize: '0.9rem',
         outline: 'none',
         transition: 'border-color 0.2s'
@@ -244,7 +244,7 @@ const DealSettingsPage = () => {
 
     const btnPrimaryStyle = {
         background: '#2563eb',
-        color: '#fff',
+        color: 'var(--bg-card)',
         border: 'none',
         padding: '10px 20px',
         borderRadius: '8px',
@@ -260,8 +260,8 @@ const DealSettingsPage = () => {
 
     const btnOutlineStyle = {
         background: 'transparent',
-        color: '#64748b',
-        border: '1px solid #cbd5e1',
+        color: 'var(--text-muted)',
+        border: '1px solid var(--border-color)',
         padding: '10px 20px',
         borderRadius: '8px',
         fontSize: '0.9rem',
@@ -271,21 +271,21 @@ const DealSettingsPage = () => {
     };
 
     const tableHeaderStyle = {
-        background: '#f8fafc',
+        background: 'var(--bg-light)',
         padding: '12px 24px',
         textAlign: 'left',
         fontSize: '0.75rem',
         fontWeight: 700,
-        color: '#64748b',
+        color: 'var(--text-muted)',
         textTransform: 'uppercase',
-        borderBottom: '1px solid #e2e8f0'
+        borderBottom: '1px solid var(--border-color)'
     };
 
     const tableCellStyle = {
         padding: '16px 24px',
         borderBottom: '1px solid #f1f5f9',
         fontSize: '0.9rem',
-        color: '#1e293b'
+        color: 'var(--text-main)'
     };
 
     return (
@@ -293,17 +293,17 @@ const DealSettingsPage = () => {
             {/* Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                 <div>
-                    <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>Deal Settings</h1>
-                    <p style={{ fontSize: '0.9rem', color: '#64748b', marginTop: '4px' }}>Manage financial configurations and collector rates</p>
+                    <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-main)', margin: 0 }}>Deal Settings</h1>
+                    <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginTop: '4px' }}>Manage financial configurations and collector rates</p>
                 </div>
             </div>
 
             {/* Collector Rates Section (First) */}
-            <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden', marginBottom: '32px' }}>
-                <div style={{ padding: '20px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc' }}>
+            <div style={{ background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden', marginBottom: '32px' }}>
+                <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-light)' }}>
                     <div>
-                        <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>Collector Rates</h3>
-                        <p style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '2px' }}>Manage government circle rates based on location</p>
+                        <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)', margin: 0 }}>Collector Rates</h3>
+                        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '2px' }}>Manage government circle rates based on location</p>
                     </div>
                     <button onClick={() => setViewMode('add')} style={btnPrimaryStyle}>
                         <i className="fas fa-plus"></i> Add New Rate
@@ -323,16 +323,16 @@ const DealSettingsPage = () => {
                         <tbody>
                             {collectorRates.length === 0 ? (
                                 <tr>
-                                    <td colSpan="4" style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
+                                    <td colSpan="4" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
                                         No collector rates found. Add one to get started.
                                     </td>
                                 </tr>
                             ) : (
                                 collectorRates.map((rate) => (
-                                    <tr key={rate._id} style={{ transition: 'background 0.2s' }} onMouseEnter={(e) => e.currentTarget.style.background = '#f8fafc'} onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}>
+                                    <tr key={rate._id} style={{ transition: 'background 0.2s' }} onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-light)'} onMouseLeave={(e) => e.currentTarget.style.background = 'var(--bg-card)'}>
                                         <td style={tableCellStyle}>
-                                            <div style={{ fontWeight: 600, color: '#1e293b' }}>{rate.district?.lookup_value || 'Unknown District'}</div>
-                                            <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{rate.state?.lookup_value} {rate.tehsil && `• ${rate.tehsil.lookup_value}`}</div>
+                                            <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>{rate.district?.lookup_value || 'Unknown District'}</div>
+                                            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{rate.state?.lookup_value} {rate.tehsil && `• ${rate.tehsil.lookup_value}`}</div>
                                         </td>
                                         <td style={tableCellStyle}>
                                             <span style={{ background: '#e0e7ff', color: '#4338ca', padding: '4px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700 }}>
@@ -362,7 +362,7 @@ const DealSettingsPage = () => {
             {/* Config Section (Second) */}
             <div style={sectionStyle}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                    <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '10px', margin: 0 }}>
+                    <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '10px', margin: 0 }}>
                         <div style={{ width: '32px', height: '32px', background: '#eff6ff', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             <i className="fas fa-cog" style={{ color: '#2563eb' }}></i>
                         </div>
@@ -421,11 +421,11 @@ const DealSettingsPage = () => {
                     </div>
                 </div>
 
-                <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '24px' }}>
+                <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '24px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '24px', marginBottom: '20px' }}>
-                        <label style={{ fontSize: '0.9rem', fontWeight: 600, color: '#1e293b' }}>Registration Fee Calculation:</label>
+                        <label style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)' }}>Registration Fee Calculation:</label>
                         <div style={{ display: 'flex', gap: '12px' }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.9rem', color: '#475569' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.9rem', color: 'var(--text-muted)' }}>
                                 <input
                                     type="radio"
                                     name="regMode"
@@ -434,7 +434,7 @@ const DealSettingsPage = () => {
                                 />
                                 Flat Percentage
                             </label>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.9rem', color: '#475569' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.9rem', color: 'var(--text-muted)' }}>
                                 <input
                                     type="radio"
                                     name="regMode"
@@ -457,8 +457,8 @@ const DealSettingsPage = () => {
                             />
                         </div>
                     ) : (
-                        <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 40px', gap: '12px', marginBottom: '12px', fontWeight: 600, fontSize: '0.8rem', color: '#64748b' }}>
+                        <div style={{ background: 'var(--bg-light)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 40px', gap: '12px', marginBottom: '12px', fontWeight: 600, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                                 <div>Min Value (₹)</div>
                                 <div>Max Value (₹)</div>
                                 <div>Fee Amount (₹)</div>
@@ -497,7 +497,7 @@ const DealSettingsPage = () => {
                             ))}
                             <button
                                 onClick={addSlab}
-                                style={{ marginTop: '12px', background: 'white', border: '1px dashed #cbd5e1', color: '#2563eb', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, width: '100%', transition: 'all 0.2s' }}
+                                style={{ marginTop: '12px', background: 'var(--bg-card)', border: '1px dashed var(--border-color)', color: '#2563eb', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, width: '100%', transition: 'all 0.2s' }}
                             >
                                 <i className="fas fa-plus" style={{ marginRight: '6px' }}></i> Add Slab
                             </button>
@@ -509,16 +509,16 @@ const DealSettingsPage = () => {
             {/* Add Rate Modal */}
             {viewMode === 'add' && (
                 <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.6)', zIndex: 1000, display: 'flex', justifyContent: 'center', alignItems: 'center', backdropFilter: 'blur(4px)' }}>
-                    <div style={{ background: '#fff', width: '90%', maxWidth: '600px', borderRadius: '16px', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', animation: 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)' }}>
+                    <div style={{ background: 'var(--bg-card)', width: '90%', maxWidth: '600px', borderRadius: '16px', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', animation: 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)' }}>
 
                         {/* Modal Header */}
-                        <div style={{ padding: '20px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc' }}>
+                        <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-light)' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                                 <div style={{ width: '42px', height: '42px', background: '#eff6ff', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                     <i className="fas fa-map-marked-alt" style={{ color: '#2563eb', fontSize: '1.2rem' }}></i>
                                 </div>
                                 <div>
-                                    <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>
+                                    <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-main)', margin: 0 }}>
                                         Add Collector Rate
                                     </h2>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
@@ -526,7 +526,7 @@ const DealSettingsPage = () => {
                                     </div>
                                 </div>
                             </div>
-                            <button onClick={() => setViewMode('list')} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '1.2rem', transition: 'color 0.2s' }}>
+                            <button onClick={() => setViewMode('list')} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '1.2rem', transition: 'color 0.2s' }}>
                                 <i className="fas fa-times"></i>
                             </button>
                         </div>
@@ -597,7 +597,7 @@ const DealSettingsPage = () => {
                                                 onChange={e => handleRateChange('rate', e.target.value)}
                                                 placeholder="0.00"
                                             />
-                                            <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#64748b', fontWeight: 600 }}>₹</span>
+                                            <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontWeight: 600 }}>₹</span>
                                         </div>
                                     </div>
                                 </div>
@@ -606,7 +606,7 @@ const DealSettingsPage = () => {
                         </div>
 
                         {/* Modal Footer */}
-                        <div style={{ padding: '20px 24px', borderTop: '1px solid #e2e8f0', background: '#f8fafc', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                        <div style={{ padding: '20px 24px', borderTop: '1px solid var(--border-color)', background: 'var(--bg-light)', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
                             <button onClick={() => setViewMode('list')} style={btnOutlineStyle}>Cancel</button>
                             <button onClick={handleSaveAll} style={btnPrimaryStyle} disabled={saving}>
                                 {saving ? <span className="loader-sm"></span> : <><i className="fas fa-check"></i> Add Rate</>}

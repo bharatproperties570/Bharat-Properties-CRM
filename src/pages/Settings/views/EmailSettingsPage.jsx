@@ -18,18 +18,18 @@ const VisibilityDropdown = ({ value, onChange }) => {
         <div style={{ position: 'relative' }}>
             <div
                 onClick={() => setIsOpen(!isOpen)}
-                style={{ padding: '8px 16px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.85rem', color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', background: '#fff', minWidth: '220px', justifyContent: 'space-between' }}
+                style={{ padding: '8px 16px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-card)', minWidth: '220px', justifyContent: 'space-between' }}
             >
                 {value} <i className={`fas fa-chevron-${isOpen ? 'up' : 'down'}`} style={{ fontSize: '0.7rem' }}></i>
             </div>
             {isOpen && (
-                <div style={{ position: 'absolute', top: '100%', right: 0, width: '320px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '4px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 100, marginTop: '4px' }}>
+                <div style={{ position: 'absolute', top: '100%', right: 0, width: '320px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '4px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 100, marginTop: '4px' }}>
                     {options.map(opt => (
                         <div
                             key={opt}
                             onClick={() => { onChange(opt); setIsOpen(false); }}
-                            style={{ padding: '10px 16px', fontSize: '0.85rem', color: value === opt ? 'var(--primary-color)' : '#475569', fontWeight: value === opt ? 700 : 500, cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
-                            onMouseOver={e => e.target.style.background = '#f8fafc'}
+                            style={{ padding: '10px 16px', fontSize: '0.85rem', color: value === opt ? 'var(--primary-color)' : 'var(--text-muted)', fontWeight: value === opt ? 700 : 500, cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
+                            onMouseOver={e => e.target.style.background = 'var(--bg-light)'}
                             onMouseOut={e => e.target.style.background = 'transparent'}
                         >
                             {opt}
@@ -131,18 +131,18 @@ const TemplateModal = ({ isOpen, onClose, onSave, initialData }) => {
 
     return (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10001 }}>
-            <div style={{ background: '#fff', width: '850px', maxHeight: '95vh', borderRadius: '12px', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
+            <div style={{ background: 'var(--bg-card)', width: '850px', maxHeight: '95vh', borderRadius: '12px', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
                 <div style={{ padding: '20px 32px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: '#1e293b' }}>Create template</h2>
-                    <i className="fas fa-times" style={{ cursor: 'pointer', color: '#94a3b8', fontSize: '1.2rem' }} onClick={onClose}></i>
+                    <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-main)' }}>Create template</h2>
+                    <i className="fas fa-times" style={{ cursor: 'pointer', color: 'var(--text-muted)', fontSize: '1.2rem' }} onClick={onClose}></i>
                 </div>
 
                 <div style={{ flex: 1, padding: '32px', overflowY: 'auto' }}>
                     <div style={{ marginBottom: '24px' }}>
-                        <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '8px' }}>Template name</label>
+                        <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>Template name</label>
                         <input
                             type="text"
-                            style={{ width: '100%', padding: '12px 16px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.95rem' }}
+                            style={{ width: '100%', padding: '12px 16px', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '0.95rem' }}
                             placeholder="e.g. Welcome Email"
                             value={templateData.name}
                             onChange={e => setTemplateData({ ...templateData, name: e.target.value })}
@@ -150,11 +150,11 @@ const TemplateModal = ({ isOpen, onClose, onSave, initialData }) => {
                     </div>
 
                     <div style={{ marginBottom: '32px' }}>
-                        <label style={{ fontSize: '0.85rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '8px' }}>Tags</label>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '8px', minHeight: '48px', alignItems: 'center' }}>
+                        <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>Tags</label>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '8px 12px', border: '1px solid var(--border-color)', borderRadius: '8px', minHeight: '48px', alignItems: 'center' }}>
                             {templateData.tags.map(tag => (
-                                <div key={tag} style={{ background: '#f1f5f9', padding: '4px 12px', borderRadius: '6px', fontSize: '0.85rem', color: '#475569', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    {tag} <i className="fas fa-times" style={{ cursor: 'pointer', fontSize: '0.75rem', color: '#94a3b8' }} onClick={() => removeTag(tag)}></i>
+                                <div key={tag} style={{ background: 'var(--bg-light)', padding: '4px 12px', borderRadius: '6px', fontSize: '0.85rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    {tag} <i className="fas fa-times" style={{ cursor: 'pointer', fontSize: '0.75rem', color: 'var(--text-muted)' }} onClick={() => removeTag(tag)}></i>
                                 </div>
                             ))}
                             <input
@@ -165,29 +165,29 @@ const TemplateModal = ({ isOpen, onClose, onSave, initialData }) => {
                                 onChange={e => setTagInput(e.target.value)}
                                 onKeyDown={e => e.key === 'Enter' && addTag()}
                             />
-                            <i className="fas fa-chevron-down" style={{ color: '#cbd5e1', fontSize: '0.8rem' }}></i>
+                            <i className="fas fa-chevron-down" style={{ color: 'var(--border-color)', fontSize: '0.8rem' }}></i>
                         </div>
                     </div>
 
                     <div style={{ marginBottom: '32px', cursor: 'pointer' }} onClick={() => setTemplateData({ ...templateData, shared: !templateData.shared })}>
                         <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
-                            <div style={{ width: '18px', height: '18px', border: '2px solid #cbd5e1', borderRadius: '4px', background: templateData.shared ? 'var(--primary-color)' : '#fff', borderColor: templateData.shared ? 'var(--primary-color)' : '#cbd5e1', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: '2px' }}>
-                                {templateData.shared && <i className="fas fa-check" style={{ color: '#fff', fontSize: '0.65rem' }}></i>}
+                            <div style={{ width: '18px', height: '18px', border: '2px solid var(--border-color)', borderRadius: '4px', background: templateData.shared ? 'var(--primary-color)' : 'var(--bg-card)', borderColor: templateData.shared ? 'var(--primary-color)' : 'var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: '2px' }}>
+                                {templateData.shared && <i className="fas fa-check" style={{ color: 'var(--bg-card)', fontSize: '0.65rem' }}></i>}
                             </div>
                             <div>
-                                <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#1e293b' }}>Share with everyone</div>
-                                <div style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '4px' }}>This option will make the template available to everyone on the account.</div>
+                                <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-main)' }}>Share with everyone</div>
+                                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '4px' }}>This option will make the template available to everyone on the account.</div>
                             </div>
                         </div>
                     </div>
 
                     <div style={{ marginBottom: '24px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 0', borderBottom: '1px solid #f1f5f9' }}>
-                            <span style={{ fontSize: '0.9rem', fontWeight: 600, color: '#64748b', minWidth: '60px' }}>Subject</span>
+                            <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-muted)', minWidth: '60px' }}>Subject</span>
                             <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '12px' }}>
                                 <input
                                     type="text"
-                                    style={{ flex: 1, border: 'none', outline: 'none', fontSize: '0.95rem', color: '#1e293b', fontWeight: 600 }}
+                                    style={{ flex: 1, border: 'none', outline: 'none', fontSize: '0.95rem', color: 'var(--text-main)', fontWeight: 600 }}
                                     placeholder="Enter email subject..."
                                     value={templateData.subject}
                                     onChange={e => setTemplateData({ ...templateData, subject: e.target.value })}
@@ -200,9 +200,9 @@ const TemplateModal = ({ isOpen, onClose, onSave, initialData }) => {
                         </div>
                     </div>
 
-                    <div style={{ border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden' }}>
-                        <div style={{ padding: '12px 24px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff' }}>
-                            <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#475569' }}>Editor</div>
+                    <div style={{ border: '1px solid var(--border-color)', borderRadius: '12px', overflow: 'hidden' }}>
+                        <div style={{ padding: '12px 24px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-card)' }}>
+                            <div style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-muted)' }}>Editor</div>
                             <div style={{ display: 'flex', gap: '16px', color: 'var(--primary-color)' }}>
                                 <span style={{ fontSize: '0.9rem', fontWeight: 700, cursor: 'pointer' }} onClick={() => setShowEmojiMenu(!showEmojiMenu)}>😊</span>
                             </div>
@@ -212,7 +212,7 @@ const TemplateModal = ({ isOpen, onClose, onSave, initialData }) => {
                             <div
                                 ref={editorRef}
                                 contentEditable
-                                style={{ width: '100%', minHeight: '200px', border: 'none', outline: 'none', fontSize: '1rem', color: '#1e293b', lineHeight: '1.6' }}
+                                style={{ width: '100%', minHeight: '200px', border: 'none', outline: 'none', fontSize: '1rem', color: 'var(--text-main)', lineHeight: '1.6' }}
                                 onInput={(e) => setTemplateData(prev => ({ ...prev, content: e.target.innerHTML }))}
                                 onBlur={(e) => setTemplateData(prev => ({ ...prev, content: e.target.innerHTML }))}
                             />
@@ -232,24 +232,24 @@ const TemplateModal = ({ isOpen, onClose, onSave, initialData }) => {
 
                             {/* Floating Bar Toolbar */}
                             <div style={{ display: 'flex', justifyContent: 'center', marginTop: '32px', marginBottom: '20px' }}>
-                                <div style={{ display: 'flex', gap: '2px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '4px', padding: '4px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
-                                    <button onClick={() => execCommand('bold')} style={{ padding: '6px 12px', border: 'none', background: 'transparent', color: '#475569', cursor: 'pointer', fontWeight: 700 }}>B</button>
-                                    <button onClick={() => execCommand('italic')} style={{ padding: '6px 12px', border: 'none', background: 'transparent', color: '#475569', cursor: 'pointer', fontStyle: 'italic', fontFamily: 'serif' }}>I</button>
-                                    <button onClick={() => execCommand('underline')} style={{ padding: '6px 12px', border: 'none', background: 'transparent', color: '#475569', cursor: 'pointer', textDecoration: 'underline' }}>U</button>
-                                    <div style={{ width: '1px', background: '#e2e8f0', margin: '4px' }}></div>
-                                    <button onClick={() => execCommand('insertUnorderedList')} style={{ padding: '6px 12px', border: 'none', background: 'transparent', color: '#475569', cursor: 'pointer' }}><i className="fas fa-list-ul"></i></button>
+                                <div style={{ display: 'flex', gap: '2px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '4px', padding: '4px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
+                                    <button onClick={() => execCommand('bold')} style={{ padding: '6px 12px', border: 'none', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', fontWeight: 700 }}>B</button>
+                                    <button onClick={() => execCommand('italic')} style={{ padding: '6px 12px', border: 'none', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', fontStyle: 'italic', fontFamily: 'serif' }}>I</button>
+                                    <button onClick={() => execCommand('underline')} style={{ padding: '6px 12px', border: 'none', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline' }}>U</button>
+                                    <div style={{ width: '1px', background: 'var(--border-color)', margin: '4px' }}></div>
+                                    <button onClick={() => execCommand('insertUnorderedList')} style={{ padding: '6px 12px', border: 'none', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer' }}><i className="fas fa-list-ul"></i></button>
                                 </div>
                             </div>
                         </div>
 
-                        <div style={{ padding: '12px 24px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff' }}>
-                            <div style={{ display: 'flex', gap: '24px', color: '#94a3b8', fontSize: '1.1rem', alignItems: 'center' }}>
+                        <div style={{ padding: '12px 24px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-card)' }}>
+                            <div style={{ display: 'flex', gap: '24px', color: 'var(--text-muted)', fontSize: '1.1rem', alignItems: 'center' }}>
                                 <div style={{ position: 'relative' }}>
-                                    <span onClick={() => setShowFontMenu(!showFontMenu)} style={{ fontSize: '1rem', fontWeight: 700, color: '#475569', cursor: 'pointer' }}>Tt</span>
+                                    <span onClick={() => setShowFontMenu(!showFontMenu)} style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-muted)', cursor: 'pointer' }}>Tt</span>
                                     {showFontMenu && (
-                                        <div style={{ position: 'absolute', bottom: '100%', left: 0, width: '160px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 100, marginBottom: '8px' }}>
+                                        <div style={{ position: 'absolute', bottom: '100%', left: 0, width: '160px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 100, marginBottom: '8px' }}>
                                             {fonts.map(font => (
-                                                <div key={font} onClick={() => { execCommand('fontName', font); setShowFontMenu(false); }} style={{ padding: '8px 12px', fontSize: '0.85rem', cursor: 'pointer', fontFamily: font, color: '#1e293b' }}>{font}</div>
+                                                <div key={font} onClick={() => { execCommand('fontName', font); setShowFontMenu(false); }} style={{ padding: '8px 12px', fontSize: '0.85rem', cursor: 'pointer', fontFamily: font, color: 'var(--text-main)' }}>{font}</div>
                                             ))}
                                         </div>
                                     )}
@@ -260,15 +260,15 @@ const TemplateModal = ({ isOpen, onClose, onSave, initialData }) => {
                                 <div style={{ position: 'relative' }}>
                                     <i className="fas fa-brackets-curly" style={{ cursor: 'pointer' }} onClick={() => setShowMergeTags(!showMergeTags)}></i>
                                     {showMergeTags && (
-                                        <div style={{ position: 'absolute', bottom: '100%', left: '-80px', width: '240px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)', zIndex: 100, marginBottom: '12px', maxHeight: '400px', overflowY: 'auto' }}>
+                                        <div style={{ position: 'absolute', bottom: '100%', left: '-80px', width: '240px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '8px', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1)', zIndex: 100, marginBottom: '12px', maxHeight: '400px', overflowY: 'auto' }}>
                                             {Object.entries(unifiedMergeTags).map(([category, tags]) => (
                                                 <div key={category}>
-                                                    <div style={{ padding: '12px 16px 8px 16px', fontSize: '0.75rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', background: '#f8fafc' }}>{category}</div>
+                                                    <div style={{ padding: '12px 16px 8px 16px', fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', background: 'var(--bg-light)' }}>{category}</div>
                                                     {tags.map(tag => (
                                                         <div
                                                             key={tag}
                                                             onClick={() => insertTag(tag)}
-                                                            style={{ padding: '10px 16px', fontSize: '0.9rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', color: '#475569' }}
+                                                            style={{ padding: '10px 16px', fontSize: '0.9rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', color: 'var(--text-muted)' }}
                                                         >
                                                             {tag}
                                                         </div>
@@ -280,7 +280,7 @@ const TemplateModal = ({ isOpen, onClose, onSave, initialData }) => {
                                 </div>
 
                                 {showEmojiMenu && (
-                                    <div style={{ position: 'absolute', bottom: '100%', left: '100px', width: '200px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px', display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '4px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 100, marginBottom: '12px' }}>
+                                    <div style={{ position: 'absolute', bottom: '100%', left: '100px', width: '200px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '8px', display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '4px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 100, marginBottom: '12px' }}>
                                         {emojis.map(e => (
                                             <div key={e} onClick={() => { insertHTML(e); setShowEmojiMenu(false); }} style={{ padding: '8px', textAlign: 'center', cursor: 'pointer', fontSize: '1.2rem' }}>{e}</div>
                                         ))}
@@ -293,19 +293,19 @@ const TemplateModal = ({ isOpen, onClose, onSave, initialData }) => {
                     </div>
                 </div>
 
-                <div style={{ padding: '20px 32px', borderTop: '1px solid #f1f5f9', background: '#f8fafc', display: 'flex', justifyContent: 'flex-end', gap: '16px' }}>
-                    <button className="btn-outline" onClick={onClose} style={{ padding: '10px 28px', background: '#fff', fontWeight: 600 }}>Cancel</button>
+                <div style={{ padding: '20px 32px', borderTop: '1px solid #f1f5f9', background: 'var(--bg-light)', display: 'flex', justifyContent: 'flex-end', gap: '16px' }}>
+                    <button className="btn-outline" onClick={onClose} style={{ padding: '10px 28px', background: 'var(--bg-card)', fontWeight: 600 }}>Cancel</button>
                     <button className="btn-primary" onClick={() => { onSave(templateData); onClose(); }} style={{ padding: '10px 36px', fontWeight: 700 }}>Save</button>
                 </div>
             </div>
 
             {showImageModal && (
                 <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10002 }}>
-                    <div style={{ background: '#fff', width: '400px', borderRadius: '12px', padding: '24px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.2)' }}>
+                    <div style={{ background: 'var(--bg-card)', width: '400px', borderRadius: '12px', padding: '24px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.2)' }}>
                         <h3 style={{ margin: '0 0 20px 0', fontSize: '1.1rem', fontWeight: 700 }}>Add Image</h3>
                         <div style={{ marginBottom: '16px' }}>
-                            <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '6px' }}>Image URL <span style={{ color: '#ef4444' }}>*</span></label>
-                            <input type="text" value={imageUrl} onChange={e => setImageUrl(e.target.value)} style={{ width: '100%', padding: '10px', border: '1px solid #e2e8f0', borderRadius: '6px' }} placeholder="www.example.com/image.jpg" />
+                            <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px' }}>Image URL <span style={{ color: '#ef4444' }}>*</span></label>
+                            <input type="text" value={imageUrl} onChange={e => setImageUrl(e.target.value)} style={{ width: '100%', padding: '10px', border: '1px solid var(--border-color)', borderRadius: '6px' }} placeholder="www.example.com/image.jpg" />
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
                             <button className="btn-outline" onClick={() => setShowImageModal(false)} style={{ fontSize: '0.85rem' }}>Cancel</button>
@@ -317,15 +317,15 @@ const TemplateModal = ({ isOpen, onClose, onSave, initialData }) => {
 
             {showLinkModal && (
                 <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10002 }}>
-                    <div style={{ background: '#fff', width: '400px', borderRadius: '12px', padding: '24px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.2)' }}>
+                    <div style={{ background: 'var(--bg-card)', width: '400px', borderRadius: '12px', padding: '24px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.2)' }}>
                         <h3 style={{ margin: '0 0 20px 0', fontSize: '1.1rem', fontWeight: 700 }}>Add URL</h3>
                         <div style={{ marginBottom: '16px' }}>
-                            <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '6px' }}>Link <span style={{ color: '#ef4444' }}>*</span></label>
-                            <input type="text" value={linkUrl} onChange={e => setLinkUrl(e.target.value)} style={{ width: '100%', padding: '10px', border: '1px solid #e2e8f0', borderRadius: '6px' }} placeholder="www.example.com" />
+                            <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px' }}>Link <span style={{ color: '#ef4444' }}>*</span></label>
+                            <input type="text" value={linkUrl} onChange={e => setLinkUrl(e.target.value)} style={{ width: '100%', padding: '10px', border: '1px solid var(--border-color)', borderRadius: '6px' }} placeholder="www.example.com" />
                         </div>
                         <div style={{ marginBottom: '24px' }}>
-                            <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569', display: 'block', marginBottom: '6px' }}>Text to display</label>
-                            <input type="text" value={linkText} onChange={e => setLinkText(e.target.value)} style={{ width: '100%', padding: '10px', border: '1px solid #e2e8f0', borderRadius: '6px' }} placeholder="Link text" />
+                            <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '6px' }}>Text to display</label>
+                            <input type="text" value={linkText} onChange={e => setLinkText(e.target.value)} style={{ width: '100%', padding: '10px', border: '1px solid var(--border-color)', borderRadius: '6px' }} placeholder="Link text" />
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
                             <button className="btn-outline" onClick={() => setShowLinkModal(false)} style={{ fontSize: '0.85rem' }}>Cancel</button>
@@ -470,7 +470,7 @@ const EmailSettingsPage = () => {
         flex: 1,
         display: 'flex',
         flexDirection: 'column',
-        background: '#fff',
+        background: 'var(--bg-card)',
         overflow: 'hidden'
     };
 
@@ -482,14 +482,14 @@ const EmailSettingsPage = () => {
     const titleStyle = {
         fontSize: '1.5rem',
         fontWeight: 800,
-        color: '#0f172a',
+        color: 'var(--text-main)',
         marginBottom: '8px',
         textTransform: 'uppercase'
     };
 
     const subtitleStyle = {
         fontSize: '0.9rem',
-        color: '#64748b',
+        color: 'var(--text-muted)',
         marginBottom: '24px'
     };
 
@@ -502,7 +502,7 @@ const EmailSettingsPage = () => {
         padding: '12px 0',
         fontSize: '0.9rem',
         fontWeight: 600,
-        color: subTab === id ? 'var(--primary-color)' : '#64748b',
+        color: subTab === id ? 'var(--primary-color)' : 'var(--text-muted)',
         borderBottom: subTab === id ? '2px solid var(--primary-color)' : '2px solid transparent',
         cursor: 'pointer',
         transition: '0.2s'
@@ -552,7 +552,7 @@ const EmailSettingsPage = () => {
                         style={{
                             width: '80px',
                             height: '80px',
-                            border: selectedProvider === provider ? '2px solid var(--primary-color)' : '1px solid #e2e8f0',
+                            border: selectedProvider === provider ? '2px solid var(--primary-color)' : '1px solid var(--border-color)',
                             borderRadius: '4px',
                             display: 'flex',
                             flexDirection: 'column',
@@ -560,27 +560,27 @@ const EmailSettingsPage = () => {
                             justifyContent: 'center',
                             cursor: 'pointer',
                             transition: '0.2s',
-                            background: '#fff'
+                            background: 'var(--bg-card)'
                         }}>
-                        <div style={{ width: '32px', height: '32px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '4px', marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <div style={{ width: '32px', height: '32px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '4px', marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             <i className={`fab fa-${provider.toLowerCase() === 'google' ? 'google text-primary' : provider.toLowerCase() === 'outlook' ? 'microsoft text-orange' : provider.toLowerCase() === 'yahoo' ? 'yahoo text-purple' : 'envelope text-blue'}`} style={{ fontSize: '1rem' }}></i>
                         </div>
-                        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569' }}>{provider}</span>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>{provider}</span>
                     </div>
                 ))}
             </div>
 
             {connectedEmail && (
-                <div style={{ border: '1px solid #e2e8f0', borderRadius: '4px', padding: '20px 24px', position: 'relative', background: '#fff' }}>
+                <div style={{ border: '1px solid var(--border-color)', borderRadius: '4px', padding: '20px 24px', position: 'relative', background: 'var(--bg-card)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '32px', flexWrap: 'wrap' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1e293b' }}>Email Address</span>
-                            <span style={{ fontSize: '0.9rem', color: '#475569' }}>{connectedEmail}</span>
+                            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-main)' }}>Email Address</span>
+                            <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>{connectedEmail}</span>
                         </div>
 
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ fontSize: '0.8rem', color: '#334155', fontWeight: 600 }}>Sync</span>
-                            <div style={{ display: 'flex', gap: '6px', color: '#94a3b8' }}>
+                            <span style={{ fontSize: '0.8rem', color: 'var(--text-main)', fontWeight: 600 }}>Sync</span>
+                            <div style={{ display: 'flex', gap: '6px', color: 'var(--text-muted)' }}>
                                 <i className="fas fa-envelope" style={{ color: 'var(--primary-color)', fontSize: '0.8rem' }}></i>
                                 <i className="far fa-calendar-alt" style={{ fontSize: '0.8rem' }}></i>
                                 <i className="fas fa-user-friends" style={{ fontSize: '0.8rem' }}></i>
@@ -588,9 +588,9 @@ const EmailSettingsPage = () => {
                         </div>
 
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ fontSize: '0.8rem', color: '#334155', fontWeight: 600 }}>Status</span>
+                            <span style={{ fontSize: '0.8rem', color: 'var(--text-main)', fontWeight: 600 }}>Status</span>
                             <span style={{ fontSize: '0.85rem', color: '#22c55e', fontWeight: 700 }}>Connected</span>
-                            <span style={{ fontSize: '0.75rem', color: '#64748b', background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px', marginLeft: '8px' }}>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', background: 'var(--bg-light)', padding: '2px 8px', borderRadius: '4px', marginLeft: '8px' }}>
                                 Via {emailConfig.useOAuth ? 'Google Security' : 'Password'}
                             </span>
                         </div>
@@ -629,11 +629,11 @@ const EmailSettingsPage = () => {
                                 gap: '6px',
                                 padding: '6px 12px',
                                 borderRadius: '4px',
-                                border: '1px solid #e2e8f0',
-                                background: '#f8fafc',
+                                border: '1px solid var(--border-color)',
+                                background: 'var(--bg-light)',
                                 fontSize: '0.8rem',
                                 fontWeight: 600,
-                                color: '#475569',
+                                color: 'var(--text-muted)',
                                 cursor: isTestingConnection ? 'not-allowed' : 'pointer',
                                 transition: '0.2s',
                                 marginLeft: emailConfig.useOAuth ? 'auto' : '12px'
@@ -643,7 +643,7 @@ const EmailSettingsPage = () => {
                             {isTestingConnection ? 'Testing...' : 'Test Connection'}
                         </button>
 
-                        <span style={{ fontSize: '0.85rem', color: '#475569', cursor: 'pointer', marginLeft: 'auto' }}>Update your password</span>
+                        <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', cursor: 'pointer', marginLeft: 'auto' }}>Update your password</span>
                         <span style={{ fontSize: '0.85rem', color: '#ef4444', cursor: 'pointer' }} onClick={() => setConnectedEmail('')}>Disconnect Email Account</span>
                     </div>
                 </div>
@@ -654,11 +654,11 @@ const EmailSettingsPage = () => {
             )}
 
             <div style={{ marginTop: '64px', borderTop: '1px solid #f1f5f9', paddingTop: '48px' }}>
-                <h3 style={{ fontSize: '1rem', fontWeight: 800, color: '#0f172a', marginBottom: '24px', textTransform: 'none' }}>Options</h3>
+                <h3 style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '24px', textTransform: 'none' }}>Options</h3>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '48px' }}>
-                    <div style={{ fontSize: '0.9rem', color: '#475569', fontWeight: 600 }}>Invitation Email Logo</div>
+                    <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', fontWeight: 600 }}>Invitation Email Logo</div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
-                        <div style={{ width: '64px', height: '64px', border: '1px solid #e2e8f0', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '12px' }}>
+                        <div style={{ width: '64px', height: '64px', border: '1px solid var(--border-color)', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '12px' }}>
                             <img src="https://via.placeholder.com/40" alt="Logo" style={{ maxWidth: '100%', maxHeight: '100%' }} />
                         </div>
                         <div style={{ display: 'flex', gap: '0' }}>
@@ -674,45 +674,45 @@ const EmailSettingsPage = () => {
     const renderSignature = () => (
         <div>
             <div style={{ marginBottom: '24px' }}>
-                <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b', margin: '0 0 8px 0' }}>Email signature</h3>
+                <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-main)', margin: '0 0 8px 0' }}>Email signature</h3>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '32px' }}>
                 <div onClick={() => handleSignatureTypeChange('simple')} style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', cursor: 'pointer' }}>
-                    <div style={{ width: '18px', height: '18px', borderRadius: '50%', border: '2px solid #cbd5e1', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: '2px', background: signatureType === 'simple' ? 'var(--primary-color)' : '#fff', borderColor: signatureType === 'simple' ? 'var(--primary-color)' : '#cbd5e1' }}>
-                        {signatureType === 'simple' && <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#fff' }}></div>}
+                    <div style={{ width: '18px', height: '18px', borderRadius: '50%', border: '2px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: '2px', background: signatureType === 'simple' ? 'var(--primary-color)' : 'var(--bg-card)', borderColor: signatureType === 'simple' ? 'var(--primary-color)' : 'var(--border-color)' }}>
+                        {signatureType === 'simple' && <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--bg-card)' }}></div>}
                     </div>
                     <div>
-                        <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#1e293b' }}>Simple signature</div>
-                        <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Use simple text formatting.</div>
+                        <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)' }}>Simple signature</div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Use simple text formatting.</div>
                     </div>
                 </div>
                 <div onClick={() => handleSignatureTypeChange('html')} style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', cursor: 'pointer' }}>
-                    <div style={{ width: '18px', height: '18px', borderRadius: '50%', border: '2px solid #cbd5e1', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: '2px', background: signatureType === 'html' ? 'var(--primary-color)' : '#fff', borderColor: signatureType === 'html' ? 'var(--primary-color)' : '#cbd5e1' }}>
-                        {signatureType === 'html' && <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#fff' }}></div>}
+                    <div style={{ width: '18px', height: '18px', borderRadius: '50%', border: '2px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: '2px', background: signatureType === 'html' ? 'var(--primary-color)' : 'var(--bg-card)', borderColor: signatureType === 'html' ? 'var(--primary-color)' : 'var(--border-color)' }}>
+                        {signatureType === 'html' && <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--bg-card)' }}></div>}
                     </div>
                     <div>
-                        <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#1e293b' }}>HTML</div>
-                        <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Add a company logo, social media icons, or style your signature with brand colors.</div>
+                        <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)' }}>HTML</div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Add a company logo, social media icons, or style your signature with brand colors.</div>
                     </div>
                 </div>
             </div>
 
             {signatureType === 'simple' ? (
-                <div style={{ border: '1px solid #e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
+                <div style={{ border: '1px solid var(--border-color)', borderRadius: '4px', overflow: 'hidden' }}>
                     <textarea
                         style={{ width: '100%', height: '120px', padding: '16px', border: 'none', resize: 'none', outline: 'none', fontSize: '0.95rem' }}
                         placeholder="Your signature..."
                         value={simpleSignature}
                         onChange={(e) => setSimpleSignature(e.target.value)}
                     />
-                    <div style={{ padding: '8px 20px', borderTop: '1px solid #f1f5f9', display: 'flex', gap: '20px', color: '#94a3b8', fontSize: '1rem', background: '#fff', justifyContent: 'center' }}>
+                    <div style={{ padding: '8px 20px', borderTop: '1px solid #f1f5f9', display: 'flex', gap: '20px', color: 'var(--text-muted)', fontSize: '1rem', background: 'var(--bg-card)', justifyContent: 'center' }}>
                         <i className="fas fa-bold"></i><i className="fas fa-italic"></i><i className="fas fa-underline"></i><i className="fas fa-list-ul"></i><i className="far fa-image"></i><i className="fas fa-link"></i>
                     </div>
                 </div>
             ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                    <div style={{ border: '1px solid #e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
+                    <div style={{ border: '1px solid var(--border-color)', borderRadius: '4px', overflow: 'hidden' }}>
                         <textarea
                             style={{ width: '100%', height: '300px', padding: '16px', border: 'none', resize: 'none', outline: 'none', fontSize: '0.9rem', fontFamily: 'monospace' }}
                             placeholder="HTML Code..."
@@ -720,7 +720,7 @@ const EmailSettingsPage = () => {
                             onChange={(e) => setHtmlSignature(e.target.value)}
                         />
                     </div>
-                    <div style={{ border: '1px solid #e2e8f0', borderRadius: '4px', padding: '16px', background: '#fff', height: '300px', overflowY: 'auto' }}>
+                    <div style={{ border: '1px solid var(--border-color)', borderRadius: '4px', padding: '16px', background: 'var(--bg-card)', height: '300px', overflowY: 'auto' }}>
                         <div dangerouslySetInnerHTML={{ __html: htmlSignature || '--Real Deal' }} />
                     </div>
                 </div>
@@ -733,15 +733,15 @@ const EmailSettingsPage = () => {
 
     const renderVisibility = () => (
         <div>
-            <div style={{ background: '#f8fafc', padding: '16px 20px', borderRadius: '8px', marginBottom: '24px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{ background: 'var(--bg-light)', padding: '16px 20px', borderRadius: '8px', marginBottom: '24px', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <i className="fas fa-info-circle" style={{ color: 'var(--primary-color)', fontSize: '1.1rem' }}></i>
-                <p style={{ margin: 0, fontSize: '0.85rem', color: '#475569', lineHeight: '1.5' }}>
+                <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: '1.5' }}>
                     Changes to visibility settings will be applied to all past emails as well as all future emails once they are saved.
                 </p>
             </div>
             {['leads', 'contacts', 'deals'].map(type => (
                 <div key={type} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '20px 0', borderBottom: '1px solid #f1f5f9' }}>
-                    <span style={{ fontSize: '0.95rem', color: '#1e293b' }}>My email conversations on <strong style={{ textTransform: 'capitalize' }}>{type === 'deals' ? 'Properties' : type}</strong> are</span>
+                    <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>My email conversations on <strong style={{ textTransform: 'capitalize' }}>{type === 'deals' ? 'Properties' : type}</strong> are</span>
                     <VisibilityDropdown value={visibilitySettings[type]} onChange={(val) => setVisibilitySettings({ ...visibilitySettings, [type]: val })} />
                 </div>
             ))}
@@ -754,22 +754,22 @@ const EmailSettingsPage = () => {
     const renderBlockList = () => (
         <div>
             <div style={{ display: 'flex', gap: '32px', borderBottom: '1px solid #f1f5f9', marginBottom: '32px' }}>
-                <div onClick={() => setBlockInnerTab('team')} style={{ padding: '12px 0', fontSize: '0.9rem', fontWeight: 700, color: blockInnerTab === 'team' ? 'var(--primary-color)' : '#64748b', borderBottom: blockInnerTab === 'team' ? '2px solid var(--primary-color)' : '2px solid transparent', cursor: 'pointer' }}>Team Members</div>
-                <div onClick={() => setBlockInnerTab('individual')} style={{ padding: '12px 0', fontSize: '0.9rem', fontWeight: 600, color: blockInnerTab === 'individual' ? 'var(--primary-color)' : '#64748b', borderBottom: blockInnerTab === 'individual' ? '2px solid var(--primary-color)' : '2px solid transparent', cursor: 'pointer' }}>Individual Emails</div>
+                <div onClick={() => setBlockInnerTab('team')} style={{ padding: '12px 0', fontSize: '0.9rem', fontWeight: 700, color: blockInnerTab === 'team' ? 'var(--primary-color)' : 'var(--text-muted)', borderBottom: blockInnerTab === 'team' ? '2px solid var(--primary-color)' : '2px solid transparent', cursor: 'pointer' }}>Team Members</div>
+                <div onClick={() => setBlockInnerTab('individual')} style={{ padding: '12px 0', fontSize: '0.9rem', fontWeight: 600, color: blockInnerTab === 'individual' ? 'var(--primary-color)' : 'var(--text-muted)', borderBottom: blockInnerTab === 'individual' ? '2px solid var(--primary-color)' : '2px solid transparent', cursor: 'pointer' }}>Individual Emails</div>
             </div>
             {blockInnerTab === 'team' ? (
                 <>
-                    <p style={{ fontSize: '0.9rem', color: '#64748b', marginBottom: '24px' }}>Coworkers are automatically blocklisted.</p>
-                    <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
+                    <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '24px' }}>Coworkers are automatically blocklisted.</p>
+                    <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden' }}>
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-                            <thead><tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}><th style={{ padding: '12px 24px', textAlign: 'left' }}>Name</th><th style={{ padding: '12px 24px', textAlign: 'left' }}>Email</th><th style={{ padding: '12px 24px', textAlign: 'right' }}>Status</th></tr></thead>
+                            <thead><tr style={{ background: 'var(--bg-light)', borderBottom: '1px solid var(--border-color)' }}><th style={{ padding: '12px 24px', textAlign: 'left' }}>Name</th><th style={{ padding: '12px 24px', textAlign: 'left' }}>Email</th><th style={{ padding: '12px 24px', textAlign: 'right' }}>Status</th></tr></thead>
                             <tbody>{['Ramesh', 'Suresh', 'Ajitesh'].map((name, i) => (<tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}><td style={{ padding: '16px 24px', fontWeight: 600 }}>{name}</td><td style={{ padding: '16px 24px' }}>{name.toLowerCase()}@bharatproperties.com</td><td style={{ padding: '16px 24px', textAlign: 'right', fontStyle: 'italic' }}>Blocked (System)</td></tr>))}</tbody>
                         </table>
                     </div>
                 </>
             ) : (
-                <div style={{ padding: '40px', textAlign: 'center', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #cbd5e1' }}>
-                    <p style={{ color: '#64748b' }}>No individual emails blocklisted yet.</p>
+                <div style={{ padding: '40px', textAlign: 'center', background: 'var(--bg-light)', borderRadius: '12px', border: '1px dashed var(--border-color)' }}>
+                    <p style={{ color: 'var(--text-muted)' }}>No individual emails blocklisted yet.</p>
                     <button className="btn-outline" style={{ marginTop: '16px' }}><i className="fas fa-plus"></i> Add Email</button>
                 </div>
             )}
@@ -779,31 +779,31 @@ const EmailSettingsPage = () => {
     const renderTemplates = () => (
         <div>
             <div style={{ marginBottom: '24px' }}>
-                <h2 style={{ fontSize: '1.4rem', fontWeight: 700, color: '#1e293b', margin: '0 0 8px 0' }}>Email templates</h2>
-                <p style={{ fontSize: '0.9rem', color: '#64748b' }}>Create templates for frequently sent email messages.</p>
+                <h2 style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--text-main)', margin: '0 0 8px 0' }}>Email templates</h2>
+                <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>Create templates for frequently sent email messages.</p>
             </div>
             <div style={{ display: 'flex', gap: '32px', borderBottom: '1px solid #f1f5f9', marginBottom: '24px' }}>
-                <div onClick={() => setInnerTab('templates')} style={{ padding: '12px 0', fontSize: '0.9rem', fontWeight: 700, color: innerTab === 'templates' ? 'var(--primary-color)' : '#64748b', borderBottom: innerTab === 'templates' ? '2px solid var(--primary-color)' : '2px solid transparent', cursor: 'pointer' }}>Templates</div>
-                <div onClick={() => setInnerTab('tags')} style={{ padding: '12px 0', fontSize: '0.9rem', fontWeight: 600, color: innerTab === 'tags' ? 'var(--primary-color)' : '#64748b', borderBottom: innerTab === 'tags' ? '2px solid var(--primary-color)' : '2px solid transparent', cursor: 'pointer' }}>Tags</div>
+                <div onClick={() => setInnerTab('templates')} style={{ padding: '12px 0', fontSize: '0.9rem', fontWeight: 700, color: innerTab === 'templates' ? 'var(--primary-color)' : 'var(--text-muted)', borderBottom: innerTab === 'templates' ? '2px solid var(--primary-color)' : '2px solid transparent', cursor: 'pointer' }}>Templates</div>
+                <div onClick={() => setInnerTab('tags')} style={{ padding: '12px 0', fontSize: '0.9rem', fontWeight: 600, color: innerTab === 'tags' ? 'var(--primary-color)' : 'var(--text-muted)', borderBottom: innerTab === 'tags' ? '2px solid var(--primary-color)' : '2px solid transparent', cursor: 'pointer' }}>Tags</div>
             </div>
             {innerTab === 'templates' ? (
                 <>
                     <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', alignItems: 'center' }}>
                         <div style={{ position: 'relative', flex: 1 }}>
-                            <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#cbd5e1' }}></i>
-                            <input type="text" placeholder="Search templates..." style={{ width: '100%', padding: '10px 12px 10px 36px', border: '1px solid #e2e8f0', borderRadius: '6px' }} />
+                            <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--border-color)' }}></i>
+                            <input type="text" placeholder="Search templates..." style={{ width: '100%', padding: '10px 12px 10px 36px', border: '1px solid var(--border-color)', borderRadius: '6px' }} />
                         </div>
                         <button className="btn-primary" onClick={() => setIsAddTemplateModalOpen(true)} style={{ padding: '10px 20px', fontWeight: 700 }}>Add template</button>
                     </div>
-                    <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
+                    <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden' }}>
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-                            <thead><tr style={{ background: '#fff', borderBottom: '1px solid #e2e8f0' }}><th style={{ padding: '12px 24px', textAlign: 'left' }}>Template name</th><th style={{ padding: '12px 24px', textAlign: 'left' }}>Tags</th><th style={{ padding: '12px 24px', textAlign: 'left' }}>Created by</th><th style={{ padding: '12px 24px', textAlign: 'left' }}>Sharing</th><th style={{ padding: '12px 24px', width: '40px' }}></th><th style={{ padding: '12px 24px', width: '40px' }}></th></tr></thead>
-                            <tbody>{templates.map(tmpl => (<tr key={tmpl.id} style={{ borderBottom: '1px solid #f1f5f9' }}><td style={{ padding: '16px 24px', fontWeight: 600 }}>{tmpl.name}</td><td style={{ padding: '16px 24px' }}>{tmpl.tags.map(tag => (<span key={tag} style={{ fontSize: '0.7rem', color: '#475569', background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px', marginRight: '4px' }}>{tag}</span>))}</td><td style={{ padding: '16px 24px' }}>{tmpl.author}</td><td style={{ padding: '16px 24px' }}>{tmpl.visibility}</td><td style={{ padding: '16px 24px', textAlign: 'right' }}><i className="far fa-edit" style={{ cursor: 'pointer', color: '#3b82f6', marginRight: '12px' }} onClick={() => { setEditingTemplate(tmpl); setIsAddTemplateModalOpen(true); }}></i></td><td style={{ padding: '16px 24px', textAlign: 'right' }}><i className="far fa-trash-alt" style={{ cursor: 'pointer', color: '#94a3b8' }} onClick={() => setTemplates(templates.filter(t => t.id !== tmpl.id))}></i></td></tr>))}</tbody>
+                            <thead><tr style={{ background: 'var(--bg-card)', borderBottom: '1px solid var(--border-color)' }}><th style={{ padding: '12px 24px', textAlign: 'left' }}>Template name</th><th style={{ padding: '12px 24px', textAlign: 'left' }}>Tags</th><th style={{ padding: '12px 24px', textAlign: 'left' }}>Created by</th><th style={{ padding: '12px 24px', textAlign: 'left' }}>Sharing</th><th style={{ padding: '12px 24px', width: '40px' }}></th><th style={{ padding: '12px 24px', width: '40px' }}></th></tr></thead>
+                            <tbody>{templates.map(tmpl => (<tr key={tmpl.id} style={{ borderBottom: '1px solid #f1f5f9' }}><td style={{ padding: '16px 24px', fontWeight: 600 }}>{tmpl.name}</td><td style={{ padding: '16px 24px' }}>{tmpl.tags.map(tag => (<span key={tag} style={{ fontSize: '0.7rem', color: 'var(--text-muted)', background: 'var(--bg-light)', padding: '2px 8px', borderRadius: '4px', marginRight: '4px' }}>{tag}</span>))}</td><td style={{ padding: '16px 24px' }}>{tmpl.author}</td><td style={{ padding: '16px 24px' }}>{tmpl.visibility}</td><td style={{ padding: '16px 24px', textAlign: 'right' }}><i className="far fa-edit" style={{ cursor: 'pointer', color: '#3b82f6', marginRight: '12px' }} onClick={() => { setEditingTemplate(tmpl); setIsAddTemplateModalOpen(true); }}></i></td><td style={{ padding: '16px 24px', textAlign: 'right' }}><i className="far fa-trash-alt" style={{ cursor: 'pointer', color: 'var(--text-muted)' }} onClick={() => setTemplates(templates.filter(t => t.id !== tmpl.id))}></i></td></tr>))}</tbody>
                         </table>
                     </div>
                 </>
             ) : (
-                <div style={{ padding: '40px', textAlign: 'center', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #cbd5e1' }}><p>Tag management is coming soon.</p></div>
+                <div style={{ padding: '40px', textAlign: 'center', background: 'var(--bg-light)', borderRadius: '12px', border: '1px dashed var(--border-color)' }}><p>Tag management is coming soon.</p></div>
             )}
             <TemplateModal
                 isOpen={isAddTemplateModalOpen}
@@ -823,11 +823,11 @@ const EmailSettingsPage = () => {
 
     const renderAddEmailModal = () => (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000 }}>
-            <div style={{ background: '#fff', width: '720px', borderRadius: '8px', display: 'flex', flexDirection: 'column', overflowY: 'auto', maxHeight: '95vh', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
-                <div style={{ padding: '24px 32px', display: 'flex', justifyContent: 'flex-end' }}><i className="fas fa-times" style={{ cursor: 'pointer', color: '#94a3b8' }} onClick={() => setIsAddEmailModalOpen(false)}></i></div>
+            <div style={{ background: 'var(--bg-card)', width: '720px', borderRadius: '8px', display: 'flex', flexDirection: 'column', overflowY: 'auto', maxHeight: '95vh', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
+                <div style={{ padding: '24px 32px', display: 'flex', justifyContent: 'flex-end' }}><i className="fas fa-times" style={{ cursor: 'pointer', color: 'var(--text-muted)' }} onClick={() => setIsAddEmailModalOpen(false)}></i></div>
                 <div style={{ padding: '0 64px 64px 64px' }}>
                     <h2 style={{ margin: '0 0 12px 0', fontSize: '1.25rem', fontWeight: 800 }}>Add your email address</h2>
-                    <p style={{ fontSize: '0.9rem', color: '#64748b', marginBottom: '32px' }}>Connecting your email is the best way to track conversations.</p>
+                    <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '32px' }}>Connecting your email is the best way to track conversations.</p>
                     <div style={{ display: 'flex', gap: '8px', marginBottom: '40px' }}>
                         <button
                             onClick={handleConnectGoogle}
@@ -835,8 +835,8 @@ const EmailSettingsPage = () => {
                             style={{
                                 flex: 1,
                                 padding: '12px',
-                                background: '#fff',
-                                border: '1px solid #e2e8f0',
+                                background: 'var(--bg-card)',
+                                border: '1px solid var(--border-color)',
                                 borderRadius: '4px',
                                 fontWeight: 700,
                                 display: 'flex',
@@ -846,8 +846,8 @@ const EmailSettingsPage = () => {
                                 cursor: isTestingConnection ? 'not-allowed' : 'pointer',
                                 transition: 'all 0.2s'
                             }}
-                            onMouseOver={(e) => e.target.style.background = '#f8fafc'}
-                            onMouseOut={(e) => e.target.style.background = '#fff'}
+                            onMouseOver={(e) => e.target.style.background = 'var(--bg-light)'}
+                            onMouseOut={(e) => e.target.style.background = 'var(--bg-card)'}
                         >
                             {isTestingConnection ? (
                                 <i className="fas fa-spinner fa-spin"></i>
@@ -861,18 +861,18 @@ const EmailSettingsPage = () => {
                         <div style={{ fontSize: '0.8rem', fontWeight: 800, marginBottom: '24px' }}>or sign in with email and password</div>
                         <div style={{ marginBottom: '20px' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}><label style={{ fontSize: '0.8rem', fontWeight: 700 }}>Email Address</label></div>
-                            <input type="email" value={emailConfig.email} onChange={e => setEmailConfig({ ...emailConfig, email: e.target.value })} style={{ width: '100%', padding: '12px', border: '1px solid #cbd5e1', borderRadius: '4px' }} />
+                            <input type="email" value={emailConfig.email} onChange={e => setEmailConfig({ ...emailConfig, email: e.target.value })} style={{ width: '100%', padding: '12px', border: '1px solid var(--border-color)', borderRadius: '4px' }} />
                         </div>
                         <div style={{ marginBottom: '24px' }}>
                             <label style={{ fontSize: '0.8rem', fontWeight: 700, display: 'block', marginBottom: '8px' }}>Password</label>
-                            <input type="password" value={emailConfig.password} onChange={e => setEmailConfig({ ...emailConfig, password: e.target.value })} style={{ width: '100%', padding: '12px', border: '1px solid #cbd5e1', borderRadius: '4px' }} />
+                            <input type="password" value={emailConfig.password} onChange={e => setEmailConfig({ ...emailConfig, password: e.target.value })} style={{ width: '100%', padding: '12px', border: '1px solid var(--border-color)', borderRadius: '4px' }} />
                         </div>
                         <div style={{ marginBottom: '24px' }}>
                             <div onClick={() => setIsAdvancedSettingsOpen(!isAdvancedSettingsOpen)} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', color: 'var(--primary-color)', fontSize: '0.85rem', fontWeight: 700 }}>
                                 <i className={`fas fa-chevron-${isAdvancedSettingsOpen ? 'up' : 'down'}`}></i> More settings
                             </div>
                             {isAdvancedSettingsOpen && (
-                                <div style={{ marginTop: '24px', background: '#f8fafc', padding: '24px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                <div style={{ marginTop: '24px', background: 'var(--bg-light)', padding: '24px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
                                     <h4 style={{ margin: '0 0 16px 0', fontSize: '0.85rem', fontWeight: 800 }}>IMAP Settings</h4>
                                     <div style={{ display: 'flex', gap: '16px', marginBottom: '20px' }}>
                                         <div style={{ flex: 1 }}><input type="text" placeholder="imap.gmail.com" value={emailConfig.imapHost} onChange={e => setEmailConfig({ ...emailConfig, imapHost: e.target.value })} style={{ width: '100%', padding: '10px' }} /></div>
@@ -925,7 +925,7 @@ const EmailSettingsPage = () => {
             {isAddEmailModalOpen && renderAddEmailModal()}
             {isSwitchModalOpen && (
                 <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10005 }}>
-                    <div style={{ background: '#fff', width: '480px', borderRadius: '8px', padding: '32px' }}>
+                    <div style={{ background: 'var(--bg-card)', width: '480px', borderRadius: '8px', padding: '32px' }}>
                         <h2 style={{ margin: '0 0 24px 0', fontSize: '1.25rem', fontWeight: 700 }}>Switch to simple signature</h2>
                         <p>Your HTML signature will be deleted.</p>
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '24px' }}>

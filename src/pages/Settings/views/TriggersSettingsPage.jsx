@@ -89,7 +89,7 @@ const TriggersSettingsPage = () => {
             deals: '#ef4444',
             post_sale: '#6366f1'
         };
-        return colors[module] || '#6b7280';
+        return colors[module] || 'var(--text-muted)';
     };
 
     const [activeTab, setActiveTab] = useState('list'); // list, logs
@@ -99,8 +99,8 @@ const TriggersSettingsPage = () => {
         <div style={{ padding: '24px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                 <div>
-                    <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: '#111827' }}>Triggers</h2>
-                    <p style={{ margin: '4px 0 0', color: '#6b7280', fontSize: '14px' }}>
+                    <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: 'var(--text-main)' }}>Triggers</h2>
+                    <p style={{ margin: '4px 0 0', color: 'var(--text-muted)', fontSize: '14px' }}>
                         Event-driven automation that reacts to system changes
                     </p>
                 </div>
@@ -109,7 +109,7 @@ const TriggersSettingsPage = () => {
                     style={{
                         padding: '10px 20px',
                         background: '#3b82f6',
-                        color: '#fff',
+                        color: 'var(--bg-card)',
                         border: 'none',
                         borderRadius: '8px',
                         fontWeight: '600',
@@ -131,26 +131,26 @@ const TriggersSettingsPage = () => {
                     { label: 'Success Rate', value: stats.totalFired > 0 ? `${Math.round((stats.successCount / stats.totalFired) * 100)}%` : '0%', icon: 'fa-check-circle', color: '#10b981' },
                     { label: 'Avg Execution', value: `${Math.round(executionLogs.reduce((acc, log) => acc + (log.totalExecutionTime || 0), 0) / (executionLogs.length || 1))}ms`, icon: 'fa-clock', color: '#8b5cf6' }
                 ].map((stat, i) => (
-                    <div key={i} style={{ background: '#fff', padding: '16px', borderRadius: '12px', border: '1px solid #e5e7eb', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+                    <div key={i} style={{ background: 'var(--bg-card)', padding: '16px', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                            <span style={{ fontSize: '13px', color: '#6b7280', fontWeight: '500' }}>{stat.label}</span>
+                            <span style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: '500' }}>{stat.label}</span>
                             <i className={`fas ${stat.icon}`} style={{ color: stat.color }}></i>
                         </div>
-                        <div style={{ fontSize: '24px', fontWeight: '700', color: '#111827' }}>{stat.value}</div>
+                        <div style={{ fontSize: '24px', fontWeight: '700', color: 'var(--text-main)' }}>{stat.value}</div>
                     </div>
                 ))}
             </div>
 
             {/* View Toggle */}
-            <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', background: '#f3f4f6', padding: '4px', borderRadius: '10px', width: 'fit-content' }}>
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', background: 'var(--bg-light)', padding: '4px', borderRadius: '10px', width: 'fit-content' }}>
                 <button
                     onClick={() => setActiveTab('list')}
                     style={{
                         padding: '8px 16px',
                         borderRadius: '8px',
                         border: 'none',
-                        background: activeTab === 'list' ? '#fff' : 'transparent',
-                        color: activeTab === 'list' ? '#111827' : '#6b7280',
+                        background: activeTab === 'list' ? 'var(--bg-card)' : 'transparent',
+                        color: activeTab === 'list' ? 'var(--text-main)' : 'var(--text-muted)',
                         fontWeight: '600',
                         cursor: 'pointer',
                         boxShadow: activeTab === 'list' ? '0 1px 2px rgba(0,0,0,0.05)' : 'none'
@@ -164,8 +164,8 @@ const TriggersSettingsPage = () => {
                         padding: '8px 16px',
                         borderRadius: '8px',
                         border: 'none',
-                        background: activeTab === 'logs' ? '#fff' : 'transparent',
-                        color: activeTab === 'logs' ? '#111827' : '#6b7280',
+                        background: activeTab === 'logs' ? 'var(--bg-card)' : 'transparent',
+                        color: activeTab === 'logs' ? 'var(--text-main)' : 'var(--text-muted)',
                         fontWeight: '600',
                         cursor: 'pointer',
                         boxShadow: activeTab === 'logs' ? '0 1px 2px rgba(0,0,0,0.05)' : 'none'
@@ -180,7 +180,7 @@ const TriggersSettingsPage = () => {
                     {/* Search and Filters */}
                     <div style={{ marginBottom: '16px', display: 'flex', gap: '12px', alignItems: 'center' }}>
                         <div style={{ position: 'relative', flex: 1 }}>
-                            <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }}></i>
+                            <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }}></i>
                             <input
                                 type="text"
                                 placeholder="Search triggers..."
@@ -189,7 +189,7 @@ const TriggersSettingsPage = () => {
                                 style={{
                                     width: '100%',
                                     padding: '10px 12px 10px 40px',
-                                    border: '1px solid #e5e7eb',
+                                    border: '1px solid var(--border-color)',
                                     borderRadius: '8px',
                                     fontSize: '14px',
                                     outline: 'none'
@@ -199,7 +199,7 @@ const TriggersSettingsPage = () => {
                         <select
                             value={filterModule}
                             onChange={(e) => setFilterModule(e.target.value)}
-                            style={{ padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '14px', outline: 'none' }}
+                            style={{ padding: '10px 12px', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '14px', outline: 'none' }}
                         >
                             <option value="all">All Modules</option>
                             <option value="leads">Leads</option>
@@ -212,7 +212,7 @@ const TriggersSettingsPage = () => {
                         <select
                             value={filterStatus}
                             onChange={(e) => setFilterStatus(e.target.value)}
-                            style={{ padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '14px', outline: 'none' }}
+                            style={{ padding: '10px 12px', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '14px', outline: 'none' }}
                         >
                             <option value="all">All Status</option>
                             <option value="active">Active Only</option>
@@ -221,7 +221,7 @@ const TriggersSettingsPage = () => {
                         <select
                             value={sortBy}
                             onChange={(e) => setSortBy(e.target.value)}
-                            style={{ padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '14px', outline: 'none' }}
+                            style={{ padding: '10px 12px', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '14px', outline: 'none' }}
                         >
                             <option value="priority">Sort by Priority</option>
                             <option value="name">Sort by Name</option>
@@ -229,42 +229,42 @@ const TriggersSettingsPage = () => {
                         </select>
                         <button
                             onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-                            style={{ padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', background: '#fff', cursor: 'pointer' }}
+                            style={{ padding: '10px 12px', border: '1px solid var(--border-color)', borderRadius: '8px', background: 'var(--bg-card)', cursor: 'pointer' }}
                         >
                             <i className={`fas fa-sort-${sortOrder === 'asc' ? 'up' : 'down'}`}></i>
                         </button>
                     </div>
 
                     {/* Triggers Table */}
-                    <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '12px', overflow: 'hidden' }}>
+                    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '12px', overflow: 'hidden' }}>
                         <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                            <thead style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
+                            <thead style={{ background: 'var(--bg-light)', borderBottom: '1px solid var(--border-color)' }}>
                                 <tr>
-                                    <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase' }}>Trigger Name</th>
-                                    <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase' }}>Module</th>
-                                    <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase' }}>Event</th>
-                                    <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase' }}>Actions</th>
-                                    <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase' }}>Priority</th>
-                                    <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase' }}>Stats</th>
-                                    <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase' }}>Status</th>
-                                    <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase' }}>Actions</th>
+                                    <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Trigger Name</th>
+                                    <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Module</th>
+                                    <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Event</th>
+                                    <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Actions</th>
+                                    <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Priority</th>
+                                    <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Stats</th>
+                                    <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Status</th>
+                                    <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {filteredTriggers.map((trigger) => {
                                     const triggerStats = getTriggerStats(trigger.id);
                                     return (
-                                        <tr key={trigger.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
+                                        <tr key={trigger.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
                                             <td style={{ padding: '16px' }}>
-                                                <div style={{ fontWeight: '600', color: '#111827' }}>{trigger.name}</div>
-                                                <div style={{ fontSize: '12px', color: '#6b7280' }}>
+                                                <div style={{ fontWeight: '600', color: 'var(--text-main)' }}>{trigger.name}</div>
+                                                <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
                                                     {trigger.conditions?.rules?.length || 0} condition(s)
                                                 </div>
                                             </td>
                                             <td style={{ padding: '16px' }}>
                                                 <span style={{
                                                     fontSize: '13px',
-                                                    color: '#fff',
+                                                    color: 'var(--bg-card)',
                                                     background: getModuleColor(trigger.module),
                                                     padding: '4px 8px',
                                                     borderRadius: '4px',
@@ -274,12 +274,12 @@ const TriggersSettingsPage = () => {
                                                 </span>
                                             </td>
                                             <td style={{ padding: '16px' }}>
-                                                <div style={{ fontSize: '13px', color: '#374151' }}>
+                                                <div style={{ fontSize: '13px', color: 'var(--text-main)' }}>
                                                     {getEventLabel(trigger.event)}
                                                 </div>
                                             </td>
                                             <td style={{ padding: '16px' }}>
-                                                <div style={{ fontSize: '13px', color: '#374151' }}>
+                                                <div style={{ fontSize: '13px', color: 'var(--text-main)' }}>
                                                     {trigger.actions?.length || 0} action(s)
                                                 </div>
                                             </td>
@@ -287,13 +287,13 @@ const TriggersSettingsPage = () => {
                                                 <div style={{
                                                     fontSize: '14px',
                                                     fontWeight: '700',
-                                                    color: trigger.priority <= 3 ? '#ef4444' : trigger.priority <= 6 ? '#f59e0b' : '#6b7280'
+                                                    color: trigger.priority <= 3 ? '#ef4444' : trigger.priority <= 6 ? '#f59e0b' : 'var(--text-muted)'
                                                 }}>
                                                     {trigger.priority || '-'}
                                                 </div>
                                             </td>
                                             <td style={{ padding: '16px' }}>
-                                                <div style={{ fontSize: '12px', color: '#374151' }}>
+                                                <div style={{ fontSize: '12px', color: 'var(--text-main)' }}>
                                                     <div>Fired: {triggerStats.totalFired}</div>
                                                     <div style={{ color: triggerStats.successRate >= 80 ? '#10b981' : '#f59e0b' }}>
                                                         Success: {triggerStats.successRate}%
@@ -318,13 +318,13 @@ const TriggersSettingsPage = () => {
                                                 </button>
                                             </td>
                                             <td style={{ padding: '16px' }}>
-                                                <div style={{ display: 'flex', gap: '12px', color: '#9ca3af' }}>
+                                                <div style={{ display: 'flex', gap: '12px', color: 'var(--text-muted)' }}>
                                                     <i
                                                         className="fas fa-edit"
                                                         style={{ cursor: 'pointer', transition: 'color 0.2s' }}
                                                         onClick={() => handleEdit(trigger)}
                                                         onMouseEnter={(e) => e.target.style.color = '#3b82f6'}
-                                                        onMouseLeave={(e) => e.target.style.color = '#9ca3af'}
+                                                        onMouseLeave={(e) => e.target.style.color = 'var(--text-muted)'}
                                                         title="Edit Trigger"
                                                     ></i>
                                                     <i
@@ -338,7 +338,7 @@ const TriggersSettingsPage = () => {
                                                             }
                                                         }}
                                                         onMouseEnter={(e) => e.target.style.color = '#10b981'}
-                                                        onMouseLeave={(e) => e.target.style.color = '#9ca3af'}
+                                                        onMouseLeave={(e) => e.target.style.color = 'var(--text-muted)'}
                                                         title="Duplicate Trigger"
                                                     ></i>
                                                     <i
@@ -346,7 +346,7 @@ const TriggersSettingsPage = () => {
                                                         style={{ cursor: 'pointer', transition: 'color 0.2s' }}
                                                         onClick={() => handleDelete(trigger)}
                                                         onMouseEnter={(e) => e.target.style.color = '#ef4444'}
-                                                        onMouseLeave={(e) => e.target.style.color = '#9ca3af'}
+                                                        onMouseLeave={(e) => e.target.style.color = 'var(--text-muted)'}
                                                         title="Delete Trigger"
                                                     ></i>
                                                 </div>
@@ -359,7 +359,7 @@ const TriggersSettingsPage = () => {
 
                         {/* Empty State */}
                         {filteredTriggers.length === 0 && (
-                            <div style={{ padding: '60px 20px', textAlign: 'center', color: '#9ca3af' }}>
+                            <div style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--text-muted)' }}>
                                 <i className="fas fa-bolt" style={{ fontSize: '48px', marginBottom: '16px', display: 'block' }}></i>
                                 <div style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px' }}>No triggers found</div>
                                 <div style={{ fontSize: '14px' }}>
@@ -370,22 +370,22 @@ const TriggersSettingsPage = () => {
                     </div>
                 </>
             ) : (
-                <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '12px', overflow: 'hidden' }}>
+                <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '12px', overflow: 'hidden' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                        <thead style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
+                        <thead style={{ background: 'var(--bg-light)', borderBottom: '1px solid var(--border-color)' }}>
                             <tr>
-                                <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase' }}>Timestamp</th>
-                                <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase' }}>Trigger</th>
-                                <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase' }}>Event</th>
-                                <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase' }}>Status</th>
-                                <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase' }}>Time</th>
-                                <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase' }}>Actions taken</th>
+                                <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Timestamp</th>
+                                <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Trigger</th>
+                                <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Event</th>
+                                <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Status</th>
+                                <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Time</th>
+                                <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Actions taken</th>
                             </tr>
                         </thead>
                         <tbody>
                             {(executionLogs || []).map((log, i) => (
-                                <tr key={i} style={{ borderBottom: '1px solid #e5e7eb' }}>
-                                    <td style={{ padding: '16px', fontSize: '13px', color: '#6b7280' }}>
+                                <tr key={i} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                                    <td style={{ padding: '16px', fontSize: '13px', color: 'var(--text-muted)' }}>
                                         {new Date(log.executedAt).toLocaleString()}
                                     </td>
                                     <td style={{ padding: '16px', fontSize: '13px', fontWeight: '600' }}>
@@ -409,7 +409,7 @@ const TriggersSettingsPage = () => {
                                     <td style={{ padding: '16px', fontSize: '13px' }}>
                                         {log.totalExecutionTime}ms
                                     </td>
-                                    <td style={{ padding: '16px', fontSize: '13px', color: '#4b5563' }}>
+                                    <td style={{ padding: '16px', fontSize: '13px', color: 'var(--text-main)' }}>
                                         {log.actionLogs?.map(a => `${a.action}: ${a.status}`).join(', ')}
                                     </td>
                                 </tr>
@@ -417,7 +417,7 @@ const TriggersSettingsPage = () => {
                         </tbody>
                     </table>
                     {(!executionLogs || executionLogs.length === 0) && (
-                        <div style={{ padding: '60px 20px', textAlign: 'center', color: '#9ca3af' }}>
+                        <div style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--text-muted)' }}>
                             <i className="fas fa-history" style={{ fontSize: '48px', marginBottom: '16px', display: 'block' }}></i>
                             <div style={{ fontSize: '16px', fontWeight: '600' }}>No execution logs yet</div>
                         </div>
@@ -445,21 +445,21 @@ const TriggersSettingsPage = () => {
             {/* Delete Confirmation Modal */}
             {isDeleteConfirmOpen && (
                 <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-                    <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', maxWidth: '400px', width: '90%' }}>
+                    <div style={{ background: 'var(--bg-card)', padding: '24px', borderRadius: '12px', maxWidth: '400px', width: '90%' }}>
                         <h3 style={{ margin: '0 0 16px', fontSize: '18px', fontWeight: '700' }}>Delete Trigger?</h3>
-                        <p style={{ margin: '0 0 24px', color: '#6b7280', fontSize: '14px' }}>
+                        <p style={{ margin: '0 0 24px', color: 'var(--text-muted)', fontSize: '14px' }}>
                             Are you sure you want to delete <strong>{triggerToDelete?.name}</strong>? This action cannot be undone.
                         </p>
                         <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
                             <button
                                 onClick={() => setIsDeleteConfirmOpen(false)}
-                                style={{ padding: '10px 20px', background: '#fff', border: '1px solid #d1d5db', borderRadius: '8px', cursor: 'pointer' }}
+                                style={{ padding: '10px 20px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '8px', cursor: 'pointer' }}
                             >
                                 Cancel
                             </button>
                             <button
                                 onClick={confirmDelete}
-                                style={{ padding: '10px 20px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600' }}
+                                style={{ padding: '10px 20px', background: '#ef4444', color: 'var(--bg-card)', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600' }}
                             >
                                 Delete
                             </button>

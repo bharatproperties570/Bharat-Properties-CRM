@@ -60,10 +60,10 @@ const FieldRulesSettingsPage = () => {
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-            <div style={{ padding: '24px 40px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ padding: '24px 40px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
-                    <h2 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#0f172a', margin: 0 }}>Field Rules Engine</h2>
-                    <p style={{ color: '#64748b', fontSize: '0.9rem', marginTop: '4px' }}>
+                    <h2 style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--text-main)', margin: 0 }}>Field Rules Engine</h2>
+                    <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '4px' }}>
                         The "Constitution" of your CRM logic. Define strict data rules here.
                     </p>
                 </div>
@@ -71,8 +71,8 @@ const FieldRulesSettingsPage = () => {
                     onClick={() => handleOpenModal()}
                     style={{
                         padding: '10px 20px',
-                        background: '#0f172a',
-                        color: '#fff',
+                        background: 'var(--text-main)',
+                        color: 'var(--bg-card)',
                         borderRadius: '6px',
                         fontWeight: 600,
                         border: 'none',
@@ -96,7 +96,7 @@ const FieldRulesSettingsPage = () => {
                             <h3 style={{
                                 fontSize: '1rem',
                                 fontWeight: 800,
-                                color: '#475569',
+                                color: 'var(--text-muted)',
                                 textTransform: 'uppercase',
                                 letterSpacing: '0.5px',
                                 marginBottom: '16px',
@@ -111,8 +111,8 @@ const FieldRulesSettingsPage = () => {
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                 {moduleRules.map(rule => (
                                     <div key={rule.id} style={{
-                                        background: '#fff',
-                                        border: '1px solid #e2e8f0',
+                                        background: 'var(--bg-card)',
+                                        border: '1px solid var(--border-color)',
                                         borderRadius: '8px',
                                         padding: '16px 20px',
                                         display: 'flex',
@@ -122,28 +122,28 @@ const FieldRulesSettingsPage = () => {
                                     }}>
                                         <div style={{ flex: 1 }}>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '4px' }}>
-                                                <span style={{ fontWeight: 700, color: '#1e293b' }}>{rule.ruleName}</span>
+                                                <span style={{ fontWeight: 700, color: 'var(--text-main)' }}>{rule.ruleName}</span>
                                                 <span style={{
                                                     fontSize: '0.7rem',
                                                     padding: '2px 8px',
                                                     borderRadius: '4px',
-                                                    background: rule.ruleType === 'MANDATORY' ? '#fef2f2' : '#e0f2fe',
+                                                    background: rule.ruleType === 'MANDATORY' ? 'var(--danger-bg)' : '#e0f2fe',
                                                     color: rule.ruleType === 'MANDATORY' ? '#ef4444' : '#0369a1',
                                                     fontWeight: 700
                                                 }}>
                                                     {rule.ruleType}
                                                 </span>
-                                                <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                                                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                                                     Target Field: <b>{rule.field}</b>
                                                 </span>
                                             </div>
-                                            <p style={{ margin: 0, fontSize: '0.85rem', color: '#94a3b8' }}>
+                                            <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
                                                 {rule.message}
                                             </p>
                                         </div>
 
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                            <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: '8px', fontSize: '0.8rem', color: '#64748b' }}>
+                                            <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: '8px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                                                 <input
                                                     type="checkbox"
                                                     checked={rule.isActive}
@@ -154,7 +154,7 @@ const FieldRulesSettingsPage = () => {
                                             </label>
                                             <button
                                                 onClick={() => handleOpenModal(rule)}
-                                                style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#64748b' }}
+                                                style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-muted)' }}
                                             >
                                                 <i className="fas fa-edit"></i>
                                             </button>
@@ -175,7 +175,7 @@ const FieldRulesSettingsPage = () => {
                 })}
 
                 {Object.values(rulesByModule).every(arr => arr.length === 0) && (
-                    <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
+                    <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
                         No rules defined. Click "Add New Rule" to create one.
                     </div>
                 )}
@@ -189,14 +189,14 @@ const FieldRulesSettingsPage = () => {
                     zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center'
                 }}>
                     <div style={{
-                        background: '#fff', borderRadius: '16px', width: '900px', maxWidth: '95vw',
+                        background: 'var(--bg-card)', borderRadius: '16px', width: '900px', maxWidth: '95vw',
                         boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', overflow: 'hidden', display: 'flex', flexDirection: 'column', maxHeight: '90vh'
                     }}>
-                        <div style={{ padding: '20px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff' }}>
-                            <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: '#1e293b' }}>
+                        <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-card)' }}>
+                            <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-main)' }}>
                                 {editingRule ? 'Edit Rule' : 'Create New Field Rule'}
                             </h3>
-                            <button onClick={() => setIsModalOpen(false)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '1.5rem', color: '#94a3b8', padding: '4px' }}>
+                            <button onClick={() => setIsModalOpen(false)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '1.5rem', color: 'var(--text-muted)', padding: '4px' }}>
                                 &times;
                             </button>
                         </div>
@@ -204,9 +204,9 @@ const FieldRulesSettingsPage = () => {
                         <div style={{ padding: '32px', overflowY: 'auto' }}>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginBottom: '24px' }}>
                                 <div>
-                                    <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', fontWeight: 600, color: '#475569' }}>Module</label>
+                                    <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-muted)' }}>Module</label>
                                     <select
-                                        style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#f8fafc', fontSize: '0.95rem', color: '#1e293b', outline: 'none' }}
+                                        style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-light)', fontSize: '0.95rem', color: 'var(--text-main)', outline: 'none' }}
                                         value={formData.module}
                                         onChange={(e) => setFormData({ ...formData, module: e.target.value })}
                                     >
@@ -214,9 +214,9 @@ const FieldRulesSettingsPage = () => {
                                     </select>
                                 </div>
                                 <div>
-                                    <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', fontWeight: 600, color: '#475569' }}>Rule Type</label>
+                                    <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-muted)' }}>Rule Type</label>
                                     <select
-                                        style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#f8fafc', fontSize: '0.95rem', color: '#1e293b', outline: 'none' }}
+                                        style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-light)', fontSize: '0.95rem', color: 'var(--text-main)', outline: 'none' }}
                                         value={formData.ruleType}
                                         onChange={(e) => setFormData({ ...formData, ruleType: e.target.value })}
                                     >
@@ -228,34 +228,34 @@ const FieldRulesSettingsPage = () => {
                             </div>
 
                             <div style={{ marginBottom: '24px' }}>
-                                <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', fontWeight: 600, color: '#475569' }}>Rule Name</label>
+                                <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-muted)' }}>Rule Name</label>
                                 <input
                                     type="text"
                                     placeholder="e.g. Budget Mandatory for Prospects"
-                                    style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#f8fafc', fontSize: '0.95rem', color: '#1e293b', outline: 'none' }}
+                                    style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-light)', fontSize: '0.95rem', color: 'var(--text-main)', outline: 'none' }}
                                     value={formData.ruleName}
                                     onChange={(e) => setFormData({ ...formData, ruleName: e.target.value })}
                                 />
                             </div>
 
                             <div style={{ marginBottom: '24px' }}>
-                                <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', fontWeight: 600, color: '#475569' }}>Target Field (JSON Key)</label>
+                                <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-muted)' }}>Target Field (JSON Key)</label>
                                 <input
                                     type="text"
                                     placeholder="e.g. budgetMin"
-                                    style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#f8fafc', fontSize: '0.95rem', color: '#1e293b', outline: 'none', fontFamily: 'monospace' }}
+                                    style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-light)', fontSize: '0.95rem', color: 'var(--text-main)', outline: 'none', fontFamily: 'monospace' }}
                                     value={formData.field}
                                     onChange={(e) => setFormData({ ...formData, field: e.target.value })}
                                 />
-                                <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '6px' }}>Enter the exact variable name used in the code (e.g., 'mobile', 'email', 'budgetMin').</p>
+                                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '6px' }}>Enter the exact variable name used in the code (e.g., 'mobile', 'email', 'budgetMin').</p>
                             </div>
 
                             <div style={{ marginBottom: '24px' }}>
-                                <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', fontWeight: 600, color: '#475569' }}>Validation Message</label>
+                                <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-muted)' }}>Validation Message</label>
                                 <input
                                     type="text"
                                     placeholder="Error message shown to user"
-                                    style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#f8fafc', fontSize: '0.95rem', color: '#1e293b', outline: 'none' }}
+                                    style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-light)', fontSize: '0.95rem', color: 'var(--text-main)', outline: 'none' }}
                                     value={formData.message}
                                     onChange={(e) => setFormData({ ...formData, message: e.target.value })}
                                 />
@@ -292,7 +292,7 @@ const FieldRulesSettingsPage = () => {
 
                                     {formData.validationType === 'PATTERN' ? (
                                         <select
-                                            style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#fff', fontSize: '0.95rem' }}
+                                            style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', fontSize: '0.95rem' }}
                                             value={formData.patternName}
                                             onChange={(e) => setFormData({ ...formData, patternName: e.target.value })}
                                         >
@@ -305,7 +305,7 @@ const FieldRulesSettingsPage = () => {
                                         <input
                                             type="text"
                                             placeholder="Enter Regex (e.g. ^[0-9]+$)"
-                                            style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#fff', fontSize: '0.95rem', fontFamily: 'monospace' }}
+                                            style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', fontSize: '0.95rem', fontFamily: 'monospace' }}
                                             value={formData.value}
                                             onChange={(e) => setFormData({ ...formData, value: e.target.value })}
                                         />
@@ -313,11 +313,11 @@ const FieldRulesSettingsPage = () => {
                                 </div>
                             )}
 
-                            <div style={{ background: '#f1f5f9', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '16px' }}>
+                            <div style={{ background: 'var(--bg-light)', padding: '24px', borderRadius: '12px', border: '1px solid var(--border-color)', marginBottom: '16px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                                     <div>
-                                        <label style={{ display: 'block', fontSize: '0.95rem', fontWeight: 700, color: '#334155' }}>Conditions (Implicit OR)</label>
-                                        <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '4px' }}>When any of these match, the rule will apply. Leave empty to apply always.</div>
+                                        <label style={{ display: 'block', fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-main)' }}>Conditions (Implicit OR)</label>
+                                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px' }}>When any of these match, the rule will apply. Leave empty to apply always.</div>
                                     </div>
                                     <button
                                         onClick={() => setFormData({
@@ -325,7 +325,7 @@ const FieldRulesSettingsPage = () => {
                                             conditions: [...(formData.conditions || []), { field: '', operator: 'equals', value: '' }]
                                         })}
                                         style={{
-                                            padding: '8px 16px', fontSize: '0.85rem', color: '#fff', background: '#3b82f6',
+                                            padding: '8px 16px', fontSize: '0.85rem', color: 'var(--bg-card)', background: '#3b82f6',
                                             borderRadius: '6px', border: 'none', cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px'
                                         }}
                                     >
@@ -340,7 +340,7 @@ const FieldRulesSettingsPage = () => {
                                                 <input
                                                     type="text"
                                                     placeholder="Field (e.g. stage)"
-                                                    style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
+                                                    style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.9rem' }}
                                                     value={condition.field}
                                                     onChange={(e) => {
                                                         const newConditions = [...formData.conditions];
@@ -349,7 +349,7 @@ const FieldRulesSettingsPage = () => {
                                                     }}
                                                 />
                                                 <select
-                                                    style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', background: '#fff' }}
+                                                    style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.9rem', background: 'var(--bg-card)' }}
                                                     value={condition.operator}
                                                     onChange={(e) => {
                                                         const newConditions = [...formData.conditions];
@@ -366,7 +366,7 @@ const FieldRulesSettingsPage = () => {
                                                 <input
                                                     type="text"
                                                     placeholder="Value"
-                                                    style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
+                                                    style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.9rem' }}
                                                     value={condition.value}
                                                     onChange={(e) => {
                                                         const newConditions = [...formData.conditions];
@@ -390,8 +390,8 @@ const FieldRulesSettingsPage = () => {
                                         ))}
                                     </div>
                                 ) : (
-                                    <div style={{ padding: '20px', background: '#fff', borderRadius: '8px', border: '1px dashed #cbd5e1', textAlign: 'center' }}>
-                                        <p style={{ margin: 0, fontSize: '0.9rem', color: '#94a3b8' }}>
+                                    <div style={{ padding: '20px', background: 'var(--bg-card)', borderRadius: '8px', border: '1px dashed var(--border-color)', textAlign: 'center' }}>
+                                        <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-muted)' }}>
                                             No conditions added. This rule will apply to all <b>{formData.module}</b> records.
                                         </p>
                                     </div>
@@ -400,9 +400,9 @@ const FieldRulesSettingsPage = () => {
 
                         </div>
 
-                        <div style={{ padding: '20px 32px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: '16px', background: '#fff' }}>
-                            <button onClick={() => setIsModalOpen(false)} style={{ padding: '10px 24px', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#fff', fontWeight: 600, cursor: 'pointer', color: '#475569' }}>Cancel</button>
-                            <button onClick={handleSave} style={{ padding: '10px 24px', borderRadius: '8px', border: 'none', background: '#0f172a', color: '#fff', fontWeight: 600, cursor: 'pointer' }}>Save Rule</button>
+                        <div style={{ padding: '20px 32px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', gap: '16px', background: 'var(--bg-card)' }}>
+                            <button onClick={() => setIsModalOpen(false)} style={{ padding: '10px 24px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', fontWeight: 600, cursor: 'pointer', color: 'var(--text-muted)' }}>Cancel</button>
+                            <button onClick={handleSave} style={{ padding: '10px 24px', borderRadius: '8px', border: 'none', background: 'var(--text-main)', color: 'var(--bg-card)', fontWeight: 600, cursor: 'pointer' }}>Save Rule</button>
                         </div>
                     </div>
                 </div>

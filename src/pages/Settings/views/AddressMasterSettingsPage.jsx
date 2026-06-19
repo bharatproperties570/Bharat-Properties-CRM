@@ -720,8 +720,8 @@ const AddressMasterSettingsPage = () => {
                             <div className="column-empty">Select a city to view lookups</div>
                         ) : (
                             <>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                                    <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#64748b' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 16px', background: 'var(--bg-light)', borderBottom: '1px solid var(--border-color)' }}>
+                                    <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)' }}>
                                         {activeTab} List ({
                                             activeTab === 'Location' ? locations.length :
                                             activeTab === 'Tehsil' ? tehsils.length :

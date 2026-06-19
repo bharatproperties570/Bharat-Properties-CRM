@@ -109,7 +109,7 @@ const CustomizeProjectPage = () => {
     };
 
     return (
-        <div style={{ flex: 1, background: '#f8fafc', padding: '24px', overflowY: 'auto' }}>
+        <div style={{ flex: 1, background: 'var(--bg-light)', padding: '24px', overflowY: 'auto' }}>
             <div style={{ width: '100%' }}>
                 {notification.show && (
                     <Toast
@@ -121,13 +121,13 @@ const CustomizeProjectPage = () => {
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
                     <div>
-                        <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', margin: '0 0 8px 0' }}>Project Configuration</h1>
-                        <p style={{ margin: 0, color: '#64748b' }}>Customize global settings for all projects.</p>
+                        <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-main)', margin: '0 0 8px 0' }}>Project Configuration</h1>
+                        <p style={{ margin: 0, color: 'var(--text-muted)' }}>Customize global settings for all projects.</p>
                     </div>
                 </div>
 
                 {/* Tabs */}
-                <div style={{ display: 'flex', gap: '32px', borderBottom: '1px solid #e2e8f0', marginBottom: '32px' }}>
+                <div style={{ display: 'flex', gap: '32px', borderBottom: '1px solid var(--border-color)', marginBottom: '32px' }}>
                     {['Project Details', 'Amenities'].map(tab => (
                         <div
                             key={tab}
@@ -136,7 +136,7 @@ const CustomizeProjectPage = () => {
                                 padding: '12px 4px',
                                 fontSize: '0.95rem',
                                 fontWeight: activeTab === tab ? 700 : 500,
-                                color: activeTab === tab ? '#3b82f6' : '#64748b',
+                                color: activeTab === tab ? '#3b82f6' : 'var(--text-muted)',
                                 borderBottom: activeTab === tab ? '2px solid #3b82f6' : '2px solid transparent',
                                 cursor: 'pointer',
                                 transition: 'all 0.2s'
@@ -147,12 +147,12 @@ const CustomizeProjectPage = () => {
                     ))}
                 </div>
 
-                <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '32px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)', minHeight: '500px' }}>
+                <div style={{ background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)', padding: '32px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)', minHeight: '500px' }}>
 
                     {activeTab === 'Project Details' && (
                         <div style={{ display: 'flex', gap: '32px', height: '100%' }}>
                             {/* Left Panel: Field List */}
-                            <div style={{ width: '240px', borderRight: '1px solid #e2e8f0', paddingRight: '16px' }}>
+                            <div style={{ width: '240px', borderRight: '1px solid var(--border-color)', paddingRight: '16px' }}>
                                 {Object.keys(projectMasterFields).map(field => (
                                     <div
                                         key={field}
@@ -163,7 +163,7 @@ const CustomizeProjectPage = () => {
                                             borderRadius: '6px',
                                             fontSize: '0.9rem',
                                             fontWeight: activeDetailField === field ? 600 : 500,
-                                            color: activeDetailField === field ? '#2563eb' : '#475569',
+                                            color: activeDetailField === field ? '#2563eb' : 'var(--text-muted)',
                                             background: activeDetailField === field ? '#eff6ff' : 'transparent',
                                             marginBottom: '8px',
                                             textTransform: 'capitalize'
@@ -177,7 +177,7 @@ const CustomizeProjectPage = () => {
                             {/* Right Panel: Value List */}
                             <div style={{ flex: 1 }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#1e293b', textTransform: 'capitalize' }}>
+                                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)', textTransform: 'capitalize' }}>
                                         {activeDetailField.replace(/([A-Z])/g, ' $1').trim()} List
                                     </h3>
                                     {!showAddItemForm ? (
@@ -206,18 +206,18 @@ const CustomizeProjectPage = () => {
                                                 value={newItemValue}
                                                 onChange={(e) => setNewItemValue(e.target.value)}
                                                 placeholder="Enter value..."
-                                                style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
+                                                style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--border-color)', fontSize: '0.9rem' }}
                                                 onKeyDown={(e) => e.key === 'Enter' && handleSaveNewItem()}
                                             />
                                             <button
                                                 onClick={handleSaveNewItem}
-                                                style={{ padding: '6px 12px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
+                                                style={{ padding: '6px 12px', background: '#3b82f6', color: 'var(--bg-card)', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
                                             >
                                                 Save
                                             </button>
                                             <button
                                                 onClick={() => { setShowAddItemForm(false); setNewItemValue(''); }}
-                                                style={{ padding: '6px 12px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
+                                                style={{ padding: '6px 12px', background: 'var(--bg-light)', color: 'var(--text-muted)', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
                                             >
                                                 Cancel
                                             </button>
@@ -226,7 +226,7 @@ const CustomizeProjectPage = () => {
                                 </div>
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px' }}>
                                     {projectMasterFields[activeDetailField].map(item => (
-                                        <div key={item} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: '#f8fafc', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.9rem', color: '#334155' }}>
+                                        <div key={item} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-light)', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.9rem', color: 'var(--text-main)' }}>
                                             <span>{item}</span>
                                             <button
                                                 onClick={() => handleDeleteItem(item)}
@@ -237,7 +237,7 @@ const CustomizeProjectPage = () => {
                                         </div>
                                     ))}
                                     {projectMasterFields[activeDetailField].length === 0 && (
-                                        <div style={{ gridColumn: '1/-1', padding: '32px', textAlign: 'center', color: '#94a3b8', border: '2px dashed #e2e8f0', borderRadius: '8px' }}>
+                                        <div style={{ gridColumn: '1/-1', padding: '32px', textAlign: 'center', color: 'var(--text-muted)', border: '2px dashed #e2e8f0', borderRadius: '8px' }}>
                                             No items found. Add one to get started.
                                         </div>
                                     )}
@@ -256,8 +256,8 @@ const CustomizeProjectPage = () => {
                                         onClick={() => setAmenityCategory(cat)}
                                         style={{
                                             padding: '8px 20px', borderRadius: '20px', border: 'none',
-                                            background: amenityCategory === cat ? '#3b82f6' : '#f1f5f9',
-                                            color: amenityCategory === cat ? '#fff' : '#64748b',
+                                            background: amenityCategory === cat ? '#3b82f6' : 'var(--bg-light)',
+                                            color: amenityCategory === cat ? 'var(--bg-card)' : 'var(--text-muted)',
                                             fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer',
                                             transition: 'all 0.2s'
                                         }}
@@ -268,7 +268,7 @@ const CustomizeProjectPage = () => {
                             </div>
 
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#1e293b' }}>
+                                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)' }}>
                                     Manage {amenityCategory} Amenities
                                 </h3>
                                 <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
@@ -294,11 +294,11 @@ const CustomizeProjectPage = () => {
                             {/* Amenity Grid */}
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '16px' }}>
                                 {(projectAmenities[amenityCategory] || []).map(amenity => (
-                                    <div key={amenity.id} style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', background: '#fff', borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}>
+                                    <div key={amenity.id} style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', background: 'var(--bg-card)', borderRadius: '8px', border: '1px solid var(--border-color)', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}>
                                         <div style={{ width: '36px', height: '36px', background: '#eff6ff', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6', marginRight: '12px' }}>
                                             <i className={`fas ${amenity.icon}`}></i>
                                         </div>
-                                        <div style={{ flex: 1, fontWeight: 600, color: '#334155', fontSize: '0.9rem' }}>{amenity.name}</div>
+                                        <div style={{ flex: 1, fontWeight: 600, color: 'var(--text-main)', fontSize: '0.9rem' }}>{amenity.name}</div>
                                         <button
                                             onClick={() => handleDeleteAmenity(amenity.id)}
                                             style={{ width: '28px', height: '28px', background: '#fee2e2', color: '#ef4444', border: 'none', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
@@ -312,14 +312,14 @@ const CustomizeProjectPage = () => {
                             {/* Add Amenity Modal */}
                             {showAmenityForm && (
                                 <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-                                    <div style={{ background: '#fff', padding: '24px', borderRadius: '16px', width: '500px', maxWidth: '90%', maxHeight: '80vh', overflowY: 'auto' }}>
-                                        <h3 style={{ marginTop: 0, marginBottom: '20px', fontSize: '1.2rem', color: '#1e293b' }}>Add {amenityCategory} Amenity</h3>
+                                    <div style={{ background: 'var(--bg-card)', padding: '24px', borderRadius: '16px', width: '500px', maxWidth: '90%', maxHeight: '80vh', overflowY: 'auto' }}>
+                                        <h3 style={{ marginTop: 0, marginBottom: '20px', fontSize: '1.2rem', color: 'var(--text-main)' }}>Add {amenityCategory} Amenity</h3>
 
                                         <div style={{ marginBottom: '16px' }}>
-                                            <label style={{ display: 'block', marginBottom: '6px', fontWeight: 600, color: '#475569', fontSize: '0.9rem' }}>Name</label>
+                                            <label style={{ display: 'block', marginBottom: '6px', fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.9rem' }}>Name</label>
                                             <input
                                                 autoFocus
-                                                style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.9rem', boxSizing: 'border-box' }}
+                                                style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-color)', fontSize: '0.9rem', boxSizing: 'border-box' }}
                                                 placeholder="e.g. Helipad"
                                                 value={newAmenity.name}
                                                 onChange={e => setNewAmenity({ ...newAmenity, name: e.target.value })}
@@ -327,7 +327,7 @@ const CustomizeProjectPage = () => {
                                         </div>
 
                                         <div style={{ marginBottom: '24px' }}>
-                                            <label style={{ display: 'block', marginBottom: '10px', fontWeight: 600, color: '#475569', fontSize: '0.9rem' }}>Select Icon</label>
+                                            <label style={{ display: 'block', marginBottom: '10px', fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.9rem' }}>Select Icon</label>
 
                                             {/* Icon Grid */}
                                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(40px, 1fr))', gap: '8px', marginBottom: '16px', maxHeight: '200px', overflowY: 'auto', padding: '4px' }}>
@@ -346,8 +346,8 @@ const CustomizeProjectPage = () => {
                                                         style={{
                                                             width: '40px', height: '40px',
                                                             borderRadius: '8px',
-                                                            background: newAmenity.icon === iconClass ? '#3b82f6' : '#f1f5f9',
-                                                            color: newAmenity.icon === iconClass ? '#fff' : '#64748b',
+                                                            background: newAmenity.icon === iconClass ? '#3b82f6' : 'var(--bg-light)',
+                                                            color: newAmenity.icon === iconClass ? 'var(--bg-card)' : 'var(--text-muted)',
                                                             display: 'flex', alignItems: 'center', justifyContent: 'center',
                                                             cursor: 'pointer',
                                                             border: newAmenity.icon === iconClass ? '2px solid #2563eb' : '1px solid transparent',
@@ -362,10 +362,10 @@ const CustomizeProjectPage = () => {
                                             </div>
 
                                             {/* Manual Override */}
-                                            <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.8rem', color: '#64748b' }}>Or type icon class:</label>
+                                            <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>Or type icon class:</label>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                                 <input
-                                                    style={{ flex: 1, padding: '8px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.9rem' }}
+                                                    style={{ flex: 1, padding: '8px', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.9rem' }}
                                                     placeholder="e.g. fa-helicopter"
                                                     value={newAmenity.icon}
                                                     onChange={e => setNewAmenity({ ...newAmenity, icon: e.target.value })}
@@ -379,13 +379,13 @@ const CustomizeProjectPage = () => {
                                         <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', paddingTop: '16px', borderTop: '1px solid #f1f5f9' }}>
                                             <button
                                                 onClick={() => setShowAmenityForm(false)}
-                                                style={{ padding: '10px 20px', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#fff', color: '#475569', fontWeight: 600, cursor: 'pointer' }}
+                                                style={{ padding: '10px 20px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontWeight: 600, cursor: 'pointer' }}
                                             >
                                                 Cancel
                                             </button>
                                             <button
                                                 onClick={handleAddAmenity}
-                                                style={{ padding: '10px 20px', borderRadius: '8px', border: 'none', background: '#3b82f6', color: '#fff', fontWeight: 600, cursor: 'pointer' }}
+                                                style={{ padding: '10px 20px', borderRadius: '8px', border: 'none', background: '#3b82f6', color: 'var(--bg-card)', fontWeight: 600, cursor: 'pointer' }}
                                             >
                                                 Add Amenity
                                             </button>

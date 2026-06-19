@@ -116,19 +116,19 @@ const ScoringSettingsPage = () => {
     ];
 
     const SectionHeader = ({ title, subtitle, icon, color = '#3b82f6', isEnabled = true, onToggle }) => (
-        <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', background: 'var(--bg-light)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: `${color}15`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <i className={`fas ${icon}`} style={{ color: color }}></i>
                 </div>
                 <div>
-                    <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700, color: '#334155' }}>{title}</h3>
-                    {subtitle && <p style={{ margin: '2px 0 0 0', fontSize: '0.8rem', color: '#64748b' }}>{subtitle}</p>}
+                    <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-main)' }}>{title}</h3>
+                    {subtitle && <p style={{ margin: '2px 0 0 0', fontSize: '0.8rem', color: 'var(--text-muted)' }}>{subtitle}</p>}
                 </div>
             </div>
             {onToggle && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{ fontSize: '0.8rem', fontWeight: 600, color: isEnabled ? '#10b981' : '#cbd5e1' }}>
+                    <span style={{ fontSize: '0.8rem', fontWeight: 600, color: isEnabled ? '#10b981' : 'var(--border-color)' }}>
                         {isEnabled ? 'Enabled' : 'Disabled'}
                     </span>
                     <label style={{ position: 'relative', display: 'inline-block', width: '44px', height: '24px' }}>
@@ -140,11 +140,11 @@ const ScoringSettingsPage = () => {
                         />
                         <span style={{
                             position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0,
-                            backgroundColor: isEnabled ? color : '#cbd5e1', transition: '.4s', borderRadius: '34px'
+                            backgroundColor: isEnabled ? color : 'var(--border-color)', transition: '.4s', borderRadius: '34px'
                         }}></span>
                         <span style={{
                             position: 'absolute', content: '""', height: '18px', width: '18px', left: isEnabled ? '22px' : '4px', bottom: '3px',
-                            backgroundColor: 'white', transition: '.4s', borderRadius: '50%'
+                            backgroundColor: 'var(--bg-card)', transition: '.4s', borderRadius: '50%'
                         }}></span>
                     </label>
                 </div>
@@ -164,42 +164,42 @@ const ScoringSettingsPage = () => {
                     width: isMultiplier ? '60px' : '70px',
                     padding: '6px 10px',
                     borderRadius: '6px',
-                    border: '1px solid #cbd5e1',
+                    border: '1px solid var(--border-color)',
                     textAlign: 'center',
                     fontWeight: 700,
-                    color: value > 0 || isMultiplier ? '#10b981' : value < 0 ? '#ef4444' : '#64748b',
+                    color: value > 0 || isMultiplier ? '#10b981' : value < 0 ? '#ef4444' : 'var(--text-muted)',
                     outline: 'none',
-                    background: '#fff',
+                    background: 'var(--bg-card)',
                     cursor: disabled ? 'not-allowed' : 'text'
                 }}
             />
-            <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#94a3b8' }}>{isMultiplier ? 'x' : 'pts'}</span>
+            <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>{isMultiplier ? 'x' : 'pts'}</span>
         </div>
     );
 
     return (
-        <div style={{ flex: 1, height: '100%', background: '#f8fafc', padding: '32px', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ flex: 1, height: '100%', background: 'var(--bg-light)', padding: '32px', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
             {notification.show && <Toast message={notification.message} type={notification.type} onClose={() => setNotification({ ...notification, show: false })} />}
 
             <div style={{ marginBottom: '24px' }}>
-                <h1 style={{ fontSize: '1.6rem', fontWeight: 800, color: '#0f172a', margin: '0 0 8px 0', letterSpacing: '-0.5px' }}>Scoring Configuration</h1>
-                <p style={{ margin: 0, color: '#64748b', fontSize: '0.95rem' }}>Configure the Final Lead & Deal Scoring Formulas powering your CRM.</p>
+                <h1 style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--text-main)', margin: '0 0 8px 0', letterSpacing: '-0.5px' }}>Scoring Configuration</h1>
+                <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.95rem' }}>Configure the Final Lead & Deal Scoring Formulas powering your CRM.</p>
             </div>
 
             {/* Navigation Tabs */}
-            <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', borderBottom: '1px solid #e2e8f0', paddingBottom: '1px' }}>
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', borderBottom: '1px solid var(--border-color)', paddingBottom: '1px' }}>
                 {tabs.map(tab => (
                     <button
                         key={tab.id}
                         onClick={() => setActiveTab(tab.id)}
                         style={{
                             padding: '10px 16px',
-                            background: activeTab === tab.id ? '#fff' : 'transparent',
-                            border: activeTab === tab.id ? '1px solid #e2e8f0' : 'none',
+                            background: activeTab === tab.id ? 'var(--bg-card)' : 'transparent',
+                            border: activeTab === tab.id ? '1px solid var(--border-color)' : 'none',
                             borderBottom: activeTab === tab.id ? '2px solid #3b82f6' : '1px solid transparent',
                             marginBottom: '-1px',
                             borderRadius: activeTab === tab.id ? '8px 8px 0 0' : '8px',
-                            color: activeTab === tab.id ? '#3b82f6' : '#64748b',
+                            color: activeTab === tab.id ? '#3b82f6' : 'var(--text-muted)',
                             fontWeight: activeTab === tab.id ? 600 : 500,
                             cursor: 'pointer',
                             display: 'flex',
@@ -221,12 +221,12 @@ const ScoringSettingsPage = () => {
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '24px', paddingBottom: '40px' }}>
 
                         {/* A. Attribute Score */}
-                        <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+                        <div style={{ background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
                             <SectionHeader title="A. Attribute Score" subtitle="Static Intent (Max 77)" icon="fa-list-ul" color="#3b82f6" />
                             <div style={{ padding: '20px' }}>
                                 {Object.entries(scoringAttributes).map(([key, data]) => (
                                     <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', paddingBottom: '12px', borderBottom: '1px dashed #f1f5f9' }}>
-                                        <span style={{ fontSize: '0.9rem', color: '#1e293b', fontWeight: 500 }}>{data.label}</span>
+                                        <span style={{ fontSize: '0.9rem', color: 'var(--text-main)', fontWeight: 500 }}>{data.label}</span>
                                         <PointsInput value={data.points} onChange={(e) => handleAttributeChange(key, e.target.value)} />
                                     </div>
                                 ))}
@@ -234,7 +234,7 @@ const ScoringSettingsPage = () => {
                         </div>
 
                         {/* B. Activity Score */}
-                        <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                        <div style={{ background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
                             <SectionHeader
                                 title="B. Activity Score"
                                 subtitle="Dynamic Behaviour"
@@ -252,7 +252,7 @@ const ScoringSettingsPage = () => {
                                         setSelectedActivity(act);
                                         setSelectedPurpose(null);
                                     }}
-                                    style={{ flex: 1, padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                                    style={{ flex: 1, padding: '8px', borderRadius: '6px', border: '1px solid var(--border-color)' }}
                                 >
                                     <option value="">Select Activity...</option>
                                     {activityMasterFields.activities.map(a => <option key={a.name} value={a.name}>{a.name}</option>)}
@@ -262,7 +262,7 @@ const ScoringSettingsPage = () => {
                                     value={selectedPurpose?.name || ''}
                                     onChange={(e) => setSelectedPurpose(selectedActivity?.purposes.find(p => p.name === e.target.value))}
                                     disabled={!selectedActivity}
-                                    style={{ flex: 1, padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                                    style={{ flex: 1, padding: '8px', borderRadius: '6px', border: '1px solid var(--border-color)' }}
                                 >
                                     <option value="">Select Purpose...</option>
                                     {selectedActivity?.purposes?.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
@@ -272,23 +272,23 @@ const ScoringSettingsPage = () => {
                                 {selectedPurpose ? (
                                     selectedPurpose.outcomes.map((outcome, idx) => (
                                         <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                            <span style={{ fontSize: '0.9rem', color: '#334155' }}>{outcome.label}</span>
+                                            <span style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>{outcome.label}</span>
                                             <PointsInput value={outcome.score} onChange={(e) => handleActivityScoreChange(outcome.label, e.target.value)} />
                                         </div>
                                     ))
                                 ) : (
-                                    <div style={{ textAlign: 'center', color: '#94a3b8', padding: '20px' }}>Select an activity and purpose to edit outcomes.</div>
+                                    <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '20px' }}>Select an activity and purpose to edit outcomes.</div>
                                 )}
                             </div>
                         </div>
 
                         {/* C. Source Quality */}
-                        <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+                        <div style={{ background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
                             <SectionHeader title="C. Source Quality" subtitle="Inbound vs Outbound" icon="fa-bullhorn" color="#10b981" />
                             <div style={{ padding: '20px' }}>
                                 {Object.entries(sourceQualityScores).map(([key, data]) => (
                                     <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                        <span style={{ fontSize: '0.9rem', color: '#1e293b' }}>{data.label}</span>
+                                        <span style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>{data.label}</span>
                                         <PointsInput value={data.points} onChange={(e) => handleSourceChange(key, e.target.value)} />
                                     </div>
                                 ))}
@@ -296,12 +296,12 @@ const ScoringSettingsPage = () => {
                         </div>
 
                         {/* D. Inventory Fit */}
-                        <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+                        <div style={{ background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
                             <SectionHeader title="D. Inventory Fit" subtitle="Property Matching" icon="fa-home" color="#f59e0b" />
                             <div style={{ padding: '20px' }}>
                                 {Object.entries(inventoryFitScores).map(([key, data]) => (
                                     <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                        <span style={{ fontSize: '0.9rem', color: '#1e293b' }}>{data.label}</span>
+                                        <span style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>{data.label}</span>
                                         <PointsInput value={data.points} onChange={(e) => handleInventoryFitChange(key, e.target.value)} />
                                     </div>
                                 ))}
@@ -309,7 +309,7 @@ const ScoringSettingsPage = () => {
                         </div>
 
                         {/* E. Time Decay & Dormant Threshold */}
-                        <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+                        <div style={{ background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
                             <SectionHeader
                                 title="E. Time Decay & Dormant Logic"
                                 subtitle="Inactivity Penalties & Thresholds"
@@ -320,7 +320,7 @@ const ScoringSettingsPage = () => {
                             />
                             <div style={{ padding: '20px', opacity: scoringConfig?.decay?.enabled ? 1 : 0.5, pointerEvents: scoringConfig?.decay?.enabled ? 'auto' : 'none', transition: 'opacity 0.2s' }}>
                                 {/* Threshold Settings */}
-                                <div style={{ marginBottom: '20px', padding: '16px', background: '#fef2f2', borderRadius: '12px', border: '1px solid #fee2e2' }}>
+                                <div style={{ marginBottom: '20px', padding: '16px', background: 'var(--danger-bg)', borderRadius: '12px', border: '1px solid #fee2e2' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                             <i className="fas fa-bed" style={{ color: '#ef4444' }} />
@@ -368,7 +368,7 @@ const ScoringSettingsPage = () => {
                                 {/* Scoring Penalties */}
                                 {Object.entries(decayRules).map(([key, data]) => (
                                     <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                        <span style={{ fontSize: '0.9rem', color: '#1e293b' }}>{data.label}</span>
+                                        <span style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>{data.label}</span>
                                         <PointsInput value={data.points} onChange={(e) => handleDecayChange(key, e.target.value)} />
                                     </div>
                                 ))}
@@ -376,12 +376,12 @@ const ScoringSettingsPage = () => {
                         </div>
 
                         {/* F. Stage Multiplier */}
-                        <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+                        <div style={{ background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
                             <SectionHeader title="F. Stage Multiplier" subtitle="Funnel Progression" icon="fa-sort-amount-up" color="#6366f1" />
                             <div style={{ padding: '20px' }}>
                                 {Object.entries(stageMultipliers).map(([key, data]) => (
                                     <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                        <span style={{ fontSize: '0.9rem', color: '#1e293b' }}>{data.label}</span>
+                                        <span style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>{data.label}</span>
                                         <PointsInput value={data.value} isMultiplier={true} onChange={(e) => handleMultiplierChange(key, e.target.value)} />
                                     </div>
                                 ))}
@@ -395,18 +395,18 @@ const ScoringSettingsPage = () => {
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '24px', paddingBottom: '40px' }}>
 
                         {/* A. Base Stage Allocation */}
-                        <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+                        <div style={{ background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
                             <SectionHeader title="A. Base Stage Allocation" subtitle="Deal Progression" icon="fa-tasks" color="#3b82f6" />
                             <div style={{ padding: '20px' }}>
                                 {Object.entries(dealScoringRules?.stageWeights || {}).length > 0 ? (
                                     Object.entries(dealScoringRules.stageWeights).map(([key, data]) => (
                                         <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', paddingBottom: '12px', borderBottom: '1px dashed #f1f5f9' }}>
-                                            <span style={{ fontSize: '0.9rem', color: '#1e293b', fontWeight: 500 }}>{data?.label || key}</span>
+                                            <span style={{ fontSize: '0.9rem', color: 'var(--text-main)', fontWeight: 500 }}>{data?.label || key}</span>
                                             <PointsInput value={data?.points || 0} onChange={(e) => handleDealRuleChange('stageWeights', key, e.target.value)} />
                                         </div>
                                     ))
                                 ) : (
-                                    <div style={{ textAlign: 'center', color: '#94a3b8', padding: '20px', fontSize: '0.85rem' }}>
+                                    <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '20px', fontSize: '0.85rem' }}>
                                         No stages configured. Please check System Settings.
                                     </div>
                                 )}
@@ -414,7 +414,7 @@ const ScoringSettingsPage = () => {
                         </div>
 
                         {/* B. Momentum / Recency */}
-                        <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+                        <div style={{ background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
                             <SectionHeader title="B. Activity Momentum" subtitle="Recency & Ageing Thresholds" icon="fa-bolt" color="#f59e0b" />
                             <div style={{ padding: '20px' }}>
                                 {/* Threshold Configuration */}
@@ -435,7 +435,7 @@ const ScoringSettingsPage = () => {
 
                                 {Object.entries(dealScoringRules?.activityRecency || {}).filter(([k]) => k.includes('last') || k.includes('noActivity')).map(([key, data]) => (
                                     <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', paddingBottom: '12px', borderBottom: '1px dashed #f1f5f9' }}>
-                                        <span style={{ fontSize: '0.9rem', color: '#1e293b', fontWeight: 500 }}>{data?.label || key}</span>
+                                        <span style={{ fontSize: '0.9rem', color: 'var(--text-main)', fontWeight: 500 }}>{data?.label || key}</span>
                                         <PointsInput value={data?.points || 0} onChange={(e) => handleDealRuleChange('activityRecency', key, e.target.value)} />
                                     </div>
                                 ))}
@@ -443,7 +443,7 @@ const ScoringSettingsPage = () => {
                         </div>
 
                         {/* C. History / Interactions */}
-                        <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+                        <div style={{ background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
                             <SectionHeader title="C. History Depth" subtitle="Interaction Thresholds" icon="fa-history" color="#8b5cf6" />
                             <div style={{ padding: '20px' }}>
                                 {/* Threshold Configuration */}
@@ -460,7 +460,7 @@ const ScoringSettingsPage = () => {
 
                                 {Object.entries(dealScoringRules?.historyDepth || {}).filter(([k]) => k.includes('Plus') || k.includes('Done')).map(([key, data]) => (
                                     <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', paddingBottom: '12px', borderBottom: '1px dashed #f1f5f9' }}>
-                                        <span style={{ fontSize: '0.9rem', color: '#1e293b', fontWeight: 500 }}>{data?.label || key}</span>
+                                        <span style={{ fontSize: '0.9rem', color: 'var(--text-main)', fontWeight: 500 }}>{data?.label || key}</span>
                                         <PointsInput value={data?.points || 0} onChange={(e) => handleDealRuleChange('historyDepth', key, e.target.value)} />
                                     </div>
                                 ))}
@@ -490,7 +490,7 @@ const ScoringSettingsPage = () => {
                         </div>
 
                         {/* Score Bands Cards */}
-                        <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+                        <div style={{ background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
                             <SectionHeader title="Score Band Thresholds" subtitle="Set the numeric ranges — actions are configured in Triggers" icon="fa-layer-group" color="#8b5cf6" />
                             <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
                                 {Object.entries(scoreBands).map(([key, band]) => {
@@ -507,18 +507,18 @@ const ScoringSettingsPage = () => {
                                             <div style={{ background: `${band.color}10`, padding: '12px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                                     <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: band.color, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                        <i className={`fas ${bandMeta.icon}`} style={{ color: '#fff', fontSize: '0.85rem' }} />
+                                                        <i className={`fas ${bandMeta.icon}`} style={{ color: 'var(--bg-card)', fontSize: '0.85rem' }} />
                                                     </div>
                                                     <div>
                                                         <div style={{ fontWeight: 800, color: band.color, fontSize: '1rem' }}>{band.label}</div>
-                                                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{bandMeta.desc}</div>
+                                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{bandMeta.desc}</div>
                                                     </div>
                                                 </div>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                    <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600 }}>Range:</span>
+                                                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600 }}>Range:</span>
                                                     <input type="number" value={band.min} onChange={(e) => handleBandChange(key, 'min', e.target.value)}
                                                         style={{ width: '56px', padding: '5px 8px', textAlign: 'center', borderRadius: '6px', border: `1px solid ${band.color}60`, fontWeight: 700, color: band.color }} />
-                                                    <span style={{ color: '#94a3b8', fontWeight: 700 }}>—</span>
+                                                    <span style={{ color: 'var(--text-muted)', fontWeight: 700 }}>—</span>
                                                     <input type="number" value={band.max} onChange={(e) => handleBandChange(key, 'max', e.target.value)}
                                                         style={{ width: '56px', padding: '5px 8px', textAlign: 'center', borderRadius: '6px', border: `1px solid ${band.color}60`, fontWeight: 700, color: band.color }} />
                                                 </div>
@@ -526,10 +526,10 @@ const ScoringSettingsPage = () => {
 
                                             {/* Trigger Reference — No duplicate actions */}
                                             <div style={{ padding: '12px 18px', background: '#fafafa', borderTop: `1px solid ${band.color}20`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', color: '#475569' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
                                                     <i className="fas fa-bolt" style={{ color: '#6366f1' }} />
                                                     <span>Actions configured in <strong>Triggers</strong> via event:</span>
-                                                    <code style={{ background: '#f1f5f9', padding: '2px 7px', borderRadius: '4px', color: '#6366f1', fontWeight: 700 }}>
+                                                    <code style={{ background: 'var(--bg-light)', padding: '2px 7px', borderRadius: '4px', color: '#6366f1', fontWeight: 700 }}>
                                                         lead_score_changed → score {bandMeta.triggerEvent === 'crossed_above' ? 'crossed ≥' : 'dropped <'} {bandMeta.threshold}
                                                     </code>
                                                 </div>
@@ -545,12 +545,12 @@ const ScoringSettingsPage = () => {
                         </div>
 
                         {/* Quick-nav to Triggers */}
-                        <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div style={{ background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)', padding: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                 <i className="fas fa-external-link-alt" style={{ color: '#6366f1', fontSize: '1.1rem' }} />
                                 <div>
-                                    <div style={{ fontWeight: 700, color: '#1e293b', fontSize: '0.95rem' }}>Configure Score-Based Actions</div>
-                                    <div style={{ fontSize: '0.82rem', color: '#64748b' }}>Go to Settings → Business Rules → Triggers → filter by <code style={{ background: '#f1f5f9', padding: '1px 5px', borderRadius: '3px' }}>lead_score_changed</code></div>
+                                    <div style={{ fontWeight: 700, color: 'var(--text-main)', fontSize: '0.95rem' }}>Configure Score-Based Actions</div>
+                                    <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Go to Settings → Business Rules → Triggers → filter by <code style={{ background: 'var(--bg-light)', padding: '1px 5px', borderRadius: '3px' }}>lead_score_changed</code></div>
                                 </div>
                             </div>
                             <div style={{ fontSize: '0.8rem', color: '#6366f1', fontWeight: 700, padding: '8px 16px', background: '#eef2ff', borderRadius: '8px', border: '1px solid #c7d2fe' }}>
@@ -563,18 +563,18 @@ const ScoringSettingsPage = () => {
                 {/* --- AI EXPLAINABILITY TAB --- */}
                 {activeTab === 'ai' && (
                     <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <div style={{ background: '#fff', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '40px', maxWidth: '600px', textAlign: 'center', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}>
-                            <div style={{ width: '80px', height: '80px', background: 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)', borderRadius: '50%', margin: '0 auto 24px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '2rem' }}>
+                        <div style={{ background: 'var(--bg-card)', borderRadius: '16px', border: '1px solid var(--border-color)', padding: '40px', maxWidth: '600px', textAlign: 'center', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}>
+                            <div style={{ width: '80px', height: '80px', background: 'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)', borderRadius: '50%', margin: '0 auto 24px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--bg-card)', fontSize: '2rem' }}>
                                 <i className="fas fa-magic"></i>
                             </div>
-                            <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', marginBottom: '16px' }}>"Why This Score?"</h2>
-                            <p style={{ color: '#475569', fontSize: '1.05rem', lineHeight: '1.6', marginBottom: '32px' }}>
+                            <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '16px' }}>"Why This Score?"</h2>
+                            <p style={{ color: 'var(--text-muted)', fontSize: '1.05rem', lineHeight: '1.6', marginBottom: '32px' }}>
                                 The Explainability Engine will appear in the right sidebar for every lead.
                                 It breaks down the score calculation (Attributes + Activity + Fit) so agents never have to guess.
                             </p>
-                            <div style={{ background: '#f8fafc', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', textAlign: 'left' }}>
-                                <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#64748b', marginBottom: '12px', textTransform: 'uppercase' }}>Preview</div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontWeight: 700, color: '#0f172a' }}>
+                            <div style={{ background: 'var(--bg-light)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)', textAlign: 'left' }}>
+                                <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '12px', textTransform: 'uppercase' }}>Preview</div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontWeight: 700, color: 'var(--text-main)' }}>
                                     <span>Lead Score</span>
                                     <span style={{ color: '#ef4444' }}>78 (Hot)</span>
                                 </div>
@@ -584,7 +584,7 @@ const ScoringSettingsPage = () => {
                             </div>
                             {/* AI Toggle */}
                             <div style={{ marginTop: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px' }}>
-                                <span style={{ fontWeight: 600, color: scoringConfig?.ai?.enabled ? '#10b981' : '#64748b' }}>
+                                <span style={{ fontWeight: 600, color: scoringConfig?.ai?.enabled ? '#10b981' : 'var(--text-muted)' }}>
                                     {scoringConfig?.ai?.enabled ? 'AI Engine Enabled' : 'AI Engine Disabled'}
                                 </span>
                                 <label style={{ position: 'relative', display: 'inline-block', width: '50px', height: '28px' }}>
@@ -596,11 +596,11 @@ const ScoringSettingsPage = () => {
                                     />
                                     <span style={{
                                         position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0,
-                                        backgroundColor: scoringConfig?.ai?.enabled ? '#8b5cf6' : '#cbd5e1', transition: '.4s', borderRadius: '34px'
+                                        backgroundColor: scoringConfig?.ai?.enabled ? '#8b5cf6' : 'var(--border-color)', transition: '.4s', borderRadius: '34px'
                                     }}></span>
                                     <span style={{
                                         position: 'absolute', content: '""', height: '22px', width: '22px', left: scoringConfig?.ai?.enabled ? '24px' : '4px', bottom: '3px',
-                                        backgroundColor: 'white', transition: '.4s', borderRadius: '50%'
+                                        backgroundColor: 'var(--bg-card)', transition: '.4s', borderRadius: '50%'
                                     }}></span>
                                 </label>
                             </div>

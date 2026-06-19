@@ -59,12 +59,12 @@ const GoogleCallback = ({ onNavigate }) => {
             alignItems: 'center', 
             justifyContent: 'center', 
             minHeight: '80vh',
-            background: '#f8fafc',
+            background: 'var(--bg-light)',
             gap: '24px'
         }}>
             <div style={{ 
                 padding: '40px', 
-                background: 'white', 
+                background: 'var(--bg-card)', 
                 borderRadius: '16px', 
                 boxShadow: '0 10px 25px rgba(0,0,0,0.05)',
                 textAlign: 'center',
@@ -75,8 +75,8 @@ const GoogleCallback = ({ onNavigate }) => {
                     <div className="sync-orbit-ring" style={{ width: '48px', height: '48px' }}></div>
                     <div className="sync-orbit-dot" style={{ width: '8px', height: '8px' }}></div>
                 </div>
-                <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#1e293b', marginBottom: '8px' }}>{status}</h2>
-                <p style={{ fontSize: '0.875rem', color: '#64748b' }}>Please do not close this window while we finish the setup.</p>
+                <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '8px' }}>{status}</h2>
+                <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Please do not close this window while we finish the setup.</p>
             </div>
         </div>
     );

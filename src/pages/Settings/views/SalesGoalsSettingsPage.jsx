@@ -11,8 +11,8 @@ const GoalCard = ({ title, description, icon, onDisable, onPeriodChange, resolut
 
     return (
         <div style={{
-            background: '#fff',
-            border: '1px solid #e2e8f0',
+            background: 'var(--bg-card)',
+            border: '1px solid var(--border-color)',
             borderRadius: '12px',
             padding: '32px',
             marginBottom: '24px',
@@ -20,15 +20,15 @@ const GoalCard = ({ title, description, icon, onDisable, onPeriodChange, resolut
         }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '32px' }}>
                 <div style={{ display: 'flex', gap: '20px' }}>
-                    <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', fontSize: '1.5rem' }}>
+                    <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'var(--bg-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '1.5rem' }}>
                         <i className={icon}></i>
                     </div>
                     <div>
-                        <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#1e293b', margin: '0 0 8px 0' }}>{title}</h3>
-                        <p style={{ fontSize: '0.9rem', color: '#64748b', margin: 0, maxWidth: '400px', lineHeight: '1.5' }}>{description}</p>
+                        <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-main)', margin: '0 0 8px 0' }}>{title}</h3>
+                        <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', margin: 0, maxWidth: '400px', lineHeight: '1.5' }}>{description}</p>
                         <button
                             onClick={onDisable}
-                            style={{ marginTop: '16px', border: '1px solid #e2e8f0', background: '#fff', padding: '6px 12px', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 600, color: '#475569', display: 'flex', alignItems: 'center', gap: '6px' }}
+                            style={{ marginTop: '16px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', padding: '6px 12px', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px' }}
                         >
                             <i className="fas fa-times"></i> Disable Goal
                         </button>
@@ -40,8 +40,8 @@ const GoalCard = ({ title, description, icon, onDisable, onPeriodChange, resolut
                         <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#22c55e' }}></div>
                         Enabled
                     </div>
-                    <div style={{ fontSize: '0.9rem', color: '#1e293b', fontWeight: 600, marginBottom: '4px' }}>Resolution Period: {resolutionPeriod}</div>
-                    <div onClick={onPeriodChange} style={{ fontSize: '0.85rem', color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-end' }}>
+                    <div style={{ fontSize: '0.9rem', color: 'var(--text-main)', fontWeight: 600, marginBottom: '4px' }}>Resolution Period: {resolutionPeriod}</div>
+                    <div onClick={onPeriodChange} style={{ fontSize: '0.85rem', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-end' }}>
                         Change Period <i className="fas fa-exclamation-triangle" style={{ fontSize: '0.75rem' }}></i>
                     </div>
                 </div>
@@ -49,41 +49,41 @@ const GoalCard = ({ title, description, icon, onDisable, onPeriodChange, resolut
 
             <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '32px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '24px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '0.9rem', fontWeight: 700, color: '#1e293b' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-main)' }}>
                         <i className="fas fa-flag"></i> Current Period: {currentPeriod}
                     </div>
                 </div>
 
                 <div style={{ position: 'relative', marginBottom: '24px', maxWidth: '300px' }}>
-                    <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#cbd5e1', fontSize: '0.85rem' }}></i>
+                    <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--border-color)', fontSize: '0.85rem' }}></i>
                     <input
                         type="text"
                         placeholder="Filter users..."
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
-                        style={{ width: '100%', padding: '10px 12px 10px 36px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.9rem' }}
+                        style={{ width: '100%', padding: '10px 12px 10px 36px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.9rem' }}
                     />
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     {filteredUsers.map(user => (
                         <div key={user.id} style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                            <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-                                {user.avatar ? <img src={user.avatar} alt="" style={{ width: '100%', height: '100%' }} /> : <i className="fas fa-user" style={{ fontSize: '0.8rem', color: '#94a3b8' }}></i>}
+                            <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'var(--bg-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                                {user.avatar ? <img src={user.avatar} alt="" style={{ width: '100%', height: '100%' }} /> : <i className="fas fa-user" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}></i>}
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '300px' }}>
-                                <div style={{ minWidth: '100px', fontWeight: 700, fontSize: '0.9rem', color: '#1e293b' }}>{goalSuffix}{user.goal}</div>
-                                <span style={{ fontSize: '0.9rem', color: '#1e293b', fontWeight: 500 }}>{user.name}</span>
+                                <div style={{ minWidth: '100px', fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-main)' }}>{goalSuffix}{user.goal}</div>
+                                <span style={{ fontSize: '0.9rem', color: 'var(--text-main)', fontWeight: 500 }}>{user.name}</span>
                             </div>
                         </div>
                     ))}
 
                     <div style={{ marginTop: '12px', paddingLeft: '48px', display: 'flex', alignItems: 'center', gap: '16px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '200px' }}>
-                            <div style={{ width: '110px', fontSize: '1rem', fontWeight: 700, color: '#1e293b' }}>
+                            <div style={{ width: '110px', fontSize: '1rem', fontWeight: 700, color: 'var(--text-main)' }}>
                                 {goalSuffix} {teamTotal}
                             </div>
-                            <span style={{ fontSize: '0.9rem', color: '#1e293b', fontWeight: 800 }}>Team Total</span>
+                            <span style={{ fontSize: '0.9rem', color: 'var(--text-main)', fontWeight: 800 }}>Team Total</span>
                         </div>
                     </div>
                 </div>
@@ -115,18 +115,18 @@ const UnifiedGoalModal = ({ isOpen, onClose, users, onSave, loading }) => {
 
     return (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 11000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ background: '#fff', width: '500px', borderRadius: '12px', padding: '32px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
+            <div style={{ background: 'var(--bg-card)', width: '500px', borderRadius: '12px', padding: '32px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                    <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: '#0f172a' }}>Set Goals for User</h3>
-                    <i className="fas fa-times" style={{ cursor: 'pointer', color: '#94a3b8' }} onClick={onClose}></i>
+                    <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-main)' }}>Set Goals for User</h3>
+                    <i className="fas fa-times" style={{ cursor: 'pointer', color: 'var(--text-muted)' }} onClick={onClose}></i>
                 </div>
 
                 <div style={{ marginBottom: '24px' }}>
-                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>Select User</label>
+                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>Select User</label>
                     <select 
                         value={selectedUser} 
                         onChange={(e) => setSelectedUser(e.target.value)}
-                        style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#fff', fontSize: '0.9rem' }}
+                        style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', fontSize: '0.9rem' }}
                     >
                         <option value="">Choose a user...</option>
                         {Array.isArray(users) && users.map(u => (
@@ -137,38 +137,38 @@ const UnifiedGoalModal = ({ isOpen, onClose, users, onSave, loading }) => {
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
                     <div>
-                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>Revenue Goal ($)</label>
+                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>Revenue Goal ($)</label>
                         <input 
                             type="number" 
                             value={goals.revenue} 
                             onChange={(e) => setGoals({ ...goals, revenue: e.target.value })}
-                            style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.9rem' }}
+                            style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.9rem' }}
                         />
                     </div>
                     <div>
-                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>Deals Goal (Count)</label>
+                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>Deals Goal (Count)</label>
                         <input 
                             type="number" 
                             value={goals.deals} 
                             onChange={(e) => setGoals({ ...goals, deals: e.target.value })}
-                            style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.9rem' }}
+                            style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.9rem' }}
                         />
                     </div>
                     <div>
-                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>Site Visits Goal (Count)</label>
+                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>Site Visits Goal (Count)</label>
                         <input 
                             type="number" 
                             value={goals.siteVisits} 
                             onChange={(e) => setGoals({ ...goals, siteVisits: e.target.value })}
-                            style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.9rem' }}
+                            style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.9rem' }}
                         />
                     </div>
                     <div>
-                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>Resolution Period</label>
+                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>Resolution Period</label>
                         <select 
                             value={goals.period} 
                             onChange={(e) => setGoals({ ...goals, period: e.target.value })}
-                            style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#fff', fontSize: '0.9rem' }}
+                            style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', fontSize: '0.9rem' }}
                         >
                             <option value="weekly">Weekly</option>
                             <option value="monthly">Monthly</option>
@@ -266,9 +266,9 @@ const SalesGoalsSettings = () => {
     const visitUsers = safeGoals.map(g => ({ id: g._id, name: g.user?.fullName, goal: g.siteVisitsGoal, avatar: g.user?.avatar }));
 
     return (
-        <div style={{ flex: 1, background: '#f8fafc', padding: '40px', overflowY: 'auto' }}>
+        <div style={{ flex: 1, background: 'var(--bg-light)', padding: '40px', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
-                <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>Goals Management</h1>
+                <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-main)', margin: 0 }}>Goals Management</h1>
                 <button 
                     onClick={() => setIsModalOpen(true)}
                     className="btn-primary" 
@@ -279,17 +279,17 @@ const SalesGoalsSettings = () => {
             </div>
 
             {loading && goals.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '100px', color: '#64748b' }}>
+                <div style={{ textAlign: 'center', padding: '100px', color: 'var(--text-muted)' }}>
                     <i className="fas fa-spinner fa-spin" style={{ fontSize: '2rem', marginBottom: '16px' }}></i>
                     <p>Loading goals...</p>
                 </div>
             ) : error ? (
-                <div style={{ textAlign: 'center', padding: '100px', color: '#ef4444', background: '#fff', borderRadius: '12px', border: '1px solid #fee2e2' }}>
+                <div style={{ textAlign: 'center', padding: '100px', color: '#ef4444', background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid #fee2e2' }}>
                     <i className="fas fa-exclamation-circle" style={{ fontSize: '2rem', marginBottom: '16px' }}></i>
                     <p style={{ fontWeight: 600 }}>{error}</p>
                     <button 
                         onClick={fetchInitialData}
-                        style={{ marginTop: '16px', padding: '8px 20px', background: '#0f172a', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}
+                        style={{ marginTop: '16px', padding: '8px 20px', background: 'var(--text-main)', color: 'var(--bg-card)', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}
                     >
                         Try Again
                     </button>

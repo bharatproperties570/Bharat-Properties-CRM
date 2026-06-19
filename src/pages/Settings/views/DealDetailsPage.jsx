@@ -46,7 +46,7 @@ const IntegritySettingsView = ({ showToast }) => {
         }
     };
 
-    if (loading) return <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>Loading security parameters...</div>;
+    if (loading) return <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading security parameters...</div>;
 
     return (
         <div style={{ maxWidth: '800px', animation: 'fadeIn 0.3s ease-in-out' }}>
@@ -56,8 +56,8 @@ const IntegritySettingsView = ({ showToast }) => {
                         <i className="fas fa-shield-alt" style={{ fontSize: '1.2rem' }}></i>
                     </div>
                     <div>
-                        <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#111827' }}>Duplicate Management Policy</h3>
-                        <p style={{ margin: '4px 0 0', fontSize: '0.85rem', color: '#64748b' }}>Control how the system handles multiple deals for the same physical unit.</p>
+                        <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)' }}>Duplicate Management Policy</h3>
+                        <p style={{ margin: '4px 0 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>Control how the system handles multiple deals for the same physical unit.</p>
                     </div>
                 </div>
 
@@ -65,7 +65,7 @@ const IntegritySettingsView = ({ showToast }) => {
                     {[
                         { id: 'strict', label: 'Strict (Block)', desc: 'Prevents creating duplicate deals. Guaranteed data integrity.', color: '#10b981', icon: 'fa-lock' },
                         { id: 'warn', label: 'Warning', desc: 'Warns the user but allows the duplicate to be saved.', color: '#f59e0b', icon: 'fa-exclamation-triangle' },
-                        { id: 'allow', label: 'Allow All', desc: 'No checks performed. Allows manual duplicate management.', color: '#64748b', icon: 'fa-unlock' }
+                        { id: 'allow', label: 'Allow All', desc: 'No checks performed. Allows manual duplicate management.', color: 'var(--text-muted)', icon: 'fa-unlock' }
                     ].map(opt => (
                         <div
                             key={opt.id}
@@ -73,8 +73,8 @@ const IntegritySettingsView = ({ showToast }) => {
                             style={{
                                 padding: '24px',
                                 borderRadius: '14px',
-                                border: `2px solid ${policy === opt.id ? opt.color : '#e2e8f0'}`,
-                                background: policy === opt.id ? `${opt.color}05` : '#fff',
+                                border: `2px solid ${policy === opt.id ? opt.color : 'var(--border-color)'}`,
+                                background: policy === opt.id ? `${opt.color}05` : 'var(--bg-card)',
                                 cursor: saving ? 'not-allowed' : 'pointer',
                                 transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                                 position: 'relative',
@@ -82,27 +82,27 @@ const IntegritySettingsView = ({ showToast }) => {
                             }}
                         >
                             {policy === opt.id && (
-                                <div style={{ position: 'absolute', top: '-10px', right: '12px', background: opt.color, color: '#fff', fontSize: '10px', fontWeight: 800, padding: '2px 8px', borderRadius: '20px', textTransform: 'uppercase', boxShadow: `0 4px 12px ${opt.color}40` }}>
+                                <div style={{ position: 'absolute', top: '-10px', right: '12px', background: opt.color, color: 'var(--bg-card)', fontSize: '10px', fontWeight: 800, padding: '2px 8px', borderRadius: '20px', textTransform: 'uppercase', boxShadow: `0 4px 12px ${opt.color}40` }}>
                                     Active
                                 </div>
                             )}
-                            <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: policy === opt.id ? `${opt.color}20` : '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', color: policy === opt.id ? opt.color : '#94a3b8', marginBottom: '16px' }}>
+                            <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: policy === opt.id ? `${opt.color}20` : 'var(--bg-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: policy === opt.id ? opt.color : 'var(--text-muted)', marginBottom: '16px' }}>
                                 <i className={`fas ${opt.icon}`} style={{ fontSize: '0.9rem' }}></i>
                             </div>
-                            <div style={{ fontWeight: 700, color: policy === opt.id ? opt.color : '#1e293b', fontSize: '0.95rem', marginBottom: '8px' }}>{opt.label}</div>
-                            <div style={{ fontSize: '0.8rem', color: '#64748b', lineHeight: 1.5 }}>{opt.desc}</div>
+                            <div style={{ fontWeight: 700, color: policy === opt.id ? opt.color : 'var(--text-main)', fontSize: '0.95rem', marginBottom: '8px' }}>{opt.label}</div>
+                            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>{opt.desc}</div>
                         </div>
                     ))}
                 </div>
             </div>
 
-            <div style={{ padding: '24px', borderRadius: '14px', background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+            <div style={{ padding: '24px', borderRadius: '14px', background: 'var(--bg-light)', border: '1px solid var(--border-color)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
                     <i className="fas fa-sync-alt" style={{ color: '#6366f1' }}></i>
-                    <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#111827' }}>Live Multi-Source Sync</h3>
+                    <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: 'var(--text-main)' }}>Live Multi-Source Sync</h3>
                     <div style={{ background: '#e0e7ff', color: '#4338ca', fontSize: '10px', fontWeight: 800, padding: '2px 8px', borderRadius: '20px', textTransform: 'uppercase' }}>Enterprise Grade</div>
                 </div>
-                <p style={{ margin: 0, fontSize: '0.85rem', color: '#64748b', lineHeight: 1.6 }}>
+                <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
                     Your deals are now linked directly to the Inventory. Any updates to property owners, associates, or project details in the Inventory module will <strong>instantly reflect</strong> in all associated deals across the CRM. This ensures your sales team is always looking at the "Source of Truth."
                 </p>
             </div>
@@ -172,7 +172,7 @@ const DealDetailsPage = () => {
     const renderFlatView = () => (
         <div style={{ display: 'flex', gap: '32px', height: '100%' }}>
             {/* Left Panel: Field List */}
-            <div style={{ width: '240px', borderRight: '1px solid #e2e8f0', paddingRight: '16px' }}>
+            <div style={{ width: '240px', borderRight: '1px solid var(--border-color)', paddingRight: '16px' }}>
                 {['dealTypes', 'buyerTypes'].map(field => (
                     <div
                         key={field}
@@ -183,7 +183,7 @@ const DealDetailsPage = () => {
                             borderRadius: '6px',
                             fontSize: '0.9rem',
                             fontWeight: activeDetailField === field ? 600 : 500,
-                            color: activeDetailField === field ? '#2563eb' : '#475569',
+                            color: activeDetailField === field ? '#2563eb' : 'var(--text-muted)',
                             background: activeDetailField === field ? '#eff6ff' : 'transparent',
                             marginBottom: '8px',
                             textTransform: 'capitalize'
@@ -197,7 +197,7 @@ const DealDetailsPage = () => {
             {/* Right Panel: Value List */}
             <div style={{ flex: 1 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#1e293b', textTransform: 'capitalize' }}>
+                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)', textTransform: 'capitalize' }}>
                         {activeDetailField.replace(/([A-Z])/g, ' $1').trim()} List
                     </h3>
                     {!showAddItemForm ? (
@@ -226,18 +226,18 @@ const DealDetailsPage = () => {
                                 value={newItemValue}
                                 onChange={(e) => setNewItemValue(e.target.value)}
                                 placeholder="Enter value..."
-                                style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
+                                style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--border-color)', fontSize: '0.9rem' }}
                                 onKeyDown={(e) => e.key === 'Enter' && handleSaveFlatItem()}
                             />
                             <button
                                 onClick={handleSaveFlatItem}
-                                style={{ padding: '6px 12px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
+                                style={{ padding: '6px 12px', background: '#3b82f6', color: 'var(--bg-card)', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
                             >
                                 Save
                             </button>
                             <button
                                 onClick={() => { setShowAddItemForm(false); setNewItemValue(''); }}
-                                style={{ padding: '6px 12px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
+                                style={{ padding: '6px 12px', background: 'var(--bg-light)', color: 'var(--text-muted)', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
                             >
                                 Cancel
                             </button>
@@ -246,7 +246,7 @@ const DealDetailsPage = () => {
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px' }}>
                     {(dealMasterFields[activeDetailField] || []).map(item => (
-                        <div key={item} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: '#f8fafc', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.9rem', color: '#334155' }}>
+                        <div key={item} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-light)', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.9rem', color: 'var(--text-main)' }}>
                             <span>{item}</span>
                             <button
                                 onClick={() => handleDeleteFlatItem(item)}
@@ -257,7 +257,7 @@ const DealDetailsPage = () => {
                         </div>
                     ))}
                     {(!dealMasterFields[activeDetailField] || dealMasterFields[activeDetailField].length === 0) && (
-                        <div style={{ gridColumn: '1/-1', padding: '32px', textAlign: 'center', color: '#94a3b8', border: '2px dashed #e2e8f0', borderRadius: '8px' }}>
+                        <div style={{ gridColumn: '1/-1', padding: '32px', textAlign: 'center', color: 'var(--text-muted)', border: '2px dashed #e2e8f0', borderRadius: '8px' }}>
                             No items found. Add one to get started.
                         </div>
                     )}
@@ -267,7 +267,7 @@ const DealDetailsPage = () => {
     );
 
     return (
-        <div style={{ flex: 1, background: '#f8fafc', padding: '24px', overflowY: 'auto' }}>
+        <div style={{ flex: 1, background: 'var(--bg-light)', padding: '24px', overflowY: 'auto' }}>
             <div style={{ width: '100%' }}>
                 {notification.show && (
                     <Toast
@@ -279,13 +279,13 @@ const DealDetailsPage = () => {
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
                     <div>
-                        <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', margin: '0 0 8px 0' }}>Deals</h1>
-                        <p style={{ margin: 0, color: '#64748b' }}>Manage deal types, buyer preferences, and transaction details.</p>
+                        <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-main)', margin: '0 0 8px 0' }}>Deals</h1>
+                        <p style={{ margin: 0, color: 'var(--text-muted)' }}>Manage deal types, buyer preferences, and transaction details.</p>
                     </div>
                 </div>
 
                 {/* Tabs */}
-                <div style={{ display: 'flex', gap: '32px', borderBottom: '1px solid #e2e8f0', marginBottom: '32px' }}>
+                <div style={{ display: 'flex', gap: '32px', borderBottom: '1px solid var(--border-color)', marginBottom: '32px' }}>
                     {['Deal Details', 'Integrity & Rules'].map(tab => (
                         <div
                             key={tab}
@@ -298,7 +298,7 @@ const DealDetailsPage = () => {
                                 padding: '12px 4px',
                                 fontSize: '0.95rem',
                                 fontWeight: activeTab === tab ? 700 : 500,
-                                color: activeTab === tab ? '#3b82f6' : '#64748b',
+                                color: activeTab === tab ? '#3b82f6' : 'var(--text-muted)',
                                 borderBottom: activeTab === tab ? '2px solid #3b82f6' : '2px solid transparent',
                                 cursor: 'pointer',
                                 transition: 'all 0.2s'
@@ -309,7 +309,7 @@ const DealDetailsPage = () => {
                     ))}
                 </div>
 
-                <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '32px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)', minHeight: '500px' }}>
+                <div style={{ background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)', padding: '32px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)', minHeight: '500px' }}>
                     {activeTab === 'Deal Details' && renderFlatView()}
                     {activeTab === 'Integrity & Rules' && <IntegritySettingsView showToast={showToast} />}
                 </div>

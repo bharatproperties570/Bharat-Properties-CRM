@@ -8,32 +8,32 @@ import { generateCSV, downloadFile } from "../../../utils/dataManagementUtils";
 const SizeItem = ({ size, onEdit, onDelete }) => (
     <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
         <td style={{ padding: '16px' }}>
-            <div style={{ fontWeight: 700, color: '#1e293b' }}>{size.project || 'Global'}</div>
-            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{size.block}</div>
+            <div style={{ fontWeight: 700, color: 'var(--text-main)' }}>{size.project || 'Global'}</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{size.block}</div>
         </td>
         <td style={{ padding: '16px' }}>
-            <div style={{ fontWeight: 600, color: '#475569' }}>{size.category}</div>
-            <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{size.subCategory}</div>
+            <div style={{ fontWeight: 600, color: 'var(--text-muted)' }}>{size.category}</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{size.subCategory}</div>
         </td>
         <td style={{ padding: '16px' }}>
             <div style={{ fontWeight: 700, color: '#3b82f6', fontSize: '1rem' }}>{size.name}</div>
         </td>
-        <td style={{ padding: '16px', color: '#64748b', fontSize: '0.8rem' }}>{size.description || '--'}</td>
+        <td style={{ padding: '16px', color: 'var(--text-muted)', fontSize: '0.8rem' }}>{size.description || '--'}</td>
         <td style={{ padding: '16px', textAlign: 'right' }}>
             <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                 <button
                     onClick={() => onEdit(size)}
-                    style={{ width: '32px', height: '32px', borderRadius: '6px', border: 'none', background: '#f8fafc', color: '#64748b', cursor: 'pointer', transition: 'all 0.2s' }}
+                    style={{ width: '32px', height: '32px', borderRadius: '6px', border: 'none', background: 'var(--bg-light)', color: 'var(--text-muted)', cursor: 'pointer', transition: 'all 0.2s' }}
                     onMouseOver={e => { e.currentTarget.style.background = '#eff6ff'; e.currentTarget.style.color = '#3b82f6'; }}
-                    onMouseOut={e => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.color = '#64748b'; }}
+                    onMouseOut={e => { e.currentTarget.style.background = 'var(--bg-light)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
                 >
                     <i className="fas fa-edit"></i>
                 </button>
                 <button
                     onClick={() => onDelete(size.id)}
-                    style={{ width: '32px', height: '32px', borderRadius: '6px', border: 'none', background: '#f8fafc', color: '#64748b', cursor: 'pointer', transition: 'all 0.2s' }}
-                    onMouseOver={e => { e.currentTarget.style.background = '#fef2f2'; e.currentTarget.style.color = '#ef4444'; }}
-                    onMouseOut={e => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.color = '#64748b'; }}
+                    style={{ width: '32px', height: '32px', borderRadius: '6px', border: 'none', background: 'var(--bg-light)', color: 'var(--text-muted)', cursor: 'pointer', transition: 'all 0.2s' }}
+                    onMouseOver={e => { e.currentTarget.style.background = 'var(--danger-bg)'; e.currentTarget.style.color = '#ef4444'; }}
+                    onMouseOut={e => { e.currentTarget.style.background = 'var(--bg-light)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
                 >
                     <i className="fas fa-trash"></i>
                 </button>
@@ -149,21 +149,21 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
         onClose();
     };
 
-    const labelStyle = { fontSize: '0.9rem', fontWeight: 600, color: '#334155', marginBottom: '12px', display: 'block' };
-    const inputStyle = { width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', color: '#1e293b', transition: 'border-color 0.2s', height: '42px', boxSizing: 'border-box', backgroundColor: '#fff' };
-    const customSelectStyle = { ...inputStyle, paddingRight: '30px', background: '#f8fafc', appearance: 'none', backgroundImage: `url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23475569%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', backgroundSize: '12px' };
+    const labelStyle = { fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '12px', display: 'block' };
+    const inputStyle = { width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.9rem', outline: 'none', color: 'var(--text-main)', transition: 'border-color 0.2s', height: '42px', boxSizing: 'border-box', backgroundColor: 'var(--bg-card)' };
+    const customSelectStyle = { ...inputStyle, paddingRight: '30px', background: 'var(--bg-light)', appearance: 'none', backgroundImage: `url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23475569%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center', backgroundSize: '12px' };
 
     return (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 11000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ background: '#fff', width: '600px', borderRadius: '12px', padding: '32px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ background: 'var(--bg-card)', width: '600px', borderRadius: '12px', padding: '32px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', maxHeight: '90vh', overflowY: 'auto' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                    <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: '#0f172a' }}>{initialData ? 'Edit Property Size' : 'Add New Property Size'}</h3>
-                    <i className="fas fa-times" onClick={onClose} style={{ cursor: 'pointer', color: '#94a3b8' }}></i>
+                    <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-main)' }}>{initialData ? 'Edit Property Size' : 'Add New Property Size'}</h3>
+                    <i className="fas fa-times" onClick={onClose} style={{ cursor: 'pointer', color: 'var(--text-muted)' }}></i>
                 </div>
                 <div style={{ display: 'grid', gap: '24px' }}>
-                    <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ background: 'var(--bg-light)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
                         <label style={labelStyle}>Size Name (Auto-Generated)</label>
-                        <input type="text" value={sizeData.name} readOnly style={{ ...inputStyle, background: '#f1f5f9', fontWeight: 700, color: '#1e40af', border: '1px solid #bfdbfe' }} />
+                        <input type="text" value={sizeData.name} readOnly style={{ ...inputStyle, background: 'var(--bg-light)', fontWeight: 700, color: '#1e40af', border: '1px solid #bfdbfe' }} />
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                         <div>
@@ -218,8 +218,8 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
                         </div>
                     </div>
                     {isResidentialType && (
-                        <div style={{ background: '#f8fafc', padding: '20px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                            <h4 style={{ margin: '0 0 16px 0', fontSize: '0.9rem', color: '#1e293b' }}>Residential Details (Sq Ft)</h4>
+                        <div style={{ background: 'var(--bg-light)', padding: '20px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                            <h4 style={{ margin: '0 0 16px 0', fontSize: '0.9rem', color: 'var(--text-main)' }}>Residential Details (Sq Ft)</h4>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
                                 <div><label style={labelStyle}>Total/Saleable Area</label><input type="number" placeholder="Enter Area" value={sizeData.saleableArea} onChange={e => setSizeData({ ...sizeData, saleableArea: e.target.value })} style={inputStyle} /></div>
                                 <div><label style={labelStyle}>Covered Area</label><input type="number" placeholder="Enter Area" value={sizeData.coveredArea} onChange={e => setSizeData({ ...sizeData, coveredArea: e.target.value })} style={inputStyle} /></div>
@@ -228,21 +228,21 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
                         </div>
                     )}
                     {isPlotType && (
-                        <div style={{ background: '#f8fafc', padding: '20px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                            <h4 style={{ margin: '0 0 16px 0', fontSize: '0.9rem', color: '#1e293b' }}>Dimensions & Multi-Unit Calculator</h4>
+                        <div style={{ background: 'var(--bg-light)', padding: '20px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                            <h4 style={{ margin: '0 0 16px 0', fontSize: '0.9rem', color: 'var(--text-main)' }}>Dimensions & Multi-Unit Calculator</h4>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
                                 <div>
                                     <label style={labelStyle}>Width</label>
                                     <div style={{ display: 'flex' }}>
                                         <input type="number" value={sizeData.width} onChange={e => setSizeData({ ...sizeData, width: e.target.value })} style={{ ...inputStyle, borderRight: 'none', borderRadius: '6px 0 0 6px' }} />
-                                        <select value={sizeData.widthMetric} onChange={e => handleMetricChange(e.target.value)} style={{ ...inputStyle, width: '100px', borderRadius: '0 6px 6px 0', background: '#fff' }}><option>Meter</option><option>Feet</option><option>Yard</option></select>
+                                        <select value={sizeData.widthMetric} onChange={e => handleMetricChange(e.target.value)} style={{ ...inputStyle, width: '100px', borderRadius: '0 6px 6px 0', background: 'var(--bg-card)' }}><option>Meter</option><option>Feet</option><option>Yard</option></select>
                                     </div>
                                 </div>
                                 <div>
                                     <label style={labelStyle}>Length</label>
                                     <div style={{ display: 'flex' }}>
                                         <input type="number" value={sizeData.length} onChange={e => setSizeData({ ...sizeData, length: e.target.value })} style={{ ...inputStyle, borderRight: 'none', borderRadius: '6px 0 0 6px' }} />
-                                        <select value={sizeData.lengthMetric} onChange={e => handleMetricChange(e.target.value)} style={{ ...inputStyle, width: '100px', borderRadius: '0 6px 6px 0', background: '#fff' }}><option>Meter</option><option>Feet</option><option>Yard</option></select>
+                                        <select value={sizeData.lengthMetric} onChange={e => handleMetricChange(e.target.value)} style={{ ...inputStyle, width: '100px', borderRadius: '0 6px 6px 0', background: 'var(--bg-card)' }}><option>Meter</option><option>Feet</option><option>Yard</option></select>
                                     </div>
                                 </div>
                             </div>
@@ -252,7 +252,7 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
                                         <label style={{ ...labelStyle, color: '#1e40af' }}>Total area based on formula</label>
                                         <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#1e40af' }}>{sizeData.totalArea || '0.00'} <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>{sizeData.resultMetric}</span></div>
                                     </div>
-                                    <div style={{ display: 'flex', gap: '4px' }}>{['Sq Meter', 'Sq Ft', 'Sq Yd'].map(m => (<button key={m} onClick={() => setSizeData({ ...sizeData, resultMetric: m })} style={{ padding: '4px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 700, background: sizeData.resultMetric === m ? '#1e40af' : '#fff', color: sizeData.resultMetric === m ? '#fff' : '#1e40af', border: '1px solid #1e40af', cursor: 'pointer' }}>{m}</button>))}</div>
+                                    <div style={{ display: 'flex', gap: '4px' }}>{['Sq Meter', 'Sq Ft', 'Sq Yd'].map(m => (<button key={m} onClick={() => setSizeData({ ...sizeData, resultMetric: m })} style={{ padding: '4px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 700, background: sizeData.resultMetric === m ? '#1e40af' : 'var(--bg-card)', color: sizeData.resultMetric === m ? 'var(--bg-card)' : '#1e40af', border: '1px solid #1e40af', cursor: 'pointer' }}>{m}</button>))}</div>
                                 </div>
                             </div>
                         </div>
@@ -264,7 +264,7 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
                 </div>
                 <div style={{ display: 'flex', gap: '12px', marginTop: '32px' }}>
                     <button className="btn-primary" onClick={handleSubmit} style={{ padding: '12px 24px', fontSize: '0.95rem', fontWeight: 700, flex: 1 }}>{initialData ? 'Update Configuration' : 'Add to Project'}</button>
-                    <button className="btn-outline" onClick={onClose} style={{ padding: '12px 24px', border: '1px solid #e2e8f0', background: '#fff', fontSize: '0.95rem', fontWeight: 700, flex: 1, color: '#475569' }}>Cancel</button>
+                    <button className="btn-outline" onClick={onClose} style={{ padding: '12px 24px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', fontSize: '0.95rem', fontWeight: 700, flex: 1, color: 'var(--text-muted)' }}>Cancel</button>
                 </div>
             </div>
         </div>
@@ -288,8 +288,8 @@ const InputModal = ({ isOpen, onClose, onConfirm, title, defaultValue = '', plac
 
     return (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 12000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ background: '#fff', width: '400px', borderRadius: '12px', padding: '24px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
-                <h3 style={{ margin: '0 0 16px 0', fontSize: '1.1rem', fontWeight: 700, color: '#0f172a' }}>{title}</h3>
+            <div style={{ background: 'var(--bg-card)', width: '400px', borderRadius: '12px', padding: '24px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
+                <h3 style={{ margin: '0 0 16px 0', fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)' }}>{title}</h3>
                 <form onSubmit={handleSubmit}>
                     <input
                         autoFocus
@@ -297,11 +297,11 @@ const InputModal = ({ isOpen, onClose, onConfirm, title, defaultValue = '', plac
                         value={value}
                         onChange={(e) => setValue(e.target.value)}
                         placeholder={placeholder}
-                        style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', marginBottom: '20px', outline: 'none' }}
+                        style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.9rem', marginBottom: '20px', outline: 'none' }}
                     />
                     <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-                        <button type="button" onClick={onClose} style={{ padding: '8px 16px', border: '1px solid #e2e8f0', background: '#fff', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, color: '#64748b' }}>Cancel</button>
-                        <button type="submit" style={{ padding: '8px 16px', border: 'none', background: '#2563eb', color: '#fff', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}>Confirm</button>
+                        <button type="button" onClick={onClose} style={{ padding: '8px 16px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, color: 'var(--text-muted)' }}>Cancel</button>
+                        <button type="submit" style={{ padding: '8px 16px', border: 'none', background: '#2563eb', color: 'var(--bg-card)', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}>Confirm</button>
                     </div>
                 </form>
             </div>
@@ -314,12 +314,12 @@ const ConfirmationModal = ({ isOpen, onClose, onConfirm, message }) => {
 
     return (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 12000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ background: '#fff', width: '400px', borderRadius: '12px', padding: '24px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
-                <h3 style={{ margin: '0 0 16px 0', fontSize: '1.1rem', fontWeight: 700, color: '#0f172a' }}>Confirm Action</h3>
-                <p style={{ margin: '0 0 24px 0', color: '#64748b', fontSize: '0.95rem' }}>{message}</p>
+            <div style={{ background: 'var(--bg-card)', width: '400px', borderRadius: '12px', padding: '24px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
+                <h3 style={{ margin: '0 0 16px 0', fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)' }}>Confirm Action</h3>
+                <p style={{ margin: '0 0 24px 0', color: 'var(--text-muted)', fontSize: '0.95rem' }}>{message}</p>
                 <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-                    <button type="button" onClick={onClose} style={{ padding: '8px 16px', border: '1px solid #e2e8f0', background: '#fff', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, color: '#64748b' }}>Cancel</button>
-                    <button type="button" onClick={() => { onConfirm(); onClose(); }} style={{ padding: '8px 16px', border: 'none', background: '#ef4444', color: '#fff', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}>Delete</button>
+                    <button type="button" onClick={onClose} style={{ padding: '8px 16px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, color: 'var(--text-muted)' }}>Cancel</button>
+                    <button type="button" onClick={() => { onConfirm(); onClose(); }} style={{ padding: '8px 16px', border: 'none', background: '#ef4444', color: 'var(--bg-card)', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}>Delete</button>
                 </div>
             </div>
         </div>
@@ -870,13 +870,13 @@ const PropertySettingsPage = () => {
 
     const ActionButtons = ({ onEdit, onDelete }) => (
         <div className="action-buttons" style={{ display: 'flex', gap: '4px' }}>
-            <button onClick={(e) => { e.stopPropagation(); onEdit(); }} style={{ border: 'none', background: 'transparent', color: '#94a3b8', cursor: 'pointer', padding: '4px' }} title="Edit"><i className="fas fa-edit"></i></button>
+            <button onClick={(e) => { e.stopPropagation(); onEdit(); }} style={{ border: 'none', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px' }} title="Edit"><i className="fas fa-edit"></i></button>
             <button onClick={(e) => { e.stopPropagation(); onDelete(); }} style={{ border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer', padding: '4px' }} title="Delete"><i className="fas fa-trash"></i></button>
         </div>
     );
 
     return (
-        <div style={{ flex: 1, background: '#f8fafc', padding: '24px', overflowY: 'auto' }}>
+        <div style={{ flex: 1, background: 'var(--bg-light)', padding: '24px', overflowY: 'auto' }}>
             <div style={{ width: '100%' }}>
                 {notification.show && (
                     <Toast
@@ -887,17 +887,17 @@ const PropertySettingsPage = () => {
                 )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
                     <div>
-                        <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', margin: '0 0 8px 0' }}>Property Configuration</h1>
-                        <p style={{ margin: 0, color: '#64748b' }}>Manage property sizes, dimensions, and size types.</p>
+                        <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-main)', margin: '0 0 8px 0' }}>Property Configuration</h1>
+                        <p style={{ margin: 0, color: 'var(--text-muted)' }}>Manage property sizes, dimensions, and size types.</p>
                     </div>
                 </div>
 
-                <div style={{ display: 'flex', gap: '32px', borderBottom: '1px solid #e2e8f0', marginBottom: '32px' }}>
+                <div style={{ display: 'flex', gap: '32px', borderBottom: '1px solid var(--border-color)', marginBottom: '32px' }}>
                     {['Sizes', 'Configuration', 'Feedback Outcomes', 'Orientation'].map(tab => (
                         <div
                             key={tab}
                             onClick={() => setActiveTab(tab)}
-                            style={{ padding: '12px 4px', fontSize: '0.95rem', fontWeight: activeTab === tab ? 700 : 500, color: activeTab === tab ? '#3b82f6' : '#64748b', borderBottom: activeTab === tab ? '2px solid #3b82f6' : '2px solid transparent', cursor: 'pointer', transition: 'all 0.2s' }}
+                            style={{ padding: '12px 4px', fontSize: '0.95rem', fontWeight: activeTab === tab ? 700 : 500, color: activeTab === tab ? '#3b82f6' : 'var(--text-muted)', borderBottom: activeTab === tab ? '2px solid #3b82f6' : '2px solid transparent', cursor: 'pointer', transition: 'all 0.2s' }}
                         >
                             {tab}
                         </div>
@@ -909,13 +909,13 @@ const PropertySettingsPage = () => {
                         <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '24px', width: '100%' }}>
                             {/* Search */}
                             <div style={{ position: 'relative', width: '300px' }}>
-                                <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }}></i>
+                                <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }}></i>
                                 <input
                                     type="text"
                                     placeholder="Search sizes..."
                                     value={searchTerm}
                                     onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }}
-                                    style={{ width: '100%', padding: '10px 10px 10px 36px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.9rem', outline: 'none' }}
+                                    style={{ width: '100%', padding: '10px 10px 10px 36px', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '0.9rem', outline: 'none' }}
                                 />
                             </div>
 
@@ -925,7 +925,7 @@ const PropertySettingsPage = () => {
                                     className="btn-primary"
                                     type="button"
                                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIsModalOpen(true); }}
-                                    style={{ padding: '10px 20px', borderRadius: '8px', fontSize: '0.9rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: '#fff', border: 'none', cursor: 'pointer' }}
+                                    style={{ padding: '10px 20px', borderRadius: '8px', fontSize: '0.9rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', background: '#2563eb', color: 'var(--bg-card)', border: 'none', cursor: 'pointer' }}
                                 >
                                     <i className="fas fa-plus"></i> Add Size
                                 </button>
@@ -956,18 +956,18 @@ const PropertySettingsPage = () => {
 
                             {/* Pagination Controls */}
                             <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
-                                <div style={{ fontSize: "0.8rem", color: "#64748b" }}>
+                                <div style={{ fontSize: "0.8rem", color: 'var(--text-muted)' }}>
                                     Showing: <strong>{paginatedSizes.length}</strong> /{" "}
                                     <strong>{filteredSizes.length}</strong>
                                 </div>
 
                                 {/* Records Per Page */}
-                                <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.8rem", color: "#64748b" }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.8rem", color: 'var(--text-muted)' }}>
                                     <span>Show:</span>
                                     <select
                                         value={recordsPerPage}
                                         onChange={handleRecordsPerPageChange}
-                                        style={{ padding: "6px 10px", border: "1px solid #e2e8f0", borderRadius: "6px", fontSize: "0.8rem", fontWeight: 600, color: "#0f172a", outline: "none", cursor: "pointer", background: '#fff' }}
+                                        style={{ padding: "6px 10px", border: "1px solid var(--border-color)", borderRadius: "6px", fontSize: "0.8rem", fontWeight: 600, color: 'var(--text-main)', outline: "none", cursor: "pointer", background: 'var(--bg-card)' }}
                                     >
                                         {[10, 25, 50, 100, 300, 500].map(val => (
                                             <option key={val} value={val}>{val}</option>
@@ -980,17 +980,17 @@ const PropertySettingsPage = () => {
                                     <button
                                         onClick={goToPreviousPage}
                                         disabled={currentPage === 1}
-                                        style={{ padding: "6px 12px", border: "1px solid #e2e8f0", borderRadius: "6px", background: currentPage === 1 ? "#f8fafc" : "#fff", color: currentPage === 1 ? "#cbd5e1" : "#0f172a", cursor: currentPage === 1 ? "not-allowed" : "pointer", fontSize: "0.75rem", fontWeight: 600 }}
+                                        style={{ padding: "6px 12px", border: "1px solid var(--border-color)", borderRadius: "6px", background: currentPage === 1 ? 'var(--bg-light)' : 'var(--bg-card)', color: currentPage === 1 ? 'var(--border-color)' : 'var(--text-main)', cursor: currentPage === 1 ? "not-allowed" : "pointer", fontSize: "0.75rem", fontWeight: 600 }}
                                     >
                                         <i className="fas fa-chevron-left"></i> Prev
                                     </button>
-                                    <span style={{ fontSize: "0.8rem", fontWeight: 600, color: "#0f172a", minWidth: "60px", textAlign: "center" }}>
+                                    <span style={{ fontSize: "0.8rem", fontWeight: 600, color: 'var(--text-main)', minWidth: "60px", textAlign: "center" }}>
                                         {currentPage} / {totalPages || 1}
                                     </span>
                                     <button
                                         onClick={goToNextPage}
                                         disabled={currentPage >= totalPages}
-                                        style={{ padding: "6px 12px", border: "1px solid #e2e8f0", borderRadius: "6px", background: currentPage >= totalPages ? "#f8fafc" : "#fff", color: currentPage >= totalPages ? "#cbd5e1" : "#0f172a", cursor: currentPage >= totalPages ? "not-allowed" : "pointer", fontSize: "0.75rem", fontWeight: 600 }}
+                                        style={{ padding: "6px 12px", border: "1px solid var(--border-color)", borderRadius: "6px", background: currentPage >= totalPages ? 'var(--bg-light)' : 'var(--bg-card)', color: currentPage >= totalPages ? 'var(--border-color)' : 'var(--text-main)', cursor: currentPage >= totalPages ? "not-allowed" : "pointer", fontSize: "0.75rem", fontWeight: 600 }}
                                     >
                                         Next <i className="fas fa-chevron-right"></i>
                                     </button>
@@ -1003,9 +1003,9 @@ const PropertySettingsPage = () => {
                                         width: '36px',
                                         height: '36px',
                                         borderRadius: '8px',
-                                        border: '1px solid #e2e8f0',
-                                        background: isFilterPanelOpen ? '#eff6ff' : '#fff',
-                                        color: isFilterPanelOpen ? '#3b82f6' : '#64748b',
+                                        border: '1px solid var(--border-color)',
+                                        background: isFilterPanelOpen ? '#eff6ff' : 'var(--bg-card)',
+                                        color: isFilterPanelOpen ? '#3b82f6' : 'var(--text-muted)',
                                         display: 'flex',
                                         alignItems: 'center',
                                         justifyContent: 'center',
@@ -1022,14 +1022,14 @@ const PropertySettingsPage = () => {
 
                         <div style={{ display: 'flex', gap: '24px', alignItems: 'flex-start' }}>
                             {/* Table Column */}
-                            <div style={{ flex: 1, background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}>
+                            <div style={{ flex: 1, background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}>
                                 <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                                    <thead style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                                    <thead style={{ background: 'var(--bg-light)', borderBottom: '1px solid var(--border-color)' }}>
                                         <tr>
-                                            <th style={{ padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Location</th>
-                                            <th style={{ padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Category</th>
-                                            <th style={{ padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Size Name</th>
-                                            <th style={{ padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Details</th>
+                                            <th style={{ padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Location</th>
+                                            <th style={{ padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Category</th>
+                                            <th style={{ padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Size Name</th>
+                                            <th style={{ padding: '16px', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Details</th>
                                             <th style={{ padding: '16px', width: '100px' }}></th>
                                         </tr>
                                     </thead>
@@ -1039,7 +1039,7 @@ const PropertySettingsPage = () => {
                                                 <SizeItem key={size.id} size={size} onEdit={() => handleEditOpen(size)} onDelete={handleDeleteSize} />
                                             ))
                                         ) : (
-                                            <tr><td colSpan="5" style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>No sizes found matching your search.</td></tr>
+                                            <tr><td colSpan="5" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>No sizes found matching your search.</td></tr>
                                         )}
                                     </tbody>
                                 </table>
@@ -1050,8 +1050,8 @@ const PropertySettingsPage = () => {
                                 <div style={{
                                     width: '320px',
                                     flexShrink: 0,
-                                    background: '#fff',
-                                    border: '1px solid #e2e8f0',
+                                    background: 'var(--bg-card)',
+                                    border: '1px solid var(--border-color)',
                                     borderRadius: '12px',
                                     padding: '24px',
                                     boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)',
@@ -1062,24 +1062,24 @@ const PropertySettingsPage = () => {
                                     top: '24px'
                                 }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                             <i className="fas fa-filter" style={{ fontSize: '0.9rem', color: '#2563eb' }}></i>
                                             Quick Filters
                                         </h3>
                                         <button
                                             onClick={() => setIsFilterPanelOpen(false)}
-                                            style={{ border: 'none', background: 'transparent', color: '#94a3b8', cursor: 'pointer', fontSize: '1.2rem' }}
+                                            style={{ border: 'none', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1.2rem' }}
                                         >
                                             <i className="fas fa-times"></i>
                                         </button>
                                     </div>
 
                                     <div>
-                                        <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Project</label>
+                                        <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Project</label>
                                         <select
                                             value={sizeFilters.project}
                                             onChange={e => setSizeFilters({ ...sizeFilters, project: e.target.value, block: '' })}
-                                            style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.9rem', outline: 'none', background: '#f8fafc', color: '#1e293b' }}
+                                            style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border-color)', fontSize: '0.9rem', outline: 'none', background: 'var(--bg-light)', color: 'var(--text-main)' }}
                                         >
                                             <option value="">All Projects</option>
                                             {safeProjects.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
@@ -1087,12 +1087,12 @@ const PropertySettingsPage = () => {
                                     </div>
 
                                     <div>
-                                        <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Block</label>
+                                        <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Block</label>
                                         <select
                                             value={sizeFilters.block}
                                             onChange={e => setSizeFilters({ ...sizeFilters, block: e.target.value })}
                                             disabled={!sizeFilters.project}
-                                            style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.9rem', outline: 'none', background: sizeFilters.project ? '#f8fafc' : '#f1f5f9', color: '#1e293b' }}
+                                            style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border-color)', fontSize: '0.9rem', outline: 'none', background: sizeFilters.project ? 'var(--bg-light)' : 'var(--bg-light)', color: 'var(--text-main)' }}
                                         >
                                             <option value="">All Blocks</option>
                                             {sizeFilters.project && safeProjects.find(p => p.name === sizeFilters.project)?.blocks?.map(b => {
@@ -1103,11 +1103,11 @@ const PropertySettingsPage = () => {
                                     </div>
 
                                     <div>
-                                        <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Category</label>
+                                        <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Category</label>
                                         <select
                                             value={sizeFilters.category}
                                             onChange={e => setSizeFilters({ ...sizeFilters, category: e.target.value, subCategory: '', unitType: '' })}
-                                            style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.9rem', outline: 'none', background: '#f8fafc', color: '#1e293b' }}
+                                            style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border-color)', fontSize: '0.9rem', outline: 'none', background: 'var(--bg-light)', color: 'var(--text-main)' }}
                                         >
                                             <option value="">All Categories</option>
                                             {propertyConfig && Object.keys(propertyConfig).map(cat => <option key={cat} value={cat}>{cat}</option>)}
@@ -1115,12 +1115,12 @@ const PropertySettingsPage = () => {
                                     </div>
 
                                     <div>
-                                        <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Sub Category</label>
+                                        <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Sub Category</label>
                                         <select
                                             value={sizeFilters.subCategory}
                                             onChange={e => setSizeFilters({ ...sizeFilters, subCategory: e.target.value, unitType: '' })}
                                             disabled={!sizeFilters.category}
-                                            style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.9rem', outline: 'none', background: sizeFilters.category ? '#f8fafc' : '#f1f5f9', color: '#1e293b' }}
+                                            style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border-color)', fontSize: '0.9rem', outline: 'none', background: sizeFilters.category ? 'var(--bg-light)' : 'var(--bg-light)', color: 'var(--text-main)' }}
                                         >
                                             <option value="">All Sub Categories</option>
                                             {sizeFilters.category && propertyConfig[sizeFilters.category]?.subCategories?.map(sub => (
@@ -1130,12 +1130,12 @@ const PropertySettingsPage = () => {
                                     </div>
 
                                     <div>
-                                        <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Size Type</label>
+                                        <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Size Type</label>
                                         <select
                                             value={sizeFilters.unitType}
                                             onChange={e => setSizeFilters({ ...sizeFilters, unitType: e.target.value })}
                                             disabled={!sizeFilters.subCategory}
-                                            style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '0.9rem', outline: 'none', background: sizeFilters.subCategory ? '#f8fafc' : '#f1f5f9', color: '#1e293b' }}
+                                            style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border-color)', fontSize: '0.9rem', outline: 'none', background: sizeFilters.subCategory ? 'var(--bg-light)' : 'var(--bg-light)', color: 'var(--text-main)' }}
                                         >
                                             <option value="">All Size Types</option>
                                             {(() => {
@@ -1151,9 +1151,9 @@ const PropertySettingsPage = () => {
 
                                     <button
                                         onClick={() => setSizeFilters({ project: '', block: '', category: '', subCategory: '', unitType: '' })}
-                                        style={{ marginTop: '12px', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
-                                        onMouseOver={e => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.color = '#1e293b'; }}
-                                        onMouseOut={e => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.color = '#64748b'; }}
+                                        style={{ marginTop: '12px', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-muted)', fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                                        onMouseOver={e => { e.currentTarget.style.background = 'var(--bg-light)'; e.currentTarget.style.color = 'var(--text-main)'; }}
+                                        onMouseOut={e => { e.currentTarget.style.background = 'var(--bg-card)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
                                     >
                                         <i className="fas fa-undo"></i> Reset All Filters
                                     </button>
@@ -1162,22 +1162,22 @@ const PropertySettingsPage = () => {
                         </div>
                     </div>
                 ) : activeTab === 'Configuration' ? (
-                    <div style={{ height: 'calc(100vh - 200px)', display: 'flex', flexDirection: 'column', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.05)' }}>
-                        <div style={{ background: '#fff', padding: '16px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div><h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: '#0f172a' }}>Global Configuration</h2><p style={{ margin: '4px 0 0 0', fontSize: '0.9rem', color: '#64748b' }}>Manage property hierarchy from top to bottom.</p></div>
+                    <div style={{ height: 'calc(100vh - 200px)', display: 'flex', flexDirection: 'column', background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.05)' }}>
+                        <div style={{ background: 'var(--bg-card)', padding: '16px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div><h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-main)' }}>Global Configuration</h2><p style={{ margin: '4px 0 0 0', fontSize: '0.9rem', color: 'var(--text-muted)' }}>Manage property hierarchy from top to bottom.</p></div>
                         </div>
                         <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-                            <div style={{ width: '280px', borderRight: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', background: '#f8fafc' }}>
-                                <div style={{ padding: '12px 16px', fontWeight: 600, color: '#475569', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ width: '280px', borderRight: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', background: 'var(--bg-light)' }}>
+                                <div style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     Category
                                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                                         <i className="fas fa-download" onClick={() => handleExportConfigHierarchy(Object.keys(propertyConfig), 'Categories')} style={{ fontSize: '0.8rem', color: '#10b981', cursor: 'pointer' }} title="Download Categories"></i>
-                                        <button type="button" onClick={(e) => { e.preventDefault(); handleAddCategory(); }} style={{ border: 'none', background: '#e2e8f0', color: '#475569', borderRadius: '4px', width: '20px', height: '20px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Add Category"><i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i></button>
+                                        <button type="button" onClick={(e) => { e.preventDefault(); handleAddCategory(); }} style={{ border: 'none', background: 'var(--border-color)', color: 'var(--text-muted)', borderRadius: '4px', width: '20px', height: '20px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Add Category"><i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i></button>
                                     </div>
                                 </div>
                                 <div style={{ overflowY: 'auto', flex: 1 }}>
                                     {propertyConfig && Object.keys(propertyConfig).map(cat => (
-                                        <div key={cat} onClick={() => { setConfigCategory(cat); setConfigSubCategory(null); setConfigType(null); }} style={{ padding: '16px', cursor: 'pointer', fontSize: '0.95rem', fontWeight: configCategory === cat ? 700 : 500, color: configCategory === cat ? '#2563eb' : '#334155', background: configCategory === cat ? '#fff' : 'transparent', borderLeft: configCategory === cat ? '4px solid #2563eb' : '4px solid transparent', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} className="group">
+                                        <div key={cat} onClick={() => { setConfigCategory(cat); setConfigSubCategory(null); setConfigType(null); }} style={{ padding: '16px', cursor: 'pointer', fontSize: '0.95rem', fontWeight: configCategory === cat ? 700 : 500, color: configCategory === cat ? '#2563eb' : 'var(--text-main)', background: configCategory === cat ? 'var(--bg-card)' : 'transparent', borderLeft: configCategory === cat ? '4px solid #2563eb' : '4px solid transparent', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} className="group">
                                             <span style={{ flex: 1 }}>{cat}</span>
                                             <div style={{ display: 'flex', gap: '8px' }}>
                                                 {configCategory === cat && <ActionButtons onEdit={() => handleEditCategory(cat)} onDelete={() => handleDeleteCategory(cat)} />}
@@ -1187,12 +1187,12 @@ const PropertySettingsPage = () => {
                                     ))}
                                 </div>
                             </div>
-                            <div style={{ width: '320px', borderRight: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', background: '#fff' }}>
-                                <div style={{ padding: '12px 16px', fontWeight: 600, color: '#475569', fontSize: '0.85rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ width: '320px', borderRight: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', background: 'var(--bg-card)' }}>
+                                <div style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.85rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     Sub Category
                                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                                         <i className="fas fa-download" onClick={() => handleExportConfigHierarchy(propertyConfig[configCategory]?.subCategories || [], 'Sub_Categories', { categoryId: getLookupId('Category', configCategory) })} style={{ fontSize: '0.8rem', color: '#10b981', cursor: 'pointer', opacity: configCategory ? 1 : 0.4 }} title="Download Sub Categories"></i>
-                                        <button type="button" onClick={(e) => { e.preventDefault(); handleAddSubCategory(); }} disabled={!configCategory} style={{ border: 'none', background: configCategory ? '#e2e8f0' : '#f1f5f9', color: configCategory ? '#475569' : '#cbd5e1', borderRadius: '4px', width: '20px', height: '20px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i></button>
+                                        <button type="button" onClick={(e) => { e.preventDefault(); handleAddSubCategory(); }} disabled={!configCategory} style={{ border: 'none', background: configCategory ? 'var(--border-color)' : 'var(--bg-light)', color: configCategory ? 'var(--text-muted)' : 'var(--border-color)', borderRadius: '4px', width: '20px', height: '20px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i></button>
                                     </div>
                                 </div>
                                 <div style={{ overflowY: 'auto', flex: 1 }}>
@@ -1201,18 +1201,18 @@ const PropertySettingsPage = () => {
                                             <span>{sub.name}</span>
                                             <div style={{ display: 'flex', gap: '8px' }}>
                                                 {configSubCategory === sub.name && <ActionButtons onEdit={() => handleEditSubCategory(sub.name)} onDelete={() => handleDeleteSubCategory(sub.name)} />}
-                                                <span style={{ fontSize: '0.75rem', padding: '2px 8px', background: '#f1f5f9', borderRadius: '12px' }}>{sub?.types?.length || 0}</span>
+                                                <span style={{ fontSize: '0.75rem', padding: '2px 8px', background: 'var(--bg-light)', borderRadius: '12px' }}>{sub?.types?.length || 0}</span>
                                             </div>
                                         </div>
                                     ))}
                                 </div>
                             </div>
-                            <div style={{ width: '320px', borderRight: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', background: '#fff' }}>
-                                <div style={{ padding: '12px 16px', fontWeight: 600, color: '#475569', fontSize: '0.85rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ width: '320px', borderRight: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', background: 'var(--bg-card)' }}>
+                                <div style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.85rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     Size Type
                                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                                         <i className="fas fa-download" onClick={() => handleExportConfigHierarchy(propertyConfig[configCategory]?.subCategories.find(s => s.name === configSubCategory)?.types || [], 'Types', { subCategoryId: getLookupId('SubCategory', configSubCategory) })} style={{ fontSize: '0.8rem', color: '#10b981', cursor: 'pointer', opacity: configSubCategory ? 1 : 0.4 }} title="Download Size Types"></i>
-                                        <button type="button" onClick={(e) => { e.preventDefault(); handleAddType(); }} disabled={!configSubCategory} style={{ border: 'none', background: configSubCategory ? '#e2e8f0' : '#f1f5f9', color: configSubCategory ? '#475569' : '#cbd5e1', borderRadius: '4px', width: '20px', height: '20px', cursor: 'pointer', flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i></button>
+                                        <button type="button" onClick={(e) => { e.preventDefault(); handleAddType(); }} disabled={!configSubCategory} style={{ border: 'none', background: configSubCategory ? 'var(--border-color)' : 'var(--bg-light)', color: configSubCategory ? 'var(--text-muted)' : 'var(--border-color)', borderRadius: '4px', width: '20px', height: '20px', cursor: 'pointer', flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i></button>
                                     </div>
                                 </div>
                                 <div style={{ overflowY: 'auto', flex: 1 }}>
@@ -1224,12 +1224,12 @@ const PropertySettingsPage = () => {
                                     ))}
                                 </div>
                             </div>
-                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#fff' }}>
-                                <div style={{ padding: '12px 16px', fontWeight: 600, color: '#475569', fontSize: '0.85rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--bg-card)' }}>
+                                <div style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.85rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     Builtup
                                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                                         <i className="fas fa-download" onClick={() => handleExportConfigHierarchy(propertyConfig[configCategory]?.subCategories.find(s => s.name === configSubCategory)?.types.find(t => t.name === configType)?.builtupTypes || [], 'Builtup', { typeId: getLookupId('PropertyType', configType) })} style={{ fontSize: '0.8rem', color: '#10b981', cursor: 'pointer', opacity: configType ? 1 : 0.4 }} title="Download Builtup Size Types"></i>
-                                        <button type="button" onClick={(e) => { e.preventDefault(); handleAddBuiltupType(); }} disabled={!configType} style={{ border: 'none', background: configType ? '#e2e8f0' : '#f1f5f9', color: configType ? '#475569' : '#cbd5e1', borderRadius: '4px', width: '20px', height: '20px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i></button>
+                                        <button type="button" onClick={(e) => { e.preventDefault(); handleAddBuiltupType(); }} disabled={!configType} style={{ border: 'none', background: configType ? 'var(--border-color)' : 'var(--bg-light)', color: configType ? 'var(--text-muted)' : 'var(--border-color)', borderRadius: '4px', width: '20px', height: '20px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i></button>
                                     </div>
                                 </div>
                                 <div style={{ overflowY: 'auto', flex: 1, padding: '16px' }}>
@@ -1239,7 +1239,7 @@ const PropertySettingsPage = () => {
                                                 const bName = typeof bType === 'object' ? bType.name : bType;
                                                 const bId = typeof bType === 'object' ? (bType.id || bType._id || bName) : bType;
                                                 return (
-                                                <div key={bId} style={{ padding: '12px', border: '1px solid #e2e8f0', borderRadius: '8px', display: 'flex', justifyContent: 'space-between' }} className="group">
+                                                <div key={bId} style={{ padding: '12px', border: '1px solid var(--border-color)', borderRadius: '8px', display: 'flex', justifyContent: 'space-between' }} className="group">
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981' }}></div>{bName}</div>
                                                     <ActionButtons onEdit={() => handleEditBuiltupType(bName)} onDelete={() => handleDeleteBuiltupType(bName)} />
                                                 </div>
@@ -1253,27 +1253,27 @@ const PropertySettingsPage = () => {
                 ) : activeTab === 'Feedback Outcomes' ? (
                     <CustomizeFeedbackPage isEmbedded={true} />
                 ) : (
-                    <div style={{ height: 'calc(100vh - 200px)', display: 'flex', flexDirection: 'column', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.05)' }}>
-                        <div style={{ background: '#fff', padding: '16px 24px', borderBottom: '1px solid #e2e8f0' }}><h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#0f172a' }}>Orientation & Fields</h2></div>
+                    <div style={{ height: 'calc(100vh - 200px)', display: 'flex', flexDirection: 'column', background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.05)' }}>
+                        <div style={{ background: 'var(--bg-card)', padding: '16px 24px', borderBottom: '1px solid var(--border-color)' }}><h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-main)' }}>Orientation & Fields</h2></div>
                         <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-                            <div style={{ width: '280px', borderRight: '1px solid #e2e8f0', background: '#f8fafc', display: 'flex', flexDirection: 'column' }}>
-                                <div style={{ padding: '12px 16px', fontWeight: 600, color: '#475569', fontSize: '0.85rem' }}>Field Name</div>
+                            <div style={{ width: '280px', borderRight: '1px solid var(--border-color)', background: 'var(--bg-light)', display: 'flex', flexDirection: 'column' }}>
+                                <div style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.85rem' }}>Field Name</div>
                                 <div style={{ overflowY: 'auto', flex: 1 }}>
                                     {masterFields && Object.keys(masterFields)
                                         .filter(field => ['facings', 'roadWidths', 'directions', 'unitTypes', 'relations'].includes(field))
                                         .map(field => (
-                                            <div key={field} onClick={() => setActiveOrientationField(field)} style={{ padding: '16px', cursor: 'pointer', fontWeight: activeOrientationField === field ? 700 : 500, color: activeOrientationField === field ? '#2563eb' : '#334155', background: activeOrientationField === field ? '#fff' : 'transparent', borderLeft: activeOrientationField === field ? '4px solid #2563eb' : '4px solid transparent', textTransform: 'capitalize' }}>
+                                            <div key={field} onClick={() => setActiveOrientationField(field)} style={{ padding: '16px', cursor: 'pointer', fontWeight: activeOrientationField === field ? 700 : 500, color: activeOrientationField === field ? '#2563eb' : 'var(--text-main)', background: activeOrientationField === field ? 'var(--bg-card)' : 'transparent', borderLeft: activeOrientationField === field ? '4px solid #2563eb' : '4px solid transparent', textTransform: 'capitalize' }}>
                                                 {field.replace(/([A-Z])/g, ' $1').trim()}
                                             </div>
                                         ))}
                                 </div>
                             </div>
-                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#fff' }}>
-                                <div style={{ padding: '12px 16px', fontWeight: 600, color: '#475569', fontSize: '0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--bg-card)' }}>
+                                <div style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     Value
                                     <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                                         <i className="fas fa-download" onClick={handleExportOrientation} style={{ fontSize: '0.9rem', color: '#10b981', cursor: 'pointer' }} title="Download Fields"></i>
-                                        <button type="button" onClick={(e) => { e.preventDefault(); handleAddMasterItem(); }} style={{ border: 'none', background: '#e2e8f0', color: '#475569', borderRadius: '4px', width: '20px', height: '20px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i></button>
+                                        <button type="button" onClick={(e) => { e.preventDefault(); handleAddMasterItem(); }} style={{ border: 'none', background: 'var(--border-color)', color: 'var(--text-muted)', borderRadius: '4px', width: '20px', height: '20px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fas fa-plus" style={{ fontSize: '0.7rem' }}></i></button>
                                     </div>
                                 </div>
                             </div>
@@ -1283,7 +1283,7 @@ const PropertySettingsPage = () => {
                                         const itemName = typeof item === 'object' ? item.name : item;
                                         const itemKey = typeof item === 'object' ? (item.id || idx) : item;
                                         return (
-                                            <div key={itemKey} style={{ padding: '12px', border: '1px solid #e2e8f0', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} className="group">
+                                            <div key={itemKey} style={{ padding: '12px', border: '1px solid var(--border-color)', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} className="group">
                                                 <span>{itemName}</span>
                                                 <button onClick={() => handleDeleteMasterItem(item)} style={{ border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer', padding: '4px' }}><i className="fas fa-trash-alt" style={{ fontSize: '0.85rem' }}></i></button>
                                             </div>
@@ -1322,18 +1322,18 @@ const PropertySettingsPage = () => {
                 {/* Export Sizes Modal */}
                 {isExportModalOpen && (
                     <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 12000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <div style={{ background: '#fff', width: '450px', borderRadius: '12px', padding: '32px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
+                        <div style={{ background: 'var(--bg-card)', width: '450px', borderRadius: '12px', padding: '32px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                                <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: '#0f172a' }}>Export Property Sizes</h3>
-                                <i className="fas fa-times" onClick={() => setIsExportModalOpen(false)} style={{ cursor: 'pointer', color: '#94a3b8' }}></i>
+                                <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-main)' }}>Export Property Sizes</h3>
+                                <i className="fas fa-times" onClick={() => setIsExportModalOpen(false)} style={{ cursor: 'pointer', color: 'var(--text-muted)' }}></i>
                             </div>
 
                             <div style={{ display: 'grid', gap: '20px' }}>
                                 <div>
-                                    <label style={{ fontSize: '0.9rem', fontWeight: 600, color: '#334155', marginBottom: '8px', display: 'block' }}>Select Project</label>
+                                    <label style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '8px', display: 'block' }}>Select Project</label>
                                     <select
                                         id="exportProjectSelect"
-                                        style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none' }}
+                                        style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.9rem', outline: 'none' }}
                                         defaultValue="All"
                                         onChange={(e) => {
                                             const proj = e.target.value;
@@ -1361,10 +1361,10 @@ const PropertySettingsPage = () => {
                                 </div>
 
                                 <div>
-                                    <label style={{ fontSize: '0.9rem', fontWeight: 600, color: '#334155', marginBottom: '8px', display: 'block' }}>Select Block</label>
+                                    <label style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '8px', display: 'block' }}>Select Block</label>
                                     <select
                                         id="exportBlockSelect"
-                                        style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', outline: 'none' }}
+                                        style={{ width: '100%', padding: '10px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.9rem', outline: 'none' }}
                                         defaultValue="All"
                                     >
                                         <option value="All">All Blocks</option>
@@ -1380,14 +1380,14 @@ const PropertySettingsPage = () => {
                                         const block = document.getElementById('exportBlockSelect').value;
                                         handleExportSizes(proj, block);
                                     }}
-                                    style={{ padding: '12px 24px', fontSize: '0.95rem', fontWeight: 700, flex: 1, background: '#10b981', border: 'none', color: '#fff', borderRadius: '8px', cursor: 'pointer' }}
+                                    style={{ padding: '12px 24px', fontSize: '0.95rem', fontWeight: 700, flex: 1, background: '#10b981', border: 'none', color: 'var(--bg-card)', borderRadius: '8px', cursor: 'pointer' }}
                                 >
                                     Download CSV
                                 </button>
                                 <button
                                     className="btn-outline"
                                     onClick={() => setIsExportModalOpen(false)}
-                                    style={{ padding: '12px 24px', border: '1px solid #e2e8f0', background: '#fff', fontSize: '0.95rem', fontWeight: 700, flex: 1, color: '#475569', borderRadius: '8px', cursor: 'pointer' }}
+                                    style={{ padding: '12px 24px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', fontSize: '0.95rem', fontWeight: 700, flex: 1, color: 'var(--text-muted)', borderRadius: '8px', cursor: 'pointer' }}
                                 >
                                     Cancel
                                 </button>

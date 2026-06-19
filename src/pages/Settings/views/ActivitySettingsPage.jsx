@@ -97,9 +97,9 @@ const ActivitySettingsPage = () => {
     };
 
     const renderColumn = (title, items, type, isSelected, onSelect, placeholder, disableAdd = false) => (
-        <div style={{ flex: 1, border: '1px solid #e2e8f0', borderRadius: '12px', display: 'flex', flexDirection: 'column', background: '#fff', overflow: 'hidden', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
-            <div style={{ padding: '16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700, color: '#475569' }}>{title}</h4>
+        <div style={{ flex: 1, border: '1px solid var(--border-color)', borderRadius: '12px', display: 'flex', flexDirection: 'column', background: 'var(--bg-card)', overflow: 'hidden', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+            <div style={{ padding: '16px', background: 'var(--bg-light)', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-muted)' }}>{title}</h4>
                 {!disableAdd && (
                     <button
                         onClick={() => { setShowAddItemForm(true); setAddItemTarget(type); setNewItemValue(''); }}
@@ -107,7 +107,7 @@ const ActivitySettingsPage = () => {
                         style={{
                             border: 'none',
                             background: (type !== 'activity' && !items) ? 'transparent' : '#eff6ff',
-                            color: (type !== 'activity' && !items) ? '#cbd5e1' : '#2563eb',
+                            color: (type !== 'activity' && !items) ? 'var(--border-color)' : '#2563eb',
                             cursor: (type !== 'activity' && !items) ? 'not-allowed' : 'pointer',
                             width: '28px', height: '28px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s'
                         }}
@@ -118,27 +118,27 @@ const ActivitySettingsPage = () => {
             </div>
 
             {showAddItemForm && addItemTarget === type && (
-                <div style={{ padding: '12px', borderBottom: '1px solid #e2e8f0', background: '#eff6ff' }}>
+                <div style={{ padding: '12px', borderBottom: '1px solid var(--border-color)', background: '#eff6ff' }}>
                     <input
                         autoFocus
                         value={newItemValue}
                         onChange={(e) => setNewItemValue(e.target.value)}
                         placeholder={`Enter ${type} name...`}
-                        style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.9rem', marginBottom: '8px', outline: 'none' }}
+                        style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.9rem', marginBottom: '8px', outline: 'none' }}
                         onKeyDown={(e) => e.key === 'Enter' && handleSaveItem()}
                     />
                     <div style={{ display: 'flex', gap: '8px' }}>
-                        <button onClick={handleSaveItem} style={{ flex: 1, padding: '6px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}>Save</button>
-                        <button onClick={() => setShowAddItemForm(false)} style={{ flex: 1, padding: '6px', background: '#fff', color: '#475569', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+                        <button onClick={handleSaveItem} style={{ flex: 1, padding: '6px', background: '#3b82f6', color: 'var(--bg-card)', border: 'none', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}>Save</button>
+                        <button onClick={() => setShowAddItemForm(false)} style={{ flex: 1, padding: '6px', background: 'var(--bg-card)', color: 'var(--text-muted)', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
                     </div>
                 </div>
             )}
 
             <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}>
                 {!items ? (
-                    <div style={{ padding: '40px 20px', textAlign: 'center', color: '#cbd5e1', fontSize: '0.9rem', fontStyle: 'italic' }}>{placeholder}</div>
+                    <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--border-color)', fontSize: '0.9rem', fontStyle: 'italic' }}>{placeholder}</div>
                 ) : items.length === 0 ? (
-                    <div style={{ padding: '40px 20px', textAlign: 'center', color: '#94a3b8', fontSize: '0.9rem' }}>No items added yet</div>
+                    <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.9rem' }}>No items added yet</div>
                 ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                         {items.map((item, idx) => {
@@ -154,7 +154,7 @@ const ActivitySettingsPage = () => {
                                         padding: '10px 14px',
                                         borderRadius: '8px',
                                         fontSize: '0.9rem',
-                                        color: active ? '#1e40af' : '#334155',
+                                        color: active ? '#1e40af' : 'var(--text-main)',
                                         background: active ? '#dbeafe' : 'transparent',
                                         fontWeight: active ? 600 : 500,
                                         cursor: onSelect ? 'pointer' : 'default',
@@ -185,7 +185,7 @@ const ActivitySettingsPage = () => {
     );
 
     return (
-        <div style={{ flex: 1, background: '#f8fafc', padding: '32px', overflowY: 'auto' }}>
+        <div style={{ flex: 1, background: 'var(--bg-light)', padding: '32px', overflowY: 'auto' }}>
             <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
                 {notification.show && (
                     <Toast
@@ -196,12 +196,12 @@ const ActivitySettingsPage = () => {
                 )}
 
                 <div style={{ marginBottom: '24px' }}>
-                    <h1 style={{ fontSize: '1.6rem', fontWeight: 800, color: '#0f172a', margin: '0 0 8px 0', letterSpacing: '-0.5px' }}>Activity Configuration</h1>
-                    <p style={{ margin: 0, color: '#64748b', fontSize: '0.95rem' }}>Configure Agendas, Purposes, and completion Results for all activity types.</p>
+                    <h1 style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--text-main)', margin: '0 0 8px 0', letterSpacing: '-0.5px' }}>Activity Configuration</h1>
+                    <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.95rem' }}>Configure Agendas, Purposes, and completion Results for all activity types.</p>
                 </div>
 
                 <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginBottom: '24px', padding: '12px 16px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '12px', color: '#c2410c' }}>
-                    <div style={{ width: '32px', height: '32px', background: '#fff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <div style={{ width: '32px', height: '32px', background: 'var(--bg-card)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                         <i className="fas fa-sitemap" style={{ color: '#ea580c' }}></i>
                     </div>
                     <div style={{ fontSize: '0.9rem' }}>

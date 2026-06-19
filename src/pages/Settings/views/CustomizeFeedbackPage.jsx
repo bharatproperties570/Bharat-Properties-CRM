@@ -15,7 +15,7 @@ const CustomizeFeedbackPage = ({ isEmbedded }) => {
     const labelStyle = {
         fontSize: '0.8rem',
         fontWeight: 700,
-        color: '#475569',
+        color: 'var(--text-muted)',
         marginBottom: '6px',
         display: 'block',
         textTransform: 'uppercase',
@@ -27,11 +27,11 @@ const CustomizeFeedbackPage = ({ isEmbedded }) => {
         padding: '10px 12px',
         paddingRight: '30px',
         borderRadius: '8px',
-        border: '1px solid #e2e8f0',
+        border: '1px solid var(--border-color)',
         fontSize: '0.9rem',
         outline: 'none',
-        background: '#f8fafc',
-        color: '#475569',
+        background: 'var(--bg-light)',
+        color: 'var(--text-muted)',
         appearance: 'none',
         WebkitAppearance: 'none',
         MozAppearance: 'none',
@@ -47,8 +47,8 @@ const CustomizeFeedbackPage = ({ isEmbedded }) => {
         height: '28px',
         borderRadius: '50%',
         border: 'none',
-        background: isActive ? color : '#e2e8f0',
-        color: isActive ? '#fff' : '#94a3b8',
+        background: isActive ? color : 'var(--border-color)',
+        color: isActive ? 'var(--bg-card)' : 'var(--text-muted)',
         cursor: 'pointer',
         display: 'flex',
         alignItems: 'center',
@@ -102,22 +102,22 @@ const CustomizeFeedbackPage = ({ isEmbedded }) => {
 
 
     return (
-        <div style={{ flex: 1, padding: isEmbedded ? '0' : '32px 40px', background: isEmbedded ? 'transparent' : '#fff', overflowY: 'auto' }}>
+        <div style={{ flex: 1, padding: isEmbedded ? '0' : '32px 40px', background: isEmbedded ? 'transparent' : 'var(--bg-card)', overflowY: 'auto' }}>
             {!isEmbedded && (
                 <div style={{ marginBottom: '32px' }}>
-                    <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>Feedback Outcomes & Reasons</h2>
-                    <p style={{ color: '#64748b', fontSize: '0.9rem' }}>Configure the outcome options for property interactions and map them to specific reasons.</p>
+                    <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '8px' }}>Feedback Outcomes & Reasons</h2>
+                    <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Configure the outcome options for property interactions and map them to specific reasons.</p>
                 </div>
             )}
 
             <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: '40px', alignItems: 'start' }}>
                 {/* Outcomes List */}
-                <div style={{ background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
+                <div style={{ background: 'var(--bg-light)', borderRadius: '12px', border: '1px solid var(--border-color)', padding: '20px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                        <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>Outcomes</h3>
+                        <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Outcomes</h3>
                         <button
                             onClick={() => setShowOutcomeAdd(true)}
-                            style={{ background: '#3b82f6', color: '#fff', border: 'none', width: '28px', height: '28px', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                            style={{ background: '#3b82f6', color: 'var(--bg-card)', border: 'none', width: '28px', height: '28px', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                         >
                             <i className="fas fa-plus"></i>
                         </button>
@@ -130,10 +130,10 @@ const CustomizeFeedbackPage = ({ isEmbedded }) => {
                                 value={newOutcome}
                                 onChange={(e) => setNewOutcome(e.target.value)}
                                 placeholder="e.g. Follow Up"
-                                style={{ flex: 1, padding: '8px 12px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '0.85rem' }}
+                                style={{ flex: 1, padding: '8px 12px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }}
                             />
-                            <button onClick={handleAddOutcome} style={{ background: '#10b981', color: '#fff', border: 'none', padding: '0 12px', borderRadius: '6px', cursor: 'pointer' }}><i className="fas fa-check"></i></button>
-                            <button onClick={() => setShowOutcomeAdd(false)} style={{ background: '#ef4444', color: '#fff', border: 'none', padding: '0 12px', borderRadius: '6px', cursor: 'pointer' }}><i className="fas fa-times"></i></button>
+                            <button onClick={handleAddOutcome} style={{ background: '#10b981', color: 'var(--bg-card)', border: 'none', padding: '0 12px', borderRadius: '6px', cursor: 'pointer' }}><i className="fas fa-check"></i></button>
+                            <button onClick={() => setShowOutcomeAdd(false)} style={{ background: '#ef4444', color: 'var(--bg-card)', border: 'none', padding: '0 12px', borderRadius: '6px', cursor: 'pointer' }}><i className="fas fa-times"></i></button>
                         </div>
                     )}
 
@@ -145,9 +145,9 @@ const CustomizeFeedbackPage = ({ isEmbedded }) => {
                                 style={{
                                     padding: '12px 16px',
                                     borderRadius: '8px',
-                                    background: selectedOutcome === outcome ? '#eff6ff' : '#fff',
-                                    border: selectedOutcome === outcome ? '1px solid #3b82f6' : '1px solid #e2e8f0',
-                                    color: selectedOutcome === outcome ? '#1e40af' : '#475569',
+                                    background: selectedOutcome === outcome ? '#eff6ff' : 'var(--bg-card)',
+                                    border: selectedOutcome === outcome ? '1px solid #3b82f6' : '1px solid var(--border-color)',
+                                    color: selectedOutcome === outcome ? '#1e40af' : 'var(--text-muted)',
                                     fontWeight: selectedOutcome === outcome ? 700 : 500,
                                     fontSize: '0.9rem',
                                     cursor: 'pointer',
@@ -163,7 +163,7 @@ const CustomizeFeedbackPage = ({ isEmbedded }) => {
                                 )}
                                 <button
                                     onClick={(e) => { e.stopPropagation(); handleDeleteOutcome(outcome); }}
-                                    style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px', opacity: selectedOutcome === outcome ? 1 : 0 }}
+                                    style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px', opacity: selectedOutcome === outcome ? 1 : 0 }}
                                     className="delete-btn"
                                 >
                                     <i className="fas fa-trash-alt"></i>
@@ -174,12 +174,12 @@ const CustomizeFeedbackPage = ({ isEmbedded }) => {
                 </div>
 
                 {/* Reasons List */}
-                <div style={{ border: '1px solid #e2e8f0', borderRadius: '12px', padding: '24px' }}>
+                <div style={{ border: '1px solid var(--border-color)', borderRadius: '12px', padding: '24px' }}>
                     <div style={{ borderBottom: '1px solid #f1f5f9', paddingBottom: '16px', marginBottom: '24px' }}>
-                        <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1e293b' }}>
+                        <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)' }}>
                             Reasons for <span style={{ color: '#3b82f6' }}>{selectedOutcome}</span>
                         </h3>
-                        <p style={{ color: '#64748b', fontSize: '0.85rem' }}>These options will appear when "{selectedOutcome}" is selected in the feedback form.</p>
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>These options will appear when "{selectedOutcome}" is selected in the feedback form.</p>
                     </div>
 
                     <div style={{ display: 'flex', gap: '12px', marginBottom: '24px' }}>
@@ -188,11 +188,11 @@ const CustomizeFeedbackPage = ({ isEmbedded }) => {
                             value={newReason}
                             onChange={(e) => setNewReason(e.target.value)}
                             placeholder="Add a specific reason..."
-                            style={{ flex: 1, padding: '10px 16px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '0.9rem' }}
+                            style={{ flex: 1, padding: '10px 16px', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '0.9rem' }}
                         />
                         <button
                             onClick={handleAddReason}
-                            style={{ background: '#3b82f6', color: '#fff', border: 'none', padding: '0 24px', borderRadius: '8px', fontWeight: 700, cursor: 'pointer' }}
+                            style={{ background: '#3b82f6', color: 'var(--bg-card)', border: 'none', padding: '0 24px', borderRadius: '8px', fontWeight: 700, cursor: 'pointer' }}
                         >
                             Add Reason
                         </button>
@@ -217,22 +217,22 @@ const CustomizeFeedbackPage = ({ isEmbedded }) => {
                                     key={reason}
                                     style={{
                                         padding: '16px',
-                                        background: '#f8fafc',
-                                        border: '1px solid #e2e8f0',
+                                        background: 'var(--bg-light)',
+                                        border: '1px solid var(--border-color)',
                                         borderRadius: '12px',
                                         display: 'flex',
                                         flexDirection: 'column',
                                         gap: '12px',
                                         fontSize: '0.85rem',
-                                        color: '#334155',
+                                        color: 'var(--text-main)',
                                         fontWeight: 500
                                     }}
                                 >
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <span style={{ fontSize: '1rem', fontWeight: 800, color: '#0f172a' }}>{reason}</span>
+                                        <span style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-main)' }}>{reason}</span>
                                         <button
                                             onClick={() => handleDeleteReason(reason)}
-                                            style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '4px' }}
+                                            style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px' }}
                                         >
                                             <i className="fas fa-trash-alt"></i>
                                         </button>
@@ -251,11 +251,11 @@ const CustomizeFeedbackPage = ({ isEmbedded }) => {
                                                     />
                                                     <span style={{
                                                         position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0,
-                                                        backgroundColor: rule.sendMsg !== false ? '#3b82f6' : '#cbd5e1', borderRadius: '34px', transition: '.4s'
+                                                        backgroundColor: rule.sendMsg !== false ? '#3b82f6' : 'var(--border-color)', borderRadius: '34px', transition: '.4s'
                                                     }}></span>
                                                     <span style={{
                                                         position: 'absolute', content: '""', height: '14px', width: '14px', left: rule.sendMsg !== false ? '18px' : '4px', bottom: '3px',
-                                                        backgroundColor: 'white', borderRadius: '50%', transition: '.4s'
+                                                        backgroundColor: 'var(--bg-card)', borderRadius: '50%', transition: '.4s'
                                                     }}></span>
                                                 </label>
                                             </div>
@@ -325,9 +325,9 @@ const CustomizeFeedbackPage = ({ isEmbedded }) => {
                                             <div style={{
                                                 padding: '10px 12px',
                                                 borderRadius: '8px',
-                                                background: rule.inventoryStatus ? (rule.inventoryStatus === 'Active' ? '#ecfdf5' : '#fef2f2') : '#f8fafc',
-                                                border: `1px solid ${rule.inventoryStatus ? (rule.inventoryStatus === 'Active' ? '#d1fae5' : '#fee2e2') : '#e2e8f0'}`,
-                                                color: rule.inventoryStatus ? (rule.inventoryStatus === 'Active' ? '#047857' : '#b91c1c') : '#94a3b8',
+                                                background: rule.inventoryStatus ? (rule.inventoryStatus === 'Active' ? '#ecfdf5' : 'var(--danger-bg)') : 'var(--bg-light)',
+                                                border: `1px solid ${rule.inventoryStatus ? (rule.inventoryStatus === 'Active' ? '#d1fae5' : '#fee2e2') : 'var(--border-color)'}`,
+                                                color: rule.inventoryStatus ? (rule.inventoryStatus === 'Active' ? '#047857' : '#b91c1c') : 'var(--text-muted)',
                                                 fontSize: '0.8rem',
                                                 fontWeight: 800,
                                                 textAlign: 'center',
@@ -348,10 +348,10 @@ const CustomizeFeedbackPage = ({ isEmbedded }) => {
                                                 placeholder="Type custom message here or leave blank to use template..."
                                                 value={rule.customMessage || ''}
                                                 onChange={(e) => updateRule('customMessage', e.target.value)}
-                                                style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', background: '#f8fafc', fontSize: '0.9rem', minHeight: '80px', resize: 'vertical', outline: 'none', color: '#475569' }}
+                                                style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-light)', fontSize: '0.9rem', minHeight: '80px', resize: 'vertical', outline: 'none', color: 'var(--text-muted)' }}
                                             />
                                             <div style={{ display: 'flex', gap: '8px', marginTop: '8px', alignItems: 'center' }}>
-                                                <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>Click to insert:</span>
+                                                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>Click to insert:</span>
                                                 {['{owner}', '{unit}', '{reason}', '{time}'].map(tag => (
                                                     <button
                                                         key={tag}
@@ -377,17 +377,17 @@ const CustomizeFeedbackPage = ({ isEmbedded }) => {
                                                         style={{
                                                             fontSize: '0.7rem',
                                                             padding: '4px 10px',
-                                                            background: '#fff',
-                                                            border: '1px solid #cbd5e1',
+                                                            background: 'var(--bg-card)',
+                                                            border: '1px solid var(--border-color)',
                                                             borderRadius: '6px',
-                                                            color: '#334155',
+                                                            color: 'var(--text-main)',
                                                             fontWeight: 700,
                                                             cursor: 'pointer',
                                                             transition: 'all 0.2s',
                                                             boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
                                                         }}
                                                         onMouseEnter={(e) => { e.target.style.background = '#eff6ff'; e.target.style.borderColor = '#3b82f6'; e.target.style.color = '#2563eb'; }}
-                                                        onMouseLeave={(e) => { e.target.style.background = '#fff'; e.target.style.borderColor = '#cbd5e1'; e.target.style.color = '#334155'; }}
+                                                        onMouseLeave={(e) => { e.target.style.background = 'var(--bg-card)'; e.target.style.borderColor = 'var(--border-color)'; e.target.style.color = 'var(--text-main)'; }}
                                                     >
                                                         {tag}
                                                     </button>
@@ -399,7 +399,7 @@ const CustomizeFeedbackPage = ({ isEmbedded }) => {
                             );
                         })}
                         {currentReasons.length === 0 && (
-                            <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8', background: '#f8fafc', borderRadius: '8px', border: '1px dashed #cbd5e1' }}>
+                            <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)', background: 'var(--bg-light)', borderRadius: '8px', border: '1px dashed var(--border-color)' }}>
                                 No specific reasons configured for this outcome.
                             </div>
                         )}

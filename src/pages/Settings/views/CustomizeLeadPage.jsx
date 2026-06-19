@@ -157,7 +157,7 @@ const CustomizeLeadPage = () => {
     const renderFlatView = () => (
         <div style={{ display: 'flex', gap: '32px', height: '100%' }}>
             {/* Left Panel: Field List */}
-            <div style={{ width: '240px', borderRight: '1px solid #e2e8f0', paddingRight: '16px' }}>
+            <div style={{ width: '240px', borderRight: '1px solid var(--border-color)', paddingRight: '16px' }}>
                 {['transactionTypes', 'fundingTypes', 'furnishingStatuses', 'timelines'].map(field => (
                     <div
                         key={field}
@@ -168,7 +168,7 @@ const CustomizeLeadPage = () => {
                             borderRadius: '6px',
                             fontSize: '0.9rem',
                             fontWeight: activeDetailField === field ? 600 : 500,
-                            color: activeDetailField === field ? '#2563eb' : '#475569',
+                            color: activeDetailField === field ? '#2563eb' : 'var(--text-muted)',
                             background: activeDetailField === field ? '#eff6ff' : 'transparent',
                             marginBottom: '8px',
                             textTransform: 'capitalize'
@@ -182,7 +182,7 @@ const CustomizeLeadPage = () => {
             {/* Right Panel: Value List */}
             <div style={{ flex: 1 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#1e293b', textTransform: 'capitalize' }}>
+                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)', textTransform: 'capitalize' }}>
                         {activeDetailField.replace(/([A-Z])/g, ' $1').trim()} List
                     </h3>
                     {!showAddItemForm ? (
@@ -211,18 +211,18 @@ const CustomizeLeadPage = () => {
                                 value={newItemValue}
                                 onChange={(e) => setNewItemValue(e.target.value)}
                                 placeholder="Enter value..."
-                                style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
+                                style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--border-color)', fontSize: '0.9rem' }}
                                 onKeyDown={(e) => e.key === 'Enter' && handleSaveFlatItem()}
                             />
                             <button
                                 onClick={handleSaveFlatItem}
-                                style={{ padding: '6px 12px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
+                                style={{ padding: '6px 12px', background: '#3b82f6', color: 'var(--bg-card)', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
                             >
                                 Save
                             </button>
                             <button
                                 onClick={() => { setShowAddItemForm(false); setNewItemValue(''); }}
-                                style={{ padding: '6px 12px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
+                                style={{ padding: '6px 12px', background: 'var(--bg-light)', color: 'var(--text-muted)', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}
                             >
                                 Cancel
                             </button>
@@ -231,7 +231,7 @@ const CustomizeLeadPage = () => {
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px' }}>
                     {(leadMasterFields[activeDetailField] || []).map(item => (
-                        <div key={item} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: '#f8fafc', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.9rem', color: '#334155' }}>
+                        <div key={item} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-light)', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.9rem', color: 'var(--text-main)' }}>
                             <span>{item}</span>
                             <button
                                 onClick={() => handleDeleteFlatItem(item)}
@@ -242,7 +242,7 @@ const CustomizeLeadPage = () => {
                         </div>
                     ))}
                     {(!leadMasterFields[activeDetailField] || leadMasterFields[activeDetailField].length === 0) && (
-                        <div style={{ gridColumn: '1/-1', padding: '32px', textAlign: 'center', color: '#94a3b8', border: '2px dashed #e2e8f0', borderRadius: '8px' }}>
+                        <div style={{ gridColumn: '1/-1', padding: '32px', textAlign: 'center', color: 'var(--text-muted)', border: '2px dashed #e2e8f0', borderRadius: '8px' }}>
                             No items found. Add one to get started.
                         </div>
                     )}
@@ -252,9 +252,9 @@ const CustomizeLeadPage = () => {
     );
 
     const renderHierarchyColumn = (title, items, type, isSelected, onSelect, placeholder) => (
-        <div style={{ flex: 1, border: '1px solid #e2e8f0', borderRadius: '8px', display: 'flex', flexDirection: 'column', background: '#fff', overflow: 'hidden' }}>
-            <div style={{ padding: '12px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h4 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 700, color: '#475569' }}>{title}</h4>
+        <div style={{ flex: 1, border: '1px solid var(--border-color)', borderRadius: '8px', display: 'flex', flexDirection: 'column', background: 'var(--bg-card)', overflow: 'hidden' }}>
+            <div style={{ padding: '12px 16px', background: 'var(--bg-light)', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h4 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-muted)' }}>{title}</h4>
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                     {items && items.length > 0 && (
                         <button
@@ -268,7 +268,7 @@ const CustomizeLeadPage = () => {
                     <button
                         onClick={() => { setShowAddItemForm(true); setAddItemTarget(type); setNewItemValue(''); }}
                         disabled={type !== 'campaign' && !items} // Disable source/medium add if parent not selected
-                        style={{ border: 'none', background: 'transparent', color: (type !== 'campaign' && !items) ? '#cbd5e1' : '#2563eb', cursor: (type !== 'campaign' && !items) ? 'not-allowed' : 'pointer' }}
+                        style={{ border: 'none', background: 'transparent', color: (type !== 'campaign' && !items) ? 'var(--border-color)' : '#2563eb', cursor: (type !== 'campaign' && !items) ? 'not-allowed' : 'pointer' }}
                     >
                         <i className="fas fa-plus"></i>
                     </button>
@@ -276,27 +276,27 @@ const CustomizeLeadPage = () => {
             </div>
 
             {showAddItemForm && addItemTarget === type && (
-                <div style={{ padding: '8px', borderBottom: '1px solid #e2e8f0', background: '#eff6ff' }}>
+                <div style={{ padding: '8px', borderBottom: '1px solid var(--border-color)', background: '#eff6ff' }}>
                     <input
                         autoFocus
                         value={newItemValue}
                         onChange={(e) => setNewItemValue(e.target.value)}
                         placeholder="Name..."
-                        style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '0.85rem', marginBottom: '6px' }}
+                        style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid var(--border-color)', fontSize: '0.85rem', marginBottom: '6px' }}
                         onKeyDown={(e) => e.key === 'Enter' && handleSaveHierarchyItem()}
                     />
                     <div style={{ display: 'flex', gap: '6px' }}>
-                        <button onClick={handleSaveHierarchyItem} style={{ flex: 1, padding: '4px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '0.75rem', cursor: 'pointer' }}>Save</button>
-                        <button onClick={() => setShowAddItemForm(false)} style={{ flex: 1, padding: '4px', background: '#fff', color: '#475569', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '0.75rem', cursor: 'pointer' }}>Cancel</button>
+                        <button onClick={handleSaveHierarchyItem} style={{ flex: 1, padding: '4px', background: '#3b82f6', color: 'var(--bg-card)', border: 'none', borderRadius: '4px', fontSize: '0.75rem', cursor: 'pointer' }}>Save</button>
+                        <button onClick={() => setShowAddItemForm(false)} style={{ flex: 1, padding: '4px', background: 'var(--bg-card)', color: 'var(--text-muted)', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.75rem', cursor: 'pointer' }}>Cancel</button>
                     </div>
                 </div>
             )}
 
             <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}>
                 {!items ? (
-                    <div style={{ padding: '20px', textAlign: 'center', color: '#cbd5e1', fontSize: '0.85rem' }}>{placeholder}</div>
+                    <div style={{ padding: '20px', textAlign: 'center', color: 'var(--border-color)', fontSize: '0.85rem' }}>{placeholder}</div>
                 ) : items.length === 0 ? (
-                    <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>No items added yet</div>
+                    <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>No items added yet</div>
                 ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                         {items.map((item, idx) => {
@@ -311,7 +311,7 @@ const CustomizeLeadPage = () => {
                                         padding: '8px 12px',
                                         borderRadius: '6px',
                                         fontSize: '0.9rem',
-                                        color: active ? '#2563eb' : '#334155',
+                                        color: active ? '#2563eb' : 'var(--text-main)',
                                         background: active ? '#eff6ff' : 'transparent',
                                         fontWeight: active ? 600 : 400,
                                         cursor: onSelect ? 'pointer' : 'default',
@@ -324,7 +324,7 @@ const CustomizeLeadPage = () => {
                                     <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{itemName}</span>
                                     <button
                                         onClick={(e) => { e.stopPropagation(); handleDeleteHierarchyItem(type, itemName); }}
-                                        style={{ border: 'none', background: 'transparent', color: '#cbd5e1', cursor: 'pointer', padding: '2px' }}
+                                        style={{ border: 'none', background: 'transparent', color: 'var(--border-color)', cursor: 'pointer', padding: '2px' }}
                                         className="transition-colors hover:text-red-500"
                                     >
                                         <i className="fas fa-times"></i>
@@ -376,7 +376,7 @@ const CustomizeLeadPage = () => {
     );
 
     return (
-        <div style={{ flex: 1, background: '#f8fafc', padding: '24px', overflowY: 'auto' }}>
+        <div style={{ flex: 1, background: 'var(--bg-light)', padding: '24px', overflowY: 'auto' }}>
             <div style={{ width: '100%' }}>
                 {notification.show && (
                     <Toast
@@ -388,13 +388,13 @@ const CustomizeLeadPage = () => {
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
                     <div>
-                        <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', margin: '0 0 8px 0' }}>Lead Configuration</h1>
-                        <p style={{ margin: 0, color: '#64748b' }}>Manage transaction preferences, property details, and campaign sources.</p>
+                        <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-main)', margin: '0 0 8px 0' }}>Lead Configuration</h1>
+                        <p style={{ margin: 0, color: 'var(--text-muted)' }}>Manage transaction preferences, property details, and campaign sources.</p>
                     </div>
                 </div>
 
                 {/* Tabs */}
-                <div style={{ display: 'flex', gap: '32px', borderBottom: '1px solid #e2e8f0', marginBottom: '32px' }}>
+                <div style={{ display: 'flex', gap: '32px', borderBottom: '1px solid var(--border-color)', marginBottom: '32px' }}>
                     {['Lead Details', 'Campaign Details'].map(tab => (
                         <div
                             key={tab}
@@ -407,7 +407,7 @@ const CustomizeLeadPage = () => {
                                 padding: '12px 4px',
                                 fontSize: '0.95rem',
                                 fontWeight: activeTab === tab ? 700 : 500,
-                                color: activeTab === tab ? '#3b82f6' : '#64748b',
+                                color: activeTab === tab ? '#3b82f6' : 'var(--text-muted)',
                                 borderBottom: activeTab === tab ? '2px solid #3b82f6' : '2px solid transparent',
                                 cursor: 'pointer',
                                 transition: 'all 0.2s'
@@ -418,7 +418,7 @@ const CustomizeLeadPage = () => {
                     ))}
                 </div>
 
-                <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '32px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)', minHeight: '500px' }}>
+                <div style={{ background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)', padding: '32px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)', minHeight: '500px' }}>
                     {activeTab === 'Lead Details' ? renderFlatView() : renderHierarchyView()}
                 </div>
             </div>

@@ -55,8 +55,8 @@ import AddressMasterSettingsPage from './views/AddressMasterSettingsPage';
 const UserCard = ({ name, team, initials, isAdmin, count, hasAddIcon, isHighlighted }) => (
     <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
         <div style={{
-            background: '#fff',
-            border: isHighlighted ? '2px solid #22c55e' : '1px solid #e2e8f0',
+            background: 'var(--bg-card)',
+            border: isHighlighted ? '2px solid #22c55e' : '1px solid var(--border-color)',
             borderRadius: '8px',
             padding: '12px 16px',
             minWidth: '220px',
@@ -72,7 +72,7 @@ const UserCard = ({ name, team, initials, isAdmin, count, hasAddIcon, isHighligh
                     top: '-10px',
                     left: '12px',
                     background: '#22c55e',
-                    color: '#fff',
+                    color: 'var(--bg-card)',
                     fontSize: '0.6rem',
                     fontWeight: 800,
                     padding: '2px 6px',
@@ -84,23 +84,23 @@ const UserCard = ({ name, team, initials, isAdmin, count, hasAddIcon, isHighligh
                 width: '36px',
                 height: '36px',
                 borderRadius: '50%',
-                background: '#f1f5f9',
-                color: '#64748b',
+                background: 'var(--bg-light)',
+                color: 'var(--text-muted)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 fontSize: '0.8rem',
                 fontWeight: 700,
-                border: '1px solid #e2e8f0'
+                border: '1px solid var(--border-color)'
             }}>
                 {initials}
             </div>
             <div style={{ flex: 1 }}>
-                <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1e293b' }}>{name}</div>
-                <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{renderValue(team)}</div>
+                <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-main)' }}>{name}</div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{renderValue(team)}</div>
             </div>
             {hasAddIcon && (
-                <div style={{ color: '#94a3b8', fontSize: '0.8rem' }}>
+                <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
                     <i className="fas fa-user-plus"></i>
                 </div>
             )}
@@ -117,7 +117,7 @@ const UserCard = ({ name, team, initials, isAdmin, count, hasAddIcon, isHighligh
                 justifyContent: 'center',
                 fontSize: '0.7rem',
                 fontWeight: 700,
-                background: '#fff',
+                background: 'var(--bg-card)',
                 marginLeft: '8px',
                 zIndex: 2
             }}>
@@ -200,7 +200,7 @@ const UserHierarchy = ({ showPermissions, setShowPermissions, onAssignUser, user
                             onClick={toggleExpand}
                             style={{
                                 cursor: 'pointer',
-                                color: '#64748b',
+                                color: 'var(--text-muted)',
                                 width: '20px',
                                 textAlign: 'center'
                             }}
@@ -218,7 +218,7 @@ const UserHierarchy = ({ showPermissions, setShowPermissions, onAssignUser, user
                     />
                     {isAdmin && (
                         <div
-                            style={{ color: '#cbd5e1', cursor: 'pointer' }}
+                            style={{ color: 'var(--border-color)', cursor: 'pointer' }}
                             onClick={() => onAssignUser({ manager: user.fullName || user.name, managerId: user._id })}
                             title="Assign team member"
                         >
@@ -227,7 +227,7 @@ const UserHierarchy = ({ showPermissions, setShowPermissions, onAssignUser, user
                     )}
                 </div>
                 {hasChildren && isExpanded && (
-                    <div style={{ marginTop: '20px', marginLeft: '20px', borderLeft: '2px solid #e2e8f0', paddingLeft: '20px' }}>
+                    <div style={{ marginTop: '20px', marginLeft: '20px', borderLeft: '2px solid var(--border-color)', paddingLeft: '20px' }}>
                         {children.map(child => (
                             <div key={child._id} style={{ marginBottom: '20px' }}>
                                 <UserNode user={child} level={level + 1} />
@@ -240,38 +240,38 @@ const UserHierarchy = ({ showPermissions, setShowPermissions, onAssignUser, user
     };
 
     return (
-        <div style={{ flex: 1, padding: '32px 40px', background: '#f8fafc', overflow: 'auto', position: 'relative' }}>
+        <div style={{ flex: 1, padding: '32px 40px', background: 'var(--bg-light)', overflow: 'auto', position: 'relative' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
                     <div style={{ position: 'relative' }}>
-                        <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#cbd5e1', fontSize: '0.8rem' }}></i>
+                        <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--border-color)', fontSize: '0.8rem' }}></i>
                         <input
                             type="text"
                             placeholder="Search users..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            style={{ width: '200px', padding: '8px 12px 8px 32px', border: '1px solid #e2e8f0', borderRadius: '4px', fontSize: '0.8rem' }}
+                            style={{ width: '200px', padding: '8px 12px 8px 32px', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.8rem' }}
                         />
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                         <div
                             onClick={() => setShowPermissions(!showPermissions)}
-                            style={{ width: '36px', height: '20px', background: showPermissions ? 'var(--primary-color)' : '#cbd5e1', borderRadius: '10px', padding: '2px', cursor: 'pointer', position: 'relative' }}
+                            style={{ width: '36px', height: '20px', background: showPermissions ? 'var(--primary-color)' : 'var(--border-color)', borderRadius: '10px', padding: '2px', cursor: 'pointer', position: 'relative' }}
                         >
-                            <div style={{ width: '16px', height: '16px', background: '#fff', borderRadius: '50%', position: 'absolute', right: showPermissions ? '2px' : 'auto', left: showPermissions ? 'auto' : '2px', transition: '0.2s' }}></div>
+                            <div style={{ width: '16px', height: '16px', background: 'var(--bg-card)', borderRadius: '50%', position: 'absolute', right: showPermissions ? '2px' : 'auto', left: showPermissions ? 'auto' : '2px', transition: '0.2s' }}></div>
                         </div>
-                        <span style={{ fontSize: '0.8rem', color: '#475569', fontWeight: 600 }}>Show permissions</span>
+                        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600 }}>Show permissions</span>
                         {showPermissions && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: '#475569' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                                 <span>On hover, show permissions for</span>
                                 <div style={{ position: 'relative' }}>
                                     <div
                                         onClick={() => setShowModuleDropdown(!showModuleDropdown)}
                                         style={{
                                             padding: '4px 12px',
-                                            border: '1px solid #e2e8f0',
+                                            border: '1px solid var(--border-color)',
                                             borderRadius: '4px',
-                                            background: '#fff',
+                                            background: 'var(--bg-card)',
                                             cursor: 'pointer',
                                             display: 'flex',
                                             alignItems: 'center',
@@ -284,13 +284,13 @@ const UserHierarchy = ({ showPermissions, setShowPermissions, onAssignUser, user
                                         {permissionModule} <i className="fas fa-chevron-down" style={{ fontSize: '0.6rem' }}></i>
                                     </div>
                                     {showModuleDropdown && (
-                                        <div style={{ position: 'absolute', top: '100%', left: 0, width: '180px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '4px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', zIndex: 100, marginTop: '4px' }}>
+                                        <div style={{ position: 'absolute', top: '100%', left: 0, width: '180px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '4px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', zIndex: 100, marginTop: '4px' }}>
                                             {modules.map(mod => (
                                                 <div
                                                     key={mod}
                                                     onClick={() => { setPermissionModule(mod); setShowModuleDropdown(false); }}
                                                     style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '0.8rem', borderBottom: '1px solid #f1f5f9' }}
-                                                    onMouseOver={(e) => e.target.style.background = '#f8fafc'}
+                                                    onMouseOver={(e) => e.target.style.background = 'var(--bg-light)'}
                                                     onMouseOut={(e) => e.target.style.background = 'transparent'}
                                                 >
                                                     {mod}
@@ -306,7 +306,7 @@ const UserHierarchy = ({ showPermissions, setShowPermissions, onAssignUser, user
                 <button
                     className="btn-outline"
                     onClick={() => setExpandedUsers(new Set((users || []).map(u => u._id)))}
-                    style={{ background: '#fff', padding: '8px 16px', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid #e2e8f0' }}
+                    style={{ background: 'var(--bg-card)', padding: '8px 16px', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 600, border: '1px solid var(--border-color)' }}
                 >
                     Expand All
                 </button>
@@ -314,7 +314,7 @@ const UserHierarchy = ({ showPermissions, setShowPermissions, onAssignUser, user
 
             <div style={{ minHeight: '500px', position: 'relative' }}>
                 {(filteredRoots || []).length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '60px 20px', color: '#94a3b8' }}>
+                    <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
                         <i className="fas fa-users" style={{ fontSize: '3rem', marginBottom: '16px', opacity: 0.3 }}></i>
                         <p style={{ fontSize: '0.9rem', fontWeight: 600 }}>
                             {searchTerm ? 'No users found matching your search' : 'No users in the system'}
@@ -364,12 +364,12 @@ const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, o
     });
 
     return (
-        <div style={{ flex: 1, background: '#fff', padding: '32px 40px', overflowY: 'auto' }}>
+        <div style={{ flex: 1, background: 'var(--bg-card)', padding: '32px 40px', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                 <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
                     <div style={{ position: 'relative' }}>
-                        <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#cbd5e1', fontSize: '0.8rem' }}></i>
-                        <input type="text" placeholder="Search..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} style={{ width: '240px', padding: '8px 12px 8px 32px', border: '1px solid #e2e8f0', borderRadius: '4px', fontSize: '0.8rem' }} />
+                        <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--border-color)', fontSize: '0.8rem' }}></i>
+                        <input type="text" placeholder="Search..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} style={{ width: '240px', padding: '8px 12px 8px 32px', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.8rem' }} />
                     </div>
                     <div style={{ display: 'flex', border: '1px solid var(--primary-color)', borderRadius: '4px', overflow: 'hidden' }}>
                         {['Active', 'Inactive'].map((label, i) => (
@@ -380,7 +380,7 @@ const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, o
                                     padding: '8px 16px',
                                     fontSize: '0.75rem',
                                     fontWeight: 600,
-                                    background: filterStatus === label ? '#e0f2fe' : '#fff',
+                                    background: filterStatus === label ? '#e0f2fe' : 'var(--bg-card)',
                                     color: 'var(--primary-color)',
                                     cursor: 'pointer',
                                     borderRight: i < 1 ? '1px solid var(--primary-color)' : 'none',
@@ -396,10 +396,10 @@ const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, o
                     <button className="btn-primary" onClick={() => onNewUser()} style={{ padding: '8px 20px', borderRadius: '6px', fontSize: '0.85rem', fontWeight: 700 }}>+ New user</button>
                 )}
             </div>
-            <div style={{ border: '1px solid #e2e8f0', borderRadius: '4px', overflow: 'visible' }}>
+            <div style={{ border: '1px solid var(--border-color)', borderRadius: '4px', overflow: 'visible' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
                     <thead>
-                        <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #e2e8f0' }}>
+                        <tr style={{ background: 'var(--bg-light)', borderBottom: '1px solid var(--border-color)' }}>
                             <th style={{ padding: '12px 16px', textAlign: 'left' }}>Name</th>
                             <th style={{ padding: '12px 16px', textAlign: 'left' }}>Contact</th>
                             <th style={{ padding: '12px 16px', textAlign: 'left' }}>Department</th>
@@ -426,7 +426,7 @@ const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, o
                                     <td style={{ padding: '16px' }}>
                                         <span style={{
                                             background: user.status === 'Active' || user.isActive ? '#22c55e' : '#ef4444',
-                                            color: '#fff',
+                                            color: 'var(--bg-card)',
                                             padding: '2px 8px',
                                             borderRadius: '4px',
                                             fontSize: '0.65rem'
@@ -437,7 +437,7 @@ const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, o
                                             <>
                                                 <button
                                                     onClick={() => setOpenActionId(openActionId === (user._id || user.id) ? null : (user._id || user.id))}
-                                                    style={{ background: 'var(--primary-color)', color: '#fff', border: 'none', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer' }}
+                                                    style={{ background: 'var(--primary-color)', color: 'var(--bg-card)', border: 'none', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer' }}
                                                 >
                                                     <i className="fas fa-caret-down"></i>
                                                 </button>
@@ -448,15 +448,15 @@ const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, o
                                                         [isLastItems ? 'marginBottom' : 'marginTop']: '4px',
                                                         right: 0,
                                                         width: '160px',
-                                                        background: '#fff',
-                                                        border: '1px solid #e2e8f0',
+                                                        background: 'var(--bg-card)',
+                                                        border: '1px solid var(--border-color)',
                                                         borderRadius: '4px',
                                                         boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
                                                         zIndex: 100
                                                     }}>
                                                         <div
                                                             style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
-                                                            onMouseOver={e => e.target.style.background = '#f8fafc'}
+                                                            onMouseOver={e => e.target.style.background = 'var(--bg-light)'}
                                                             onMouseOut={e => e.target.style.background = 'transparent'}
                                                             onClick={() => { onEditUser(user); setOpenActionId(null); }}
                                                         >
@@ -464,7 +464,7 @@ const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, o
                                                         </div>
                                                         <div
                                                             style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}
-                                                            onMouseOver={e => e.target.style.background = '#f8fafc'}
+                                                            onMouseOver={e => e.target.style.background = 'var(--bg-light)'}
                                                             onMouseOut={e => e.target.style.background = 'transparent'}
                                                             onClick={() => { onResetPassword(user); setOpenActionId(null); }}
                                                         >
@@ -472,7 +472,7 @@ const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, o
                                                         </div>
                                                         <div
                                                             style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', color: '#ef4444' }}
-                                                            onMouseOver={e => e.target.style.background = '#fef2f2'}
+                                                            onMouseOver={e => e.target.style.background = 'var(--danger-bg)'}
                                                             onMouseOut={e => e.target.style.background = 'transparent'}
                                                             onClick={() => { onDeleteUser(user._id || user.id); setOpenActionId(null); }}
                                                         >
@@ -481,7 +481,7 @@ const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, o
                                                         {(user.status === 'inactive' || user.isActive === false) && (
                                                             <div
                                                                 style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', color: '#22c55e', borderTop: '1px solid #f1f5f9' }}
-                                                                onMouseOver={e => e.target.style.background = '#f0fdf4'}
+                                                                onMouseOver={e => e.target.style.background = 'var(--stat-property-bg)'}
                                                                 onMouseOut={e => e.target.style.background = 'transparent'}
                                                                 onClick={() => { onToggleStatus(user, 'active'); setOpenActionId(null); }}
                                                             >
@@ -526,31 +526,31 @@ const RolesList = ({ onNewRole, roles, onDeleteRole, onEditRole, currentUser }) 
                     roleName?.toLowerCase() === 'admin' ||
                     roleName?.toLowerCase() === 'super admin';
     return (
-        <div style={{ flex: 1, background: '#fff', padding: '32px 40px', overflowY: 'auto' }}>
+        <div style={{ flex: 1, background: 'var(--bg-card)', padding: '32px 40px', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                 <div style={{ position: 'relative' }}>
-                    <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#cbd5e1', fontSize: '0.8rem' }}></i>
-                    <input type="text" placeholder="Search..." style={{ width: '240px', padding: '8px 12px 8px 32px', border: '1px solid #e2e8f0', borderRadius: '4px', fontSize: '0.8rem' }} />
+                    <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--border-color)', fontSize: '0.8rem' }}></i>
+                    <input type="text" placeholder="Search..." style={{ width: '240px', padding: '8px 12px 8px 32px', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.8rem' }} />
                 </div>
                 {isAdmin && (
                     <button className="btn-primary" onClick={() => onNewRole()} style={{ padding: '8px 20px', borderRadius: '6px', fontSize: '0.85rem', fontWeight: 700 }}>+ New role</button>
                 )}
             </div>
-            <div style={{ border: '1px solid #e2e8f0', borderRadius: '4px', overflow: 'visible' }}>
+            <div style={{ border: '1px solid var(--border-color)', borderRadius: '4px', overflow: 'visible' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
                     <thead>
-                        <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #e2e8f0' }}>
-                            <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>Role name</th>
-                            <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>Description</th>
-                            <th style={{ padding: '12px 16px', textAlign: 'center', fontWeight: 700, color: '#475569' }}>Action</th>
+                        <tr style={{ background: 'var(--bg-light)', borderBottom: '1px solid var(--border-color)' }}>
+                            <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: 'var(--text-muted)' }}>Role name</th>
+                            <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: 'var(--text-muted)' }}>Description</th>
+                            <th style={{ padding: '12px 16px', textAlign: 'center', fontWeight: 700, color: 'var(--text-muted)' }}>Action</th>
                         </tr>
                     </thead>
                     <tbody>
                         {roles.map(role => (
                             <tr key={role._id || role.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                <td style={{ padding: '16px', fontWeight: 700, color: '#1e293b' }}>{role.name}</td>
-                                <td style={{ padding: '16px', color: '#64748b' }}>{role.description}</td>
-                                <td style={{ padding: '16px', textAlign: 'center', fontWeight: 700, color: '#1e293b' }}>
+                                <td style={{ padding: '16px', fontWeight: 700, color: 'var(--text-main)' }}>{role.name}</td>
+                                <td style={{ padding: '16px', color: 'var(--text-muted)' }}>{role.description}</td>
+                                <td style={{ padding: '16px', textAlign: 'center', fontWeight: 700, color: 'var(--text-main)' }}>
                                     {isAdmin && !role.isSystemRole && (
                                         <button
                                             type="button"
@@ -593,7 +593,7 @@ const RolesList = ({ onNewRole, roles, onDeleteRole, onEditRole, currentUser }) 
                                                 borderRadius: '4px',
                                                 transition: 'background 0.2s'
                                             }}
-                                            onMouseOver={e => e.currentTarget.style.background = '#fef2f2'}
+                                            onMouseOver={e => e.currentTarget.style.background = 'var(--danger-bg)'}
                                             onMouseOut={e => e.currentTarget.style.background = 'transparent'}
                                             title="Delete Role"
                                         >
@@ -623,46 +623,46 @@ const TeamsList = ({ teams, onNewTeam, onEditTeam, onDeleteTeam, currentUser, ro
                     roleName?.toLowerCase() === 'admin' ||
                     roleName?.toLowerCase() === 'super admin';
     return (
-        <div style={{ flex: 1, background: '#fff', padding: '32px 40px', overflowY: 'auto' }}>
+        <div style={{ flex: 1, background: 'var(--bg-card)', padding: '32px 40px', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                 <div style={{ position: 'relative' }}>
-                    <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#cbd5e1', fontSize: '0.8rem' }}></i>
-                    <input type="text" placeholder="Search teams..." style={{ width: '240px', padding: '8px 12px 8px 32px', border: '1px solid #e2e8f0', borderRadius: '4px', fontSize: '0.8rem' }} />
+                    <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--border-color)', fontSize: '0.8rem' }}></i>
+                    <input type="text" placeholder="Search teams..." style={{ width: '240px', padding: '8px 12px 8px 32px', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.8rem' }} />
                 </div>
                 {isAdmin && (
                     <button className="btn-primary" onClick={() => onNewTeam()} style={{ padding: '8px 20px', borderRadius: '6px', fontSize: '0.85rem', fontWeight: 700 }}>+ New Team</button>
                 )}
             </div>
-            <div style={{ border: '1px solid #e2e8f0', borderRadius: '4px', overflow: 'visible' }}>
+            <div style={{ border: '1px solid var(--border-color)', borderRadius: '4px', overflow: 'visible' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
                     <thead>
-                        <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #e2e8f0' }}>
-                            <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>Team Name</th>
-                            <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>Department</th>
-                            <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>Manager</th>
-                            <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>Members</th>
-                            <th style={{ padding: '12px 16px', textAlign: 'center', fontWeight: 700, color: '#475569' }}>Action</th>
+                        <tr style={{ background: 'var(--bg-light)', borderBottom: '1px solid var(--border-color)' }}>
+                            <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: 'var(--text-muted)' }}>Team Name</th>
+                            <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: 'var(--text-muted)' }}>Department</th>
+                            <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: 'var(--text-muted)' }}>Manager</th>
+                            <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: 'var(--text-muted)' }}>Members</th>
+                            <th style={{ padding: '12px 16px', textAlign: 'center', fontWeight: 700, color: 'var(--text-muted)' }}>Action</th>
                         </tr>
                     </thead>
                     <tbody>
                         {teams.map(team => (
                             <tr key={team._id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                <td style={{ padding: '16px', fontWeight: 700, color: '#1e293b' }}>{team.name}</td>
-                                <td style={{ padding: '16px', color: '#64748b', textTransform: 'capitalize' }}>{renderValue(team.department)}</td>
-                                <td style={{ padding: '16px', color: '#1e293b' }}>
+                                <td style={{ padding: '16px', fontWeight: 700, color: 'var(--text-main)' }}>{team.name}</td>
+                                <td style={{ padding: '16px', color: 'var(--text-muted)', textTransform: 'capitalize' }}>{renderValue(team.department)}</td>
+                                <td style={{ padding: '16px', color: 'var(--text-main)' }}>
                                     {team.manager ? (
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                            <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: '#e2e8f0', fontSize: '0.65rem', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#64748b' }}>
+                                            <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: 'var(--border-color)', fontSize: '0.65rem', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: 'var(--text-muted)' }}>
                                                 {getInitials(team.manager.fullName)}
                                             </div>
                                             {team.manager.fullName}
                                         </div>
                                     ) : (
-                                        <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Unassigned</span>
+                                        <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Unassigned</span>
                                     )}
                                 </td>
                                 <td style={{ padding: '16px' }}>
-                                    <span style={{ background: '#f1f5f9', padding: '2px 8px', borderRadius: '12px', fontSize: '0.7rem', fontWeight: 600, color: '#64748b' }}>
+                                    <span style={{ background: 'var(--bg-light)', padding: '2px 8px', borderRadius: '12px', fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-muted)' }}>
                                         {team.memberCount || 0} Members
                                     </span>
                                 </td>
@@ -696,12 +696,12 @@ const TeamsList = ({ teams, onNewTeam, onEditTeam, onDeleteTeam, currentUser, ro
 };
 
 const EmptyState = ({ title }) => (
-    <div style={{ flex: 1, padding: '32px 64px', background: '#fff', textAlign: 'center' }}>
-        <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', marginBottom: '20px' }}>{title}</h1>
-        <div style={{ padding: '80px 40px', background: '#f8fafc', borderRadius: '16px', border: '1px dashed #cbd5e1' }}>
-            <i className="fas fa-tools" style={{ fontSize: '3rem', color: '#cbd5e1', marginBottom: '20px' }}></i>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1e293b' }}>Module Configuration</h3>
-            <p style={{ color: '#64748b', fontSize: '0.9rem' }}>This feature is coming soon.</p>
+    <div style={{ flex: 1, padding: '32px 64px', background: 'var(--bg-card)', textAlign: 'center' }}>
+        <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '20px' }}>{title}</h1>
+        <div style={{ padding: '80px 40px', background: 'var(--bg-light)', borderRadius: '16px', border: '1px dashed var(--border-color)' }}>
+            <i className="fas fa-tools" style={{ fontSize: '3rem', color: 'var(--border-color)', marginBottom: '20px' }}></i>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)' }}>Module Configuration</h3>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>This feature is coming soon.</p>
         </div>
     </div>
 );
@@ -947,7 +947,7 @@ const SettingsPage = () => {
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', flex: 1 }}>
                 <div style={{ textAlign: 'center' }}>
                     <i className="fas fa-spinner fa-spin" style={{ fontSize: '2rem', color: 'var(--primary-color)', marginBottom: '16px' }}></i>
-                    <p style={{ color: '#64748b' }}>Loading settings...</p>
+                    <p style={{ color: 'var(--text-muted)' }}>Loading settings...</p>
                 </div>
             </div>
         );
@@ -956,10 +956,10 @@ const SettingsPage = () => {
     if (error) {
         return (
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', flex: 1, padding: '20px' }}>
-                <div style={{ textAlign: 'center', maxWidth: '400px', background: '#fff', padding: '32px', borderRadius: '12px', border: '1px solid #fee2e2' }}>
+                <div style={{ textAlign: 'center', maxWidth: '400px', background: 'var(--bg-card)', padding: '32px', borderRadius: '12px', border: '1px solid #fee2e2' }}>
                     <i className="fas fa-exclamation-triangle" style={{ fontSize: '2rem', color: '#ef4444', marginBottom: '16px' }}></i>
-                    <h2 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#1e293b', marginBottom: '8px' }}>Failed to load users</h2>
-                    <p style={{ color: '#64748b', fontSize: '0.9rem', marginBottom: '24px' }}>{error}</p>
+                    <h2 style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '8px' }}>Failed to load users</h2>
+                    <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '24px' }}>{error}</p>
                     <button
                         className="btn-primary"
                         onClick={() => window.location.reload()}
@@ -982,10 +982,10 @@ const SettingsPage = () => {
                 />
             )}
             {/* Sidebar */}
-            <div className="profile-side-nav" style={{ width: '240px', background: '#f8fafc', borderRight: '1px solid #e2e8f0', height: '100%', overflowY: 'auto', padding: '24px 0', flexShrink: 0 }}>
+            <div className="profile-side-nav" style={{ width: '240px', background: 'var(--bg-light)', borderRight: '1px solid var(--border-color)', height: '100%', overflowY: 'auto', padding: '24px 0', flexShrink: 0 }}>
                 {sidebarSections.map((section, idx) => (
                     <div key={idx} style={{ marginBottom: '24px' }}>
-                        {section.title && <div style={{ padding: '0 24px 8px 24px', fontSize: '0.75rem', fontWeight: 800, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{section.title}</div>}
+                        {section.title && <div style={{ padding: '0 24px 8px 24px', fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-main)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{section.title}</div>}
                         <div className="nav-items-group">
                             {section.items.map(item => (
                                 <React.Fragment key={item.id}>
@@ -995,7 +995,7 @@ const SettingsPage = () => {
                                             padding: '8px 24px',
                                             fontSize: '0.85rem',
                                             fontWeight: activeTab === item.id ? 700 : 500,
-                                            color: activeTab === item.id ? '#0f172a' : '#64748b',
+                                            color: activeTab === item.id ? 'var(--text-main)' : 'var(--text-muted)',
                                             background: activeTab === item.id ? '#e2e8f1' : 'transparent',
                                             cursor: 'pointer',
                                             borderLeft: activeTab === item.id ? '4px solid var(--primary-color)' : '4px solid transparent',
@@ -1014,8 +1014,8 @@ const SettingsPage = () => {
                                                         padding: '6px 24px 6px 44px',
                                                         fontSize: '0.8rem',
                                                         fontWeight: activeTab === child.id ? 700 : 500,
-                                                        color: activeTab === child.id ? '#0f172a' : '#94a3b8',
-                                                        background: activeTab === child.id ? '#f1f5f9' : 'transparent',
+                                                        color: activeTab === child.id ? 'var(--text-main)' : 'var(--text-muted)',
+                                                        background: activeTab === child.id ? 'var(--bg-light)' : 'transparent',
                                                         cursor: 'pointer',
                                                         borderLeft: activeTab === child.id ? '4px solid var(--primary-color)' : '4px solid transparent',
                                                         transition: 'all 0.2s'
@@ -1034,8 +1034,8 @@ const SettingsPage = () => {
                 ))}
                 
                 {/* System Health Status */}
-                <div style={{ padding: '24px', borderTop: '1px solid #e2e8f0', marginTop: 'auto', background: '#f8fafc' }}>
-                    <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>System Health</div>
+                <div style={{ padding: '24px', borderTop: '1px solid var(--border-color)', marginTop: 'auto', background: 'var(--bg-light)' }}>
+                    <div style={{ fontSize: '0.65rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>System Health</div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem', color: healthStatus.status === 'healthy' ? '#22c55e' : (healthStatus.status === 'error' ? '#ef4444' : '#f59e0b'), fontWeight: 600 }}>
                         <div style={{ 
                             width: 8, 
@@ -1051,27 +1051,27 @@ const SettingsPage = () => {
                              Warning: Data fetching may fail.
                         </div>
                     )}
-                    <div style={{ fontSize: '0.6rem', color: '#64748b', marginTop: '6px', wordBreak: 'break-all', fontFamily: 'monospace', background: '#fff', padding: '6px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', marginTop: '6px', wordBreak: 'break-all', fontFamily: 'monospace', background: 'var(--bg-card)', padding: '6px', borderRadius: '4px', border: '1px solid var(--border-color)' }}>
                         {API_BASE_URL}
                     </div>
                 </div>
             </div>
 
             {/* Main Content Area */}
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#fff', overflow: 'hidden' }}>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--bg-card)', overflow: 'hidden' }}>
                 {/* Global Settings Header */}
                 <div style={{ padding: '32px 40px 0 40px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                     <div>
                         <div style={{ fontSize: '0.65rem', fontWeight: 800, color: 'var(--primary-color)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>SETTINGS</div>
-                        <h1 style={{ fontSize: '1.4rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>{activeTab === 'users' ? 'User Management' : currentLabel}</h1>
+                        <h1 style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--text-main)', margin: 0 }}>{activeTab === 'users' ? 'User Management' : currentLabel}</h1>
                     </div>
                 </div>
 
                 {/* Sub Tabs (Only for Users) */}
                 {activeTab === 'users' && (
-                    <div style={{ display: 'flex', gap: '24px', padding: '0 40px', borderBottom: '1px solid #e2e8f0', marginTop: '20px' }}>
+                    <div style={{ display: 'flex', gap: '24px', padding: '0 40px', borderBottom: '1px solid var(--border-color)', marginTop: '20px' }}>
                         {[{ id: 'user-list', label: 'User List' }, { id: 'user-hierarchy', label: 'User Hierarchy' }, { id: 'teams', label: 'Teams' }, { id: 'roles', label: 'Roles' }].map(tab => (
-                            <div key={tab.id} onClick={() => setSubTab(tab.id)} style={{ padding: '12px 4px', fontSize: '0.85rem', fontWeight: 700, color: subTab === tab.id ? 'var(--primary-color)' : '#94a3b8', borderBottom: subTab === tab.id ? '2px solid var(--primary-color)' : '2px solid transparent', cursor: 'pointer', marginBottom: '-1px' }}>{tab.label}</div>
+                            <div key={tab.id} onClick={() => setSubTab(tab.id)} style={{ padding: '12px 4px', fontSize: '0.85rem', fontWeight: 700, color: subTab === tab.id ? 'var(--primary-color)' : 'var(--text-muted)', borderBottom: subTab === tab.id ? '2px solid var(--primary-color)' : '2px solid transparent', cursor: 'pointer', marginBottom: '-1px' }}>{tab.label}</div>
                         ))}
                     </div>
                 )}
@@ -1198,8 +1198,8 @@ const SettingsPage = () => {
                 </div>
 
                 {/* Fixed Footer */}
-                <div style={{ padding: '16px 40px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', background: '#fff', gap: '12px', alignItems: 'center' }}>
-                    {isSyncing && <span style={{ fontSize: '0.8rem', color: '#64748b' }}><i className="fas fa-spinner fa-spin"></i> Syncing to Cloud...</span>}
+                <div style={{ padding: '16px 40px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', background: 'var(--bg-card)', gap: '12px', alignItems: 'center' }}>
+                    {isSyncing && <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}><i className="fas fa-spinner fa-spin"></i> Syncing to Cloud...</span>}
                     <button
                         className="btn-primary"
                         onClick={handleCloudSync}

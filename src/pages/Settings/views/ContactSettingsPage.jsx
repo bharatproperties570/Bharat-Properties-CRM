@@ -49,10 +49,10 @@ const ConfigColumn = ({ title, items, selectedItem, onSelect, onAdd, onEdit, onD
     style={{
       minWidth: "280px",
       // width: "33%", // REMOVED fixed width
-      borderRight: "1px solid #e2e8f0",
+      borderRight: "1px solid var(--border-color)",
       display: "flex",
       flexDirection: "column",
-      background: "#f8fafc",
+      background: 'var(--bg-light)',
       flexShrink: 0,
     }}
   >
@@ -60,15 +60,15 @@ const ConfigColumn = ({ title, items, selectedItem, onSelect, onAdd, onEdit, onD
       style={{
         padding: "16px",
         fontWeight: 600,
-        color: "#475569",
+        color: 'var(--text-muted)',
         fontSize: "0.85rem",
         textTransform: "uppercase",
         letterSpacing: "0.05em",
-        borderBottom: "1px solid #e2e8f0",
+        borderBottom: "1px solid var(--border-color)",
         display: "flex",
         justifyContent: "space-between",
         alignItems: "center",
-        background: "#f1f5f9"
+        background: 'var(--bg-light)'
       }}
     >
       {title}
@@ -94,8 +94,8 @@ const ConfigColumn = ({ title, items, selectedItem, onSelect, onAdd, onEdit, onD
           disabled={isLoading}
           style={{
             border: "none",
-            background: "#e2e8f0",
-            color: "#475569",
+            background: 'var(--border-color)',
+            color: 'var(--text-muted)',
             borderRadius: "4px",
             width: "24px",
             height: "24px",
@@ -112,7 +112,7 @@ const ConfigColumn = ({ title, items, selectedItem, onSelect, onAdd, onEdit, onD
 
     <div style={{ overflowY: "auto", flex: 1 }}>
       {isLoading ? (
-        <div style={{ padding: "20px", textAlign: "center", color: "#94a3b8" }}>Loading...</div>
+        <div style={{ padding: "20px", textAlign: "center", color: 'var(--text-muted)' }}>Loading...</div>
       ) : items.length > 0 ? (
         items.map((item) => {
           const isSelected = selectedItem === item._id;
@@ -125,7 +125,7 @@ const ConfigColumn = ({ title, items, selectedItem, onSelect, onAdd, onEdit, onD
                 cursor: "pointer",
                 fontSize: "0.95rem",
                 fontWeight: isSelected ? 600 : 500,
-                color: isSelected ? "#2563eb" : "#334155",
+                color: isSelected ? "#2563eb" : 'var(--text-main)',
                 background: isSelected ? "#eff6ff" : "transparent",
                 borderLeft: isSelected
                   ? "4px solid #2563eb"
@@ -140,7 +140,7 @@ const ConfigColumn = ({ title, items, selectedItem, onSelect, onAdd, onEdit, onD
                 <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.lookup_value}</span>
                 {/* Show Type if mixed column (e.g. Location vs Tehsil) */}
                 {["Location", "Tehsil"].includes(item.lookup_type) && (
-                  <span style={{ fontSize: "0.75rem", color: "#94a3b8", marginTop: "2px" }}>
+                  <span style={{ fontSize: "0.75rem", color: 'var(--text-muted)', marginTop: "2px" }}>
                     {item.lookup_type}
                   </span>
                 )}
@@ -149,7 +149,7 @@ const ConfigColumn = ({ title, items, selectedItem, onSelect, onAdd, onEdit, onD
               <div style={{ display: "flex", gap: "8px", opacity: isSelected ? 1 : 0.4 }}>
                 <i
                   className="fas fa-edit"
-                  style={{ cursor: "pointer", color: "#64748b", fontSize: "0.8rem" }}
+                  style={{ cursor: "pointer", color: 'var(--text-muted)', fontSize: "0.8rem" }}
                   onClick={(e) => {
                     e.stopPropagation();
                     onEdit(item);
@@ -168,7 +168,7 @@ const ConfigColumn = ({ title, items, selectedItem, onSelect, onAdd, onEdit, onD
           );
         })
       ) : (
-        <div style={{ padding: "40px 20px", textAlign: "center", color: "#cbd5e1", fontStyle: "italic" }}>
+        <div style={{ padding: "40px 20px", textAlign: "center", color: 'var(--border-color)', fontStyle: "italic" }}>
           No items
         </div>
       )}
@@ -768,7 +768,7 @@ const ContactSettingsPage = () => {
               </button>
               <button
                 onClick={() => handleAdd({ title: "Country", lookup_type: "Country" }, null, () => fetchCountries())}
-                style={{ border: "none", background: "#e2e8f0", color: "#475569", borderRadius: "4px", width: "24px", height: "24px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                style={{ border: "none", background: 'var(--border-color)', color: 'var(--text-muted)', borderRadius: "4px", width: "24px", height: "24px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
               >
                 <i className="fas fa-plus" style={{ fontSize: "0.7rem" }}></i>
               </button>
@@ -810,7 +810,7 @@ const ContactSettingsPage = () => {
               <button
                 onClick={() => handleAdd({ title: "State", lookup_type: "State" }, selectedCountryId, () => fetchStatesList())}
                 disabled={!selectedCountryId}
-                style={{ border: "none", background: "#e2e8f0", color: "#475569", borderRadius: "4px", width: "24px", height: "24px", cursor: selectedCountryId ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", opacity: selectedCountryId ? 1 : 0.5 }}
+                style={{ border: "none", background: 'var(--border-color)', color: 'var(--text-muted)', borderRadius: "4px", width: "24px", height: "24px", cursor: selectedCountryId ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", opacity: selectedCountryId ? 1 : 0.5 }}
               >
                 <i className="fas fa-plus" style={{ fontSize: "0.7rem" }}></i>
               </button>
@@ -861,7 +861,7 @@ const ContactSettingsPage = () => {
               <button
                 onClick={() => handleAdd({ title: "City", lookup_type: "City" }, selectedStateId, () => fetchCitiesList(selectedStateId))}
                 disabled={!selectedStateId}
-                style={{ border: "none", background: "#e2e8f0", color: "#475569", borderRadius: "4px", width: "24px", height: "24px", cursor: selectedStateId ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", opacity: selectedStateId ? 1 : 0.5 }}
+                style={{ border: "none", background: 'var(--border-color)', color: 'var(--text-muted)', borderRadius: "4px", width: "24px", height: "24px", cursor: selectedStateId ? "pointer" : "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", opacity: selectedStateId ? 1 : 0.5 }}
               >
                 <i className="fas fa-plus" style={{ fontSize: "0.7rem" }}></i>
               </button>
@@ -938,7 +938,7 @@ const ContactSettingsPage = () => {
                     const parentId = (activeChildTab === "Pincode" && selectedPostOfficeId !== "unassigned") ? selectedPostOfficeId : selectedCityId;
                     handleAdd({ title: activeChildTab, lookup_type: lookupType }, parentId, () => fetchCityChildrenList(selectedCityId));
                   }}
-                  style={{ border: "none", background: "#e2e8f0", color: "#475569", borderRadius: "4px", width: "24px", height: "24px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                  style={{ border: "none", background: 'var(--border-color)', color: 'var(--text-muted)', borderRadius: "4px", width: "24px", height: "24px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
                 >
                   <i className="fas fa-plus" style={{ fontSize: "0.7rem" }}></i>
                 </button>
@@ -1082,7 +1082,7 @@ const ContactSettingsPage = () => {
     if (!levels) return null;
 
     return (
-      <div style={{ display: "flex", background: "#fff", borderRadius: "12px", border: "1px solid #e2e8f0", overflowX: "auto", height: "calc(100vh - 200px)", minHeight: "500px" }}>
+      <div style={{ display: "flex", background: 'var(--bg-card)', borderRadius: "12px", border: "1px solid var(--border-color)", overflowX: "auto", height: "calc(100vh - 200px)", minHeight: "500px" }}>
         {levels.map((level, index) => {
           // Show column if index is 0 OR parent is selected
           const parentItem = index > 0 ? selectedPath[index - 1] : null;
@@ -1096,9 +1096,9 @@ const ContactSettingsPage = () => {
 
           const shouldShow = index === 0 || parentItem;
           // Use minWidth instead of width% to allow scrolling
-          const colStyle = { minWidth: "280px", flexShrink: 0, borderRight: "1px solid #e2e8f0" };
+          const colStyle = { minWidth: "280px", flexShrink: 0, borderRight: "1px solid var(--border-color)" };
 
-          if (!shouldShow) return <div key={index} style={{ ...colStyle, background: "#f9fafb", borderRight: "1px dashed #e2e8f0", display: "flex", alignItems: "center", justifyContent: "center", color: "#cbd5e1" }}>Pending Selection</div>;
+          if (!shouldShow) return <div key={index} style={{ ...colStyle, background: 'var(--bg-light)', borderRight: "1px dashed var(--border-color)", display: "flex", alignItems: "center", justifyContent: "center", color: 'var(--border-color)' }}>Pending Selection</div>;
 
           // Parent ID for Adding New Items
           const parentId = index === 0 ? null : selectedPath[index - 1]._id;
@@ -1149,9 +1149,9 @@ const ContactSettingsPage = () => {
 
 
     return (
-      <div style={{ background: "#fff", borderRadius: "12px", border: "1px solid #e2e8f0", display: "flex", height: "calc(100vh - 200px)", minHeight: "500px", overflow: "hidden" }}>
+      <div style={{ background: 'var(--bg-card)', borderRadius: "12px", border: "1px solid var(--border-color)", display: "flex", height: "calc(100vh - 200px)", minHeight: "500px", overflow: "hidden" }}>
         {/* Sidebar */}
-        <div style={{ width: "240px", borderRight: "1px solid #e2e8f0", padding: "16px", background: "#f8fafc", overflowY: "auto" }}>
+        <div style={{ width: "240px", borderRight: "1px solid var(--border-color)", padding: "16px", background: 'var(--bg-light)', overflowY: "auto" }}>
           {FLAT_CONFIG[activeTab].map(section => (
             <div
               key={section.lookup_type}
@@ -1163,7 +1163,7 @@ const ContactSettingsPage = () => {
                 borderRadius: "6px",
                 fontSize: "0.9rem",
                 fontWeight: flatActiveSection === section ? 600 : 500,
-                color: flatActiveSection === section ? "#2563eb" : "#475569",
+                color: flatActiveSection === section ? "#2563eb" : 'var(--text-muted)',
                 background: flatActiveSection === section ? "#eff6ff" : "transparent",
                 transition: "all 0.2s"
               }}
@@ -1178,12 +1178,12 @@ const ContactSettingsPage = () => {
           {flatActiveSection && (
             <>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
-                <h3 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 700, color: "#1e293b" }}>{flatActiveSection.title}</h3>
+                <h3 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 700, color: 'var(--text-main)' }}>{flatActiveSection.title}</h3>
                 <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
                   <button
                     className="btn-outline"
                     onClick={handleExportFlat}
-                    style={{ padding: "8px 12px", fontSize: "0.9rem", fontWeight: 600, border: "1px solid #10b981", borderRadius: "6px", background: "#fff", cursor: "pointer", display: "flex", alignItems: "center", gap: "8px", color: "#10b981" }}
+                    style={{ padding: "8px 12px", fontSize: "0.9rem", fontWeight: 600, border: "1px solid #10b981", borderRadius: "6px", background: 'var(--bg-card)', cursor: "pointer", display: "flex", alignItems: "center", gap: "8px", color: "#10b981" }}
                     title="Download as Excel/CSV"
                   >
                     <i className="fas fa-download"></i> Download
@@ -1191,7 +1191,7 @@ const ContactSettingsPage = () => {
                   <button
                     className="btn-outline"
                     onClick={() => handleAdd(flatActiveSection, null, fetchFlatItems)}
-                    style={{ padding: "8px 16px", fontSize: "0.9rem", fontWeight: 600, border: "1px solid #e2e8f0", borderRadius: "6px", background: "#fff", cursor: "pointer", display: "flex", alignItems: "center", gap: "8px" }}
+                    style={{ padding: "8px 16px", fontSize: "0.9rem", fontWeight: 600, border: "1px solid var(--border-color)", borderRadius: "6px", background: 'var(--bg-card)', cursor: "pointer", display: "flex", alignItems: "center", gap: "8px" }}
                   >
                     <i className="fas fa-plus"></i> Add Item
                   </button>
@@ -1207,22 +1207,22 @@ const ContactSettingsPage = () => {
                       alignItems: "center",
                       justifyContent: "space-between",
                       padding: "16px",
-                      background: "#fff",
+                      background: 'var(--bg-card)',
                       borderRadius: "8px",
-                      border: "1px solid #e2e8f0",
+                      border: "1px solid var(--border-color)",
                       fontSize: "0.95rem",
-                      color: "#334155",
+                      color: 'var(--text-main)',
                       boxShadow: "0 1px 2px 0 rgba(0, 0, 0, 0.05)"
                     }}
                   >
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <span style={{ fontWeight: 600, color: "#1e293b" }}>{item.lookup_value}</span>
-                      {item.code && <span style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '4px' }}>Code: <span style={{ fontFamily: 'monospace', background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px' }}>{item.code}</span></span>}
+                      <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>{item.lookup_value}</span>
+                      {item.code && <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px' }}>Code: <span style={{ fontFamily: 'monospace', background: 'var(--bg-light)', padding: '2px 6px', borderRadius: '4px' }}>{item.code}</span></span>}
                     </div>
                     <div style={{ display: "flex", gap: "12px" }}>
                       <button
                         onClick={() => handleEdit(item, flatActiveSection, fetchFlatItems)}
-                        style={{ border: "none", background: "transparent", cursor: "pointer", color: "#64748b" }}
+                        style={{ border: "none", background: "transparent", cursor: "pointer", color: 'var(--text-muted)' }}
                         title="Edit"
                       >
                         <i className="fas fa-edit"></i>
@@ -1238,8 +1238,8 @@ const ContactSettingsPage = () => {
                   </div>
                 ))}
                 {flatItems.length === 0 && (
-                  <div style={{ gridColumn: "1/-1", padding: "48px", textAlign: "center", color: "#94a3b8", border: "2px dashed #e2e8f0", borderRadius: "12px" }}>
-                    <i className="fas fa-inbox" style={{ fontSize: "2rem", marginBottom: "16px", display: "block", color: "#cbd5e1" }}></i>
+                  <div style={{ gridColumn: "1/-1", padding: "48px", textAlign: "center", color: 'var(--text-muted)', border: "2px dashed #e2e8f0", borderRadius: "12px" }}>
+                    <i className="fas fa-inbox" style={{ fontSize: "2rem", marginBottom: "16px", display: "block", color: 'var(--border-color)' }}></i>
                     No items found. Add one to get started.
                   </div>
                 )}
@@ -1252,7 +1252,7 @@ const ContactSettingsPage = () => {
   };
 
   return (
-    <div style={{ flex: 1, background: "#f8fafc", padding: "24px", overflowY: "auto", display: 'flex', flexDirection: 'column' }}>
+    <div style={{ flex: 1, background: 'var(--bg-light)', padding: "24px", overflowY: "auto", display: 'flex', flexDirection: 'column' }}>
       {notification.show && (
         <Toast
           message={notification.message}
@@ -1262,12 +1262,12 @@ const ContactSettingsPage = () => {
       )}
 
       <div style={{ marginBottom: '24px' }}>
-        <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', margin: '0 0 8px 0' }}>Contact Configuration</h1>
-        <p style={{ margin: 0, color: '#64748b' }}>Manage contact fields, hierarchies, and lookups.</p>
+        <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-main)', margin: '0 0 8px 0' }}>Contact Configuration</h1>
+        <p style={{ margin: 0, color: 'var(--text-muted)' }}>Manage contact fields, hierarchies, and lookups.</p>
       </div>
 
       {/* TABS */}
-      <div style={{ display: "flex", gap: "32px", borderBottom: "1px solid #e2e8f0", marginBottom: "24px" }}>
+      <div style={{ display: "flex", gap: "32px", borderBottom: "1px solid var(--border-color)", marginBottom: "24px" }}>
         {TABS.map((tab) => (
           <div
             key={tab.id}
@@ -1276,7 +1276,7 @@ const ContactSettingsPage = () => {
               padding: "12px 4px",
               fontSize: "0.95rem",
               fontWeight: activeTab === tab.id ? 700 : 500,
-              color: activeTab === tab.id ? "#3b82f6" : "#64748b",
+              color: activeTab === tab.id ? "#3b82f6" : 'var(--text-muted)',
               borderBottom: activeTab === tab.id ? "2px solid #3b82f6" : "2px solid transparent",
               cursor: "pointer",
               transition: "all 0.2s"

@@ -93,26 +93,26 @@ const NotificationSettingsPage = () => {
     ];
 
     return (
-        <div style={{ flex: 1, background: '#f8fafc', padding: '40px', overflowY: 'auto' }}>
+        <div style={{ flex: 1, background: 'var(--bg-light)', padding: '40px', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
-                <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>Notification Settings</h1>
+                <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-main)', margin: 0 }}>Notification Settings</h1>
                 <button 
                     onClick={handleTestNotification}
                     className="btn-outline" 
-                    style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', borderRadius: '8px', border: '1px solid #3b82f6', color: '#3b82f6', background: '#fff', fontWeight: 600, cursor: 'pointer' }}
+                    style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', borderRadius: '8px', border: '1px solid #3b82f6', color: '#3b82f6', background: 'var(--bg-card)', fontWeight: 600, cursor: 'pointer' }}
                 >
                     <i className="fas fa-paper-plane"></i> Send Test Notification
                 </button>
             </div>
 
-            <div style={{ display: 'flex', gap: '32px', borderBottom: '1px solid #e2e8f0', marginBottom: '32px' }}>
+            <div style={{ display: 'flex', gap: '32px', borderBottom: '1px solid var(--border-color)', marginBottom: '32px' }}>
                 <div
                     onClick={() => setSubTab('preset')}
                     style={{
                         paddingBottom: '16px',
                         fontSize: '0.95rem',
                         fontWeight: 700,
-                        color: subTab === 'preset' ? '#3b82f6' : '#64748b',
+                        color: subTab === 'preset' ? '#3b82f6' : 'var(--text-muted)',
                         borderBottom: `2px solid ${subTab === 'preset' ? '#3b82f6' : 'transparent'}`,
                         cursor: 'pointer'
                     }}
@@ -125,7 +125,7 @@ const NotificationSettingsPage = () => {
                         paddingBottom: '16px',
                         fontSize: '0.95rem',
                         fontWeight: 700,
-                        color: subTab === 'personalized' ? '#3b82f6' : '#64748b',
+                        color: subTab === 'personalized' ? '#3b82f6' : 'var(--text-muted)',
                         borderBottom: `2px solid ${subTab === 'personalized' ? '#3b82f6' : 'transparent'}`,
                         cursor: 'pointer'
                     }}
@@ -138,7 +138,7 @@ const NotificationSettingsPage = () => {
                         paddingBottom: '16px',
                         fontSize: '0.95rem',
                         fontWeight: 700,
-                        color: subTab === 'web' ? '#3b82f6' : '#64748b',
+                        color: subTab === 'web' ? '#3b82f6' : 'var(--text-muted)',
                         borderBottom: `2px solid ${subTab === 'web' ? '#3b82f6' : 'transparent'}`,
                         cursor: 'pointer'
                     }}
@@ -149,18 +149,18 @@ const NotificationSettingsPage = () => {
 
             {loading ? (
                 <div style={{ textAlign: 'center', padding: '50px' }}>
-                    <i className="fas fa-spinner fa-spin" style={{ fontSize: '1.5rem', color: '#64748b' }}></i>
+                    <i className="fas fa-spinner fa-spin" style={{ fontSize: '1.5rem', color: 'var(--text-muted)' }}></i>
                 </div>
             ) : subTab === 'preset' ? (
                 <div style={{ maxWidth: '900px' }}>
-                    <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden' }}>
+                    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '12px', overflow: 'hidden' }}>
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                             <thead>
-                                <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                                    <th style={{ textAlign: 'left', padding: '16px 24px', fontSize: '0.85rem', fontWeight: 700, color: '#64748b' }}>Activity Type</th>
-                                    <th style={{ padding: '16px 24px', fontSize: '0.85rem', fontWeight: 700, color: '#64748b' }}>Web</th>
-                                    <th style={{ padding: '16px 24px', fontSize: '0.85rem', fontWeight: 700, color: '#64748b' }}>Email</th>
-                                    <th style={{ padding: '16px 24px', fontSize: '0.85rem', fontWeight: 700, color: '#64748b' }}>WhatsApp</th>
+                                <tr style={{ background: 'var(--bg-light)', borderBottom: '1px solid var(--border-color)' }}>
+                                    <th style={{ textAlign: 'left', padding: '16px 24px', fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)' }}>Activity Type</th>
+                                    <th style={{ padding: '16px 24px', fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)' }}>Web</th>
+                                    <th style={{ padding: '16px 24px', fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)' }}>Email</th>
+                                    <th style={{ padding: '16px 24px', fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)' }}>WhatsApp</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -168,8 +168,8 @@ const NotificationSettingsPage = () => {
                                     <tr key={cat.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                                         <td style={{ padding: '20px 24px' }}>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                                <i className={cat.icon} style={{ color: '#64748b' }}></i>
-                                                <span style={{ fontSize: '0.9rem', fontWeight: 600, color: '#1e293b' }}>{cat.name}</span>
+                                                <i className={cat.icon} style={{ color: 'var(--text-muted)' }}></i>
+                                                <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)' }}>{cat.name}</span>
                                             </div>
                                         </td>
                                         <td style={{ textAlign: 'center' }}>
@@ -205,28 +205,28 @@ const NotificationSettingsPage = () => {
             ) : subTab === 'personalized' ? (
                 <div style={{ maxWidth: '900px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                        <p style={{ margin: 0, color: '#64748b', fontSize: '0.9rem' }}>Create custom notification rules for specific entities.</p>
+                        <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem' }}>Create custom notification rules for specific entities.</p>
                         <button className="btn-primary" style={{ padding: '8px 16px', borderRadius: '6px', fontSize: '0.85rem' }}>Add New Rule</button>
                     </div>
 
                     {settings.personalizedRules.length === 0 ? (
-                        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '48px', textAlign: 'center' }}>
-                            <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px auto', color: '#94a3b8', fontSize: '1.5rem' }}>
+                        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '48px', textAlign: 'center' }}>
+                            <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'var(--bg-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px auto', color: 'var(--text-muted)', fontSize: '1.5rem' }}>
                                 <i className="fas fa-magic"></i>
                             </div>
-                            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1e293b', marginBottom: '8px' }}>No personalized rules yet</h3>
-                            <p style={{ color: '#64748b', fontSize: '0.9rem', marginBottom: '0' }}>Rules help you stay updated on specifically what matters to you.</p>
+                            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '8px' }}>No personalized rules yet</h3>
+                            <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '0' }}>Rules help you stay updated on specifically what matters to you.</p>
                         </div>
                     ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                             {settings.personalizedRules.map((rule, idx) => (
-                                <div key={idx} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div key={idx} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     <div>
-                                        <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#1e293b', marginBottom: '4px' }}>
+                                        <div style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '4px' }}>
                                             Notify me when a {rule.entity} matching "{rule.filter} {rule.value}" is updated.
                                         </div>
                                         <div style={{ display: 'flex', gap: '8px' }}>
-                                            {(rule.channels || []).map(c => <span key={c} style={{ fontSize: '0.75rem', background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px', color: '#64748b' }}>{c}</span>)}
+                                            {(rule.channels || []).map(c => <span key={c} style={{ fontSize: '0.75rem', background: 'var(--bg-light)', padding: '2px 8px', borderRadius: '4px', color: 'var(--text-muted)' }}>{c}</span>)}
                                         </div>
                                     </div>
                                     <button style={{ color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer' }}><i className="fas fa-trash"></i></button>
@@ -237,13 +237,13 @@ const NotificationSettingsPage = () => {
                 </div>
             ) : (
                 <div style={{ maxWidth: '700px' }}>
-                    <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '32px' }}>
-                        <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1e293b', marginBottom: '24px' }}>In-app Web Permissions</h3>
+                    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '32px' }}>
+                        <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '24px' }}>In-app Web Permissions</h3>
                         
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                             <div>
-                                <div style={{ fontSize: '0.95rem', fontWeight: 600, color: '#1e293b', marginBottom: '2px' }}>Incoming Call Alerts</div>
-                                <div style={{ fontSize: '0.85rem', color: '#64748b' }}>Show popup when a call is routed to you.</div>
+                                <div style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '2px' }}>Incoming Call Alerts</div>
+                                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Show popup when a call is routed to you.</div>
                             </div>
                             <input 
                                 type="checkbox" 
@@ -255,8 +255,8 @@ const NotificationSettingsPage = () => {
 
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <div>
-                                <div style={{ fontSize: '0.95rem', fontWeight: 600, color: '#1e293b', marginBottom: '2px' }}>WhatsApp/SMS Web Alerts</div>
-                                <div style={{ fontSize: '0.85rem', color: '#64748b' }}>Show web notification for new messages.</div>
+                                <div style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '2px' }}>WhatsApp/SMS Web Alerts</div>
+                                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Show web notification for new messages.</div>
                             </div>
                             <input 
                                 type="checkbox" 

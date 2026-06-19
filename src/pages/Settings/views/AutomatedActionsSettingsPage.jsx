@@ -23,7 +23,7 @@ const AutomatedActionsSettingsPage = () => {
                         style={{
                             fontSize: '0.9rem',
                             fontWeight: 700,
-                            color: activeTab === 'list' ? 'var(--primary-color)' : '#94a3b8',
+                            color: activeTab === 'list' ? 'var(--primary-color)' : 'var(--text-muted)',
                             cursor: 'pointer',
                             borderBottom: activeTab === 'list' ? '2px solid var(--primary-color)' : 'none',
                             paddingBottom: '4px'
@@ -36,7 +36,7 @@ const AutomatedActionsSettingsPage = () => {
                         style={{
                             fontSize: '0.9rem',
                             fontWeight: 700,
-                            color: activeTab === 'audit' ? 'var(--primary-color)' : '#94a3b8',
+                            color: activeTab === 'audit' ? 'var(--primary-color)' : 'var(--text-muted)',
                             cursor: 'pointer',
                             borderBottom: activeTab === 'audit' ? '2px solid var(--primary-color)' : 'none',
                             paddingBottom: '4px'
@@ -61,13 +61,13 @@ const AutomatedActionsSettingsPage = () => {
                 {activeTab === 'list' ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                         {actions.map(action => (
-                            <div key={action.id} style={{ border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff' }}>
+                            <div key={action.id} style={{ border: '1px solid var(--border-color)', borderRadius: '12px', padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-card)' }}>
                                 <div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                                         <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>{action.name}</h4>
-                                        <span style={{ fontSize: '0.65rem', background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px', color: '#64748b', fontWeight: 700 }}>{action.id}</span>
+                                        <span style={{ fontSize: '0.65rem', background: 'var(--bg-light)', padding: '2px 6px', borderRadius: '4px', color: 'var(--text-muted)', fontWeight: 700 }}>{action.id}</span>
                                     </div>
-                                    <div style={{ display: 'flex', gap: '16px', fontSize: '0.75rem', color: '#64748b' }}>
+                                    <div style={{ display: 'flex', gap: '16px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                                         <span><i className="fas fa-bullseye" style={{ marginRight: '4px' }}></i>Target: <b>{action.targetModule}</b></span>
                                         <span><i className="fas fa-bolt" style={{ marginRight: '4px' }}></i>Type: <b>{action.actionType.replace('_', ' ')}</b></span>
                                         <span><i className="fas fa-link" style={{ marginRight: '4px' }}></i>Invoked by: <b>{action.invokedByTrigger}</b></span>
@@ -79,23 +79,23 @@ const AutomatedActionsSettingsPage = () => {
                                         style={{
                                             width: '36px',
                                             height: '20px',
-                                            background: action.isActive ? 'var(--primary-color)' : '#cbd5e1',
+                                            background: action.isActive ? 'var(--primary-color)' : 'var(--border-color)',
                                             borderRadius: '10px',
                                             padding: '2px',
                                             cursor: 'pointer',
                                             position: 'relative'
                                         }}
                                     >
-                                        <div style={{ width: '16px', height: '16px', background: '#fff', borderRadius: '50%', position: 'absolute', right: action.isActive ? '2px' : 'auto', left: action.isActive ? 'auto' : '2px', transition: '0.2s' }}></div>
+                                        <div style={{ width: '16px', height: '16px', background: 'var(--bg-card)', borderRadius: '50%', position: 'absolute', right: action.isActive ? '2px' : 'auto', left: action.isActive ? 'auto' : '2px', transition: '0.2s' }}></div>
                                     </div>
-                                    <button onClick={() => handleEdit(action)} style={{ background: 'none', border: '1px solid #e2e8f0', padding: '6px', borderRadius: '6px', cursor: 'pointer', color: '#64748b' }}><i className="fas fa-edit"></i></button>
+                                    <button onClick={() => handleEdit(action)} style={{ background: 'none', border: '1px solid var(--border-color)', padding: '6px', borderRadius: '6px', cursor: 'pointer', color: 'var(--text-muted)' }}><i className="fas fa-edit"></i></button>
                                     <button onClick={() => deleteAction(action.id)} style={{ background: 'none', border: '1px solid #fee2e2', padding: '6px', borderRadius: '6px', cursor: 'pointer', color: '#ef4444' }}><i className="fas fa-trash"></i></button>
                                 </div>
                             </div>
                         ))}
 
                         {actions.length === 0 && (
-                            <div style={{ padding: '60px', textAlign: 'center', color: '#94a3b8' }}>
+                            <div style={{ padding: '60px', textAlign: 'center', color: 'var(--text-muted)' }}>
                                 <i className="fas fa-robot" style={{ fontSize: '3rem', marginBottom: '16px' }}></i>
                                 <h3>No Automated Actions defined yet</h3>
                                 <p>Create safe, repetitive tasks that system can execute automatically.</p>
@@ -103,10 +103,10 @@ const AutomatedActionsSettingsPage = () => {
                         )}
                     </div>
                 ) : (
-                    <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
+                    <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden' }}>
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
                             <thead>
-                                <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                                <tr style={{ background: 'var(--bg-light)', borderBottom: '1px solid var(--border-color)' }}>
                                     <th style={{ padding: '12px', textAlign: 'left' }}>Time</th>
                                     <th style={{ padding: '12px', textAlign: 'left' }}>Action</th>
                                     <th style={{ padding: '12px', textAlign: 'left' }}>Entity</th>
@@ -117,7 +117,7 @@ const AutomatedActionsSettingsPage = () => {
                             <tbody>
                                 {auditLogs.map((log, i) => (
                                     <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                        <td style={{ padding: '12px', color: '#64748b' }}>{new Date(log.timestamp).toLocaleTimeString()}</td>
+                                        <td style={{ padding: '12px', color: 'var(--text-muted)' }}>{new Date(log.timestamp).toLocaleTimeString()}</td>
                                         <td style={{ padding: '12px', fontWeight: 700 }}>{log.actionName}</td>
                                         <td style={{ padding: '12px' }}>{log.entityId}</td>
                                         <td style={{ padding: '12px' }}>
@@ -132,12 +132,12 @@ const AutomatedActionsSettingsPage = () => {
                                                 {log.success ? 'SUCCESS' : 'FAILED'}
                                             </span>
                                         </td>
-                                        <td style={{ padding: '12px', color: '#64748b' }}>{log.executionTime}ms</td>
+                                        <td style={{ padding: '12px', color: 'var(--text-muted)' }}>{log.executionTime}ms</td>
                                     </tr>
                                 ))}
                             </tbody>
                         </table>
-                        {auditLogs.length === 0 && <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>No logs yet</div>}
+                        {auditLogs.length === 0 && <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>No logs yet</div>}
                     </div>
                 )}
             </div>

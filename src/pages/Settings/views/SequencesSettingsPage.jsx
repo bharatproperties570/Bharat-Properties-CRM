@@ -66,8 +66,8 @@ const SequencesSettingsPage = () => {
         <div style={{ padding: '24px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                 <div>
-                    <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: '#111827' }}>Sequences</h2>
-                    <p style={{ margin: '4px 0 0', color: '#6b7280', fontSize: '14px' }}>
+                    <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '700', color: 'var(--text-main)' }}>Sequences</h2>
+                    <p style={{ margin: '4px 0 0', color: 'var(--text-muted)', fontSize: '14px' }}>
                         Automate follow-up activities based on time and triggers.
                     </p>
                 </div>
@@ -76,7 +76,7 @@ const SequencesSettingsPage = () => {
                     style={{
                         padding: '10px 20px',
                         background: '#3b82f6',
-                        color: '#fff',
+                        color: 'var(--bg-card)',
                         border: 'none',
                         borderRadius: '8px',
                         fontWeight: '600',
@@ -98,12 +98,12 @@ const SequencesSettingsPage = () => {
                     { label: 'Completion Rate', value: `${completionRate}%`, icon: 'fa-check-circle', color: '#8b5cf6' },
                     { label: 'Total Sequences', value: sequences.length, icon: 'fa-list', color: '#f59e0b' }
                 ].map((stat, i) => (
-                    <div key={i} style={{ background: '#fff', padding: '16px', borderRadius: '12px', border: '1px solid #e5e7eb', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+                    <div key={i} style={{ background: 'var(--bg-card)', padding: '16px', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                            <span style={{ fontSize: '13px', color: '#6b7280', fontWeight: '500' }}>{stat.label}</span>
+                            <span style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: '500' }}>{stat.label}</span>
                             <i className={`fas ${stat.icon}`} style={{ color: stat.color }}></i>
                         </div>
-                        <div style={{ fontSize: '24px', fontWeight: '700', color: '#111827' }}>{stat.value}</div>
+                        <div style={{ fontSize: '24px', fontWeight: '700', color: 'var(--text-main)' }}>{stat.value}</div>
                     </div>
                 ))}
             </div>
@@ -111,7 +111,7 @@ const SequencesSettingsPage = () => {
             {/* Search and Filters */}
             <div style={{ marginBottom: '16px', display: 'flex', gap: '12px', alignItems: 'center' }}>
                 <div style={{ position: 'relative', flex: 1 }}>
-                    <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }}></i>
+                    <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }}></i>
                     <input
                         type="text"
                         placeholder="Search sequences..."
@@ -120,7 +120,7 @@ const SequencesSettingsPage = () => {
                         style={{
                             width: '100%',
                             padding: '10px 12px 10px 40px',
-                            border: '1px solid #e5e7eb',
+                            border: '1px solid var(--border-color)',
                             borderRadius: '8px',
                             fontSize: '14px',
                             outline: 'none'
@@ -130,7 +130,7 @@ const SequencesSettingsPage = () => {
                 <select
                     value={filterStatus}
                     onChange={(e) => setFilterStatus(e.target.value)}
-                    style={{ padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '14px', outline: 'none' }}
+                    style={{ padding: '10px 12px', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '14px', outline: 'none' }}
                 >
                     <option value="all">All Status</option>
                     <option value="active">Active Only</option>
@@ -139,7 +139,7 @@ const SequencesSettingsPage = () => {
                 <select
                     value={sortBy}
                     onChange={(e) => setSortBy(e.target.value)}
-                    style={{ padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '14px', outline: 'none' }}
+                    style={{ padding: '10px 12px', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '14px', outline: 'none' }}
                 >
                     <option value="name">Sort by Name</option>
                     <option value="enrolled">Sort by Enrolled</option>
@@ -147,42 +147,42 @@ const SequencesSettingsPage = () => {
                 </select>
                 <button
                     onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-                    style={{ padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', background: '#fff', cursor: 'pointer' }}
+                    style={{ padding: '10px 12px', border: '1px solid var(--border-color)', borderRadius: '8px', background: 'var(--bg-card)', cursor: 'pointer' }}
                 >
                     <i className={`fas fa-sort-${sortOrder === 'asc' ? 'up' : 'down'}`}></i>
                 </button>
             </div>
 
             {/* Sequence Table */}
-            <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '12px', overflow: 'hidden' }}>
+            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '12px', overflow: 'hidden' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                    <thead style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
+                    <thead style={{ background: 'var(--bg-light)', borderBottom: '1px solid var(--border-color)' }}>
                         <tr>
-                            <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase' }}>Sequence Name</th>
-                            <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase' }}>Trigger</th>
-                            <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase' }}>Steps</th>
-                            <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase' }}>Enrolled</th>
-                            <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase' }}>Status</th>
-                            <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase' }}>Actions</th>
+                            <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Sequence Name</th>
+                            <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Trigger</th>
+                            <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Steps</th>
+                            <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Enrolled</th>
+                            <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Status</th>
+                            <th style={{ padding: '12px 16px', fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         {filteredSequences.map((seq) => (
-                            <tr key={seq.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
+                            <tr key={seq.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
                                 <td style={{ padding: '16px' }}>
-                                    <div style={{ fontWeight: '600', color: '#111827' }}>{seq.name}</div>
-                                    <div style={{ fontSize: '12px', color: '#6b7280' }}>Purpose: {seq.purpose}</div>
+                                    <div style={{ fontWeight: '600', color: 'var(--text-main)' }}>{seq.name}</div>
+                                    <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Purpose: {seq.purpose}</div>
                                 </td>
                                 <td style={{ padding: '16px' }}>
-                                    <span style={{ fontSize: '13px', color: '#374151', background: '#f3f4f6', padding: '4px 8px', borderRadius: '4px' }}>
+                                    <span style={{ fontSize: '13px', color: 'var(--text-main)', background: 'var(--bg-light)', padding: '4px 8px', borderRadius: '4px' }}>
                                         {seq.trigger.type}
                                     </span>
                                 </td>
                                 <td style={{ padding: '16px' }}>
-                                    <div style={{ fontSize: '13px', color: '#374151' }}>{seq.steps.length} Steps</div>
+                                    <div style={{ fontSize: '13px', color: 'var(--text-main)' }}>{seq.steps.length} Steps</div>
                                 </td>
                                 <td style={{ padding: '16px' }}>
-                                    <div style={{ fontSize: '13px', color: '#374151', fontWeight: '600' }}>
+                                    <div style={{ fontSize: '13px', color: 'var(--text-main)', fontWeight: '600' }}>
                                         {getEnrollmentCount(seq.id)} Active
                                     </div>
                                 </td>
@@ -204,13 +204,13 @@ const SequencesSettingsPage = () => {
                                     </button>
                                 </td>
                                 <td style={{ padding: '16px' }}>
-                                    <div style={{ display: 'flex', gap: '12px', color: '#9ca3af' }}>
+                                    <div style={{ display: 'flex', gap: '12px', color: 'var(--text-muted)' }}>
                                         <i
                                             className="fas fa-edit"
                                             style={{ cursor: 'pointer', transition: 'color 0.2s' }}
                                             onClick={() => handleEdit(seq)}
                                             onMouseEnter={(e) => e.target.style.color = '#3b82f6'}
-                                            onMouseLeave={(e) => e.target.style.color = '#9ca3af'}
+                                            onMouseLeave={(e) => e.target.style.color = 'var(--text-muted)'}
                                             title="Edit Sequence"
                                         ></i>
                                         <i
@@ -222,7 +222,7 @@ const SequencesSettingsPage = () => {
                                                 setIsEditModalOpen(true);
                                             }}
                                             onMouseEnter={(e) => e.target.style.color = '#10b981'}
-                                            onMouseLeave={(e) => e.target.style.color = '#9ca3af'}
+                                            onMouseLeave={(e) => e.target.style.color = 'var(--text-muted)'}
                                             title="Duplicate Sequence"
                                         ></i>
                                         <i
@@ -230,7 +230,7 @@ const SequencesSettingsPage = () => {
                                             style={{ cursor: 'pointer', transition: 'color 0.2s' }}
                                             onClick={() => handleDelete(seq)}
                                             onMouseEnter={(e) => e.target.style.color = '#ef4444'}
-                                            onMouseLeave={(e) => e.target.style.color = '#9ca3af'}
+                                            onMouseLeave={(e) => e.target.style.color = 'var(--text-muted)'}
                                             title="Delete Sequence"
                                         ></i>
                                     </div>
@@ -242,7 +242,7 @@ const SequencesSettingsPage = () => {
 
                 {/* Empty State */}
                 {filteredSequences.length === 0 && (
-                    <div style={{ padding: '60px 20px', textAlign: 'center', color: '#9ca3af' }}>
+                    <div style={{ padding: '60px 20px', textAlign: 'center', color: 'var(--text-muted)' }}>
                         <i className="fas fa-inbox" style={{ fontSize: '48px', marginBottom: '16px', display: 'block' }}></i>
                         <div style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px' }}>No sequences found</div>
                         <div style={{ fontSize: '14px' }}>
@@ -272,21 +272,21 @@ const SequencesSettingsPage = () => {
             {/* Delete Confirmation Modal */}
             {isDeleteConfirmOpen && (
                 <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-                    <div style={{ background: '#fff', padding: '24px', borderRadius: '12px', maxWidth: '400px', width: '90%' }}>
+                    <div style={{ background: 'var(--bg-card)', padding: '24px', borderRadius: '12px', maxWidth: '400px', width: '90%' }}>
                         <h3 style={{ margin: '0 0 16px', fontSize: '18px', fontWeight: '700' }}>Delete Sequence?</h3>
-                        <p style={{ margin: '0 0 24px', color: '#6b7280', fontSize: '14px' }}>
+                        <p style={{ margin: '0 0 24px', color: 'var(--text-muted)', fontSize: '14px' }}>
                             Are you sure you want to delete <strong>{sequenceToDelete?.name}</strong>? This action cannot be undone.
                         </p>
                         <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
                             <button
                                 onClick={() => setIsDeleteConfirmOpen(false)}
-                                style={{ padding: '10px 20px', background: '#fff', border: '1px solid #d1d5db', borderRadius: '8px', cursor: 'pointer' }}
+                                style={{ padding: '10px 20px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '8px', cursor: 'pointer' }}
                             >
                                 Cancel
                             </button>
                             <button
                                 onClick={confirmDelete}
-                                style={{ padding: '10px 20px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600' }}
+                                style={{ padding: '10px 20px', background: '#ef4444', color: 'var(--bg-card)', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600' }}
                             >
                                 Delete
                             </button>

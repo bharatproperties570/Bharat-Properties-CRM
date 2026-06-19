@@ -26,16 +26,16 @@ const FeedbackTemplatePage = () => {
 
 
     return (
-        <div style={{ flex: 1, padding: '32px 40px', background: '#fff', overflowY: 'auto' }}>
+        <div style={{ flex: 1, padding: '32px 40px', background: 'var(--bg-card)', overflowY: 'auto' }}>
             <div style={{ marginBottom: '32px' }}>
-                <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>Smart Message Templates</h2>
-                <p style={{ color: '#64748b', fontSize: '0.9rem' }}>Customize the automated messages for each communication channel.</p>
+                <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '8px' }}>Smart Message Templates</h2>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Customize the automated messages for each communication channel.</p>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: '32px', alignItems: 'start' }}>
                 {/* Outcomes List */}
-                <div style={{ background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '16px' }}>
-                    <h3 style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: '16px', letterSpacing: '0.05em' }}>Interaction Outcome</h3>
+                <div style={{ background: 'var(--bg-light)', borderRadius: '12px', border: '1px solid var(--border-color)', padding: '16px' }}>
+                    <h3 style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '16px', letterSpacing: '0.05em' }}>Interaction Outcome</h3>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                         {outcomes.map(outcome => (
                             <div
@@ -45,7 +45,7 @@ const FeedbackTemplatePage = () => {
                                     padding: '10px 14px',
                                     borderRadius: '8px',
                                     background: selectedOutcome === outcome ? 'var(--primary-color)' : 'transparent',
-                                    color: selectedOutcome === outcome ? '#fff' : '#475569',
+                                    color: selectedOutcome === outcome ? 'var(--bg-card)' : 'var(--text-muted)',
                                     fontWeight: selectedOutcome === outcome ? 700 : 500,
                                     fontSize: '0.85rem',
                                     cursor: 'pointer',
@@ -61,7 +61,7 @@ const FeedbackTemplatePage = () => {
                 {/* Editor Section */}
                 <div>
                     {/* Channel Tabs */}
-                    <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', background: '#f1f5f9', padding: '4px', borderRadius: '8px', width: 'fit-content' }}>
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', background: 'var(--bg-light)', padding: '4px', borderRadius: '8px', width: 'fit-content' }}>
                         {[
                             { id: 'whatsapp', label: 'WhatsApp', icon: 'fab fa-whatsapp' },
                             { id: 'sms', label: 'SMS', icon: 'fas fa-comment-alt' },
@@ -74,8 +74,8 @@ const FeedbackTemplatePage = () => {
                                     padding: '8px 20px',
                                     borderRadius: '6px',
                                     border: 'none',
-                                    background: activeChannel === ch.id ? '#fff' : 'transparent',
-                                    color: activeChannel === ch.id ? 'var(--primary-color)' : '#64748b',
+                                    background: activeChannel === ch.id ? 'var(--bg-card)' : 'transparent',
+                                    color: activeChannel === ch.id ? 'var(--primary-color)' : 'var(--text-muted)',
                                     fontSize: '0.85rem',
                                     fontWeight: 700,
                                     cursor: 'pointer',
@@ -92,9 +92,9 @@ const FeedbackTemplatePage = () => {
                         ))}
                     </div>
 
-                    <div style={{ border: '1px solid #e2e8f0', borderRadius: '12px', padding: '24px', background: '#fff' }}>
+                    <div style={{ border: '1px solid var(--border-color)', borderRadius: '12px', padding: '24px', background: 'var(--bg-card)' }}>
                         <div style={{ marginBottom: '20px' }}>
-                            <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 700, color: '#1e293b', marginBottom: '12px' }}>
+                            <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '12px' }}>
                                 Template for <span style={{ color: 'var(--primary-color)' }}>{selectedOutcome}</span> ({activeChannel.toUpperCase()})
                             </label>
                             <VariableTextarea
@@ -102,11 +102,11 @@ const FeedbackTemplatePage = () => {
                                 value={currentTemplateContent}
                                 onChange={(e) => handleSaveTemplate(e.target.value)}
                                 placeholder={`Type your ${activeChannel} message here... (type {{ to insert a variable)`}
-                                style={{ background: '#f8fafc', color: '#334155', lineHeight: '1.6' }}
+                                style={{ background: 'var(--bg-light)', color: 'var(--text-main)', lineHeight: '1.6' }}
                             />
                         </div>
 
-                        <div style={{ fontSize: '0.75rem', color: '#94a3b8', background: '#f8fafc', padding: '12px', borderRadius: '8px', borderLeft: '4px solid #3b82f6' }}>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', background: 'var(--bg-light)', padding: '12px', borderRadius: '8px', borderLeft: '4px solid #3b82f6' }}>
                             <i className="fas fa-info-circle" style={{ marginRight: '8px', color: '#3b82f6' }}></i>
                             Tip: Type <strong>{'{{'}</strong> anywhere in the message to pick a variable from the smart autocomplete list. Changes are saved automatically.
                         </div>

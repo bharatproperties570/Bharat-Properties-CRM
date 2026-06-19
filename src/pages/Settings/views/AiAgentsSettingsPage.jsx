@@ -174,13 +174,13 @@ const AiAgentsSettingsPage = () => {
     };
 
     return (
-        <div style={{ padding: '32px 40px', background: '#f8fafc', flex: 1, overflowY: 'auto' }}>
+        <div style={{ padding: '32px 40px', background: 'var(--bg-light)', flex: 1, overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
                 <div>
-                    <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '12px' }}>
                         <Bot size={28} color="#3b82f6" /> AI Agent Hub
                     </h1>
-                    <p style={{ color: '#64748b', marginTop: '4px', fontSize: '0.9rem' }}>
+                    <p style={{ color: 'var(--text-muted)', marginTop: '4px', fontSize: '0.9rem' }}>
                         Build and manage custom AI personas with specific memory access and roles.
                     </p>
                 </div>
@@ -188,7 +188,7 @@ const AiAgentsSettingsPage = () => {
                     onClick={() => handleOpenModal()}
                     style={{
                         background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
-                        color: 'white',
+                        color: 'var(--bg-card)',
                         border: 'none',
                         padding: '10px 20px',
                         borderRadius: '8px',
@@ -207,18 +207,18 @@ const AiAgentsSettingsPage = () => {
             {loading ? (
                 <div style={{ textAlign: 'center', padding: '60px' }}>Loading Agents...</div>
             ) : agents.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '80px 20px', background: '#fff', borderRadius: '16px', border: '1px dashed #cbd5e1' }}>
-                    <Bot size={48} color="#cbd5e1" style={{ marginBottom: '16px' }} />
-                    <h3 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#1e293b' }}>No AI Agents Configured</h3>
-                    <p style={{ color: '#64748b', fontSize: '0.95rem', marginBottom: '24px' }}>Create your first specialized AI agent to automate your workflows.</p>
+                <div style={{ textAlign: 'center', padding: '80px 20px', background: 'var(--bg-card)', borderRadius: '16px', border: '1px dashed var(--border-color)' }}>
+                    <Bot size={48} color='var(--border-color)' style={{ marginBottom: '16px' }} />
+                    <h3 style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--text-main)' }}>No AI Agents Configured</h3>
+                    <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem', marginBottom: '24px' }}>Create your first specialized AI agent to automate your workflows.</p>
                 </div>
             ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: '24px' }}>
                     {agents.map(agent => (
                         <div key={agent._id} style={{
-                            background: '#fff',
+                            background: 'var(--bg-card)',
                             borderRadius: '16px',
-                            border: '1px solid #e2e8f0',
+                            border: '1px solid var(--border-color)',
                             padding: '24px',
                             boxShadow: '0 4px 6px rgba(0,0,0,0.02)',
                             position: 'relative',
@@ -228,10 +228,10 @@ const AiAgentsSettingsPage = () => {
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
                                 <div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                                        <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#0f172a', margin: 0 }}>{agent.name}</h3>
+                                        <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)', margin: 0 }}>{agent.name}</h3>
                                         <span style={{
-                                            background: agent.isActive ? '#dcfce7' : '#f1f5f9',
-                                            color: agent.isActive ? '#166534' : '#64748b',
+                                            background: agent.isActive ? '#dcfce7' : 'var(--bg-light)',
+                                            color: agent.isActive ? '#166534' : 'var(--text-muted)',
                                             padding: '2px 8px',
                                             borderRadius: '12px',
                                             fontSize: '0.7rem',
@@ -245,13 +245,13 @@ const AiAgentsSettingsPage = () => {
                                     </span>
                                 </div>
                                 <div style={{ display: 'flex', gap: '8px' }}>
-                                    <button onClick={() => handleOpenModal(agent)} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer' }}><Edit2 size={16} /></button>
+                                    <button onClick={() => handleOpenModal(agent)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}><Edit2 size={16} /></button>
                                     <button onClick={() => handleDelete(agent._id)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}><Trash2 size={16} /></button>
                                 </div>
                             </div>
 
                             <p style={{
-                                color: '#475569',
+                                color: 'var(--text-muted)',
                                 fontSize: '0.85rem',
                                 lineHeight: '1.5',
                                 marginBottom: '20px',
@@ -266,23 +266,23 @@ const AiAgentsSettingsPage = () => {
 
                             <div style={{ marginTop: 'auto' }}>
                                 <div style={{ marginBottom: '12px' }}>
-                                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '8px' }}>Memory Access</div>
+                                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '8px' }}>Memory Access</div>
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                                         {agent.memoryAccess?.length > 0 ? agent.memoryAccess.map(acc => (
-                                            <span key={acc} style={{ background: '#f8fafc', border: '1px solid #e2e8f0', color: '#475569', padding: '4px 8px', borderRadius: '4px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                            <span key={acc} style={{ background: 'var(--bg-light)', border: '1px solid var(--border-color)', color: 'var(--text-muted)', padding: '4px 8px', borderRadius: '4px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                 {MEMORY_ACCESS.find(m => m.id === acc)?.icon} {MEMORY_ACCESS.find(m => m.id === acc)?.label || acc}
                                             </span>
-                                        )) : <span style={{ fontSize: '0.75rem', color: '#cbd5e1' }}>No memory access</span>}
+                                        )) : <span style={{ fontSize: '0.75rem', color: 'var(--border-color)' }}>No memory access</span>}
                                     </div>
                                 </div>
 
                                 <div style={{ paddingTop: '16px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    <div style={{ fontSize: '0.75rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                         <Bot size={14} color="#3b82f6" /> 
                                         <strong>{agent.provider.toUpperCase()}</strong>: {agent.modelName}
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#475569' }}>Status</span>
+                                        <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)' }}>Status</span>
                                         <label style={{ position: 'relative', display: 'inline-block', width: '36px', height: '20px' }}>
                                             <input
                                                 type="checkbox"
@@ -292,12 +292,12 @@ const AiAgentsSettingsPage = () => {
                                             />
                                             <span style={{
                                                 position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0,
-                                                backgroundColor: agent.isActive ? '#3b82f6' : '#cbd5e1',
+                                                backgroundColor: agent.isActive ? '#3b82f6' : 'var(--border-color)',
                                                 transition: '.4s', borderRadius: '20px'
                                             }}>
                                                 <span style={{
                                                     position: 'absolute', content: '""', height: '16px', width: '16px', left: '2px', bottom: '2px',
-                                                    backgroundColor: 'white', transition: '.4s', borderRadius: '50%',
+                                                    backgroundColor: 'var(--bg-card)', transition: '.4s', borderRadius: '50%',
                                                     transform: agent.isActive ? 'translateX(16px)' : 'translateX(0)'
                                                 }} />
                                             </span>
@@ -315,10 +315,10 @@ const AiAgentsSettingsPage = () => {
             <div style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', borderRadius: '16px', padding: '24px', marginBottom: '28px', border: '1px solid rgba(66,133,244,0.2)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
                     <div>
-                        <div style={{ fontSize: '14px', fontWeight: 800, color: '#fff', marginBottom: '4px' }}>🤖 Marketing OS — AI Agent Configuration</div>
+                        <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--bg-card)', marginBottom: '4px' }}>🤖 Marketing OS — AI Agent Configuration</div>
                         <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>4 specialized agents with model assignments for the Marketing Overview page</div>
                     </div>
-                    <button onClick={seedMarketingAgents} disabled={seeding} style={{ background: 'linear-gradient(135deg, #4285f4 0%, #3b82f6 100%)', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '8px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <button onClick={seedMarketingAgents} disabled={seeding} style={{ background: 'linear-gradient(135deg, #4285f4 0%, #3b82f6 100%)', color: 'var(--bg-card)', border: 'none', padding: '8px 16px', borderRadius: '8px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
                         {seeding ? '⏳ Seeding...' : '⚡ Seed 4 Marketing Agents'}
                     </button>
                 </div>
@@ -332,7 +332,7 @@ const AiAgentsSettingsPage = () => {
                         <div key={a.id} style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${a.color}30`, borderRadius: '10px', padding: '14px', display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
                             <div style={{ width: '36px', height: '36px', background: `${a.color}20`, borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', flexShrink: 0 }}>{a.icon}</div>
                             <div style={{ flex: 1 }}>
-                                <div style={{ fontSize: '12px', fontWeight: 800, color: '#fff', marginBottom: '2px' }}>{a.n}</div>
+                                <div style={{ fontSize: '12px', fontWeight: 800, color: 'var(--bg-card)', marginBottom: '2px' }}>{a.n}</div>
                                 <div style={{ fontSize: '10px', color: a.color, fontWeight: 700, marginBottom: '4px' }}>{a.provider} · {a.model}</div>
                                 <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)' }}>{a.task}</div>
                             </div>
@@ -348,35 +348,35 @@ const AiAgentsSettingsPage = () => {
                     display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000
                 }}>
                     <div style={{
-                        background: '#fff', borderRadius: '20px', width: '90%', maxWidth: '800px', maxHeight: '90vh',
+                        background: 'var(--bg-card)', borderRadius: '20px', width: '90%', maxWidth: '800px', maxHeight: '90vh',
                         display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)'
                     }}>
-                        <div style={{ padding: '24px 32px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <div style={{ padding: '24px 32px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-main)', margin: 0, display: 'flex', alignItems: 'center', gap: '12px' }}>
                                 <Bot size={24} color="#3b82f6" /> {editingAgent ? 'Edit AI Agent' : 'Build New AI Agent'}
                             </h2>
-                            <button onClick={() => setIsModalOpen(false)} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '1.5rem', cursor: 'pointer' }}>&times;</button>
+                            <button onClick={() => setIsModalOpen(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '1.5rem', cursor: 'pointer' }}>&times;</button>
                         </div>
 
                         <form onSubmit={handleSubmit} style={{ padding: '32px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
                             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '20px' }}>
                                 <div>
-                                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>Agent Name <span style={{color: 'red'}}>*</span></label>
+                                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>Agent Name <span style={{color: 'red'}}>*</span></label>
                                     <input
                                         type="text"
                                         required
                                         value={formData.name}
                                         onChange={e => setFormData({ ...formData, name: e.target.value })}
                                         placeholder="e.g. Lead Engagement SDR"
-                                        style={{ width: '100%', padding: '10px 14px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '0.9rem', outline: 'none' }}
+                                        style={{ width: '100%', padding: '10px 14px', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '0.9rem', outline: 'none' }}
                                     />
                                 </div>
                                 <div>
-                                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>Agent Role <span style={{color: 'red'}}>*</span></label>
+                                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>Agent Role <span style={{color: 'red'}}>*</span></label>
                                     <select
                                         value={formData.role}
                                         onChange={e => setFormData({ ...formData, role: e.target.value })}
-                                        style={{ width: '100%', padding: '10px 14px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '0.9rem', outline: 'none', background: '#fff' }}
+                                        style={{ width: '100%', padding: '10px 14px', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '0.9rem', outline: 'none', background: 'var(--bg-card)' }}
                                     >
                                         {ROLES.map(role => <option key={role} value={role}>{role}</option>)}
                                     </select>
@@ -384,7 +384,7 @@ const AiAgentsSettingsPage = () => {
                             </div>
 
                             <div>
-                                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>
+                                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>
                                     System Prompt (Personality & Instructions) <span style={{color: 'red'}}>*</span>
                                 </label>
                                 <textarea
@@ -393,18 +393,18 @@ const AiAgentsSettingsPage = () => {
                                     onChange={e => setFormData({ ...formData, systemPrompt: e.target.value })}
                                     placeholder="You are a professional real estate SDR. Your goal is to..."
                                     rows={6}
-                                    style={{ width: '100%', padding: '14px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '0.9rem', outline: 'none', resize: 'vertical', fontFamily: 'monospace' }}
+                                    style={{ width: '100%', padding: '14px', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '0.9rem', outline: 'none', resize: 'vertical', fontFamily: 'monospace' }}
                                 />
-                                <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '6px' }}>This defines how the AI will respond, its rules, tone, and goals.</p>
+                                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '6px' }}>This defines how the AI will respond, its rules, tone, and goals.</p>
                             </div>
 
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                                 <div>
-                                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>AI Provider</label>
+                                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>AI Provider</label>
                                     <select
                                         value={formData.provider}
                                         onChange={e => setFormData({ ...formData, provider: e.target.value, modelName: e.target.value === 'openai' ? 'gpt-4o' : (e.target.value === 'anthropic' ? 'claude-3-5-sonnet-20240620' : 'gemini-1.5-pro') })}
-                                        style={{ width: '100%', padding: '10px 14px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '0.9rem', outline: 'none', background: '#fff' }}
+                                        style={{ width: '100%', padding: '10px 14px', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '0.9rem', outline: 'none', background: 'var(--bg-card)' }}
                                     >
                                         {availableProviders.includes('openai') && <option value="openai">OpenAI (GPT)</option>}
                                         {availableProviders.includes('anthropic') && <option value="anthropic">Anthropic (Claude)</option>}
@@ -413,11 +413,11 @@ const AiAgentsSettingsPage = () => {
                                     </select>
                                 </div>
                                 <div>
-                                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>Model Engine</label>
+                                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>Model Engine</label>
                                     <select
                                         value={formData.modelName}
                                         onChange={e => setFormData({ ...formData, modelName: e.target.value })}
-                                        style={{ width: '100%', padding: '10px 14px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '0.9rem', outline: 'none', background: '#fff' }}
+                                        style={{ width: '100%', padding: '10px 14px', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '0.9rem', outline: 'none', background: 'var(--bg-card)' }}
                                     >
                                         {formData.provider === 'openai' && (
                                             <>
@@ -449,11 +449,11 @@ const AiAgentsSettingsPage = () => {
 
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px' }}>
                                 {/* Use Cases Block */}
-                                <div style={{ background: '#f8fafc', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#1e293b', marginBottom: '12px' }}>Target Use Cases</label>
+                                <div style={{ background: 'var(--bg-light)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+                                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '12px' }}>Target Use Cases</label>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                         {USE_CASES.filter(uc => availableChannels.length === 0 || availableChannels.includes(uc.id)).map(uc => (
-                                            <label key={uc.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.85rem', color: '#475569', cursor: 'pointer' }}>
+                                            <label key={uc.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.85rem', color: 'var(--text-muted)', cursor: 'pointer' }}>
                                                 <input
                                                     type="checkbox"
                                                     checked={formData.useCases.includes(uc.id)}
@@ -467,19 +467,19 @@ const AiAgentsSettingsPage = () => {
                                 </div>
 
                                 {/* Memory Access Block */}
-                                <div style={{ background: '#f8fafc', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: '#1e293b', marginBottom: '12px' }}>CRM Memory & Data Access</label>
-                                    <p style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '16px', lineHeight: '1.4' }}>Select which CRM databases this AI is allowed to query and inject into its context window.</p>
+                                <div style={{ background: 'var(--bg-light)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+                                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '12px' }}>CRM Memory & Data Access</label>
+                                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '16px', lineHeight: '1.4' }}>Select which CRM databases this AI is allowed to query and inject into its context window.</p>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                         {MEMORY_ACCESS.map(mem => (
-                                            <label key={mem.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.85rem', color: '#475569', cursor: 'pointer' }}>
+                                            <label key={mem.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.85rem', color: 'var(--text-muted)', cursor: 'pointer' }}>
                                                 <input
                                                     type="checkbox"
                                                     checked={formData.memoryAccess.includes(mem.id)}
                                                     onChange={() => handleToggleArray('memoryAccess', mem.id)}
                                                     style={{ width: '16px', height: '16px', accentColor: '#10b981' }}
                                                 />
-                                                <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: formData.memoryAccess.includes(mem.id) ? '#0f172a' : '#64748b', fontWeight: formData.memoryAccess.includes(mem.id) ? 600 : 400 }}>
+                                                <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: formData.memoryAccess.includes(mem.id) ? 'var(--text-main)' : 'var(--text-muted)', fontWeight: formData.memoryAccess.includes(mem.id) ? 600 : 400 }}>
                                                     {mem.icon} {mem.label}
                                                 </span>
                                             </label>
@@ -488,9 +488,9 @@ const AiAgentsSettingsPage = () => {
                                 </div>
                             </div>
                             
-                            <div style={{ padding: '24px 32px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: 'auto', background: '#f8fafc', borderRadius: '0 0 20px 20px', margin: '-32px' }}>
-                                <button type="button" onClick={() => setIsModalOpen(false)} style={{ padding: '10px 20px', background: '#fff', border: '1px solid #cbd5e1', borderRadius: '8px', color: '#475569', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
-                                <button type="submit" style={{ padding: '10px 24px', background: '#3b82f6', border: 'none', borderRadius: '8px', color: '#fff', fontWeight: 600, cursor: 'pointer', boxShadow: '0 4px 6px rgba(59, 130, 246, 0.2)' }}>
+                            <div style={{ padding: '24px 32px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: 'auto', background: 'var(--bg-light)', borderRadius: '0 0 20px 20px', margin: '-32px' }}>
+                                <button type="button" onClick={() => setIsModalOpen(false)} style={{ padding: '10px 20px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '8px', color: 'var(--text-muted)', fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
+                                <button type="submit" style={{ padding: '10px 24px', background: '#3b82f6', border: 'none', borderRadius: '8px', color: 'var(--bg-card)', fontWeight: 600, cursor: 'pointer', boxShadow: '0 4px 6px rgba(59, 130, 246, 0.2)' }}>
                                     {editingAgent ? 'Save Changes' : 'Build AI Agent'}
                                 </button>
                             </div>

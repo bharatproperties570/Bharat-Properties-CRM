@@ -14,11 +14,11 @@ const LiveClock = () => {
     }, []);
 
     return (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: '#64748b', background: '#f8fafc', padding: '6px 12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-            <i className="fas fa-calendar-alt" style={{ color: '#94a3b8' }}></i>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: 'var(--text-muted)', background: 'var(--bg-light)', padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+            <i className="fas fa-calendar-alt" style={{ color: 'var(--text-muted)' }}></i>
             <span>{time.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}</span>
-            <span style={{ width: '1px', height: '12px', background: '#cbd5e1', margin: '0 4px' }}></span>
-            <i className="fas fa-clock" style={{ color: '#94a3b8' }}></i>
+            <span style={{ width: '1px', height: '12px', background: 'var(--border-color)', margin: '0 4px' }}></span>
+            <i className="fas fa-clock" style={{ color: 'var(--text-muted)' }}></i>
             <span style={{ fontVariantNumeric: 'tabular-nums' }}>{time.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
         </div>
     );
@@ -510,7 +510,7 @@ const DealSettingsPage = () => {
         display: 'block',
         fontSize: '0.85rem',
         fontWeight: 600,
-        color: '#64748b',
+        color: 'var(--text-muted)',
         marginBottom: '8px'
     };
 
@@ -518,7 +518,7 @@ const DealSettingsPage = () => {
         width: '100%',
         padding: '10px 12px',
         borderRadius: '8px',
-        border: '1px solid #cbd5e1',
+        border: '1px solid var(--border-color)',
         fontSize: '0.9rem',
         outline: 'none',
         transition: 'border-color 0.2s'
@@ -537,7 +537,7 @@ const DealSettingsPage = () => {
 
     const btnPrimaryStyle = {
         background: '#2563eb',
-        color: '#fff',
+        color: 'var(--bg-card)',
         border: 'none',
         padding: '10px 20px',
         borderRadius: '8px',
@@ -553,8 +553,8 @@ const DealSettingsPage = () => {
 
     const btnOutlineStyle = {
         background: 'transparent',
-        color: '#64748b',
-        border: '1px solid #cbd5e1',
+        color: 'var(--text-muted)',
+        border: '1px solid var(--border-color)',
         padding: '10px 20px',
         borderRadius: '8px',
         fontSize: '0.9rem',
@@ -564,21 +564,21 @@ const DealSettingsPage = () => {
     };
 
     const tableHeaderStyle = {
-        background: '#f8fafc',
+        background: 'var(--bg-light)',
         padding: '12px 24px',
         textAlign: 'left',
         fontSize: '0.75rem',
         fontWeight: 700,
-        color: '#64748b',
+        color: 'var(--text-muted)',
         textTransform: 'uppercase',
-        borderBottom: '1px solid #e2e8f0'
+        borderBottom: '1px solid var(--border-color)'
     };
 
     const tableCellStyle = {
         padding: '16px 24px',
         borderBottom: '1px solid #f1f5f9',
         fontSize: '0.9rem',
-        color: '#1e293b'
+        color: 'var(--text-main)'
     };
 
     return (
@@ -586,18 +586,18 @@ const DealSettingsPage = () => {
             {/* Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                 <div>
-                    <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>Govt. Charges Configuration</h1>
-                    <p style={{ fontSize: '0.9rem', color: '#64748b', marginTop: '4px' }}>Manage financial configurations and collector rates</p>
+                    <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-main)', margin: 0 }}>Govt. Charges Configuration</h1>
+                    <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginTop: '4px' }}>Manage financial configurations and collector rates</p>
                 </div>
             </div>
 
             {/* Filter Side Panel */}
             {isFilterPanelOpen && (
                 <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.4)', zIndex: 2000, display: 'flex', justifyContent: 'flex-end', backdropFilter: 'blur(2px)' }}>
-                    <div style={{ width: '380px', background: '#fff', height: '100%', boxShadow: '-4px 0 25px rgba(0,0,0,0.1)', display: 'flex', flexDirection: 'column', animation: 'slideInRight 0.3s ease-out' }}>
+                    <div style={{ width: '380px', background: 'var(--bg-card)', height: '100%', boxShadow: '-4px 0 25px rgba(0,0,0,0.1)', display: 'flex', flexDirection: 'column', animation: 'slideInRight 0.3s ease-out' }}>
                         <div style={{ padding: '24px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <h2 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>Advanced Filters</h2>
-                            <button onClick={() => setIsFilterPanelOpen(false)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#94a3b8' }}>
+                            <h2 style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--text-main)', margin: 0 }}>Advanced Filters</h2>
+                            <button onClick={() => setIsFilterPanelOpen(false)} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>
                                 <i className="fas fa-times"></i>
                             </button>
                         </div>
@@ -676,10 +676,10 @@ const DealSettingsPage = () => {
             )}
 
             {/* Collector Rates Section (First) */}
-            <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden', marginBottom: '32px' }}>
-                <div style={{ padding: '20px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc' }}>
+            <div style={{ background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden', marginBottom: '32px' }}>
+                <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-light)' }}>
                     <div>
-                        <div style={{ display: 'flex', gap: '1px', background: '#e2e8f0', padding: '4px', borderRadius: '10px', marginBottom: '8px', width: 'fit-content' }}>
+                        <div style={{ display: 'flex', gap: '1px', background: 'var(--border-color)', padding: '4px', borderRadius: '10px', marginBottom: '8px', width: 'fit-content' }}>
                             <button
                                 onClick={() => setActiveTab('collector')}
                                 style={{
@@ -689,8 +689,8 @@ const DealSettingsPage = () => {
                                     fontSize: '0.85rem',
                                     fontWeight: 600,
                                     cursor: 'pointer',
-                                    background: activeTab === 'collector' ? '#fff' : 'transparent',
-                                    color: activeTab === 'collector' ? '#2563eb' : '#64748b',
+                                    background: activeTab === 'collector' ? 'var(--bg-card)' : 'transparent',
+                                    color: activeTab === 'collector' ? '#2563eb' : 'var(--text-muted)',
                                     boxShadow: activeTab === 'collector' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none',
                                     transition: 'all 0.2s'
                                 }}
@@ -706,8 +706,8 @@ const DealSettingsPage = () => {
                                     fontSize: '0.85rem',
                                     fontWeight: 600,
                                     cursor: 'pointer',
-                                    background: activeTab === 'global' ? '#fff' : 'transparent',
-                                    color: activeTab === 'global' ? '#2563eb' : '#64748b',
+                                    background: activeTab === 'global' ? 'var(--bg-card)' : 'transparent',
+                                    color: activeTab === 'global' ? '#2563eb' : 'var(--text-muted)',
                                     boxShadow: activeTab === 'global' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none',
                                     transition: 'all 0.2s'
                                 }}
@@ -715,27 +715,27 @@ const DealSettingsPage = () => {
                                 Registration Charges
                             </button>
                         </div>
-                        <p style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '2px' }}>
+                        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '2px' }}>
                             {activeTab === 'collector' ? 'Manage government circle rates and charges based on location' : 'Manage global financial configurations and standard registration charges'}
                         </p>
                     </div>
                 </div>
 
                 {/* Consolidated Header: Search, Add, Pagination & Filter */}
-                <div style={{ padding: '12px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', flexWrap: 'wrap', background: '#f8fafc' }}>
+                <div style={{ padding: '12px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', flexWrap: 'wrap', background: 'var(--bg-light)' }}>
                     
                     {/* Left Section: Search & Add */}
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0 }}>
                         {/* Search Bar (Shrunken) */}
                         <div style={{ position: 'relative', width: '220px' }}>
-                            <i className="fas fa-search" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '0.75rem' }}></i>
+                            <i className="fas fa-search" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: '0.75rem' }}></i>
                             <input
                                 type="text"
                                 placeholder="Search..."
                                 style={{
                                     padding: '8px 10px 8px 32px',
                                     borderRadius: '8px',
-                                    border: '1px solid #e2e8f0',
+                                    border: '1px solid var(--border-color)',
                                     fontSize: '0.8rem',
                                     width: '100%',
                                     outline: 'none',
@@ -744,7 +744,7 @@ const DealSettingsPage = () => {
                                 value={activeTab === 'collector' ? collectorSearch : registrationSearch}
                                 onChange={e => activeTab === 'collector' ? setCollectorSearch(e.target.value) : setRegistrationSearch(e.target.value)}
                                 onFocus={e => { e.target.style.borderColor = '#2563eb'; e.target.style.boxShadow = '0 0 0 2px rgba(37, 99, 235, 0.1)'; }}
-                                onBlur={e => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; }}
+                                onBlur={e => { e.target.style.borderColor = 'var(--border-color)'; e.target.style.boxShadow = 'none'; }}
                             />
                         </div>
 
@@ -774,7 +774,7 @@ const DealSettingsPage = () => {
                                     borderRadius: '8px',
                                     border: 'none',
                                     background: '#2563eb',
-                                    color: '#fff',
+                                    color: 'var(--bg-card)',
                                     cursor: 'pointer',
                                     display: 'flex',
                                     alignItems: 'center',
@@ -796,7 +796,7 @@ const DealSettingsPage = () => {
                                     borderRadius: '8px',
                                     border: 'none',
                                     background: '#2563eb',
-                                    color: '#fff',
+                                    color: 'var(--bg-card)',
                                     cursor: 'pointer',
                                     display: 'flex',
                                     alignItems: 'center',
@@ -815,7 +815,7 @@ const DealSettingsPage = () => {
                     {/* Middle Section: Pagination & Limit */}
                     <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flex: 1, justifyContent: 'center' }}>
                         {/* Pagination Summary */}
-                        <div style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 500, whiteSpace: 'nowrap' }}>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 500, whiteSpace: 'nowrap' }}>
                             {activeTab === 'collector' ? (
                                 collectorPagination.totalDocs > 0 ? (
                                     <span><b>{(collectorPagination.page - 1) * collectorPagination.limit + 1}-{Math.min(collectorPagination.page * collectorPagination.limit, collectorPagination.totalDocs)}</b> of <b>{collectorPagination.totalDocs}</b></span>
@@ -830,7 +830,7 @@ const DealSettingsPage = () => {
                         {/* Rows per page */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                             <select
-                                style={{ border: '1px solid #e2e8f0', background: '#fff', fontSize: '0.75rem', fontWeight: 600, color: '#1e293b', outline: 'none', cursor: 'pointer', padding: '4px 6px', borderRadius: '6px' }}
+                                style={{ border: '1px solid var(--border-color)', background: 'var(--bg-card)', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-main)', outline: 'none', cursor: 'pointer', padding: '4px 6px', borderRadius: '6px' }}
                                 value={activeTab === 'collector' ? collectorPagination.limit : registrationPagination.limit}
                                 onChange={(e) => {
                                     const val = parseInt(e.target.value);
@@ -854,7 +854,7 @@ const DealSettingsPage = () => {
                             <button
                                 disabled={(activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) <= 1}
                                 onClick={() => (activeTab === 'collector' ? setCollectorPagination : setRegistrationPagination)(prev => ({ ...prev, page: 1 }))}
-                                style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', opacity: (activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) <= 1 ? 0.4 : 1 }}
+                                style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', opacity: (activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) <= 1 ? 0.4 : 1 }}
                                 title="First Page"
                             >
                                 <i className="fas fa-angle-double-left" style={{ fontSize: '0.7rem' }}></i>
@@ -862,20 +862,20 @@ const DealSettingsPage = () => {
                             <button
                                 disabled={(activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) <= 1}
                                 onClick={() => (activeTab === 'collector' ? setCollectorPagination : setRegistrationPagination)(prev => ({ ...prev, page: prev.page - 1 }))}
-                                style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', opacity: (activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) <= 1 ? 0.4 : 1 }}
+                                style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', opacity: (activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) <= 1 ? 0.4 : 1 }}
                                 title="Previous Page"
                             >
                                 <i className="fas fa-chevron-left" style={{ fontSize: '0.7rem' }}></i>
                             </button>
                             
-                            <span style={{ fontSize: '0.8rem', fontWeight: 700, margin: '0 4px', color: '#1e293b' }}>
+                            <span style={{ fontSize: '0.8rem', fontWeight: 700, margin: '0 4px', color: 'var(--text-main)' }}>
                                 {activeTab === 'collector' ? collectorPagination.page : registrationPagination.page} / {activeTab === 'collector' ? collectorPagination.totalPages : registrationPagination.totalPages}
                             </span>
 
                             <button
                                 disabled={(activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) >= (activeTab === 'collector' ? collectorPagination.totalPages : registrationPagination.totalPages)}
                                 onClick={() => (activeTab === 'collector' ? setCollectorPagination : setRegistrationPagination)(prev => ({ ...prev, page: prev.page + 1 }))}
-                                style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', opacity: (activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) >= (activeTab === 'collector' ? collectorPagination.totalPages : registrationPagination.totalPages) ? 0.4 : 1 }}
+                                style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', opacity: (activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) >= (activeTab === 'collector' ? collectorPagination.totalPages : registrationPagination.totalPages) ? 0.4 : 1 }}
                                 title="Next Page"
                             >
                                 <i className="fas fa-chevron-right" style={{ fontSize: '0.7rem' }}></i>
@@ -883,7 +883,7 @@ const DealSettingsPage = () => {
                             <button
                                 disabled={(activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) >= (activeTab === 'collector' ? collectorPagination.totalPages : registrationPagination.totalPages)}
                                 onClick={() => (activeTab === 'collector' ? setCollectorPagination : setRegistrationPagination)(prev => ({ ...prev, page: (activeTab === 'collector' ? collectorPagination.totalPages : registrationPagination.totalPages) }))}
-                                style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid #e2e8f0', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', opacity: (activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) >= (activeTab === 'collector' ? collectorPagination.totalPages : registrationPagination.totalPages) ? 0.4 : 1 }}
+                                style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', opacity: (activeTab === 'collector' ? collectorPagination.page : registrationPagination.page) >= (activeTab === 'collector' ? collectorPagination.totalPages : registrationPagination.totalPages) ? 0.4 : 1 }}
                                 title="Last Page"
                             >
                                 <i className="fas fa-angle-double-right" style={{ fontSize: '0.7rem' }}></i>
@@ -897,9 +897,9 @@ const DealSettingsPage = () => {
                                 width: '34px',
                                 height: '34px',
                                 borderRadius: '8px',
-                                border: '1px solid #e2e8f0',
-                                background: Object.values(activeTab === 'collector' ? collectorFilters : registrationFilters).some(v => v !== '') ? '#eff6ff' : '#fff',
-                                color: Object.values(activeTab === 'collector' ? collectorFilters : registrationFilters).some(v => v !== '') ? '#2563eb' : '#64748b',
+                                border: '1px solid var(--border-color)',
+                                background: Object.values(activeTab === 'collector' ? collectorFilters : registrationFilters).some(v => v !== '') ? '#eff6ff' : 'var(--bg-card)',
+                                color: Object.values(activeTab === 'collector' ? collectorFilters : registrationFilters).some(v => v !== '') ? '#2563eb' : 'var(--text-muted)',
                                 cursor: 'pointer',
                                 display: 'flex',
                                 alignItems: 'center',
@@ -909,8 +909,8 @@ const DealSettingsPage = () => {
                                 position: 'relative'
                             }}
                             title="Filter"
-                            onMouseEnter={e => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.color = '#2563eb'; }}
-                            onMouseLeave={e => { e.currentTarget.style.background = Object.values(activeTab === 'collector' ? collectorFilters : registrationFilters).some(v => v !== '') ? '#eff6ff' : '#fff'; e.currentTarget.style.color = Object.values(activeTab === 'collector' ? collectorFilters : registrationFilters).some(v => v !== '') ? '#2563eb' : '#64748b'; }}
+                            onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-light)'; e.currentTarget.style.color = '#2563eb'; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = Object.values(activeTab === 'collector' ? collectorFilters : registrationFilters).some(v => v !== '') ? '#eff6ff' : 'var(--bg-card)'; e.currentTarget.style.color = Object.values(activeTab === 'collector' ? collectorFilters : registrationFilters).some(v => v !== '') ? '#2563eb' : 'var(--text-muted)'; }}
                         >
                             <i className="fas fa-filter" style={{ fontSize: '0.85rem' }}></i>
                             {Object.values(activeTab === 'collector' ? collectorFilters : registrationFilters).some(v => v !== '') && (
@@ -937,30 +937,30 @@ const DealSettingsPage = () => {
                             <tbody>
                                 {collectorRates.length === 0 ? (
                                     <tr>
-                                        <td colSpan="7" style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
+                                        <td colSpan="7" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
                                             No collector rates found. Add one to get started.
                                         </td>
                                     </tr>
                                 ) : (
                                     collectorRates.map(rate => (
-                                        <tr key={rate._id} style={{ transition: 'background 0.2s' }} onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                                        <tr key={rate._id} style={{ transition: 'background 0.2s' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-light)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                                             <td style={tableCellStyle}>
-                                                <div style={{ fontWeight: 600, color: '#1e293b' }}>
+                                                <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>
                                                     {rate.location?.lookup_value && <span style={{ color: '#2563eb' }}>{rate.location.lookup_value} • </span>}
                                                     {rate.district?.lookup_value || 'Unknown'}
                                                 </div>
-                                                <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '4px' }}>
+                                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
                                                     {rate.tehsil?.lookup_value && <span>{rate.tehsil.lookup_value}, </span>}
                                                     {rate.state?.lookup_value}
                                                 </div>
                                             </td>
                                             <td style={tableCellStyle}>
-                                                <div style={{ fontWeight: 600, color: '#1e293b' }}>{rate.category || 'N/A'}</div>
-                                                <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{rate.subCategory || 'N/A'}</div>
+                                                <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>{rate.category || 'N/A'}</div>
+                                                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{rate.subCategory || 'N/A'}</div>
                                             </td>
                                             <td style={tableCellStyle}>
-                                                <div style={{ fontSize: '0.85rem', color: '#475569' }}>{rate.rateApplyOn}</div>
-                                                <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>per {rate.rateUnit}</div>
+                                                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{rate.rateApplyOn}</div>
+                                                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>per {rate.rateUnit}</div>
                                             </td>
                                             <td style={tableCellStyle}>
                                                 <div style={{ fontWeight: 700, color: '#2563eb', fontSize: '1.05rem' }}>₹{rate.rate?.toLocaleString()}</div>
@@ -968,29 +968,29 @@ const DealSettingsPage = () => {
                                             <td style={tableCellStyle}>
                                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                                                     {rate.roadMultipliers?.map((m, idx) => (
-                                                        <span key={`r-${idx}`} style={{ background: '#f1f5f9', color: '#475569', padding: '2px 6px', borderRadius: '4px', fontSize: '0.7rem' }}>
+                                                        <span key={`r-${idx}`} style={{ background: 'var(--bg-light)', color: 'var(--text-muted)', padding: '2px 6px', borderRadius: '4px', fontSize: '0.7rem' }}>
                                                             {m.roadType}: {m.multiplier}%
                                                         </span>
                                                     ))}
                                                     {rate.floorMultipliers?.map((m, idx) => (
-                                                        <span key={`f-${idx}`} style={{ background: '#f1f5f9', color: '#475569', padding: '2px 6px', borderRadius: '4px', fontSize: '0.7rem' }}>
+                                                        <span key={`f-${idx}`} style={{ background: 'var(--bg-light)', color: 'var(--text-muted)', padding: '2px 6px', borderRadius: '4px', fontSize: '0.7rem' }}>
                                                             {m.floorType}: {m.multiplier}%
                                                         </span>
                                                     ))}
-                                                    {(!rate.roadMultipliers?.length && !rate.floorMultipliers?.length) && <span style={{ color: '#cbd5e1', fontSize: '0.75rem' }}>None</span>}
+                                                    {(!rate.roadMultipliers?.length && !rate.floorMultipliers?.length) && <span style={{ color: 'var(--border-color)', fontSize: '0.75rem' }}>None</span>}
                                                 </div>
                                             </td>
                                             <td style={tableCellStyle}>
-                                                <div style={{ fontSize: '0.8rem', color: '#475569', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                    <i className="fas fa-calendar-alt" style={{ fontSize: '0.7rem', color: '#94a3b8' }}></i>
+                                                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                    <i className="fas fa-calendar-alt" style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}></i>
                                                     {new Date(rate.effectiveFrom).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}
                                                 </div>
                                                 {rate.effectiveTo && (
-                                                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '2px' }}>
+                                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
                                                         to {new Date(rate.effectiveTo).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}
                                                     </div>
                                                 )}
-                                                {rate.versionNo && <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontStyle: 'italic', marginTop: '4px' }}>v{rate.versionNo}</div>}
+                                                {rate.versionNo && <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontStyle: 'italic', marginTop: '4px' }}>v{rate.versionNo}</div>}
                                             </td>
                                             <td style={{ ...tableCellStyle, textAlign: 'right' }}>
                                                 <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
@@ -1010,7 +1010,7 @@ const DealSettingsPage = () => {
                     ) : (
                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                             <thead>
-                                <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                                <tr style={{ background: 'var(--bg-light)', borderBottom: '1px solid var(--border-color)' }}>
                                     <th style={tableHeaderStyle}>Config Name</th>
                                     <th style={tableHeaderStyle}>Target State</th>
                                     <th style={tableHeaderStyle}>Stamp Duty (M/F/J)</th>
@@ -1022,33 +1022,33 @@ const DealSettingsPage = () => {
                             <tbody>
                                 {(!registrationCharges || registrationCharges.length === 0) ? (
                                     <tr>
-                                        <td colSpan="5" style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
+                                        <td colSpan="5" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
                                             No configuration found. Add one to get started.
                                         </td>
                                     </tr>
                                 ) : (
                                     (registrationCharges || []).map(charge => (
-                                        <tr key={charge._id} style={{ transition: 'background 0.2s' }} onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                                        <tr key={charge._id} style={{ transition: 'background 0.2s' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-light)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                                             <td style={tableCellStyle}>
-                                                <div style={{ fontWeight: 600, color: '#1e293b' }}>{charge.key.replace('govt_charges_', '')}</div>
+                                                <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>{charge.key.replace('govt_charges_', '')}</div>
                                             </td>
                                             <td style={tableCellStyle}>
-                                                <div style={{ padding: '4px 8px', background: charge.value?.state ? '#eff6ff' : '#f8fafc', color: charge.value?.state ? '#2563eb' : '#64748b', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700, display: 'inline-block' }}>
+                                                <div style={{ padding: '4px 8px', background: charge.value?.state ? '#eff6ff' : 'var(--bg-light)', color: charge.value?.state ? '#2563eb' : 'var(--text-muted)', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700, display: 'inline-block' }}>
                                                     {charge.value?.state ? 'Region Specific' : 'Global (All)'}
                                                 </div>
                                             </td>
                                             <td style={tableCellStyle}>
-                                                <div style={{ color: '#475569' }}>
+                                                <div style={{ color: 'var(--text-muted)' }}>
                                                     {charge.value?.stampDutyMale}% / {charge.value?.stampDutyFemale}% / {charge.value?.stampDutyJoint}%
                                                 </div>
                                             </td>
                                             <td style={tableCellStyle}>
-                                                <div style={{ color: '#475569' }}>
+                                                <div style={{ color: 'var(--text-muted)' }}>
                                                     {charge.value?.registrationMode === 'percent' ? `${charge.value?.registrationPercent}%` : 'Slab-based'}
                                                 </div>
                                             </td>
                                             <td style={tableCellStyle}>
-                                                <div style={{ color: '#475569' }}>₹{charge.value?.legalFees?.toLocaleString()}</div>
+                                                <div style={{ color: 'var(--text-muted)' }}>₹{charge.value?.legalFees?.toLocaleString()}</div>
                                             </td>
                                             <td style={{ ...tableCellStyle, textAlign: 'right' }}>
                                                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
@@ -1057,7 +1057,7 @@ const DealSettingsPage = () => {
                                                             setConfig(charge.value);
                                                             setIsConfigModalOpen(true);
                                                         }}
-                                                        style={{ background: '#f1f5f9', color: '#475569', border: 'none', width: '32px', height: '32px', borderRadius: '6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                                                        style={{ background: 'var(--bg-light)', color: 'var(--text-muted)', border: 'none', width: '32px', height: '32px', borderRadius: '6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
                                                         title="Edit"
                                                     >
                                                         <i className="fas fa-edit" style={{ fontSize: '0.8rem' }}></i>
@@ -1087,16 +1087,16 @@ const DealSettingsPage = () => {
             {/* Add Rate Modal */}
             {viewMode === 'add' && (
                 <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.6)', zIndex: 1000, display: 'flex', justifyContent: 'center', alignItems: 'center', backdropFilter: 'blur(4px)' }}>
-                    <div style={{ background: '#fff', width: '90%', maxWidth: '900px', borderRadius: '16px', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', animation: 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)', maxHeight: '90vh' }}>
+                    <div style={{ background: 'var(--bg-card)', width: '90%', maxWidth: '900px', borderRadius: '16px', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', animation: 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)', maxHeight: '90vh' }}>
 
                         {/* Modal Header */}
-                        <div style={{ padding: '20px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', flexShrink: 0 }}>
+                        <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-light)', flexShrink: 0 }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                                 <div style={{ width: '42px', height: '42px', background: '#eff6ff', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                     <i className="fas fa-map-marked-alt" style={{ color: '#2563eb', fontSize: '1.2rem' }}></i>
                                 </div>
                                 <div>
-                                    <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#1e293b', margin: 0 }}>
+                                    <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-main)', margin: 0 }}>
                                         Add Govt. Charge
                                     </h2>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
@@ -1104,7 +1104,7 @@ const DealSettingsPage = () => {
                                     </div>
                                 </div>
                             </div>
-                            <button onClick={() => setViewMode('list')} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: '1.2rem', transition: 'color 0.2s' }}>
+                            <button onClick={() => setViewMode('list')} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '1.2rem', transition: 'color 0.2s' }}>
                                 <i className="fas fa-times"></i>
                             </button>
                         </div>
@@ -1166,8 +1166,8 @@ const DealSettingsPage = () => {
                                     </div>
                                 </div>
 
-                                <div style={{ background: '#f8fafc', padding: '24px', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
-                                    <h4 style={{ fontSize: '1rem', fontWeight: 800, color: '#1e293b', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <div style={{ background: 'var(--bg-light)', padding: '24px', borderRadius: '16px', border: '1px solid var(--border-color)' }}>
+                                    <h4 style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
                                         <i className="fas fa-sliders-h" style={{ color: '#2563eb' }}></i>
                                         Property & Rate Configuration
                                     </h4>
@@ -1205,7 +1205,7 @@ const DealSettingsPage = () => {
                                     </div>
 
                                     {/* Rate Row */}
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1.2fr', gap: '20px', marginBottom: '24px', padding: '20px', background: '#fff', borderRadius: '12px', border: '1px solid #f1f5f9', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1.2fr', gap: '20px', marginBottom: '24px', padding: '20px', background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid #f1f5f9', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
                                         <div>
                                             <label style={labelStyle}>Rate Basis</label>
                                             <select
@@ -1242,14 +1242,14 @@ const DealSettingsPage = () => {
                                                     onChange={e => handleRateChange('rate', e.target.value)}
                                                     placeholder="0.00"
                                                 />
-                                                <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#64748b', fontWeight: 600 }}>₹</span>
+                                                <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontWeight: 600 }}>₹</span>
                                             </div>
                                         </div>
                                     </div>
 
                                     {/* Multipliers Row */}
                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '24px' }}>
-                                        <div style={{ background: '#fff', padding: '16px', borderRadius: '12px', border: '1px solid #f1f5f9' }}>
+                                        <div style={{ background: 'var(--bg-card)', padding: '16px', borderRadius: '12px', border: '1px solid #f1f5f9' }}>
                                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', alignItems: 'center' }}>
                                                 <label style={{ ...labelStyle, marginBottom: 0, fontSize: '0.75rem' }}>Road Multipliers</label>
                                                 <button onClick={() => addMultiplier('road')} style={{ background: '#eff6ff', color: '#2563eb', border: 'none', borderRadius: '6px', padding: '4px 10px', fontSize: '0.7rem', fontWeight: 800, cursor: 'pointer', transition: 'all 0.2s' }} className="hover:bg-blue-100">+ Add</button>
@@ -1276,10 +1276,10 @@ const DealSettingsPage = () => {
                                                     <button onClick={() => removeMultiplier('road', idx)} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer' }}><i className="fas fa-trash-alt"></i></button>
                                                 </div>
                                             )) : (
-                                                <div style={{ textAlign: 'center', padding: '10px', color: '#94a3b8', fontSize: '0.75rem', border: '1px dashed #e2e8f0', borderRadius: '8px' }}>No road multipliers added</div>
+                                                <div style={{ textAlign: 'center', padding: '10px', color: 'var(--text-muted)', fontSize: '0.75rem', border: '1px dashed var(--border-color)', borderRadius: '8px' }}>No road multipliers added</div>
                                             )}
                                         </div>
-                                        <div style={{ background: '#fff', padding: '16px', borderRadius: '12px', border: '1px solid #f1f5f9' }}>
+                                        <div style={{ background: 'var(--bg-card)', padding: '16px', borderRadius: '12px', border: '1px solid #f1f5f9' }}>
                                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', alignItems: 'center' }}>
                                                 <label style={{ ...labelStyle, marginBottom: 0, fontSize: '0.75rem' }}>Floor Multipliers</label>
                                                 <button onClick={() => addMultiplier('floor')} style={{ background: '#eff6ff', color: '#2563eb', border: 'none', borderRadius: '6px', padding: '4px 10px', fontSize: '0.7rem', fontWeight: 800, cursor: 'pointer', transition: 'all 0.2s' }} className="hover:bg-blue-100">+ Add</button>
@@ -1303,19 +1303,19 @@ const DealSettingsPage = () => {
                                                     <button onClick={() => removeMultiplier('floor', idx)} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer' }}><i className="fas fa-trash-alt"></i></button>
                                                 </div>
                                             )) : (
-                                                <div style={{ textAlign: 'center', padding: '10px', color: '#94a3b8', fontSize: '0.75rem', border: '1px dashed #e2e8f0', borderRadius: '8px' }}>No floor multipliers added</div>
+                                                <div style={{ textAlign: 'center', padding: '10px', color: 'var(--text-muted)', fontSize: '0.75rem', border: '1px dashed var(--border-color)', borderRadius: '8px' }}>No floor multipliers added</div>
                                             )}
                                         </div>
                                     </div>
 
                                     {/* Action Button: Add to List */}
-                                    <div style={{ textAlign: 'center', marginBottom: '24px', borderTop: '1px dashed #e2e8f0', paddingTop: '20px' }}>
+                                    <div style={{ textAlign: 'center', marginBottom: '24px', borderTop: '1px dashed var(--border-color)', paddingTop: '20px' }}>
                                         <button
                                             onClick={addToQueue}
                                             style={{
                                                 padding: '10px 24px',
                                                 background: '#2563eb',
-                                                color: '#fff',
+                                                color: 'var(--bg-card)',
                                                 border: 'none',
                                                 borderRadius: '10px',
                                                 fontSize: '0.9rem',
@@ -1336,22 +1336,22 @@ const DealSettingsPage = () => {
 
                                     {/* Queued List View */}
                                     {rateForm.queuedRates.length > 0 && (
-                                        <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '16px', marginTop: '20px' }}>
-                                            <h5 style={{ fontSize: '0.85rem', fontWeight: 800, color: '#475569', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.025em' }}>Added Configurations ({rateForm.queuedRates.length})</h5>
+                                        <div style={{ background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)', padding: '16px', marginTop: '20px' }}>
+                                            <h5 style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text-muted)', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.025em' }}>Added Configurations ({rateForm.queuedRates.length})</h5>
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                                 {rateForm.queuedRates.map((item, idx) => (
-                                                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', background: '#f8fafc', borderRadius: '10px', border: '1px solid #f1f5f9' }}>
+                                                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', background: 'var(--bg-light)', borderRadius: '10px', border: '1px solid #f1f5f9' }}>
                                                         <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
                                                             <div style={{ width: '32px', height: '32px', background: '#eff6ff', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2563eb', fontWeight: 800, fontSize: '0.75rem' }}>{idx + 1}</div>
                                                             <div>
-                                                                <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#1e293b' }}>{item.category} • {item.subCategory}</div>
-                                                                <div style={{ fontSize: '0.75rem', color: '#64748b' }}>₹{item.rate} per {item.rateUnit} ({item.rateApplyOn})</div>
+                                                                <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-main)' }}>{item.category} • {item.subCategory}</div>
+                                                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>₹{item.rate} per {item.rateUnit} ({item.rateApplyOn})</div>
                                                             </div>
                                                         </div>
                                                         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                                                             <div style={{ display: 'flex', gap: '4px' }}>
                                                                 {item.roadMultipliers.length > 0 && <span style={{ fontSize: '0.65rem', padding: '2px 6px', background: '#fff7ed', color: '#c2410c', borderRadius: '4px', border: '1px solid #ffedd5' }}>{item.roadMultipliers.length} Road</span>}
-                                                                {item.floorMultipliers.length > 0 && <span style={{ fontSize: '0.65rem', padding: '2px 6px', background: '#f0fdf4', color: '#15803d', borderRadius: '4px', border: '1px solid #dcfce7' }}>{item.floorMultipliers.length} Floor</span>}
+                                                                {item.floorMultipliers.length > 0 && <span style={{ fontSize: '0.65rem', padding: '2px 6px', background: 'var(--stat-property-bg)', color: '#15803d', borderRadius: '4px', border: '1px solid #dcfce7' }}>{item.floorMultipliers.length} Floor</span>}
                                                             </div>
                                                             <button onClick={() => removeFromQueue(idx)} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '4px' }}><i className="fas fa-times"></i></button>
                                                         </div>
@@ -1362,8 +1362,8 @@ const DealSettingsPage = () => {
                                     )}
                                 </div>
 
-                                <div style={{ background: '#f8fafc', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                                    <h4 style={{ fontSize: '0.9rem', fontWeight: 700, color: '#1e293b', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <div style={{ background: 'var(--bg-light)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+                                    <h4 style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                         <i className="fas fa-history" style={{ color: '#2563eb' }}></i>
                                         Effective Period & Tracking
                                     </h4>
@@ -1418,7 +1418,7 @@ const DealSettingsPage = () => {
                         </div>
 
                         {/* Modal Footer */}
-                        <div style={{ padding: '20px 24px', borderTop: '1px solid #e2e8f0', background: '#f8fafc', display: 'flex', justifyContent: 'flex-end', gap: '12px', flexShrink: 0 }}>
+                        <div style={{ padding: '20px 24px', borderTop: '1px solid var(--border-color)', background: 'var(--bg-light)', display: 'flex', justifyContent: 'flex-end', gap: '12px', flexShrink: 0 }}>
                             <button onClick={() => setViewMode('list')} style={btnOutlineStyle}>Cancel</button>
                             <button onClick={handleSaveAll} style={btnPrimaryStyle} disabled={saving}>
                                 {saving ? <span className="loader-sm"></span> : (

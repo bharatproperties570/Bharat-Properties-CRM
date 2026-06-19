@@ -526,7 +526,7 @@ const ImportDataPage = () => {
 
     const Stepper = () => (
         <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0 40px 40px', position: 'relative' }}>
-            <div style={{ position: 'absolute', top: '15px', left: '60px', right: '60px', height: '2px', background: '#e2e8f0', zIndex: 0 }}>
+            <div style={{ position: 'absolute', top: '15px', left: '60px', right: '60px', height: '2px', background: 'var(--border-color)', zIndex: 0 }}>
                 <div style={{ height: '100%', width: `${((step - 1) / 4) * 100}%`, background: 'var(--primary-color)', transition: 'width 0.3s' }}></div>
             </div>
             {['Select', 'Upload', 'Map', 'Preview', 'Finish'].map((label, i) => {
@@ -535,16 +535,16 @@ const ImportDataPage = () => {
                     <div key={s} style={{ zIndex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
                         <div style={{
                             width: '32px', height: '32px', borderRadius: '50%',
-                            background: s <= step ? 'var(--primary-color)' : '#fff',
-                            border: s <= step ? 'none' : '2px solid #cbd5e1',
-                            color: s <= step ? '#fff' : '#64748b',
+                            background: s <= step ? 'var(--primary-color)' : 'var(--bg-card)',
+                            border: s <= step ? 'none' : '2px solid var(--border-color)',
+                            color: s <= step ? 'var(--bg-card)' : 'var(--text-muted)',
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
                             fontWeight: 700, fontSize: '0.9rem',
                             transition: 'all 0.3s'
                         }}>
                             {s < step ? <i className="fas fa-check"></i> : s}
                         </div>
-                        <div style={{ fontSize: '0.75rem', fontWeight: 600, color: s <= step ? '#1e293b' : '#94a3b8' }}>
+                        <div style={{ fontSize: '0.75rem', fontWeight: 600, color: s <= step ? 'var(--text-main)' : 'var(--text-muted)' }}>
                             {label}
                         </div>
                     </div>
@@ -554,10 +554,10 @@ const ImportDataPage = () => {
     );
 
     return (
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', background: '#fff' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg-card)' }}>
             <div style={{ padding: '32px 40px 0' }}>
-                <h2 style={{ fontSize: '1.5rem', fontWeight: 700, color: '#1e293b', marginBottom: '8px' }}>Import Data Wizard</h2>
-                <p style={{ color: '#64748b', marginBottom: '32px' }}>Bulk import data from CSV files into {MODULE_CONFIG[module]?.label || 'CRM'}.</p>
+                <h2 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '8px' }}>Import Data Wizard</h2>
+                <p style={{ color: 'var(--text-muted)', marginBottom: '32px' }}>Bulk import data from CSV files into {MODULE_CONFIG[module]?.label || 'CRM'}.</p>
                 <Stepper />
             </div>
 
@@ -565,15 +565,15 @@ const ImportDataPage = () => {
                 {/* Step 1: Select Module */}
                 {step === 1 && (
                     <div style={{ maxWidth: '800px', margin: '0 auto' }}>
-                        <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1e293b', marginBottom: '24px' }}>Select Data Module</h3>
+                        <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '24px' }}>Select Data Module</h3>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px' }}>
                             {Object.values(MODULE_CONFIG).map(mod => (
                                 <div
                                     key={mod.id}
                                     onClick={() => setModule(mod.id)}
                                     style={{
-                                        border: module === mod.id ? '2px solid var(--primary-color)' : '1px solid #e2e8f0',
-                                        background: module === mod.id ? '#eff6ff' : '#fff',
+                                        border: module === mod.id ? '2px solid var(--primary-color)' : '1px solid var(--border-color)',
+                                        background: module === mod.id ? '#eff6ff' : 'var(--bg-card)',
                                         borderRadius: '12px',
                                         padding: '24px',
                                         cursor: 'pointer',
@@ -583,15 +583,15 @@ const ImportDataPage = () => {
                                 >
                                     <div style={{
                                         width: '48px', height: '48px', borderRadius: '12px',
-                                        background: module === mod.id ? 'var(--primary-color)' : '#f1f5f9',
-                                        color: module === mod.id ? '#fff' : '#64748b',
+                                        background: module === mod.id ? 'var(--primary-color)' : 'var(--bg-light)',
+                                        color: module === mod.id ? 'var(--bg-card)' : 'var(--text-muted)',
                                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                                         fontSize: '1.5rem', marginBottom: '16px'
                                     }}>
                                         <i className={`fas ${mod.icon}`}></i>
                                     </div>
-                                    <h4 style={{ margin: '0 0 8px', color: '#1e293b' }}>{mod.label}</h4>
-                                    <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b' }}>{mod.description}</p>
+                                    <h4 style={{ margin: '0 0 8px', color: 'var(--text-main)' }}>{mod.label}</h4>
+                                    <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>{mod.description}</p>
                                 </div>
                             ))}
                         </div>
@@ -601,17 +601,17 @@ const ImportDataPage = () => {
                 {/* Step 2: Upload */}
                 {step === 2 && (
                     <div style={{ maxWidth: '600px', margin: '0 auto' }}>
-                        <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1e293b', marginBottom: '16px' }}>Upload File for {MODULE_CONFIG[module].label}</h3>
+                        <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '16px' }}>Upload File for {MODULE_CONFIG[module].label}</h3>
 
                         {(module === 'sizes' || module === 'inventory') && (
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
                                 <div>
-                                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>Select Project</label>
+                                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>Select Project</label>
                                     <select
                                         id="project-selection-import"
                                         value={selectedProject}
                                         onChange={(e) => handleProjectChange(e.target.value)}
-                                        style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.9rem' }}
+                                        style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.9rem' }}
                                     >
                                         <option value="">-- Choose Project --</option>
                                         {projects.map(p => (
@@ -628,13 +628,13 @@ const ImportDataPage = () => {
                                     )}
                                 </div>
                                 <div>
-                                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '6px' }}>Select Block</label>
+                                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>Select Block</label>
                                     <select
                                         id="block-selection-import"
                                         value={selectedBlock}
                                         onChange={(e) => setSelectedBlock(e.target.value)}
                                         disabled={!selectedProject || blocks.length === 0}
-                                        style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '0.9rem', opacity: (!selectedProject || blocks.length === 0) ? 0.6 : 1 }}
+                                        style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.9rem', opacity: (!selectedProject || blocks.length === 0) ? 0.6 : 1 }}
                                     >
                                         <option value="">
                                             {!selectedProject ? '-- Select Project First --' : (blocks.length === 0 ? '-- No Blocks Found --' : '-- Choose Block --')}
@@ -643,12 +643,12 @@ const ImportDataPage = () => {
                                     </select>
                                 </div>
                                 <div style={{ gridColumn: 'span 2', marginTop: '16px' }}>
-                                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '8px' }}>Assign to Team(s) <span style={{ color: '#64748b', fontWeight: 400 }}>(Multiple selection supported)</span></label>
+                                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>Assign to Team(s) <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(Multiple selection supported)</span></label>
                                     <div style={{ 
-                                        border: '1px solid #e2e8f0', 
+                                        border: '1px solid var(--border-color)', 
                                         borderRadius: '8px', 
                                         padding: '12px', 
-                                        background: '#fff',
+                                        background: 'var(--bg-card)',
                                         maxHeight: '150px',
                                         overflowY: 'auto',
                                         display: 'grid',
@@ -656,7 +656,7 @@ const ImportDataPage = () => {
                                         gap: '8px'
                                     }}>
                                         {teams.length === 0 ? (
-                                            <div style={{ gridColumn: 'span 2', textAlign: 'center', padding: '10px', color: '#94a3b8' }}>No teams found. Ensure teams are created in User Management.</div>
+                                            <div style={{ gridColumn: 'span 2', textAlign: 'center', padding: '10px', color: 'var(--text-muted)' }}>No teams found. Ensure teams are created in User Management.</div>
                                         ) : teams.map(t => (
                                             <label key={t._id} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', padding: '4px 8px', borderRadius: '4px', background: selectedTeams.includes(t._id) ? '#eff6ff' : 'transparent', transition: 'all 0.2s' }}>
                                                 <input 
@@ -668,11 +668,11 @@ const ImportDataPage = () => {
                                                     }}
                                                     style={{ width: '16px', height: '16px' }}
                                                 />
-                                                <span style={{ fontSize: '0.85rem', fontWeight: selectedTeams.includes(t._id) ? 600 : 400, color: selectedTeams.includes(t._id) ? '#2563eb' : '#475569' }}>{t.name}</span>
+                                                <span style={{ fontSize: '0.85rem', fontWeight: selectedTeams.includes(t._id) ? 600 : 400, color: selectedTeams.includes(t._id) ? '#2563eb' : 'var(--text-muted)' }}>{t.name}</span>
                                             </label>
                                         ))}
                                     </div>
-                                    <p style={{ marginTop: '8px', fontSize: '0.75rem', color: '#64748b' }}>
+                                    <p style={{ marginTop: '8px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                                         <i className="fas fa-info-circle" style={{ marginRight: '4px' }}></i> Selected teams will have full visibility and management access to this inventory.
                                     </p>
                                 </div>
@@ -687,7 +687,7 @@ const ImportDataPage = () => {
                             style={{
                                 border: isDragging ? '2px dashed var(--primary-color)' : '2px dashed #cbd5e1',
                                 borderRadius: '12px',
-                                background: isDragging ? '#eff6ff' : '#f8fafc',
+                                background: isDragging ? '#eff6ff' : 'var(--bg-light)',
                                 padding: '60px 40px',
                                 textAlign: 'center',
                                 cursor: 'pointer',
@@ -695,9 +695,9 @@ const ImportDataPage = () => {
                                 marginBottom: '24px'
                             }}
                         >
-                            <i className="fas fa-cloud-upload-alt" style={{ fontSize: '3rem', color: isDragging ? 'var(--primary-color)' : '#94a3b8', marginBottom: '16px' }}></i>
-                            <h4 style={{ margin: '0 0 8px', color: '#1e293b' }}>{file ? file.name : (isDragging ? 'Drop file to upload' : 'Drag & Drop CSV here')}</h4>
-                            <p style={{ margin: 0, color: '#64748b', fontSize: '0.9rem' }}>or <span style={{ color: 'var(--primary-color)', fontWeight: 600 }}>browse files</span></p>
+                            <i className="fas fa-cloud-upload-alt" style={{ fontSize: '3rem', color: isDragging ? 'var(--primary-color)' : 'var(--text-muted)', marginBottom: '16px' }}></i>
+                            <h4 style={{ margin: '0 0 8px', color: 'var(--text-main)' }}>{file ? file.name : (isDragging ? 'Drop file to upload' : 'Drag & Drop CSV here')}</h4>
+                            <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem' }}>or <span style={{ color: 'var(--primary-color)', fontWeight: 600 }}>browse files</span></p>
                             <input
                                 type="file"
                                 ref={fileInputRef}
@@ -711,13 +711,13 @@ const ImportDataPage = () => {
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                 <i className="fas fa-file-csv" style={{ fontSize: '1.5rem', color: '#2563eb' }}></i>
                                 <div>
-                                    <div style={{ fontWeight: 600, color: '#1e293b' }}>Need a sample?</div>
-                                    <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Download template for {MODULE_CONFIG[module].label}</div>
+                                    <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>Need a sample?</div>
+                                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Download template for {MODULE_CONFIG[module].label}</div>
                                 </div>
                             </div>
                             <button
                                 onClick={generateSampleCSV}
-                                style={{ background: '#fff', border: '1px solid #bfdbfe', color: '#2563eb', padding: '8px 16px', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}
+                                style={{ background: 'var(--bg-card)', border: '1px solid #bfdbfe', color: '#2563eb', padding: '8px 16px', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}
                             >
                                 <i className="fas fa-download" style={{ marginRight: '8px' }}></i> Download
                             </button>
@@ -726,7 +726,7 @@ const ImportDataPage = () => {
 
 
                         <div style={{ marginTop: '24px', textAlign: 'center' }}>
-                            <p style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                                 Tip: You can also map these fields directly from your CSV in the next step.
                             </p>
                         </div>
@@ -736,11 +736,11 @@ const ImportDataPage = () => {
                 {/* Step 3: Map Columns */}
                 {step === 3 && (
                     <div style={{ maxWidth: '800px', margin: '0 auto' }}>
-                        <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1e293b', marginBottom: '16px' }}>Map Columns</h3>
-                        <p style={{ color: '#64748b', marginBottom: '24px' }}>Match your file columns to the {MODULE_CONFIG[module].label} fields.</p>
+                        <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '16px' }}>Map Columns</h3>
+                        <p style={{ color: 'var(--text-muted)', marginBottom: '24px' }}>Match your file columns to the {MODULE_CONFIG[module].label} fields.</p>
 
-                        <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', background: '#f8fafc', padding: '12px 16px', borderBottom: '1px solid #e2e8f0', fontWeight: 600, color: '#475569', fontSize: '0.85rem' }}>
+                        <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', background: 'var(--bg-light)', padding: '12px 16px', borderBottom: '1px solid var(--border-color)', fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.85rem' }}>
                                 <div>System Field</div>
                                 <div>Your File Header</div>
                                 <div>Sample Data (Row 1)</div>
@@ -768,14 +768,14 @@ const ImportDataPage = () => {
                                 });
                             })().map((field) => (
                                 <div key={field.key} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', padding: '16px', borderBottom: '1px solid #f1f5f9', alignItems: 'center', fontSize: '0.9rem' }}>
-                                    <div style={{ fontWeight: 600, color: '#1e293b' }}>
+                                    <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>
                                         {field.label} {field.required && <span style={{ color: '#ef4444' }}>*</span>}
                                     </div>
                                     <div>
                                         <select
                                             value={mapping[field.key] || ''}
                                             onChange={(e) => mapColumn(field.key, e.target.value)}
-                                            style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #cbd5e1' }}
+                                            style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid var(--border-color)' }}
                                         >
                                             <option value="">-- Unmapped --</option>
                                             {fileData.headers.map(h => (
@@ -783,7 +783,7 @@ const ImportDataPage = () => {
                                             ))}
                                         </select>
                                     </div>
-                                    <div style={{ color: '#64748b', fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    <div style={{ color: 'var(--text-muted)', fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                         {mapping[field.key] && fileData.data.length > 0
                                             ? fileData.data[0][mapping[field.key]]
                                             : '-'}
@@ -799,24 +799,24 @@ const ImportDataPage = () => {
                     <div style={{ maxWidth: '800px', margin: '0 auto' }}>
                         {importing ? (
                             <div style={{ padding: '60px 0', textAlign: 'center' }}>
-                                <h3 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#1e293b', marginBottom: '16px' }}>Importing Records...</h3>
-                                <div style={{ height: '8px', width: '100%', background: '#e2e8f0', borderRadius: '4px', overflow: 'hidden', marginBottom: '16px' }}>
+                                <h3 style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '16px' }}>Importing Records...</h3>
+                                <div style={{ height: '8px', width: '100%', background: 'var(--border-color)', borderRadius: '4px', overflow: 'hidden', marginBottom: '16px' }}>
                                     <div style={{ height: '100%', width: `${progress}%`, background: 'var(--primary-color)', transition: 'width 0.1s' }}></div>
                                 </div>
-                                <p style={{ color: '#64748b', fontWeight: 600 }}>Processing {Math.round((progress / 100) * fileData.data.length)} of {fileData.data.length} records ({progress}%)</p>
+                                <p style={{ color: 'var(--text-muted)', fontWeight: 600 }}>Processing {Math.round((progress / 100) * fileData.data.length)} of {fileData.data.length} records ({progress}%)</p>
                             </div>
                         ) : (
                             <div>
-                                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1e293b', marginBottom: '16px' }}>Review Data Analysis</h3>
+                                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '16px' }}>Review Data Analysis</h3>
 
                                 {module === 'propertyOwners' && (
-                                    <div ref={conflictSectionRef} style={{ marginBottom: '32px', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
-                                        <div style={{ padding: '20px 24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: conflicts.length > 0 ? '#fff1f2' : '#f8fafc' }}>
-                                            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: conflicts.length > 0 ? '#be123c' : '#1e293b', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <div ref={conflictSectionRef} style={{ marginBottom: '32px', background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
+                                        <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: conflicts.length > 0 ? '#fff1f2' : 'var(--bg-light)' }}>
+                                            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: conflicts.length > 0 ? '#be123c' : 'var(--text-main)', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                 <i className={conflicts.length > 0 ? "fas fa-exclamation-triangle" : "fas fa-table"}></i> 
                                                 {conflicts.length > 0 ? `Data Conflicts Detected (${conflicts.length})` : 'Data Preview (No Conflicts)'}
                                             </h3>
-                                            <div style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>Total Rows: {fileData.data.length}</div>
+                                            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600 }}>Total Rows: {fileData.data.length}</div>
                                         </div>
                                         
                                         {conflicts.length > 1 && (
@@ -826,13 +826,13 @@ const ImportDataPage = () => {
                                                     {conflicts.length} conflicts — Apply same resolution to all:
                                                 </div>
                                                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                                                    <button onClick={() => applyBulkResolution('ownership', 'SKIP_UPDATE')} style={{ padding: '6px 14px', borderRadius: '6px', border: '1px solid #d1d5db', background: '#fff', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', color: '#374151' }}>
-                                                        <i className="fas fa-ban" style={{ marginRight: '6px', color: '#6b7280' }}></i>Skip All
+                                                    <button onClick={() => applyBulkResolution('ownership', 'SKIP_UPDATE')} style={{ padding: '6px 14px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', color: 'var(--text-main)' }}>
+                                                        <i className="fas fa-ban" style={{ marginRight: '6px', color: 'var(--text-muted)' }}></i>Skip All
                                                     </button>
-                                                    <button onClick={() => applyBulkResolution('ownership', 'REPLACE_OWNER')} style={{ padding: '6px 14px', borderRadius: '6px', border: '1px solid #fca5a5', background: '#fef2f2', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', color: '#991b1b' }}>
+                                                    <button onClick={() => applyBulkResolution('ownership', 'REPLACE_OWNER')} style={{ padding: '6px 14px', borderRadius: '6px', border: '1px solid #fca5a5', background: 'var(--danger-bg)', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', color: '#991b1b' }}>
                                                         <i className="fas fa-exchange-alt" style={{ marginRight: '6px' }}></i>Replace All
                                                     </button>
-                                                    <button onClick={() => applyBulkResolution('ownership', 'ADD_CO_OWNER')} style={{ padding: '6px 14px', borderRadius: '6px', border: '1px solid #a7f3d0', background: '#f0fdf4', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', color: '#065f46' }}>
+                                                    <button onClick={() => applyBulkResolution('ownership', 'ADD_CO_OWNER')} style={{ padding: '6px 14px', borderRadius: '6px', border: '1px solid #a7f3d0', background: 'var(--stat-property-bg)', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', color: '#065f46' }}>
                                                         <i className="fas fa-user-plus" style={{ marginRight: '6px' }}></i>Add All Co-Owners
                                                     </button>
                                                 </div>
@@ -841,14 +841,14 @@ const ImportDataPage = () => {
 
                                         <div style={{ overflowX: 'auto', maxHeight: '600px' }}>
                                             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-                                                <thead style={{ background: '#f1f5f9', position: 'sticky', top: 0, zIndex: 10 }}>
+                                                <thead style={{ background: 'var(--bg-light)', position: 'sticky', top: 0, zIndex: 10 }}>
                                                     <tr>
-                                                        <th style={{ padding: '12px 16px', textAlign: 'left', borderBottom: '2px solid #cbd5e1', color: '#475569', fontWeight: 700, whiteSpace: 'nowrap' }}>Row #</th>
-                                                        <th style={{ padding: '12px 16px', textAlign: 'left', borderBottom: '2px solid #cbd5e1', color: '#475569', fontWeight: 700, whiteSpace: 'nowrap' }}>Unit No</th>
-                                                        <th style={{ padding: '12px 16px', textAlign: 'left', borderBottom: '2px solid #cbd5e1', color: '#475569', fontWeight: 700, whiteSpace: 'nowrap' }}>Name (File)</th>
-                                                        <th style={{ padding: '12px 16px', textAlign: 'left', borderBottom: '2px solid #cbd5e1', color: '#475569', fontWeight: 700, whiteSpace: 'nowrap' }}>Mobile (File)</th>
-                                                        <th style={{ padding: '12px 16px', textAlign: 'left', borderBottom: '2px solid #cbd5e1', color: '#475569', fontWeight: 700, whiteSpace: 'nowrap' }}>Status</th>
-                                                        <th style={{ padding: '12px 16px', textAlign: 'left', borderBottom: '2px solid #cbd5e1', color: '#475569', fontWeight: 700, whiteSpace: 'nowrap', minWidth: '180px' }}>Action</th>
+                                                        <th style={{ padding: '12px 16px', textAlign: 'left', borderBottom: '2px solid var(--border-color)', color: 'var(--text-muted)', fontWeight: 700, whiteSpace: 'nowrap' }}>Row #</th>
+                                                        <th style={{ padding: '12px 16px', textAlign: 'left', borderBottom: '2px solid var(--border-color)', color: 'var(--text-muted)', fontWeight: 700, whiteSpace: 'nowrap' }}>Unit No</th>
+                                                        <th style={{ padding: '12px 16px', textAlign: 'left', borderBottom: '2px solid var(--border-color)', color: 'var(--text-muted)', fontWeight: 700, whiteSpace: 'nowrap' }}>Name (File)</th>
+                                                        <th style={{ padding: '12px 16px', textAlign: 'left', borderBottom: '2px solid var(--border-color)', color: 'var(--text-muted)', fontWeight: 700, whiteSpace: 'nowrap' }}>Mobile (File)</th>
+                                                        <th style={{ padding: '12px 16px', textAlign: 'left', borderBottom: '2px solid var(--border-color)', color: 'var(--text-muted)', fontWeight: 700, whiteSpace: 'nowrap' }}>Status</th>
+                                                        <th style={{ padding: '12px 16px', textAlign: 'left', borderBottom: '2px solid var(--border-color)', color: 'var(--text-muted)', fontWeight: 700, whiteSpace: 'nowrap', minWidth: '180px' }}>Action</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
@@ -866,15 +866,15 @@ const ImportDataPage = () => {
                                                         const name = getVal('ownerName') || getVal('name') || '-';
                                                         const mobile = getVal('ownerMobile') || getVal('mobile') || '-';
                                                         
-                                                        const rowBg = isConflict ? (isExpanded ? '#fff7f7' : '#fffbfb') : '#fff';
+                                                        const rowBg = isConflict ? (isExpanded ? '#fff7f7' : '#fffbfb') : 'var(--bg-card)';
 
                                                         return (
                                                             <>
                                                                 <tr key={rowKey} style={{ borderBottom: '1px solid #f1f5f9', background: rowBg, transition: 'background 0.2s' }}>
-                                                                    <td style={{ padding: '10px 16px', color: '#94a3b8', fontWeight: 500 }}>{idx + 1}</td>
-                                                                    <td style={{ padding: '10px 16px', fontWeight: 700, color: '#0f172a' }}>{unitNo}</td>
-                                                                    <td style={{ padding: '10px 16px', color: '#1e293b' }}>{name}</td>
-                                                                    <td style={{ padding: '10px 16px', color: '#475569' }}>{mobile}</td>
+                                                                    <td style={{ padding: '10px 16px', color: 'var(--text-muted)', fontWeight: 500 }}>{idx + 1}</td>
+                                                                    <td style={{ padding: '10px 16px', fontWeight: 700, color: 'var(--text-main)' }}>{unitNo}</td>
+                                                                    <td style={{ padding: '10px 16px', color: 'var(--text-main)' }}>{name}</td>
+                                                                    <td style={{ padding: '10px 16px', color: 'var(--text-muted)' }}>{mobile}</td>
                                                                     <td style={{ padding: '10px 16px' }}>
                                                                         {isConflict ? (
                                                                             (() => {
@@ -919,7 +919,7 @@ const ImportDataPage = () => {
                                                                                 // Unresolved
                                                                                 return (
                                                                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                                                                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '3px 10px', borderRadius: '20px', background: '#fef2f2', color: '#dc2626', fontSize: '0.75rem', fontWeight: 700 }}>
+                                                                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '3px 10px', borderRadius: '20px', background: 'var(--danger-bg)', color: '#dc2626', fontSize: '0.75rem', fontWeight: 700 }}>
                                                                                             <i className="fas fa-exclamation-triangle"></i>
                                                                                             Owner Conflict
                                                                                         </span>
@@ -927,7 +927,7 @@ const ImportDataPage = () => {
                                                                                 );
                                                                             })()
                                                                         ) : (
-                                                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '3px 10px', borderRadius: '20px', background: '#f0fdf4', color: '#16a34a', fontSize: '0.75rem', fontWeight: 700 }}>
+                                                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '3px 10px', borderRadius: '20px', background: 'var(--stat-property-bg)', color: '#16a34a', fontSize: '0.75rem', fontWeight: 700 }}>
                                                                                 <i className="fas fa-check-circle"></i> Ready
                                                                             </span>
                                                                         )}
@@ -936,7 +936,7 @@ const ImportDataPage = () => {
                                                                             {isConflict ? (
                                                                                 <button
                                                                                     onClick={() => setExpandedConflictRow(isExpanded ? null : rowKey)}
-                                                                                    style={{ padding: '6px 14px', borderRadius: '6px', border: `1px solid ${isExpanded ? '#fca5a5' : '#e2e8f0'}`, background: isExpanded ? '#fef2f2' : (resolutions[rowKey]?.[conflict.type] ? '#e0e7ff' : '#f8fafc'), color: isExpanded ? '#dc2626' : (resolutions[rowKey]?.[conflict.type] ? '#4f46e5' : '#475569'), fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+                                                                                    style={{ padding: '6px 14px', borderRadius: '6px', border: `1px solid ${isExpanded ? '#fca5a5' : 'var(--border-color)'}`, background: isExpanded ? 'var(--danger-bg)' : (resolutions[rowKey]?.[conflict.type] ? '#e0e7ff' : 'var(--bg-light)'), color: isExpanded ? '#dc2626' : (resolutions[rowKey]?.[conflict.type] ? '#4f46e5' : 'var(--text-muted)'), fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
                                                                                 >
                                                                                     <i className={`fas ${isExpanded ? 'fa-chevron-up' : (resolutions[rowKey]?.[conflict.type] ? 'fa-edit' : 'fa-balance-scale')}`}></i>
                                                                                     {(() => {
@@ -948,7 +948,7 @@ const ImportDataPage = () => {
                                                                                     })()}
                                                                                 </button>
                                                                             ) : (
-                                                                            <span style={{ color: '#94a3b8', fontSize: '0.8rem', fontStyle: 'italic' }}>No action needed</span>
+                                                                            <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', fontStyle: 'italic' }}>No action needed</span>
                                                                         )}
                                                                     </td>
                                                                 </tr>
@@ -957,7 +957,7 @@ const ImportDataPage = () => {
                                                                         <td colSpan={6} style={{ padding: '0 16px 16px', background: '#fff7f7' }}>
                                                                             <div style={{ border: '2px solid #fecaca', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 4px 16px rgba(220,38,38,0.08)' }}>
                                                                                 {/* CONFLICT DETAILS HEADER - Enterprise Grade */}
-                                                                                <div style={{ background: '#fef2f2', padding: '14px 20px', borderBottom: '1px solid #fecaca' }}>
+                                                                                <div style={{ background: 'var(--danger-bg)', padding: '14px 20px', borderBottom: '1px solid #fecaca' }}>
                                                                                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
                                                                                         <i className="fas fa-exclamation-triangle" style={{ color: '#dc2626', fontSize: '1.1rem', marginTop: '2px', flexShrink: 0 }}></i>
                                                                                         <div style={{ flex: 1 }}>
@@ -984,7 +984,7 @@ const ImportDataPage = () => {
                                                                                     </div>
                                                                                 </div>
                                                                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0' }}>
-                                                                                    <div style={{ padding: '16px 20px', borderRight: '1px solid #fecaca', background: '#fff' }}>
+                                                                                    <div style={{ padding: '16px 20px', borderRight: '1px solid #fecaca', background: 'var(--bg-card)' }}>
                                                                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
                                                                                             <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#dbeafe', color: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem' }}>
                                                                                                 <i className="fas fa-file-csv"></i>
@@ -997,8 +997,8 @@ const ImportDataPage = () => {
                                                                                                     const isDiff = conflict.type !== 'ownership' && String(value || '').trim().toLowerCase() !== String(existingValue || '').trim().toLowerCase();
                                                                                                     return (
                                                                                                     <tr key={label}>
-                                                                                                        <td style={{ padding: '5px 0', color: '#64748b', fontWeight: 600, width: '40%' }}>{label}</td>
-                                                                                                        <td style={{ padding: '5px 0', color: '#1e293b', fontWeight: 500 }}>
+                                                                                                        <td style={{ padding: '5px 0', color: 'var(--text-muted)', fontWeight: 600, width: '40%' }}>{label}</td>
+                                                                                                        <td style={{ padding: '5px 0', color: 'var(--text-main)', fontWeight: 500 }}>
                                                                                                             {isDiff ? <span style={{ background: '#fef08a', color: '#854d0e', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>{value || '—'}</span> : (value || '—')}
                                                                                                         </td>
                                                                                                     </tr>
@@ -1015,11 +1015,11 @@ const ImportDataPage = () => {
                                                                                         </div>
                                                                                         {conflict.type === 'ownership' ? (
                                                                                             (conflict.existing?.owners || []).map((owner, oi) => (
-                                                                                                <div key={oi} style={{ marginBottom: '12px', padding: '10px', background: '#fff', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                                                                                <div key={oi} style={{ marginBottom: '12px', padding: '10px', background: 'var(--bg-card)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
                                                                                                     <table style={{ width: '100%', fontSize: '0.82rem', borderCollapse: 'collapse' }}>
                                                                                                         <tbody>
-                                                                                                            <tr><td style={{ padding: '4px 0', color: '#64748b', fontWeight: 600, width: '40%' }}>Name</td><td style={{ color: '#1e293b', fontWeight: 600 }}>{owner.name}</td></tr>
-                                                                                                            <tr><td style={{ padding: '4px 0', color: '#64748b', fontWeight: 600 }}>Mobile</td><td style={{ color: '#1e293b' }}>{owner.mobile}</td></tr>
+                                                                                                            <tr><td style={{ padding: '4px 0', color: 'var(--text-muted)', fontWeight: 600, width: '40%' }}>Name</td><td style={{ color: 'var(--text-main)', fontWeight: 600 }}>{owner.name}</td></tr>
+                                                                                                            <tr><td style={{ padding: '4px 0', color: 'var(--text-muted)', fontWeight: 600 }}>Mobile</td><td style={{ color: 'var(--text-main)' }}>{owner.mobile}</td></tr>
                                                                                                         </tbody>
                                                                                                     </table>
                                                                                                 </div>
@@ -1031,8 +1031,8 @@ const ImportDataPage = () => {
                                                                                                         const isDiff = String(value || '').trim().toLowerCase() !== String(incomingValue || '').trim().toLowerCase();
                                                                                                         return (
                                                                                                                                 <tr key={label}>
-                                                                                                                                    <td style={{ padding: '5px 0', color: '#64748b', fontWeight: 600, width: '40%' }}>{label}</td>
-                                                                                                                                    <td style={{ padding: '5px 0', color: '#1e293b', fontWeight: 500 }}>
+                                                                                                                                    <td style={{ padding: '5px 0', color: 'var(--text-muted)', fontWeight: 600, width: '40%' }}>{label}</td>
+                                                                                                                                    <td style={{ padding: '5px 0', color: 'var(--text-main)', fontWeight: 500 }}>
                                                                                                                                         {isDiff ? <span style={{ background: '#fef08a', color: '#854d0e', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>{value || '—'}</span> : (value || '—')}
                                                                                                                                     </td>
                                                                                                                                 </tr>
@@ -1043,8 +1043,8 @@ const ImportDataPage = () => {
                                                                                         )}
                                                                                     </div>
                                                                                 </div>
-                                                                                <div style={{ background: '#f8fafc', padding: '14px 20px', borderTop: '1px solid #fecaca', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                                                                    <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#475569' }}>
+                                                                                <div style={{ background: 'var(--bg-light)', padding: '14px 20px', borderTop: '1px solid #fecaca', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                                                                    <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)' }}>
                                                                                         How would you like to resolve this conflict?
                                                                                     </div>
                                                                                     <div style={{ display: 'flex', gap: '8px' }}>
@@ -1054,7 +1054,7 @@ const ImportDataPage = () => {
                                                                                                 toast.success("Resolution saved: Keep New (CSV)");
                                                                                                 setExpandedConflictRow(null);
                                                                                             }}
-                                                                                            style={{ padding: '6px 14px', borderRadius: '6px', border: '1px solid #3b82f6', background: resolutions[rowKey]?.[conflict.type] === 'REPLACE_OWNER' ? '#3b82f6' : '#fff', color: resolutions[rowKey]?.[conflict.type] === 'REPLACE_OWNER' ? '#fff' : '#3b82f6', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}
+                                                                                            style={{ padding: '6px 14px', borderRadius: '6px', border: '1px solid #3b82f6', background: resolutions[rowKey]?.[conflict.type] === 'REPLACE_OWNER' ? '#3b82f6' : 'var(--bg-card)', color: resolutions[rowKey]?.[conflict.type] === 'REPLACE_OWNER' ? 'var(--bg-card)' : '#3b82f6', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}
                                                                                         >
                                                                                             Keep New (CSV)
                                                                                         </button>
@@ -1064,7 +1064,7 @@ const ImportDataPage = () => {
                                                                                                 toast.success("Resolution saved: Keep Existing (CRM)");
                                                                                                 setExpandedConflictRow(null);
                                                                                             }}
-                                                                                            style={{ padding: '6px 14px', borderRadius: '6px', border: '1px solid #10b981', background: resolutions[rowKey]?.[conflict.type] === 'SKIP_UPDATE' ? '#10b981' : '#fff', color: resolutions[rowKey]?.[conflict.type] === 'SKIP_UPDATE' ? '#fff' : '#10b981', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}
+                                                                                            style={{ padding: '6px 14px', borderRadius: '6px', border: '1px solid #10b981', background: resolutions[rowKey]?.[conflict.type] === 'SKIP_UPDATE' ? '#10b981' : 'var(--bg-card)', color: resolutions[rowKey]?.[conflict.type] === 'SKIP_UPDATE' ? 'var(--bg-card)' : '#10b981', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}
                                                                                         >
                                                                                             Keep Existing (CRM)
                                                                                         </button>
@@ -1075,7 +1075,7 @@ const ImportDataPage = () => {
                                                                                                     toast.success("Resolution saved: Keep Both");
                                                                                                     setExpandedConflictRow(null);
                                                                                                 }}
-                                                                                                style={{ padding: '6px 14px', borderRadius: '6px', border: '1px solid #f59e0b', background: resolutions[rowKey]?.[conflict.type] === 'APPEND' ? '#f59e0b' : '#fff', color: resolutions[rowKey]?.[conflict.type] === 'APPEND' ? '#fff' : '#f59e0b', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}
+                                                                                                style={{ padding: '6px 14px', borderRadius: '6px', border: '1px solid #f59e0b', background: resolutions[rowKey]?.[conflict.type] === 'APPEND' ? '#f59e0b' : 'var(--bg-card)', color: resolutions[rowKey]?.[conflict.type] === 'APPEND' ? 'var(--bg-card)' : '#f59e0b', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}
                                                                                             >
                                                                                                 Keep Both
                                                                                             </button>
@@ -1096,7 +1096,7 @@ const ImportDataPage = () => {
                                 )}
 
                                 {module === 'propertyOwners' && notFound.length > 0 && (
-                                    <div style={{ marginBottom: '32px', background: '#fff', borderRadius: '12px', border: '2px solid #fcd34d', boxShadow: '0 4px 12px rgba(251,191,36,0.1)', overflow: 'hidden' }}>
+                                    <div style={{ marginBottom: '32px', background: 'var(--bg-card)', borderRadius: '12px', border: '2px solid #fcd34d', boxShadow: '0 4px 12px rgba(251,191,36,0.1)', overflow: 'hidden' }}>
                                         <div style={{ padding: '16px 24px', background: '#fef9ec', borderBottom: '1px solid #fcd34d', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                             <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#92400e', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                 <i className="fas fa-search-minus"></i> {notFound.length} Units Not Found in System
@@ -1109,7 +1109,7 @@ const ImportDataPage = () => {
                                                 const searchResults = unitSearchResults[nf.rowKey] || [];
                                                 const sqVal = unitSearchQuery[nf.rowKey] || '';
                                                 return (
-                                                    <div key={nf.rowKey} style={{ padding: '18px 24px', borderBottom: nfIdx < notFound.length - 1 ? '1px solid #fef3c7' : 'none', background: override ? '#f0fdf4' : '#fff' }}>
+                                                    <div key={nf.rowKey} style={{ padding: '18px 24px', borderBottom: nfIdx < notFound.length - 1 ? '1px solid #fef3c7' : 'none', background: override ? 'var(--stat-property-bg)' : 'var(--bg-card)' }}>
                                                         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
                                                             <div>
                                                                 <div style={{ fontWeight: 700, color: '#92400e', fontSize: '0.9rem', marginBottom: '4px' }}>
@@ -1141,7 +1141,7 @@ const ImportDataPage = () => {
                                                                             style={{ width: '100%', padding: '9px 12px', borderRadius: '7px', border: '1px solid #fcd34d', fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box' }}
                                                                         />
                                                                         {searchResults.length > 0 && (
-                                                                            <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 8px 20px rgba(0,0,0,0.1)', zIndex: 100, maxHeight: '200px', overflowY: 'auto', marginTop: '4px' }}>
+                                                                            <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '8px', boxShadow: '0 8px 20px rgba(0,0,0,0.1)', zIndex: 100, maxHeight: '200px', overflowY: 'auto', marginTop: '4px' }}>
                                                                                 {searchResults.map(unit => (
                                                                                     <div
                                                                                         key={unit._id}
@@ -1152,10 +1152,10 @@ const ImportDataPage = () => {
                                                                                         }}
                                                                                         style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '0.85rem' }}
                                                                                         onMouseOver={e => e.currentTarget.style.background='#f0f9ff'}
-                                                                                        onMouseOut={e => e.currentTarget.style.background='#fff'}
+                                                                                        onMouseOut={e => e.currentTarget.style.background='var(--bg-card)'}
                                                                                     >
-                                                                                        <div style={{ fontWeight: 700, color: '#0f172a' }}>{unit.unitNo || unit.unitNumber}</div>
-                                                                                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{unit.projectName} / {unit.block}</div>
+                                                                                        <div style={{ fontWeight: 700, color: 'var(--text-main)' }}>{unit.unitNo || unit.unitNumber}</div>
+                                                                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{unit.projectName} / {unit.block}</div>
                                                                                     </div>
                                                                                 ))}
                                                                             </div>
@@ -1173,21 +1173,21 @@ const ImportDataPage = () => {
 
                                 {module === 'propertyOwners' && (plannedUpdates.length > 0 || duplicates.length > 0) && (
                                     <div style={{ marginBottom: '32px' }}>
-                                        <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                             <i className="fas fa-search" style={{ color: '#2563eb' }}></i> Matched Records Analysis ({plannedUpdates.length + (duplicates || []).length})
                                         </h3>
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '400px', overflowY: 'auto', padding: '4px' }}>
                                             {/* Show Planned Updates (with Diffs) */}
                                             {plannedUpdates.map((update, idx) => (
-                                                <div key={`upd-${idx}`} style={{ padding: '16px', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                                                <div key={`upd-${idx}`} style={{ padding: '16px', background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
                                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                                                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                                             <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: '#eff6ff', color: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>
                                                                 {update.name?.charAt(0) || 'C'}
                                                             </div>
                                                             <div>
-                                                                <div style={{ fontWeight: 700, color: '#1e293b' }}>{update.name} <span style={{ fontSize: '0.7rem', color: '#2563eb', background: '#dbeafe', padding: '2px 6px', borderRadius: '4px', marginLeft: '8px' }}>UPDATE PLANNED</span></div>
-                                                                <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{update.mobile} • Unit: {update.unitNo}</div>
+                                                                <div style={{ fontWeight: 700, color: 'var(--text-main)' }}>{update.name} <span style={{ fontSize: '0.7rem', color: '#2563eb', background: '#dbeafe', padding: '2px 6px', borderRadius: '4px', marginLeft: '8px' }}>UPDATE PLANNED</span></div>
+                                                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{update.mobile} • Unit: {update.unitNo}</div>
                                                             </div>
                                                         </div>
                                                         <div style={{ fontSize: '0.75rem', color: '#2563eb', fontWeight: 600, background: '#eff6ff', padding: '4px 10px', borderRadius: '20px' }}>
@@ -1196,11 +1196,11 @@ const ImportDataPage = () => {
                                                     </div>
                                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '12px' }}>
                                                         {update.diffs.map((diff, dIdx) => (
-                                                            <div key={dIdx} style={{ fontSize: '0.8rem', padding: '8px', background: '#f8fafc', borderRadius: '6px', borderLeft: '3px solid #3b82f6' }}>
-                                                                <div style={{ fontWeight: 600, color: '#475569', marginBottom: '4px' }}>{diff.field}</div>
+                                                            <div key={dIdx} style={{ fontSize: '0.8rem', padding: '8px', background: 'var(--bg-light)', borderRadius: '6px', borderLeft: '3px solid #3b82f6' }}>
+                                                                <div style={{ fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>{diff.field}</div>
                                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                                     <span style={{ color: '#ef4444', textDecoration: 'line-through' }}>{diff.old || '(empty)'}</span>
-                                                                    <i className="fas fa-arrow-right" style={{ fontSize: '0.7rem', color: '#94a3b8' }}></i>
+                                                                    <i className="fas fa-arrow-right" style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}></i>
                                                                     <span style={{ color: '#16a34a', fontWeight: 600 }}>{diff.new}</span>
                                                                 </div>
                                                             </div>
@@ -1211,15 +1211,15 @@ const ImportDataPage = () => {
 
                                             {/* Show Perfect Matches (No Diffs) */}
                                             {(duplicates || []).filter(d => !plannedUpdates.some(p => p.mobile === d.mobile)).map((match, idx) => (
-                                                <div key={`match-${idx}`} style={{ padding: '16px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', opacity: 0.8 }}>
+                                                <div key={`match-${idx}`} style={{ padding: '16px', background: 'var(--bg-light)', borderRadius: '12px', border: '1px solid var(--border-color)', opacity: 0.8 }}>
                                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                                            <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: '#f1f5f9', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>
+                                                            <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'var(--bg-light)', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>
                                                                 {match.name?.charAt(0) || 'M'}
                                                             </div>
                                                             <div>
-                                                                <div style={{ fontWeight: 700, color: '#475569' }}>{match.name || match.lookup_value || 'Existing Contact'} <span style={{ fontSize: '0.7rem', color: '#16a34a', background: '#dcfce7', padding: '2px 6px', borderRadius: '4px', marginLeft: '8px' }}>VERIFIED MATCH (NO CHANGES)</span></div>
-                                                                <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{match.mobile || match.lookup_value || 'Matched by Identity'}</div>
+                                                                <div style={{ fontWeight: 700, color: 'var(--text-muted)' }}>{match.name || match.lookup_value || 'Existing Contact'} <span style={{ fontSize: '0.7rem', color: '#16a34a', background: '#dcfce7', padding: '2px 6px', borderRadius: '4px', marginLeft: '8px' }}>VERIFIED MATCH (NO CHANGES)</span></div>
+                                                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{match.mobile || match.lookup_value || 'Matched by Identity'}</div>
                                                             </div>
                                                         </div>
                                                         <div style={{ fontSize: '0.75rem', color: '#16a34a', fontWeight: 700 }}>
@@ -1232,25 +1232,25 @@ const ImportDataPage = () => {
                                     </div>
                                 )}
 
-                                <div style={{ textAlign: 'center', background: '#f8fafc', padding: '32px', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '32px' }}>
+                                <div style={{ textAlign: 'center', background: 'var(--bg-light)', padding: '32px', borderRadius: '12px', border: '1px solid var(--border-color)', marginBottom: '32px' }}>
                                     <div style={{ display: 'flex', justifyContent: 'center', gap: '40px', alignItems: 'center', marginBottom: '24px' }}>
                                         <div style={{ textAlign: 'center' }}>
-                                            <div style={{ fontSize: '2.5rem', fontWeight: 800, color: '#1e293b' }}>{fileData.data.length}</div>
-                                            <div style={{ fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 700 }}>Total Records</div>
+                                            <div style={{ fontSize: '2.5rem', fontWeight: 800, color: 'var(--text-main)' }}>{fileData.data.length}</div>
+                                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 700 }}>Total Records</div>
                                         </div>
-                                        <div style={{ width: '1px', height: '40px', background: '#e2e8f0' }}></div>
+                                        <div style={{ width: '1px', height: '40px', background: 'var(--border-color)' }}></div>
                                         <div style={{ textAlign: 'center' }}>
                                             <div style={{ fontSize: '2.5rem', fontWeight: 800, color: '#16a34a' }}>{importSummary.newItems}</div>
                                             <div style={{ fontSize: '0.75rem', color: '#16a34a', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 700 }}>New Contacts</div>
                                         </div>
-                                        <div style={{ width: '1px', height: '40px', background: '#e2e8f0' }}></div>
+                                        <div style={{ width: '1px', height: '40px', background: 'var(--border-color)' }}></div>
                                         <div style={{ textAlign: 'center' }}>
                                             <div style={{ fontSize: '2.5rem', fontWeight: 800, color: '#2563eb' }}>{importSummary.updateItems}</div>
                                             <div style={{ fontSize: '0.75rem', color: '#2563eb', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 700 }}>Matched Existing</div>
                                         </div>
                                         {importSummary.noMobileItems > 0 && (
                                             <>
-                                                <div style={{ width: '1px', height: '40px', background: '#e2e8f0' }}></div>
+                                                <div style={{ width: '1px', height: '40px', background: 'var(--border-color)' }}></div>
                                                 <div style={{ textAlign: 'center' }}>
                                                     <div style={{ fontSize: '2.5rem', fontWeight: 800, color: '#ea580c' }}>{importSummary.noMobileItems}</div>
                                                     <div style={{ fontSize: '0.75rem', color: '#ea580c', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 700 }}>No Numbers</div>
@@ -1263,40 +1263,40 @@ const ImportDataPage = () => {
                                         <button
                                             onClick={() => handleImport('NEW_ONLY')}
                                             disabled={importSummary.newItems === 0}
-                                            style={{ background: '#16a34a', color: '#fff', padding: '12px 24px', borderRadius: '8px', fontSize: '0.9rem', cursor: importSummary.newItems === 0 ? 'not-allowed' : 'pointer', fontWeight: 700, border: 'none', opacity: importSummary.newItems === 0 ? 0.5 : 1 }}
+                                            style={{ background: '#16a34a', color: 'var(--bg-card)', padding: '12px 24px', borderRadius: '8px', fontSize: '0.9rem', cursor: importSummary.newItems === 0 ? 'not-allowed' : 'pointer', fontWeight: 700, border: 'none', opacity: importSummary.newItems === 0 ? 0.5 : 1 }}
                                         >
                                             <i className="fas fa-plus-circle" style={{ marginRight: '8px' }}></i> Add Only New
                                         </button>
                                         <button
                                             onClick={() => handleImport('UPDATE_ONLY')}
                                             disabled={importSummary.updateItems === 0}
-                                            style={{ background: '#2563eb', color: '#fff', padding: '12px 24px', borderRadius: '8px', fontSize: '0.9rem', cursor: importSummary.updateItems === 0 ? 'not-allowed' : 'pointer', fontWeight: 700, border: 'none', opacity: importSummary.updateItems === 0 ? 0.5 : 1 }}
+                                            style={{ background: '#2563eb', color: 'var(--bg-card)', padding: '12px 24px', borderRadius: '8px', fontSize: '0.9rem', cursor: importSummary.updateItems === 0 ? 'not-allowed' : 'pointer', fontWeight: 700, border: 'none', opacity: importSummary.updateItems === 0 ? 0.5 : 1 }}
                                         >
                                             <i className="fas fa-sync-alt" style={{ marginRight: '8px' }}></i> Update Matched
                                         </button>
                                         {importSummary.noMobileItems > 0 && (
                                             <button
                                                 onClick={() => handleImport('SPECIAL_ENTRY')}
-                                                style={{ background: '#ea580c', color: '#fff', padding: '12px 24px', borderRadius: '8px', fontSize: '0.9rem', cursor: 'pointer', fontWeight: 700, border: 'none' }}
+                                                style={{ background: '#ea580c', color: 'var(--bg-card)', padding: '12px 24px', borderRadius: '8px', fontSize: '0.9rem', cursor: 'pointer', fontWeight: 700, border: 'none' }}
                                             >
                                                 <i className="fas fa-user-tag" style={{ marginRight: '8px' }}></i> Add Special Entries
                                             </button>
                                         )}
                                         <button
                                             onClick={() => handleImport('ALL')}
-                                            style={{ background: '#0f172a', color: '#fff', padding: '12px 24px', borderRadius: '8px', fontSize: '0.9rem', cursor: 'pointer', fontWeight: 700, border: 'none' }}
+                                            style={{ background: 'var(--text-main)', color: 'var(--bg-card)', padding: '12px 24px', borderRadius: '8px', fontSize: '0.9rem', cursor: 'pointer', fontWeight: 700, border: 'none' }}
                                         >
                                             <i className="fas fa-check-double" style={{ marginRight: '8px' }}></i> Proceed with All
                                         </button>
                                     </div>
                                 </div>
 
-                                <div style={{ textAlign: 'left', background: '#fff', border: '1px solid #e2e8f0', padding: '24px', borderRadius: '12px', fontSize: '0.9rem', color: '#64748b' }}>
-                                    <h4 style={{ margin: '0 0 16px', color: '#1e293b', fontWeight: 700 }}>System Configuration</h4>
+                                <div style={{ textAlign: 'left', background: 'var(--bg-card)', border: '1px solid var(--border-color)', padding: '24px', borderRadius: '12px', fontSize: '0.9rem', color: 'var(--text-muted)' }}>
+                                    <h4 style={{ margin: '0 0 16px', color: 'var(--text-main)', fontWeight: 700 }}>System Configuration</h4>
                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                                        <div>Module: <strong style={{ color: '#0f172a' }}>{MODULE_CONFIG[module].label}</strong></div>
-                                        <div>File: <strong style={{ color: '#0f172a' }}>{file?.name}</strong></div>
-                                        <div>Target Team(s): <strong style={{ color: '#0f172a' }}>{selectedTeams.length > 0 ? `${selectedTeams.length} Selected` : 'Global/None'}</strong></div>
+                                        <div>Module: <strong style={{ color: 'var(--text-main)' }}>{MODULE_CONFIG[module].label}</strong></div>
+                                        <div>File: <strong style={{ color: 'var(--text-main)' }}>{file?.name}</strong></div>
+                                        <div>Target Team(s): <strong style={{ color: 'var(--text-main)' }}>{selectedTeams.length > 0 ? `${selectedTeams.length} Selected` : 'Global/None'}</strong></div>
                                         {module === 'propertyOwners' && <div>Conflict Protection: <strong style={{ color: '#16a34a' }}>Active (Enterprise)</strong></div>}
                                     </div>
                                     
@@ -1309,7 +1309,7 @@ const ImportDataPage = () => {
                                                     onChange={(e) => setUpdateDuplicates(e.target.checked)}
                                                     style={{ width: '18px', height: '18px' }}
                                                 />
-                                                <span style={{ fontSize: '0.9rem', fontWeight: 600, color: '#1e293b' }}>Update existing records if found</span>
+                                                <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)' }}>Update existing records if found</span>
                                             </label>
                                         </div>
                                     )}
@@ -1321,7 +1321,7 @@ const ImportDataPage = () => {
 
                 {/* Step 6: Background Processing */}
                 {step === 6 && (
-                    <div style={{ maxWidth: '600px', margin: '40px auto', textAlign: 'center', padding: '40px', background: '#f8fafc', borderRadius: '16px', border: '1px dashed #cbd5e1' }}>
+                    <div style={{ maxWidth: '600px', margin: '40px auto', textAlign: 'center', padding: '40px', background: 'var(--bg-light)', borderRadius: '16px', border: '1px dashed var(--border-color)' }}>
                         <div style={{
                             width: '80px', height: '80px', background: '#eff6ff', color: '#3b82f6',
                             borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -1329,13 +1329,13 @@ const ImportDataPage = () => {
                         }}>
                             <i className="fas fa-rocket"></i>
                         </div>
-                        <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#1e293b', margin: '0 0 12px' }}>
+                        <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-main)', margin: '0 0 12px' }}>
                             Import Running in Background
                         </h2>
-                        <p style={{ color: '#64748b', fontSize: '1.1rem', margin: '0 0 24px', lineHeight: '1.6' }}>
+                        <p style={{ color: 'var(--text-muted)', fontSize: '1.1rem', margin: '0 0 24px', lineHeight: '1.6' }}>
                             Your import task has been successfully dispatched. You can safely navigate away from this page and continue working.
                         </p>
-                        <p style={{ color: '#475569', fontSize: '0.95rem', margin: '0' }}>
+                        <p style={{ color: 'var(--text-muted)', fontSize: '0.95rem', margin: '0' }}>
                             A global progress indicator will keep you updated in the main layout.
                         </p>
                         <button 
@@ -1345,14 +1345,14 @@ const ImportDataPage = () => {
                                 setFileData({ headers: [], data: [] });
                                 setMapping({});
                             }}
-                            style={{ marginTop: '32px', padding: '12px 24px', background: '#3b82f6', color: '#fff', fontWeight: 700, borderRadius: '8px', border: 'none', cursor: 'pointer' }}
+                            style={{ marginTop: '32px', padding: '12px 24px', background: '#3b82f6', color: 'var(--bg-card)', fontWeight: 700, borderRadius: '8px', border: 'none', cursor: 'pointer' }}
                         >
                             Start New Import
                         </button>
                         <div style={{ marginTop: '20px' }}>
                             <button
                                 onClick={() => setStep(5)}
-                                style={{ padding: '8px 16px', background: 'transparent', color: '#64748b', fontWeight: 600, border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
+                                style={{ padding: '8px 16px', background: 'transparent', color: 'var(--text-muted)', fontWeight: 600, border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
                             >
                                 View Results (if completed)
                             </button>
@@ -1373,11 +1373,11 @@ const ImportDataPage = () => {
                             <i className={`fas ${importStats.failed > 0 ? 'fa-exclamation-circle' : 'fa-check'}`}></i>
                         </div>
 
-                        <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#1e293b', marginBottom: '12px' }}>
+                        <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '12px' }}>
                             {importStats.failed > 0 ? 'Import Completed with Issues' : 'Import Successful!'}
                         </h2>
 
-                        <p style={{ color: '#64748b', marginBottom: '32px' }}>
+                        <p style={{ color: 'var(--text-muted)', marginBottom: '32px' }}>
                             Successfully processed <strong>{importStats.success}</strong> records.
                             <div style={{ marginTop: '8px', fontSize: '0.9rem' }}>
                                 <span style={{ color: '#16a34a' }}>• New Added: {importStats.newCount}</span>
@@ -1386,13 +1386,13 @@ const ImportDataPage = () => {
                             {importStats.failed > 0 && <span> <strong>{importStats.failed}</strong> records could not be imported.</span>}
                         </p>
 
-                        <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', borderBottom: '1px solid #e2e8f0' }}>
+                        <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', borderBottom: '1px solid var(--border-color)' }}>
                             <button 
                                 onClick={() => setActiveReportTab('success')}
                                 style={{
                                     padding: '10px 20px', border: 'none', background: 'none',
                                     borderBottom: activeReportTab === 'success' ? '2px solid #16a34a' : 'none',
-                                    color: activeReportTab === 'success' ? '#16a34a' : '#64748b',
+                                    color: activeReportTab === 'success' ? '#16a34a' : 'var(--text-muted)',
                                     fontWeight: 700, cursor: 'pointer', fontSize: '0.9rem'
                                 }}
                             >
@@ -1403,7 +1403,7 @@ const ImportDataPage = () => {
                                 style={{
                                     padding: '10px 20px', border: 'none', background: 'none',
                                     borderBottom: activeReportTab === 'error' ? '2px solid #dc2626' : 'none',
-                                    color: activeReportTab === 'error' ? '#dc2626' : '#64748b',
+                                    color: activeReportTab === 'error' ? '#dc2626' : 'var(--text-muted)',
                                     fontWeight: 700, cursor: 'pointer', fontSize: '0.9rem'
                                 }}
                             >
@@ -1414,14 +1414,14 @@ const ImportDataPage = () => {
                         {activeReportTab === 'success' && (
                             <div style={{ marginBottom: '32px', textAlign: 'left' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                    <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b' }}>Import Audit Trail</h3>
+                                    <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-main)' }}>Import Audit Trail</h3>
                                     <button
                                         onClick={() => {
                                             const csv = generateSuccessReportCSV(importSuccessLogs);
                                             downloadFile(csv, `import_success_${module}_${Date.now()}.csv`);
                                         }}
                                         style={{
-                                            background: '#fff', border: '1px solid #e2e8f0', color: '#16a34a',
+                                            background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: '#16a34a',
                                             padding: '6px 12px', borderRadius: '6px', fontSize: '0.8rem',
                                             fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
                                         }}
@@ -1429,28 +1429,28 @@ const ImportDataPage = () => {
                                         <i className="fas fa-file-excel"></i> Download Audit CSV
                                     </button>
                                 </div>
-                                <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
+                                <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden' }}>
                                     <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
                                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-                                            <thead style={{ background: '#f8fafc', position: 'sticky', top: 0 }}>
+                                            <thead style={{ background: 'var(--bg-light)', position: 'sticky', top: 0 }}>
                                                 <tr>
-                                                    <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>Identifier</th>
-                                                    <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>Project</th>
-                                                    <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>Block</th>
-                                                    <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>Status</th>
-                                                    {module === 'propertyOwners' && <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>Action</th>}
+                                                    <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>Identifier</th>
+                                                    <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>Project</th>
+                                                    <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>Block</th>
+                                                    <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>Status</th>
+                                                    {module === 'propertyOwners' && <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>Action</th>}
                                                 </tr>
                                             </thead>
                                             <tbody>
                                                 {importSuccessLogs.length === 0 ? (
-                                                    <tr><td colSpan="5" style={{ padding: '24px', textAlign: 'center', color: '#94a3b8' }}>No records processed in this batch.</td></tr>
+                                                    <tr><td colSpan="5" style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>No records processed in this batch.</td></tr>
                                                 ) : importSuccessLogs.map((log, idx) => (
                                                     <tr key={idx} style={{ borderBottom: idx === importSuccessLogs.length - 1 ? 'none' : '1px solid #f1f5f9' }}>
-                                                        <td style={{ padding: '12px', color: '#1e293b', fontWeight: 600 }}>{log.unitNo || 'N/A'}</td>
-                                                        <td style={{ padding: '12px', color: '#475569' }}>{log.project || 'N/A'}</td>
-                                                        <td style={{ padding: '12px', color: '#475569' }}>{log.block || 'N/A'}</td>
+                                                        <td style={{ padding: '12px', color: 'var(--text-main)', fontWeight: 600 }}>{log.unitNo || 'N/A'}</td>
+                                                        <td style={{ padding: '12px', color: 'var(--text-muted)' }}>{log.project || 'N/A'}</td>
+                                                        <td style={{ padding: '12px', color: 'var(--text-muted)' }}>{log.block || 'N/A'}</td>
                                                         <td style={{ padding: '12px' }}>
-                                                            <span style={{ padding: '2px 8px', borderRadius: '4px', background: log.status === 'Conflict Pending' ? '#fef2f2' : '#dcfce7', color: log.status === 'Conflict Pending' ? '#dc2626' : '#16a34a', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase' }}>{log.status}</span>
+                                                            <span style={{ padding: '2px 8px', borderRadius: '4px', background: log.status === 'Conflict Pending' ? 'var(--danger-bg)' : '#dcfce7', color: log.status === 'Conflict Pending' ? '#dc2626' : '#16a34a', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase' }}>{log.status}</span>
                                                         </td>
                                                         {module === 'propertyOwners' && (
                                                             <td style={{ padding: '12px' }}>
@@ -1461,7 +1461,7 @@ const ImportDataPage = () => {
                                                                             if (log.rowKey) setExpandedConflictRow(log.rowKey);
                                                                             setTimeout(() => conflictSectionRef.current?.scrollIntoView({ behavior: 'smooth' }), 100); 
                                                                         }}
-                                                                        style={{ padding: '4px 12px', borderRadius: '6px', border: '1px solid #fca5a5', background: '#fef2f2', color: '#dc2626', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' }}
+                                                                        style={{ padding: '4px 12px', borderRadius: '6px', border: '1px solid #fca5a5', background: 'var(--danger-bg)', color: '#dc2626', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' }}
                                                                     >
                                                                         <i className="fas fa-arrow-left"></i> Resolve Now
                                                                     </button>
@@ -1480,14 +1480,14 @@ const ImportDataPage = () => {
                         {activeReportTab === 'error' && (
                             <div style={{ marginBottom: '32px', textAlign: 'left' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                    <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b' }}>Failure Details</h3>
+                                    <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-main)' }}>Failure Details</h3>
                                     <button
                                         onClick={() => {
                                             const csv = generateErrorReportCSV(importErrors);
                                             downloadFile(csv, `import_errors_${module}_${Date.now()}.csv`);
                                         }}
                                         style={{
-                                            background: '#fff', border: '1px solid #e2e8f0', color: '#dc2626',
+                                            background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: '#dc2626',
                                             padding: '6px 12px', borderRadius: '6px', fontSize: '0.8rem',
                                             fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
                                         }}
@@ -1495,23 +1495,23 @@ const ImportDataPage = () => {
                                         <i className="fas fa-download"></i> Download Error CSV
                                     </button>
                                 </div>
-                                <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
+                                <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden' }}>
                                     <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
                                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-                                            <thead style={{ background: '#f8fafc', position: 'sticky', top: 0 }}>
+                                            <thead style={{ background: 'var(--bg-light)', position: 'sticky', top: 0 }}>
                                                 <tr>
-                                                    <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>Row</th>
-                                                    <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>Item/Name</th>
-                                                    <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>Reason</th>
+                                                    <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>Row</th>
+                                                    <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>Item/Name</th>
+                                                    <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>Reason</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
                                                 {importErrors.length === 0 ? (
-                                                    <tr><td colSpan="3" style={{ padding: '24px', textAlign: 'center', color: '#94a3b8' }}>No errors found. All records processed successfully.</td></tr>
+                                                    <tr><td colSpan="3" style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>No errors found. All records processed successfully.</td></tr>
                                                 ) : importErrors.map((err, idx) => (
                                                     <tr key={idx} style={{ borderBottom: idx === importErrors.length - 1 ? 'none' : '1px solid #f1f5f9' }}>
-                                                        <td style={{ padding: '12px', color: '#64748b', fontWeight: 500 }}>{err.row}</td>
-                                                        <td style={{ padding: '12px', color: '#1e293b', fontWeight: 600 }}>{err.name}</td>
+                                                        <td style={{ padding: '12px', color: 'var(--text-muted)', fontWeight: 500 }}>{err.row}</td>
+                                                        <td style={{ padding: '12px', color: 'var(--text-main)', fontWeight: 600 }}>{err.name}</td>
                                                         <td style={{ padding: '12px', color: '#dc2626' }}>{err.reason}</td>
                                                     </tr>
                                                 ))}
@@ -1520,7 +1520,7 @@ const ImportDataPage = () => {
                                     </div>
                                 </div>
                                 {importErrors.length > 0 && (
-                                    <p style={{ marginTop: '12px', fontSize: '0.8rem', color: '#64748b', textAlign: 'center' }}>
+                                    <p style={{ marginTop: '12px', fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center' }}>
                                         Tip: Fix these rows in your CSV file and try uploading them again.
                                     </p>
                                 )}
@@ -1551,7 +1551,7 @@ const ImportDataPage = () => {
 
             {/* Footer Navigation */}
             {step < 5 && !importing && (
-                <div style={{ padding: '20px 40px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', gap: '12px', background: '#fff' }}>
+                <div style={{ padding: '20px 40px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', gap: '12px', background: 'var(--bg-card)' }}>
                     {step > 1 && (
                         <button
                             onClick={() => setStep(step - 1)}
