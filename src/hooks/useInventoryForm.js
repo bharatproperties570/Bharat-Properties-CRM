@@ -96,12 +96,28 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
         if (property && isOpen) {
             const resolveField = (val, type) => {
                 if (!val) return '';
+                // Map our internal type keys to the exact lookup type names used in PropertyConfigContext
+                const typeMap = {
+                    RoadWidth: 'Road Width',
+                    UnitType: 'UnitType',
+                    Category: 'Category',
+                    SubCategory: 'SubCategory',
+                    Status: 'Status',
+                    Intent: 'Intent',
+                    BuiltupType: 'BuiltupType',
+                    Direction: 'Direction',
+                    Facing: 'Facing',
+                    PossessionStatus: 'PossessionStatus',
+                    FurnishType: 'FurnishType',
+                    PropertyType: 'PropertyType'
+                };
+                const lookupType = typeMap[type] || type;
                 if (typeof val === 'object') {
                     const label = val.lookup_value || val.name || val.label;
                     if (label && !/^[0-9a-fA-F]{24}$/.test(String(label))) return label;
                     val = val._id || val.id || val;
                 }
-                const resolved = getLookupValue(type, val);
+                const resolved = getLookupValue(lookupType, val);
                 if (resolved && !/^[0-9a-fA-F]{24}$/.test(String(resolved))) return String(resolved);
                 if (typeof val === 'string' && !/^[0-9a-fA-F]{24}$/.test(val)) return val;
                 return '';
@@ -121,7 +137,7 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
                 locationSearch: property.locationSearch || property.location || '',
                 status: resolveField(property.status, 'Status') || 'Active',
                 intent: resolveField(property.intent, 'Intent') || 'Sell',
-                subCategory: resolveField(property.subCategory, 'SubCategory'),
+                subCategory: property.subCategory?._id || property.subCategory?.id || resolveField(property.subCategory, 'SubCategory'),
                 facing: resolveField(property.facing, 'Facing'),
                 direction: resolveField(property.direction, 'Direction'),
                 roadWidth: resolveField(property.roadWidth, 'RoadWidth'),
