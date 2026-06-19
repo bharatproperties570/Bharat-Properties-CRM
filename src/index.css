@@ -3506,3 +3506,21 @@ html.dark-mode .dropdown-menu a:hover {
     background: var(--contact-row-hover) !important;
 }
 .hover-row:hover { background: #f8fafc !important; }
+
+
+/* Global Dropdown Select fixes for Dark Mode */
+html.dark-mode select,
+html.dark-mode select.form-control {
+    background-color: var(--input-bg) !important;
+    color: var(--input-text) !important;
+}
+
+html.dark-mode select option {
+    background-color: var(--bg-card) !important;
+    color: var(--text-main) !important;
+}
+
+html.dark-mode select option:checked {
+    background: var(--gold) !important;
+    color: #07162B !important;
+}

@@ -140,7 +140,7 @@ const DiscoverySettingsPage = () => {
                             <div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
                                     <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)' }}>{config.name}</h3>
-                                    <span style={{ padding: '2px 8px', borderRadius: '12px', fontSize: '0.7rem', fontWeight: 700, background: config.is_active ? '#dcfce7' : 'var(--bg-light)', color: config.is_active ? '#166534' : 'var(--text-muted)' }}>
+                                    <span style={{ padding: '2px 8px', borderRadius: '12px', fontSize: '0.7rem', fontWeight: 700, background: config.is_active ? 'rgba(34, 197, 94, 0.15)' : 'var(--bg-light)', color: config.is_active ? '#166534' : 'var(--text-muted)' }}>
                                         {config.is_active ? 'ACTIVE' : 'PAUSED'}
                                     </span>
                                 </div>
@@ -169,7 +169,7 @@ const DiscoverySettingsPage = () => {
                                 <button onClick={() => handleOpenModal(config)} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-muted)', cursor: 'pointer' }}>
                                     Edit
                                 </button>
-                                <button onClick={() => handleDelete(config._id)} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #fee2e2', background: 'var(--danger-bg)', color: '#ef4444', cursor: 'pointer' }}>
+                                <button onClick={() => handleDelete(config._id)} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid rgba(239, 68, 68, 0.15)', background: 'var(--danger-bg)', color: '#ef4444', cursor: 'pointer' }}>
                                     Delete
                                 </button>
                             </div>

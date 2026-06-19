@@ -212,10 +212,10 @@ const EnrichmentSettingsPage = () => {
                                         ) : rules.keywordRules.map(rule => (
                                             <tr key={rule._id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                                                 <td style={{ padding: '16px', fontWeight: 700, color: 'var(--text-main)' }}>"{rule.keyword}"</td>
-                                                <td style={{ padding: '16px' }}><span style={{ padding: '4px 10px', background: '#eff6ff', color: '#3b82f6', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 700 }}>{rule.autoTag}</span></td>
+                                                <td style={{ padding: '16px' }}><span style={{ padding: '4px 10px', background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 700 }}>{rule.autoTag}</span></td>
                                                 <td style={{ padding: '16px', fontWeight: 600, color: 'var(--text-muted)' }}>{rule.roleType}</td>
                                                 <td style={{ padding: '16px', fontWeight: 800, color: rule.intentImpact >= 0 ? '#10b981' : '#ef4444' }}>{rule.intentImpact >= 0 ? '+' : ''}{rule.intentImpact}%</td>
-                                                <td style={{ padding: '16px', textAlign: 'center' }}><span style={{ padding: '4px 8px', borderRadius: '4px', background: rule.isActive ? '#dcfce7' : 'var(--bg-light)', color: rule.isActive ? '#166534' : 'var(--text-muted)', fontSize: '0.7rem', fontWeight: 700 }}>{rule.isActive ? 'ACTIVE' : 'INACTIVE'}</span></td>
+                                                <td style={{ padding: '16px', textAlign: 'center' }}><span style={{ padding: '4px 8px', borderRadius: '4px', background: rule.isActive ? 'rgba(34, 197, 94, 0.15)' : 'var(--bg-light)', color: rule.isActive ? '#166534' : 'var(--text-muted)', fontSize: '0.7rem', fontWeight: 700 }}>{rule.isActive ? 'ACTIVE' : 'INACTIVE'}</span></td>
                                                 <td style={{ padding: '16px', display: 'flex', gap: '8px' }}>
                                                     <button onClick={() => { setEditingKeyword(rule); setKeywordForm({ ...rule }); setIsKeywordModalOpen(true); }} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-muted)' }}><i className="fas fa-edit"></i></button>
                                                     <button onClick={() => handleDeleteKeyword(rule._id)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#ef4444' }}><i className="fas fa-trash-alt"></i></button>
@@ -326,11 +326,11 @@ const EnrichmentSettingsPage = () => {
                             <div>
                                 <SectionHeader title="Special Classifications" subtitle="Labeling based on specific tags" icon="fa-user-tag" color="#10b981" />
                                 <div style={{ padding: '24px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '0 0 12px 12px' }}>
-                                    <div style={{ marginBottom: '16px', padding: '12px', border: '1px solid #dcfce7', background: 'var(--stat-property-bg)', borderRadius: '8px' }}>
+                                    <div style={{ marginBottom: '16px', padding: '12px', border: '1px solid rgba(34, 197, 94, 0.15)', background: 'var(--stat-property-bg)', borderRadius: '8px' }}>
                                         <div style={{ fontWeight: 700, color: '#15803d', fontSize: '0.9rem' }}>Investor Detection</div>
                                         <div style={{ fontSize: '0.8rem', color: '#166534' }}>If tag "ROI" detected → Assign "Investor" classification.</div>
                                     </div>
-                                    <div style={{ marginBottom: '16px', padding: '12px', border: '1px solid #eff6ff', background: 'var(--bg-light)', borderRadius: '8px' }}>
+                                    <div style={{ marginBottom: '16px', padding: '12px', border: '1px solid rgba(59, 130, 246, 0.1)', background: 'var(--bg-light)', borderRadius: '8px' }}>
                                         <div style={{ fontWeight: 700, color: '#1e40af', fontSize: '0.9rem' }}>Future Buyer</div>
                                         <div style={{ fontSize: '0.8rem', color: '#1e3a8a' }}>If Timeline {'>'} 3 months → Assign "Future Buyer".</div>
                                     </div>

@@ -230,7 +230,7 @@ const AiAgentsSettingsPage = () => {
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                                         <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)', margin: 0 }}>{agent.name}</h3>
                                         <span style={{
-                                            background: agent.isActive ? '#dcfce7' : 'var(--bg-light)',
+                                            background: agent.isActive ? 'rgba(34, 197, 94, 0.15)' : 'var(--bg-light)',
                                             color: agent.isActive ? '#166534' : 'var(--text-muted)',
                                             padding: '2px 8px',
                                             borderRadius: '12px',

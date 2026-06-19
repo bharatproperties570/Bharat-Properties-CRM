@@ -284,7 +284,7 @@ const SalesGoalsSettings = () => {
                     <p>Loading goals...</p>
                 </div>
             ) : error ? (
-                <div style={{ textAlign: 'center', padding: '100px', color: '#ef4444', background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid #fee2e2' }}>
+                <div style={{ textAlign: 'center', padding: '100px', color: '#ef4444', background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid rgba(239, 68, 68, 0.15)' }}>
                     <i className="fas fa-exclamation-circle" style={{ fontSize: '2rem', marginBottom: '16px' }}></i>
                     <p style={{ fontWeight: 600 }}>{error}</p>
                     <button 

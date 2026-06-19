@@ -320,7 +320,7 @@ const ScoringSettingsPage = () => {
                             />
                             <div style={{ padding: '20px', opacity: scoringConfig?.decay?.enabled ? 1 : 0.5, pointerEvents: scoringConfig?.decay?.enabled ? 'auto' : 'none', transition: 'opacity 0.2s' }}>
                                 {/* Threshold Settings */}
-                                <div style={{ marginBottom: '20px', padding: '16px', background: 'var(--danger-bg)', borderRadius: '12px', border: '1px solid #fee2e2' }}>
+                                <div style={{ marginBottom: '20px', padding: '16px', background: 'var(--danger-bg)', borderRadius: '12px', border: '1px solid rgba(239, 68, 68, 0.15)' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                             <i className="fas fa-bed" style={{ color: '#ef4444' }} />
@@ -337,7 +337,7 @@ const ScoringSettingsPage = () => {
                                 </div>
 
                                 {/* Stalled Threshold Settings */}
-                                <div style={{ marginBottom: '20px', padding: '16px', background: '#fffbeb', borderRadius: '12px', border: '1px solid #fef3c7' }}>
+                                <div style={{ marginBottom: '20px', padding: '16px', background: 'rgba(245, 158, 11, 0.15)', borderRadius: '12px', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                             <i className="fas fa-pause-circle" style={{ color: '#d97706' }} />
@@ -418,7 +418,7 @@ const ScoringSettingsPage = () => {
                             <SectionHeader title="B. Activity Momentum" subtitle="Recency & Ageing Thresholds" icon="fa-bolt" color="#f59e0b" />
                             <div style={{ padding: '20px' }}>
                                 {/* Threshold Configuration */}
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', marginBottom: '20px', padding: '12px', background: '#fffbeb', borderRadius: '8px', border: '1px solid #fcd34d' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', marginBottom: '20px', padding: '12px', background: 'rgba(245, 158, 11, 0.15)', borderRadius: '8px', border: '1px solid #fcd34d' }}>
                                     <div>
                                         <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#92400e', display: 'block', marginBottom: '4px' }}>Hot (Days)</label>
                                         <input type="number" value={dealScoringRules?.activityRecency?.hotThresholdDays || 1} onChange={(e) => handleDealRuleChange('activityRecency', 'hotThresholdDays', e.target.value)} style={{ width: '100%', padding: '4px', borderRadius: '4px', border: '1px solid #fcd34d', textAlign: 'center', fontSize: '0.85rem' }} />
@@ -476,7 +476,7 @@ const ScoringSettingsPage = () => {
                     <div style={{ maxWidth: '860px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
 
                         {/* Enterprise Architecture Notice */}
-                        <div style={{ background: 'linear-gradient(135deg, #ede9fe 0%, #dbeafe 100%)', border: '1px solid #c4b5fd', borderRadius: '12px', padding: '16px 20px', display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                        <div style={{ background: 'linear-gradient(135deg, #ede9fe 0%, rgba(59, 130, 246, 0.2) 100%)', border: '1px solid #c4b5fd', borderRadius: '12px', padding: '16px 20px', display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
                             <i className="fas fa-shield-alt" style={{ color: '#7c3aed', fontSize: '1.2rem', marginTop: '2px', flexShrink: 0 }} />
                             <div>
                                 <div style={{ fontWeight: 700, color: '#4c1d95', marginBottom: '4px', fontSize: '0.95rem' }}>

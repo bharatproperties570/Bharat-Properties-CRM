@@ -176,7 +176,7 @@ const DuplicationSettingsPage = () => {
                                         fontWeight: 800,
                                         textTransform: 'uppercase',
                                         color: rule.actionType === 'Block' ? '#ef4444' : '#f59e0b',
-                                        background: rule.actionType === 'Block' ? 'var(--danger-bg)' : '#fffbeb',
+                                        background: rule.actionType === 'Block' ? 'var(--danger-bg)' : 'rgba(245, 158, 11, 0.15)',
                                         padding: '2px 8px',
                                         borderRadius: '4px',
                                         border: `1px solid ${rule.actionType === 'Block' ? '#fecaca' : '#fcd34d'}`
@@ -268,7 +268,7 @@ const DuplicationSettingsPage = () => {
                                                 borderRadius: '20px',
                                                 border: '1px solid',
                                                 borderColor: formData.fields.includes(field.id) ? 'var(--primary-color)' : 'var(--border-color)',
-                                                background: formData.fields.includes(field.id) ? '#f0f9ff' : 'var(--bg-card)',
+                                                background: formData.fields.includes(field.id) ? 'rgba(59, 130, 246, 0.08)' : 'var(--bg-card)',
                                                 color: formData.fields.includes(field.id) ? 'var(--primary-color)' : 'var(--text-muted)',
                                                 fontSize: '0.8rem',
                                                 fontWeight: 600,
@@ -284,7 +284,7 @@ const DuplicationSettingsPage = () => {
                             <div style={{ marginBottom: '24px' }}>
                                 <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '8px' }}>Action Type</label>
                                 <div style={{ display: 'flex', gap: '12px' }}>
-                                    <label style={{ flex: 1, padding: '12px', borderRadius: '8px', border: `1px solid ${formData.actionType === 'Warning' ? '#fbbf24' : 'var(--border-color)'}`, background: formData.actionType === 'Warning' ? '#fffbeb' : 'var(--bg-card)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <label style={{ flex: 1, padding: '12px', borderRadius: '8px', border: `1px solid ${formData.actionType === 'Warning' ? '#fbbf24' : 'var(--border-color)'}`, background: formData.actionType === 'Warning' ? 'rgba(245, 158, 11, 0.15)' : 'var(--bg-card)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}>
                                         <input type="radio" name="actionType" value="Warning" checked={formData.actionType === 'Warning'} onChange={e => setFormData({ ...formData, actionType: e.target.value })} />
                                         <div>
                                             <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#92400e' }}>Warning</div>

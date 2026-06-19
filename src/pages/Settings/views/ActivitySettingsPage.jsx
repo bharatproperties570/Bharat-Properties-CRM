@@ -106,7 +106,7 @@ const ActivitySettingsPage = () => {
                         disabled={type !== 'activity' && !items}
                         style={{
                             border: 'none',
-                            background: (type !== 'activity' && !items) ? 'transparent' : '#eff6ff',
+                            background: (type !== 'activity' && !items) ? 'transparent' : 'rgba(59, 130, 246, 0.1)',
                             color: (type !== 'activity' && !items) ? 'var(--border-color)' : '#2563eb',
                             cursor: (type !== 'activity' && !items) ? 'not-allowed' : 'pointer',
                             width: '28px', height: '28px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s'
@@ -118,7 +118,7 @@ const ActivitySettingsPage = () => {
             </div>
 
             {showAddItemForm && addItemTarget === type && (
-                <div style={{ padding: '12px', borderBottom: '1px solid var(--border-color)', background: '#eff6ff' }}>
+                <div style={{ padding: '12px', borderBottom: '1px solid var(--border-color)', background: 'rgba(59, 130, 246, 0.1)' }}>
                     <input
                         autoFocus
                         value={newItemValue}
@@ -155,7 +155,7 @@ const ActivitySettingsPage = () => {
                                         borderRadius: '8px',
                                         fontSize: '0.9rem',
                                         color: active ? '#1e40af' : 'var(--text-main)',
-                                        background: active ? '#dbeafe' : 'transparent',
+                                        background: active ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
                                         fontWeight: active ? 600 : 500,
                                         cursor: onSelect ? 'pointer' : 'default',
                                         display: 'flex',

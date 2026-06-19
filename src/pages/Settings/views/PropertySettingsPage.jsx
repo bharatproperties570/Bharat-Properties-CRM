@@ -24,7 +24,7 @@ const SizeItem = ({ size, onEdit, onDelete }) => (
                 <button
                     onClick={() => onEdit(size)}
                     style={{ width: '32px', height: '32px', borderRadius: '6px', border: 'none', background: 'var(--bg-light)', color: 'var(--text-muted)', cursor: 'pointer', transition: 'all 0.2s' }}
-                    onMouseOver={e => { e.currentTarget.style.background = '#eff6ff'; e.currentTarget.style.color = '#3b82f6'; }}
+                    onMouseOver={e => { e.currentTarget.style.background = 'rgba(59, 130, 246, 0.1)'; e.currentTarget.style.color = '#3b82f6'; }}
                     onMouseOut={e => { e.currentTarget.style.background = 'var(--bg-light)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
                 >
                     <i className="fas fa-edit"></i>
@@ -246,7 +246,7 @@ const AddSizeModal = ({ isOpen, onClose, onAdd, initialData, propertyConfig, all
                                     </div>
                                 </div>
                             </div>
-                            <div style={{ background: '#eff6ff', padding: '16px', borderRadius: '6px', border: '1px solid #bfdbfe' }}>
+                            <div style={{ background: 'rgba(59, 130, 246, 0.1)', padding: '16px', borderRadius: '6px', border: '1px solid #bfdbfe' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     <div>
                                         <label style={{ ...labelStyle, color: '#1e40af' }}>Total area based on formula</label>
@@ -1004,7 +1004,7 @@ const PropertySettingsPage = () => {
                                         height: '36px',
                                         borderRadius: '8px',
                                         border: '1px solid var(--border-color)',
-                                        background: isFilterPanelOpen ? '#eff6ff' : 'var(--bg-card)',
+                                        background: isFilterPanelOpen ? 'rgba(59, 130, 246, 0.1)' : 'var(--bg-card)',
                                         color: isFilterPanelOpen ? '#3b82f6' : 'var(--text-muted)',
                                         display: 'flex',
                                         alignItems: 'center',
@@ -1197,7 +1197,7 @@ const PropertySettingsPage = () => {
                                 </div>
                                 <div style={{ overflowY: 'auto', flex: 1 }}>
                                     {configCategory && Array.isArray(propertyConfig[configCategory]?.subCategories) && propertyConfig[configCategory].subCategories.map(sub => (
-                                        <div key={sub.name} onClick={() => { setConfigSubCategory(sub.name); setConfigType(null); }} style={{ padding: '16px', cursor: 'pointer', fontSize: '0.95rem', fontWeight: configSubCategory === sub.name ? 700 : 500, background: configSubCategory === sub.name ? '#f0f9ff' : 'transparent', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} className="group">
+                                        <div key={sub.name} onClick={() => { setConfigSubCategory(sub.name); setConfigType(null); }} style={{ padding: '16px', cursor: 'pointer', fontSize: '0.95rem', fontWeight: configSubCategory === sub.name ? 700 : 500, background: configSubCategory === sub.name ? 'rgba(59, 130, 246, 0.08)' : 'transparent', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} className="group">
                                             <span>{sub.name}</span>
                                             <div style={{ display: 'flex', gap: '8px' }}>
                                                 {configSubCategory === sub.name && <ActionButtons onEdit={() => handleEditSubCategory(sub.name)} onDelete={() => handleDeleteSubCategory(sub.name)} />}
@@ -1217,7 +1217,7 @@ const PropertySettingsPage = () => {
                                 </div>
                                 <div style={{ overflowY: 'auto', flex: 1 }}>
                                     {configSubCategory && Array.isArray(propertyConfig[configCategory]?.subCategories?.find(s => s.name === configSubCategory)?.types) && propertyConfig[configCategory].subCategories.find(s => s.name === configSubCategory).types.map(type => (
-                                        <div key={type.name} onClick={() => setConfigType(type.name)} style={{ padding: '16px', cursor: 'pointer', fontSize: '0.95rem', fontWeight: configType === type.name ? 700 : 500, background: configType === type.name ? '#f0f9ff' : 'transparent', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} className="group">
+                                        <div key={type.name} onClick={() => setConfigType(type.name)} style={{ padding: '16px', cursor: 'pointer', fontSize: '0.95rem', fontWeight: configType === type.name ? 700 : 500, background: configType === type.name ? 'rgba(59, 130, 246, 0.08)' : 'transparent', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} className="group">
                                             <span>{type.name}</span>
                                             {configType === type.name && <ActionButtons onEdit={() => handleEditType(type.name)} onDelete={() => handleDeleteType(type.name)} />}
                                         </div>

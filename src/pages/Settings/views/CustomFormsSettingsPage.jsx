@@ -96,8 +96,8 @@ const CustomFormsSettingsPage = ({ onBack }) => {
                         <p style={{ marginTop: '16px', color: 'var(--text-muted)' }}>Loading custom forms...</p>
                     </div>
                 ) : forms.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '100px', background: 'var(--bg-card)', borderRadius: '24px', border: '2px dashed #e2e8f0' }}>
-                        <div style={{ width: '80px', height: '80px', background: '#eff6ff', borderRadius: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px', fontSize: '2rem', color: '#3b82f6' }}>
+                    <div style={{ textAlign: 'center', padding: '100px', background: 'var(--bg-card)', borderRadius: '24px', border: '2px dashed rgba(148, 163, 184, 0.15)' }}>
+                        <div style={{ width: '80px', height: '80px', background: 'rgba(59, 130, 246, 0.1)', borderRadius: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px', fontSize: '2rem', color: '#3b82f6' }}>
                             <LucideDatabase size={40} />
                         </div>
                         <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '8px' }}>No Custom Forms Yet</h3>
@@ -115,7 +115,7 @@ const CustomFormsSettingsPage = ({ onBack }) => {
                             <div key={form._id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '20px', overflow: 'hidden', transition: 'all 0.3s ease', position: 'relative' }}>
                                 <div style={{ padding: '24px' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
-                                        <div style={{ fontSize: '0.7rem', fontWeight: 800, color: form.isActive ? '#3b82f6' : 'var(--text-muted)', background: form.isActive ? '#eff6ff' : 'var(--bg-light)', padding: '4px 8px', borderRadius: '6px' }}>
+                                        <div style={{ fontSize: '0.7rem', fontWeight: 800, color: form.isActive ? '#3b82f6' : 'var(--text-muted)', background: form.isActive ? 'rgba(59, 130, 246, 0.1)' : 'var(--bg-light)', padding: '4px 8px', borderRadius: '6px' }}>
                                             {form.isActive ? 'ACTIVE' : 'DRAFT'}
                                         </div>
                                         <div style={{ display: 'flex', gap: '12px' }}>
@@ -137,13 +137,13 @@ const CustomFormsSettingsPage = ({ onBack }) => {
 
                                     <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: 'var(--text-main)' }}>{form.name}</h3>
                                     <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '4px' }}>{form.description || 'Custom business requirements form'}</p>
-                                    <div style={{ fontSize: '0.75rem', color: '#3b82f6', fontWeight: 600, marginTop: '8px', background: '#eff6ff', padding: '4px 8px', borderRadius: '6px', display: 'inline-block' }}>
+                                    <div style={{ fontSize: '0.75rem', color: '#3b82f6', fontWeight: 600, marginTop: '8px', background: 'rgba(59, 130, 246, 0.1)', padding: '4px 8px', borderRadius: '6px', display: 'inline-block' }}>
                                         /public/form/{form.slug}
                                     </div>
 
                                     <div style={{ marginTop: '24px', display: 'flex', gap: '8px' }}>
                                         <button onClick={() => handleEdit(form)} style={{ flex: 1, padding: '10px', borderRadius: '10px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-main)', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer' }}>Edit Builder</button>
-                                        <button onClick={() => handleDelete(form._id)} style={{ padding: '10px 14px', borderRadius: '10px', border: '1px solid #fee2e2', background: 'var(--bg-card)', color: '#ef4444', cursor: 'pointer' }}><LucideTrash2 size={18} /></button>
+                                        <button onClick={() => handleDelete(form._id)} style={{ padding: '10px 14px', borderRadius: '10px', border: '1px solid rgba(239, 68, 68, 0.15)', background: 'var(--bg-card)', color: '#ef4444', cursor: 'pointer' }}><LucideTrash2 size={18} /></button>
                                     </div>
                                 </div>
                             </div>
@@ -178,7 +178,7 @@ const CustomFormsSettingsPage = ({ onBack }) => {
                             </button>
                         </div>
 
-                        <div style={{ marginTop: '32px', display: 'flex', gap: '16px', alignItems: 'center', padding: '20px', background: '#eff6ff', borderRadius: '16px', border: '1px solid #dbeafe' }}>
+                        <div style={{ marginTop: '32px', display: 'flex', gap: '16px', alignItems: 'center', padding: '20px', background: 'rgba(59, 130, 246, 0.1)', borderRadius: '16px', border: '1px solid rgba(59, 130, 246, 0.2)' }}>
                             <div style={{ width: '40px', height: '40px', background: '#3b82f6', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff' }}>
                                 <LucideQrCode size={20} />
                             </div>

@@ -89,7 +89,7 @@ const AutomatedActionsSettingsPage = () => {
                                         <div style={{ width: '16px', height: '16px', background: 'var(--bg-card)', borderRadius: '50%', position: 'absolute', right: action.isActive ? '2px' : 'auto', left: action.isActive ? 'auto' : '2px', transition: '0.2s' }}></div>
                                     </div>
                                     <button onClick={() => handleEdit(action)} style={{ background: 'none', border: '1px solid var(--border-color)', padding: '6px', borderRadius: '6px', cursor: 'pointer', color: 'var(--text-muted)' }}><i className="fas fa-edit"></i></button>
-                                    <button onClick={() => deleteAction(action.id)} style={{ background: 'none', border: '1px solid #fee2e2', padding: '6px', borderRadius: '6px', cursor: 'pointer', color: '#ef4444' }}><i className="fas fa-trash"></i></button>
+                                    <button onClick={() => deleteAction(action.id)} style={{ background: 'none', border: '1px solid rgba(239, 68, 68, 0.15)', padding: '6px', borderRadius: '6px', cursor: 'pointer', color: '#ef4444' }}><i className="fas fa-trash"></i></button>
                                 </div>
                             </div>
                         ))}
@@ -125,7 +125,7 @@ const AutomatedActionsSettingsPage = () => {
                                                 padding: '2px 8px',
                                                 borderRadius: '4px',
                                                 fontSize: '0.7rem',
-                                                background: log.success ? '#dcfce7' : '#fee2e2',
+                                                background: log.success ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
                                                 color: log.success ? '#166534' : '#991b1b',
                                                 fontWeight: 800
                                             }}>

@@ -380,7 +380,7 @@ const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, o
                                     padding: '8px 16px',
                                     fontSize: '0.75rem',
                                     fontWeight: 600,
-                                    background: filterStatus === label ? '#e0f2fe' : 'var(--bg-card)',
+                                    background: filterStatus === label ? 'rgba(59, 130, 246, 0.15)' : 'var(--bg-card)',
                                     color: 'var(--primary-color)',
                                     cursor: 'pointer',
                                     borderRight: i < 1 ? '1px solid var(--primary-color)' : 'none',
@@ -491,7 +491,7 @@ const UserList = ({ searchTerm, setSearchTerm, onNewUser, users, onDeleteUser, o
                                                         {(user.status !== 'inactive' && user.isActive !== false) && (
                                                             <div
                                                                 style={{ padding: '8px 12px', fontSize: '0.8rem', cursor: 'pointer', color: '#f59e0b', borderTop: '1px solid #f1f5f9' }}
-                                                                onMouseOver={e => e.target.style.background = '#fffbeb'}
+                                                                onMouseOver={e => e.target.style.background = 'rgba(245, 158, 11, 0.15)'}
                                                                 onMouseOut={e => e.target.style.background = 'transparent'}
                                                                 onClick={() => { onToggleStatus(user, 'inactive'); setOpenActionId(null); }}
                                                             >
@@ -569,7 +569,7 @@ const RolesList = ({ onNewRole, roles, onDeleteRole, onEditRole, currentUser }) 
                                                 transition: 'background 0.2s',
                                                 marginRight: '8px'
                                             }}
-                                            onMouseOver={e => e.currentTarget.style.background = '#f0f9ff'}
+                                            onMouseOver={e => e.currentTarget.style.background = 'rgba(59, 130, 246, 0.08)'}
                                             onMouseOut={e => e.currentTarget.style.background = 'transparent'}
                                             title="Edit Role"
                                         >
@@ -956,7 +956,7 @@ const SettingsPage = () => {
     if (error) {
         return (
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', flex: 1, padding: '20px' }}>
-                <div style={{ textAlign: 'center', maxWidth: '400px', background: 'var(--bg-card)', padding: '32px', borderRadius: '12px', border: '1px solid #fee2e2' }}>
+                <div style={{ textAlign: 'center', maxWidth: '400px', background: 'var(--bg-card)', padding: '32px', borderRadius: '12px', border: '1px solid rgba(239, 68, 68, 0.15)' }}>
                     <i className="fas fa-exclamation-triangle" style={{ fontSize: '2rem', color: '#ef4444', marginBottom: '16px' }}></i>
                     <h2 style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '8px' }}>Failed to load users</h2>
                     <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '24px' }}>{error}</p>
@@ -996,7 +996,7 @@ const SettingsPage = () => {
                                             fontSize: '0.85rem',
                                             fontWeight: activeTab === item.id ? 700 : 500,
                                             color: activeTab === item.id ? 'var(--text-main)' : 'var(--text-muted)',
-                                            background: activeTab === item.id ? '#e2e8f1' : 'transparent',
+                                            background: activeTab === item.id ? 'rgba(148, 163, 184, 0.2)' : 'transparent',
                                             cursor: 'pointer',
                                             borderLeft: activeTab === item.id ? '4px solid var(--primary-color)' : '4px solid transparent',
                                             transition: 'all 0.2s'

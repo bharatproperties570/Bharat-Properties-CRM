@@ -127,7 +127,7 @@ const FieldRulesSettingsPage = () => {
                                                     fontSize: '0.7rem',
                                                     padding: '2px 8px',
                                                     borderRadius: '4px',
-                                                    background: rule.ruleType === 'MANDATORY' ? 'var(--danger-bg)' : '#e0f2fe',
+                                                    background: rule.ruleType === 'MANDATORY' ? 'var(--danger-bg)' : 'rgba(59, 130, 246, 0.15)',
                                                     color: rule.ruleType === 'MANDATORY' ? '#ef4444' : '#0369a1',
                                                     fontWeight: 700
                                                 }}>
@@ -381,7 +381,7 @@ const FieldRulesSettingsPage = () => {
                                                     }}
                                                     style={{
                                                         width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                        color: '#ef4444', background: '#fee2e2', border: '1px solid #fecaca', borderRadius: '6px', cursor: 'pointer'
+                                                        color: '#ef4444', background: 'rgba(239, 68, 68, 0.15)', border: '1px solid #fecaca', borderRadius: '6px', cursor: 'pointer'
                                                     }}
                                                 >
                                                     <i className="fas fa-trash"></i>

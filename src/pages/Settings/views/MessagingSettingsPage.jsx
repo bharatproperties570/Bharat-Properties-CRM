@@ -117,7 +117,7 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
                     <input type="text" placeholder="Enter header text..." value={templateData.headerText} onChange={e => setTemplateData({ ...templateData, headerText: e.target.value })} style={{ width: '100%', padding: '10px', border: '1px solid var(--border-color)', borderRadius: '8px' }} />
                 )}
                 {['IMAGE', 'VIDEO', 'DOCUMENT'].includes(templateData.headerType) && (
-                    <div style={{ padding: '20px', border: '2px dashed #e2e8f0', borderRadius: '8px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                    <div style={{ padding: '20px', border: '2px dashed rgba(148, 163, 184, 0.15)', borderRadius: '8px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
                         <i className="fas fa-cloud-upload-alt" style={{ marginBottom: '8px', display: 'block', fontSize: '1.2rem' }}></i>
                         Upload {templateData.headerType.toLowerCase()} file
                     </div>
@@ -164,7 +164,7 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             <div>
                 <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>Rich Media (Card)</label>
-                <div style={{ padding: '24px', border: '2px dashed #e2e8f0', borderRadius: '12px', textAlign: 'center', color: 'var(--text-muted)', background: 'var(--bg-light)' }}>
+                <div style={{ padding: '24px', border: '2px dashed rgba(148, 163, 184, 0.15)', borderRadius: '12px', textAlign: 'center', color: 'var(--text-muted)', background: 'var(--bg-light)' }}>
                     <i className="fas fa-images" style={{ fontSize: '1.5rem', marginBottom: '8px', display: 'block' }}></i>
                     <span style={{ fontSize: '0.85rem' }}>Upload High-Res Image or Video</span>
                 </div>

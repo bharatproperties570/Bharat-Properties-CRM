@@ -104,7 +104,7 @@ const ExportDataPage = () => {
                                         style={{
                                             padding: '10px 12px',
                                             borderRadius: '6px',
-                                            background: module === mod.id ? '#eff6ff' : 'transparent',
+                                            background: module === mod.id ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
                                             border: module === mod.id ? '1px solid #bfdbfe' : '1px solid transparent',
                                             cursor: 'pointer',
                                             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -134,7 +134,7 @@ const ExportDataPage = () => {
                                             textAlign: 'center',
                                             borderRadius: '6px',
                                             border: format === fmt ? '2px solid var(--primary-color)' : '1px solid var(--border-color)',
-                                            background: format === fmt ? '#eff6ff' : 'var(--bg-card)',
+                                            background: format === fmt ? 'rgba(59, 130, 246, 0.1)' : 'var(--bg-card)',
                                             color: format === fmt ? 'var(--primary-color)' : 'var(--text-muted)',
                                             fontWeight: 700, cursor: 'pointer', textTransform: 'uppercase', fontSize: '0.85rem'
                                         }}
@@ -168,7 +168,7 @@ const ExportDataPage = () => {
                                             border: '1px solid var(--border-color)',
                                             display: 'flex', alignItems: 'center', gap: '10px',
                                             cursor: 'pointer', fontSize: '0.9rem',
-                                            background: selectedColumns.includes(field.key) ? '#f0f9ff' : 'var(--bg-card)'
+                                            background: selectedColumns.includes(field.key) ? 'rgba(59, 130, 246, 0.08)' : 'var(--bg-card)'
                                         }}
                                     >
                                         <div style={{

@@ -488,7 +488,7 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                                 </span>
                             </div>
                             {testResult && (
-                                <div style={{ fontSize: '0.75rem', color: testResult.success ? '#10b981' : '#ef4444', background: testResult.success ? 'var(--stat-property-bg)' : 'var(--danger-bg)', padding: '8px', borderRadius: '6px', border: `1px solid ${testResult.success ? '#dcfce7' : '#fee2e2'}` }}>
+                                <div style={{ fontSize: '0.75rem', color: testResult.success ? '#10b981' : '#ef4444', background: testResult.success ? 'var(--stat-property-bg)' : 'var(--danger-bg)', padding: '8px', borderRadius: '6px', border: `1px solid ${testResult.success ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)'}` }}>
                                     <i className={`fas ${testResult.success ? 'fa-check-circle' : 'fa-exclamation-circle'}`} style={{ marginRight: '6px' }}></i>
                                     {testResult.message}
                                 </div>
@@ -841,7 +841,7 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                         )}
 
                         {!['openai', 'gemini', 'claude'].includes(type) && (
-                            <div style={{ padding: '16px', background: '#eff6ff', borderRadius: '12px', border: '1px solid #bfdbfe', display: 'flex', gap: '12px', alignItems: 'center' }}>
+                            <div style={{ padding: '16px', background: 'rgba(59, 130, 246, 0.1)', borderRadius: '12px', border: '1px solid #bfdbfe', display: 'flex', gap: '12px', alignItems: 'center' }}>
                                 <i className="fas fa-info-circle" style={{ color: '#3b82f6' }}></i>
                                 <div style={{ fontSize: '0.8rem', color: '#1e40af', lineHeight: '1.4' }}>
                                     <strong>Note:</strong> SMS Templates and Delivery Logs have been moved to <strong>Settings &gt; Messaging</strong> for a more centralized experience.
@@ -950,7 +950,7 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                                     <label>Organization ID</label>
                                     <input type="text" placeholder="e.g. 42752175" value={config.orgId || '42752175'} onChange={e => setConfig({ ...config, orgId: e.target.value })} />
                                 </div>
-                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', background: '#eff6ff', padding: '12px', borderRadius: '10px', border: '1px solid #bfdbfe', marginTop: '10px', display: 'flex', gap: '8px' }}>
+                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', background: 'rgba(59, 130, 246, 0.1)', padding: '12px', borderRadius: '10px', border: '1px solid #bfdbfe', marginTop: '10px', display: 'flex', gap: '8px' }}>
                                     <i className="fas fa-info-circle" style={{ color: '#3b82f6', marginTop: '2px' }}></i>
                                     <div>
                                         <strong style={{ color: '#1e40af' }}>Two-Step Setup:</strong><br/>
@@ -1050,7 +1050,7 @@ const ConnectionModal = ({ type, connectionData, onClose, onConnect }) => {
                         )}
 
                         {type === 'linkedin' && connectionData?.status === 'connected' && (
-                            <div style={{ marginTop: '20px', padding: '16px', borderRadius: '12px', background: '#eff6ff', border: '1px solid #bfdbfe', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ marginTop: '20px', padding: '16px', borderRadius: '12px', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid #bfdbfe', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <div>
                                     <h4 style={{ margin: 0, fontSize: '0.85rem', color: '#1e40af' }}>Lead Generation</h4>
                                     <p style={{ margin: '4px 0 0', fontSize: '0.7rem', color: '#3b82f6' }}>Automated Lead Sync is <strong>Active</strong></p>
@@ -1421,7 +1421,7 @@ const IntegrationsSettingsPage = () => {
                                                     <i className={item.icon}></i>
                                                 </div>
                                                 <div style={{ 
-                                                    background: item.status === 'connected' ? '#ecfdf5' : (item.health === 'EXPIRED' ? '#fffbeb' : 'var(--bg-light)'), 
+                                                    background: item.status === 'connected' ? '#ecfdf5' : (item.health === 'EXPIRED' ? 'rgba(245, 158, 11, 0.15)' : 'var(--bg-light)'), 
                                                     color: item.status === 'connected' ? '#059669' : (item.health === 'EXPIRED' ? '#b45309' : 'var(--text-muted)'), 
                                                     padding: '4px 12px', 
                                                     borderRadius: '20px', 
@@ -1503,7 +1503,7 @@ const IntegrationsSettingsPage = () => {
                                                         </div>
                                                         <div style={{ display: 'flex', gap: '12px' }}>
                                                             <button onClick={handleConnectGoogle} style={{ flex: 1, padding: '12px', borderRadius: '10px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-main)', fontWeight: 700, cursor: 'pointer' }}>Manage Services</button>
-                                                            <button onClick={handleDisconnectGoogle} style={{ padding: '12px', borderRadius: '10px', background: 'var(--danger-bg)', border: '1px solid #fee2e2', color: '#dc2626', fontWeight: 700, cursor: 'pointer' }}>Disconnect</button>
+                                                            <button onClick={handleDisconnectGoogle} style={{ padding: '12px', borderRadius: '10px', background: 'var(--danger-bg)', border: '1px solid rgba(239, 68, 68, 0.15)', color: '#dc2626', fontWeight: 700, cursor: 'pointer' }}>Disconnect</button>
                                                         </div>
                                                     </div>
                                                 ) : (
@@ -1529,7 +1529,7 @@ const IntegrationsSettingsPage = () => {
                                                 </p>
                                                 <div style={{ marginTop: '24px' }}>
                                                     {syncConfig.apple.connected ? (
-                                                        <button onClick={() => handleDisconnect('apple')} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #fee2e2', background: 'var(--danger-bg)', color: '#dc2626', fontWeight: 700, cursor: 'pointer' }}>Disconnect iCloud</button>
+                                                        <button onClick={() => handleDisconnect('apple')} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid rgba(239, 68, 68, 0.15)', background: 'var(--danger-bg)', color: '#dc2626', fontWeight: 700, cursor: 'pointer' }}>Disconnect iCloud</button>
                                                     ) : (
                                                         <button onClick={() => setShowAppleConfig(true)} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-main)', fontWeight: 700, cursor: 'pointer' }}>Setup iCloud Sync</button>
                                                     )}

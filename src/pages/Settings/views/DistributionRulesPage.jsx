@@ -229,7 +229,7 @@ const DistributionRulesPage = () => {
                                             {rule.priority && (
                                                 <span style={{
                                                     padding: '4px 8px',
-                                                    background: '#fef3c7',
+                                                    background: 'rgba(245, 158, 11, 0.2)',
                                                     color: '#92400e',
                                                     fontSize: '11px',
                                                     fontWeight: '500',

@@ -138,7 +138,7 @@ const CustomizeCompanyPage = () => {
                                             fontSize: '0.9rem',
                                             fontWeight: activeDetailField === field ? 600 : 500,
                                             color: activeDetailField === field ? '#2563eb' : 'var(--text-muted)',
-                                            background: activeDetailField === field ? '#eff6ff' : 'transparent',
+                                            background: activeDetailField === field ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
                                             marginBottom: '8px',
                                             textTransform: 'capitalize'
                                         }}
@@ -215,7 +215,7 @@ const CustomizeCompanyPage = () => {
                                         );
                                     })}
                                     {(!Array.isArray(companyMasterFields[activeDetailField]) || companyMasterFields[activeDetailField].length === 0) && (
-                                        <div style={{ gridColumn: '1/-1', padding: '32px', textAlign: 'center', color: 'var(--text-muted)', border: '2px dashed #e2e8f0', borderRadius: '8px' }}>
+                                        <div style={{ gridColumn: '1/-1', padding: '32px', textAlign: 'center', color: 'var(--text-muted)', border: '2px dashed rgba(148, 163, 184, 0.15)', borderRadius: '8px' }}>
                                             No items found. Add one to get started.
                                         </div>
                                     )}

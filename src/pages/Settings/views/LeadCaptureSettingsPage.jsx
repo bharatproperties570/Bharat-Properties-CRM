@@ -93,7 +93,7 @@ const LeadCaptureSettingsPage = () => {
                         <p style={{ marginTop: '16px', color: 'var(--text-muted)' }}>Loading forms...</p>
                     </div>
                 ) : forms.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '100px', background: 'var(--bg-light)', borderRadius: '24px', border: '2px dashed #e2e8f0' }}>
+                    <div style={{ textAlign: 'center', padding: '100px', background: 'var(--bg-light)', borderRadius: '24px', border: '2px dashed rgba(148, 163, 184, 0.15)' }}>
                         <div style={{ width: '80px', height: '80px', background: 'var(--bg-card)', borderRadius: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px', fontSize: '2rem', color: 'var(--text-muted)' }}>
                             <i className="fas fa-file-invoice"></i>
                         </div>
@@ -162,7 +162,7 @@ const LeadCaptureSettingsPage = () => {
                                         </button>
                                         <button
                                             onClick={() => handleDelete(form._id)}
-                                            style={{ padding: '10px 14px', borderRadius: '10px', border: '1px solid #fee2e2', background: 'var(--bg-card)', color: '#ef4444', cursor: 'pointer' }}
+                                            style={{ padding: '10px 14px', borderRadius: '10px', border: '1px solid rgba(239, 68, 68, 0.15)', background: 'var(--bg-card)', color: '#ef4444', cursor: 'pointer' }}
                                         >
                                             <i className="far fa-trash-alt"></i>
                                         </button>
@@ -200,7 +200,7 @@ const LeadCaptureSettingsPage = () => {
                             </button>
                         </div>
 
-                        <div style={{ marginTop: '32px', display: 'flex', gap: '16px', alignItems: 'center', padding: '20px', background: 'var(--stat-property-bg)', borderRadius: '16px', border: '1px solid #dcfce7' }}>
+                        <div style={{ marginTop: '32px', display: 'flex', gap: '16px', alignItems: 'center', padding: '20px', background: 'var(--stat-property-bg)', borderRadius: '16px', border: '1px solid rgba(34, 197, 94, 0.15)' }}>
                             <div style={{ width: '40px', height: '40px', background: '#10b981', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff' }}>
                                 <i className="fas fa-qrcode"></i>
                             </div>

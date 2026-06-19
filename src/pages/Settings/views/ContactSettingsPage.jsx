@@ -126,7 +126,7 @@ const ConfigColumn = ({ title, items, selectedItem, onSelect, onAdd, onEdit, onD
                 fontSize: "0.95rem",
                 fontWeight: isSelected ? 600 : 500,
                 color: isSelected ? "#2563eb" : 'var(--text-main)',
-                background: isSelected ? "#eff6ff" : "transparent",
+                background: isSelected ? 'rgba(59, 130, 246, 0.1)' : "transparent",
                 borderLeft: isSelected
                   ? "4px solid #2563eb"
                   : "4px solid transparent",
@@ -343,7 +343,7 @@ const ContactSettingsPage = () => {
     const result = await Swal.fire({
       title: 'Confirm Duplicate Merge',
       html: `
-        <div style="background-color: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 12px; color: #b45309; font-size: 0.85rem; text-align: left; margin-bottom: 15px;">
+        <div style="background-color: rgba(245, 158, 11, 0.15); border: 1px solid #fde68a; border-radius: 8px; padding: 12px; color: #b45309; font-size: 0.85rem; text-align: left; margin-bottom: 15px;">
           <strong>⚠️ WARNING:</strong> Merging is permanent! This will merge <strong>"${source.lookup_value}"</strong> into <strong>"${target.lookup_value}"</strong>. All contacts, leads, properties, and child lookups will be re-linked before deletion.
         </div>
         <p>Merge duplicate lookup <strong>"${source.lookup_value}"</strong> into <strong>"${target.lookup_value}"</strong>?</p>
@@ -1164,7 +1164,7 @@ const ContactSettingsPage = () => {
                 fontSize: "0.9rem",
                 fontWeight: flatActiveSection === section ? 600 : 500,
                 color: flatActiveSection === section ? "#2563eb" : 'var(--text-muted)',
-                background: flatActiveSection === section ? "#eff6ff" : "transparent",
+                background: flatActiveSection === section ? 'rgba(59, 130, 246, 0.1)' : "transparent",
                 transition: "all 0.2s"
               }}
             >
@@ -1238,7 +1238,7 @@ const ContactSettingsPage = () => {
                   </div>
                 ))}
                 {flatItems.length === 0 && (
-                  <div style={{ gridColumn: "1/-1", padding: "48px", textAlign: "center", color: 'var(--text-muted)', border: "2px dashed #e2e8f0", borderRadius: "12px" }}>
+                  <div style={{ gridColumn: "1/-1", padding: "48px", textAlign: "center", color: 'var(--text-muted)', border: "2px dashed rgba(148, 163, 184, 0.15)", borderRadius: "12px" }}>
                     <i className="fas fa-inbox" style={{ fontSize: "2rem", marginBottom: "16px", display: "block", color: 'var(--border-color)' }}></i>
                     No items found. Add one to get started.
                   </div>

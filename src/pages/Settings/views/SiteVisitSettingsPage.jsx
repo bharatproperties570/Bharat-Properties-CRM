@@ -96,7 +96,7 @@ const SiteVisitSettingsPage = ({ onBack }) => {
                         <p style={{ marginTop: '16px', color: 'var(--text-muted)' }}>Loading schedulers...</p>
                     </div>
                 ) : forms.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '100px', background: 'var(--bg-card)', borderRadius: '24px', border: '2px dashed #e2e8f0' }}>
+                    <div style={{ textAlign: 'center', padding: '100px', background: 'var(--bg-card)', borderRadius: '24px', border: '2px dashed rgba(148, 163, 184, 0.15)' }}>
                         <div style={{ width: '80px', height: '80px', background: '#fdf2f8', borderRadius: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px', fontSize: '2rem', color: '#ec4899' }}>
                             <LucideCalendar size={40} />
                         </div>
@@ -144,7 +144,7 @@ const SiteVisitSettingsPage = ({ onBack }) => {
 
                                     <div style={{ marginTop: '24px', display: 'flex', gap: '8px' }}>
                                         <button onClick={() => handleEdit(form)} style={{ flex: 1, padding: '10px', borderRadius: '10px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-main)', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer' }}>Edit Config</button>
-                                        <button onClick={() => handleDelete(form._id)} style={{ padding: '10px 14px', borderRadius: '10px', border: '1px solid #fee2e2', background: 'var(--bg-card)', color: '#ef4444', cursor: 'pointer' }}><LucideTrash2 size={18} /></button>
+                                        <button onClick={() => handleDelete(form._id)} style={{ padding: '10px 14px', borderRadius: '10px', border: '1px solid rgba(239, 68, 68, 0.15)', background: 'var(--bg-card)', color: '#ef4444', cursor: 'pointer' }}><LucideTrash2 size={18} /></button>
                                     </div>
                                 </div>
                             </div>

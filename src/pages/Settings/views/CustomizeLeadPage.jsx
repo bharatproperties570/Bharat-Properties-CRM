@@ -169,7 +169,7 @@ const CustomizeLeadPage = () => {
                             fontSize: '0.9rem',
                             fontWeight: activeDetailField === field ? 600 : 500,
                             color: activeDetailField === field ? '#2563eb' : 'var(--text-muted)',
-                            background: activeDetailField === field ? '#eff6ff' : 'transparent',
+                            background: activeDetailField === field ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
                             marginBottom: '8px',
                             textTransform: 'capitalize'
                         }}
@@ -242,7 +242,7 @@ const CustomizeLeadPage = () => {
                         </div>
                     ))}
                     {(!leadMasterFields[activeDetailField] || leadMasterFields[activeDetailField].length === 0) && (
-                        <div style={{ gridColumn: '1/-1', padding: '32px', textAlign: 'center', color: 'var(--text-muted)', border: '2px dashed #e2e8f0', borderRadius: '8px' }}>
+                        <div style={{ gridColumn: '1/-1', padding: '32px', textAlign: 'center', color: 'var(--text-muted)', border: '2px dashed rgba(148, 163, 184, 0.15)', borderRadius: '8px' }}>
                             No items found. Add one to get started.
                         </div>
                     )}
@@ -276,7 +276,7 @@ const CustomizeLeadPage = () => {
             </div>
 
             {showAddItemForm && addItemTarget === type && (
-                <div style={{ padding: '8px', borderBottom: '1px solid var(--border-color)', background: '#eff6ff' }}>
+                <div style={{ padding: '8px', borderBottom: '1px solid var(--border-color)', background: 'rgba(59, 130, 246, 0.1)' }}>
                     <input
                         autoFocus
                         value={newItemValue}
@@ -312,7 +312,7 @@ const CustomizeLeadPage = () => {
                                         borderRadius: '6px',
                                         fontSize: '0.9rem',
                                         color: active ? '#2563eb' : 'var(--text-main)',
-                                        background: active ? '#eff6ff' : 'transparent',
+                                        background: active ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
                                         fontWeight: active ? 600 : 400,
                                         cursor: onSelect ? 'pointer' : 'default',
                                         display: 'flex',

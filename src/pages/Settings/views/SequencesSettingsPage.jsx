@@ -196,7 +196,7 @@ const SequencesSettingsPage = () => {
                                             fontWeight: '600',
                                             border: 'none',
                                             cursor: 'pointer',
-                                            background: seq.active ? '#dcfce7' : '#fee2e2',
+                                            background: seq.active ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
                                             color: seq.active ? '#166534' : '#991b1b'
                                         }}
                                     >

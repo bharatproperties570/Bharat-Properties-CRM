@@ -69,7 +69,7 @@ const FeedbackSettingsPage = () => {
                         {forms.map(form => (
                             <div key={form._id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '20px', padding: '24px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
-                                    <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#2563eb', background: '#eff6ff', padding: '4px 8px', borderRadius: '6px' }}>SURVEY</span>
+                                    <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#2563eb', background: 'rgba(59, 130, 246, 0.1)', padding: '4px 8px', borderRadius: '6px' }}>SURVEY</span>
                                     <div style={{ display: 'flex', gap: '10px' }}>
                                         <button onClick={() => copyLink(form)} style={{ background: 'none', border: 'none', color: '#2563eb', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer' }}>
                                             Copy Link
@@ -89,7 +89,7 @@ const FeedbackSettingsPage = () => {
                                 </div>
                                 <div style={{ marginTop: '20px', display: 'flex', gap: '10px' }}>
                                     <button onClick={() => { setSelectedForm(form); setView('builder'); }} style={{ flex: 1, padding: '8px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', fontWeight: 700, cursor: 'pointer' }}>Edit</button>
-                                    <button onClick={() => handleDelete(form._id)} style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid #fee2e2', color: '#ef4444', cursor: 'pointer' }}>Del</button>
+                                    <button onClick={() => handleDelete(form._id)} style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid rgba(239, 68, 68, 0.15)', color: '#ef4444', cursor: 'pointer' }}>Del</button>
                                 </div>
                             </div>
                         ))}

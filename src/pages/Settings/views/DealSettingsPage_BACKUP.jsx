@@ -700,7 +700,7 @@ const DealSettingsPage = () => {
                                                 <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                                                     <button
                                                         onClick={() => handleDeleteRate(rate._id)}
-                                                        style={{ background: '#fee2e2', color: '#ef4444', border: 'none', width: '32px', height: '32px', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                                        style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', border: 'none', width: '32px', height: '32px', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                                                         title="Delete"
                                                     >
                                                         <i className="fas fa-trash-alt" style={{ fontSize: '0.8rem' }}></i>
@@ -736,9 +736,9 @@ const DealSettingsPage = () => {
                                             </td>
                                             <td style={tableCellStyle}>
                                                 <div style={{ display: 'flex', gap: '8px' }}>
-                                                    <span title="Male" style={{ background: '#dbeafe', color: '#1e40af', padding: '2px 6px', borderRadius: '4px', fontSize: '0.75rem' }}>{cfg.value?.stampDutyMale}%</span>
+                                                    <span title="Male" style={{ background: 'rgba(59, 130, 246, 0.2)', color: '#1e40af', padding: '2px 6px', borderRadius: '4px', fontSize: '0.75rem' }}>{cfg.value?.stampDutyMale}%</span>
                                                     <span title="Female" style={{ background: '#fce7f3', color: '#9d174d', padding: '2px 6px', borderRadius: '4px', fontSize: '0.75rem' }}>{cfg.value?.stampDutyFemale}%</span>
-                                                    <span title="Joint" style={{ background: '#fef3c7', color: '#92400e', padding: '2px 6px', borderRadius: '4px', fontSize: '0.75rem' }}>{cfg.value?.stampDutyJoint}%</span>
+                                                    <span title="Joint" style={{ background: 'rgba(245, 158, 11, 0.2)', color: '#92400e', padding: '2px 6px', borderRadius: '4px', fontSize: '0.75rem' }}>{cfg.value?.stampDutyJoint}%</span>
                                                 </div>
                                             </td>
                                             <td style={{ ...tableCellStyle, textAlign: 'right' }}>
@@ -758,7 +758,7 @@ const DealSettingsPage = () => {
                                                     </button>
                                                     <button
                                                         onClick={() => handleDeleteConfig(cfg.key)}
-                                                        style={{ background: '#fee2e2', color: '#ef4444', border: 'none', width: '32px', height: '32px', borderRadius: '6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                                                        style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', border: 'none', width: '32px', height: '32px', borderRadius: '6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
                                                         title="Delete Config"
                                                     >
                                                         <i className="fas fa-trash-alt" style={{ fontSize: '0.8rem' }}></i>
@@ -847,7 +847,7 @@ const DealSettingsPage = () => {
                         {/* Modal Header */}
                         <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-light)', flexShrink: 0 }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                                <div style={{ width: '42px', height: '42px', background: '#eff6ff', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <div style={{ width: '42px', height: '42px', background: 'rgba(59, 130, 246, 0.1)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                     <i className="fas fa-map-marked-alt" style={{ color: '#2563eb', fontSize: '1.2rem' }}></i>
                                 </div>
                                 <div>
@@ -1007,7 +1007,7 @@ const DealSettingsPage = () => {
                                         <div style={{ background: 'var(--bg-card)', padding: '16px', borderRadius: '12px', border: '1px solid #f1f5f9' }}>
                                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', alignItems: 'center' }}>
                                                 <label style={{ ...labelStyle, marginBottom: 0, fontSize: '0.75rem' }}>Road Multipliers</label>
-                                                <button onClick={() => addMultiplier('road')} style={{ background: '#eff6ff', color: '#2563eb', border: 'none', borderRadius: '6px', padding: '4px 10px', fontSize: '0.7rem', fontWeight: 800, cursor: 'pointer', transition: 'all 0.2s' }} className="hover:bg-blue-100">+ Add</button>
+                                                <button onClick={() => addMultiplier('road')} style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#2563eb', border: 'none', borderRadius: '6px', padding: '4px 10px', fontSize: '0.7rem', fontWeight: 800, cursor: 'pointer', transition: 'all 0.2s' }} className="hover:bg-blue-100">+ Add</button>
                                             </div>
                                             {rateForm.roadMultipliers.length > 0 ? rateForm.roadMultipliers.map((m, idx) => (
                                                 <div key={idx} style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
@@ -1037,7 +1037,7 @@ const DealSettingsPage = () => {
                                         <div style={{ background: 'var(--bg-card)', padding: '16px', borderRadius: '12px', border: '1px solid #f1f5f9' }}>
                                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', alignItems: 'center' }}>
                                                 <label style={{ ...labelStyle, marginBottom: 0, fontSize: '0.75rem' }}>Floor Multipliers</label>
-                                                <button onClick={() => addMultiplier('floor')} style={{ background: '#eff6ff', color: '#2563eb', border: 'none', borderRadius: '6px', padding: '4px 10px', fontSize: '0.7rem', fontWeight: 800, cursor: 'pointer', transition: 'all 0.2s' }} className="hover:bg-blue-100">+ Add</button>
+                                                <button onClick={() => addMultiplier('floor')} style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#2563eb', border: 'none', borderRadius: '6px', padding: '4px 10px', fontSize: '0.7rem', fontWeight: 800, cursor: 'pointer', transition: 'all 0.2s' }} className="hover:bg-blue-100">+ Add</button>
                                             </div>
                                             {rateForm.floorMultipliers.length > 0 ? rateForm.floorMultipliers.map((m, idx) => (
                                                 <div key={idx} style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
@@ -1097,7 +1097,7 @@ const DealSettingsPage = () => {
                                                 {rateForm.queuedRates.map((item, idx) => (
                                                     <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', background: 'var(--bg-light)', borderRadius: '10px', border: '1px solid #f1f5f9' }}>
                                                         <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
-                                                            <div style={{ width: '32px', height: '32px', background: '#eff6ff', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2563eb', fontWeight: 800, fontSize: '0.75rem' }}>{idx + 1}</div>
+                                                            <div style={{ width: '32px', height: '32px', background: 'rgba(59, 130, 246, 0.1)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2563eb', fontWeight: 800, fontSize: '0.75rem' }}>{idx + 1}</div>
                                                             <div>
                                                                 <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-main)' }}>{item.category} • {item.subCategory}</div>
                                                                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>₹{item.rate} per {item.rateUnit} ({item.rateApplyOn})</div>
@@ -1106,7 +1106,7 @@ const DealSettingsPage = () => {
                                                         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                                                             <div style={{ display: 'flex', gap: '4px' }}>
                                                                 {item.roadMultipliers.length > 0 && <span style={{ fontSize: '0.65rem', padding: '2px 6px', background: '#fff7ed', color: '#c2410c', borderRadius: '4px', border: '1px solid #ffedd5' }}>{item.roadMultipliers.length} Road</span>}
-                                                                {item.floorMultipliers.length > 0 && <span style={{ fontSize: '0.65rem', padding: '2px 6px', background: 'var(--stat-property-bg)', color: '#15803d', borderRadius: '4px', border: '1px solid #dcfce7' }}>{item.floorMultipliers.length} Floor</span>}
+                                                                {item.floorMultipliers.length > 0 && <span style={{ fontSize: '0.65rem', padding: '2px 6px', background: 'var(--stat-property-bg)', color: '#15803d', borderRadius: '4px', border: '1px solid rgba(34, 197, 94, 0.15)' }}>{item.floorMultipliers.length} Floor</span>}
                                                             </div>
                                                             <button onClick={() => removeFromQueue(idx)} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '4px' }}><i className="fas fa-times"></i></button>
                                                         </div>

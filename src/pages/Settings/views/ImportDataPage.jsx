@@ -573,7 +573,7 @@ const ImportDataPage = () => {
                                     onClick={() => setModule(mod.id)}
                                     style={{
                                         border: module === mod.id ? '2px solid var(--primary-color)' : '1px solid var(--border-color)',
-                                        background: module === mod.id ? '#eff6ff' : 'var(--bg-card)',
+                                        background: module === mod.id ? 'rgba(59, 130, 246, 0.1)' : 'var(--bg-card)',
                                         borderRadius: '12px',
                                         padding: '24px',
                                         cursor: 'pointer',
@@ -658,7 +658,7 @@ const ImportDataPage = () => {
                                         {teams.length === 0 ? (
                                             <div style={{ gridColumn: 'span 2', textAlign: 'center', padding: '10px', color: 'var(--text-muted)' }}>No teams found. Ensure teams are created in User Management.</div>
                                         ) : teams.map(t => (
-                                            <label key={t._id} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', padding: '4px 8px', borderRadius: '4px', background: selectedTeams.includes(t._id) ? '#eff6ff' : 'transparent', transition: 'all 0.2s' }}>
+                                            <label key={t._id} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', padding: '4px 8px', borderRadius: '4px', background: selectedTeams.includes(t._id) ? 'rgba(59, 130, 246, 0.1)' : 'transparent', transition: 'all 0.2s' }}>
                                                 <input 
                                                     type="checkbox" 
                                                     checked={selectedTeams.includes(t._id)}
@@ -687,7 +687,7 @@ const ImportDataPage = () => {
                             style={{
                                 border: isDragging ? '2px dashed var(--primary-color)' : '2px dashed #cbd5e1',
                                 borderRadius: '12px',
-                                background: isDragging ? '#eff6ff' : 'var(--bg-light)',
+                                background: isDragging ? 'rgba(59, 130, 246, 0.1)' : 'var(--bg-light)',
                                 padding: '60px 40px',
                                 textAlign: 'center',
                                 cursor: 'pointer',
@@ -707,7 +707,7 @@ const ImportDataPage = () => {
                             />
                         </div>
 
-                        <div style={{ background: '#eff6ff', borderRadius: '8px', padding: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div style={{ background: 'rgba(59, 130, 246, 0.1)', borderRadius: '8px', padding: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                 <i className="fas fa-file-csv" style={{ fontSize: '1.5rem', color: '#2563eb' }}></i>
                                 <div>
@@ -906,7 +906,7 @@ const ImportDataPage = () => {
                                                                                             {Object.keys(fieldChoices).length > 0 && (
                                                                                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px' }}>
                                                                                                     {Object.entries(fieldChoices).map(([f, v]) => (
-                                                                                                        <span key={f} style={{ fontSize: '0.65rem', padding: '1px 6px', borderRadius: '10px', fontWeight: 700, background: v === 'UPDATE' ? '#dcfce7' : '#dbeafe', color: v === 'UPDATE' ? '#166534' : '#1e40af' }}>
+                                                                                                        <span key={f} style={{ fontSize: '0.65rem', padding: '1px 6px', borderRadius: '10px', fontWeight: 700, background: v === 'UPDATE' ? 'rgba(34, 197, 94, 0.15)' : 'rgba(59, 130, 246, 0.2)', color: v === 'UPDATE' ? '#166534' : '#1e40af' }}>
                                                                                                             {f.replace('Address ', '')}: {v === 'UPDATE' ? '↑CSV' : '✓SYS'}
                                                                                                         </span>
                                                                                                     ))}
@@ -986,7 +986,7 @@ const ImportDataPage = () => {
                                                                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0' }}>
                                                                                     <div style={{ padding: '16px 20px', borderRight: '1px solid #fecaca', background: 'var(--bg-card)' }}>
                                                                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                                                                                            <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#dbeafe', color: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem' }}>
+                                                                                            <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: 'rgba(59, 130, 246, 0.2)', color: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem' }}>
                                                                                                 <i className="fas fa-file-csv"></i>
                                                                                             </div>
                                                                                             <span style={{ fontWeight: 700, color: '#1e40af', fontSize: '0.85rem' }}>FROM YOUR CSV FILE</span>
@@ -1109,7 +1109,7 @@ const ImportDataPage = () => {
                                                 const searchResults = unitSearchResults[nf.rowKey] || [];
                                                 const sqVal = unitSearchQuery[nf.rowKey] || '';
                                                 return (
-                                                    <div key={nf.rowKey} style={{ padding: '18px 24px', borderBottom: nfIdx < notFound.length - 1 ? '1px solid #fef3c7' : 'none', background: override ? 'var(--stat-property-bg)' : 'var(--bg-card)' }}>
+                                                    <div key={nf.rowKey} style={{ padding: '18px 24px', borderBottom: nfIdx < notFound.length - 1 ? '1px solid rgba(245, 158, 11, 0.2)' : 'none', background: override ? 'var(--stat-property-bg)' : 'var(--bg-card)' }}>
                                                         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
                                                             <div>
                                                                 <div style={{ fontWeight: 700, color: '#92400e', fontSize: '0.9rem', marginBottom: '4px' }}>
@@ -1122,7 +1122,7 @@ const ImportDataPage = () => {
                                                             </div>
                                                             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', minWidth: '280px' }}>
                                                                 {override ? (
-                                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', borderRadius: '8px', background: '#dcfce7', border: '1px solid #86efac' }}>
+                                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', borderRadius: '8px', background: 'rgba(34, 197, 94, 0.15)', border: '1px solid #86efac' }}>
                                                                         <i className="fas fa-check-circle" style={{ color: '#16a34a' }}></i>
                                                                         <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#166534' }}>Matched to: {override.unitNo || override.unitNumber}</span>
                                                                         <button onClick={() => setUnitOverrides(prev => { const n = {...prev}; delete n[nf.rowKey]; return n; })} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#16a34a', cursor: 'pointer', fontWeight: 700, fontSize: '0.75rem' }}>✕ Change</button>
@@ -1151,7 +1151,7 @@ const ImportDataPage = () => {
                                                                                             setUnitSearchResults(prev => ({ ...prev, [nf.rowKey]: [] }));
                                                                                         }}
                                                                                         style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: '0.85rem' }}
-                                                                                        onMouseOver={e => e.currentTarget.style.background='#f0f9ff'}
+                                                                                        onMouseOver={e => e.currentTarget.style.background='rgba(59, 130, 246, 0.08)'}
                                                                                         onMouseOut={e => e.currentTarget.style.background='var(--bg-card)'}
                                                                                     >
                                                                                         <div style={{ fontWeight: 700, color: 'var(--text-main)' }}>{unit.unitNo || unit.unitNumber}</div>
@@ -1182,15 +1182,15 @@ const ImportDataPage = () => {
                                                 <div key={`upd-${idx}`} style={{ padding: '16px', background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
                                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                                                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                                            <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: '#eff6ff', color: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>
+                                                            <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'rgba(59, 130, 246, 0.1)', color: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>
                                                                 {update.name?.charAt(0) || 'C'}
                                                             </div>
                                                             <div>
-                                                                <div style={{ fontWeight: 700, color: 'var(--text-main)' }}>{update.name} <span style={{ fontSize: '0.7rem', color: '#2563eb', background: '#dbeafe', padding: '2px 6px', borderRadius: '4px', marginLeft: '8px' }}>UPDATE PLANNED</span></div>
+                                                                <div style={{ fontWeight: 700, color: 'var(--text-main)' }}>{update.name} <span style={{ fontSize: '0.7rem', color: '#2563eb', background: 'rgba(59, 130, 246, 0.2)', padding: '2px 6px', borderRadius: '4px', marginLeft: '8px' }}>UPDATE PLANNED</span></div>
                                                                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{update.mobile} • Unit: {update.unitNo}</div>
                                                             </div>
                                                         </div>
-                                                        <div style={{ fontSize: '0.75rem', color: '#2563eb', fontWeight: 600, background: '#eff6ff', padding: '4px 10px', borderRadius: '20px' }}>
+                                                        <div style={{ fontSize: '0.75rem', color: '#2563eb', fontWeight: 600, background: 'rgba(59, 130, 246, 0.1)', padding: '4px 10px', borderRadius: '20px' }}>
                                                             {update.diffs.length} fields changing
                                                         </div>
                                                     </div>
@@ -1218,7 +1218,7 @@ const ImportDataPage = () => {
                                                                 {match.name?.charAt(0) || 'M'}
                                                             </div>
                                                             <div>
-                                                                <div style={{ fontWeight: 700, color: 'var(--text-muted)' }}>{match.name || match.lookup_value || 'Existing Contact'} <span style={{ fontSize: '0.7rem', color: '#16a34a', background: '#dcfce7', padding: '2px 6px', borderRadius: '4px', marginLeft: '8px' }}>VERIFIED MATCH (NO CHANGES)</span></div>
+                                                                <div style={{ fontWeight: 700, color: 'var(--text-muted)' }}>{match.name || match.lookup_value || 'Existing Contact'} <span style={{ fontSize: '0.7rem', color: '#16a34a', background: 'rgba(34, 197, 94, 0.15)', padding: '2px 6px', borderRadius: '4px', marginLeft: '8px' }}>VERIFIED MATCH (NO CHANGES)</span></div>
                                                                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{match.mobile || match.lookup_value || 'Matched by Identity'}</div>
                                                             </div>
                                                         </div>
@@ -1323,7 +1323,7 @@ const ImportDataPage = () => {
                 {step === 6 && (
                     <div style={{ maxWidth: '600px', margin: '40px auto', textAlign: 'center', padding: '40px', background: 'var(--bg-light)', borderRadius: '16px', border: '1px dashed var(--border-color)' }}>
                         <div style={{
-                            width: '80px', height: '80px', background: '#eff6ff', color: '#3b82f6',
+                            width: '80px', height: '80px', background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6',
                             borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
                             fontSize: '2.5rem', margin: '0 auto 24px'
                         }}>
@@ -1365,7 +1365,7 @@ const ImportDataPage = () => {
                     <div style={{ maxWidth: '800px', margin: '0 auto', textAlign: 'center', padding: '20px 0' }}>
                         <div style={{
                             width: '80px', height: '80px',
-                            background: importStats.failed > 0 ? '#fff7ed' : '#dcfce7',
+                            background: importStats.failed > 0 ? '#fff7ed' : 'rgba(34, 197, 94, 0.15)',
                             color: importStats.failed > 0 ? '#ea580c' : '#16a34a',
                             borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
                             fontSize: '2.5rem', margin: '0 auto 24px'
@@ -1450,7 +1450,7 @@ const ImportDataPage = () => {
                                                         <td style={{ padding: '12px', color: 'var(--text-muted)' }}>{log.project || 'N/A'}</td>
                                                         <td style={{ padding: '12px', color: 'var(--text-muted)' }}>{log.block || 'N/A'}</td>
                                                         <td style={{ padding: '12px' }}>
-                                                            <span style={{ padding: '2px 8px', borderRadius: '4px', background: log.status === 'Conflict Pending' ? 'var(--danger-bg)' : '#dcfce7', color: log.status === 'Conflict Pending' ? '#dc2626' : '#16a34a', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase' }}>{log.status}</span>
+                                                            <span style={{ padding: '2px 8px', borderRadius: '4px', background: log.status === 'Conflict Pending' ? 'var(--danger-bg)' : 'rgba(34, 197, 94, 0.15)', color: log.status === 'Conflict Pending' ? '#dc2626' : '#16a34a', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase' }}>{log.status}</span>
                                                         </td>
                                                         {module === 'propertyOwners' && (
                                                             <td style={{ padding: '12px' }}>

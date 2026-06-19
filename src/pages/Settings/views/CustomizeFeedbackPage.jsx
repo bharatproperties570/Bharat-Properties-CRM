@@ -145,7 +145,7 @@ const CustomizeFeedbackPage = ({ isEmbedded }) => {
                                 style={{
                                     padding: '12px 16px',
                                     borderRadius: '8px',
-                                    background: selectedOutcome === outcome ? '#eff6ff' : 'var(--bg-card)',
+                                    background: selectedOutcome === outcome ? 'rgba(59, 130, 246, 0.1)' : 'var(--bg-card)',
                                     border: selectedOutcome === outcome ? '1px solid #3b82f6' : '1px solid var(--border-color)',
                                     color: selectedOutcome === outcome ? '#1e40af' : 'var(--text-muted)',
                                     fontWeight: selectedOutcome === outcome ? 700 : 500,
@@ -326,7 +326,7 @@ const CustomizeFeedbackPage = ({ isEmbedded }) => {
                                                 padding: '10px 12px',
                                                 borderRadius: '8px',
                                                 background: rule.inventoryStatus ? (rule.inventoryStatus === 'Active' ? '#ecfdf5' : 'var(--danger-bg)') : 'var(--bg-light)',
-                                                border: `1px solid ${rule.inventoryStatus ? (rule.inventoryStatus === 'Active' ? '#d1fae5' : '#fee2e2') : 'var(--border-color)'}`,
+                                                border: `1px solid ${rule.inventoryStatus ? (rule.inventoryStatus === 'Active' ? '#d1fae5' : 'rgba(239, 68, 68, 0.15)') : 'var(--border-color)'}`,
                                                 color: rule.inventoryStatus ? (rule.inventoryStatus === 'Active' ? '#047857' : '#b91c1c') : 'var(--text-muted)',
                                                 fontSize: '0.8rem',
                                                 fontWeight: 800,
@@ -386,7 +386,7 @@ const CustomizeFeedbackPage = ({ isEmbedded }) => {
                                                             transition: 'all 0.2s',
                                                             boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
                                                         }}
-                                                        onMouseEnter={(e) => { e.target.style.background = '#eff6ff'; e.target.style.borderColor = '#3b82f6'; e.target.style.color = '#2563eb'; }}
+                                                        onMouseEnter={(e) => { e.target.style.background = 'rgba(59, 130, 246, 0.1)'; e.target.style.borderColor = '#3b82f6'; e.target.style.color = '#2563eb'; }}
                                                         onMouseLeave={(e) => { e.target.style.background = 'var(--bg-card)'; e.target.style.borderColor = 'var(--border-color)'; e.target.style.color = 'var(--text-main)'; }}
                                                     >
                                                         {tag}

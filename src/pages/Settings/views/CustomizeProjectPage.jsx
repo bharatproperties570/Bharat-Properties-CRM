@@ -164,7 +164,7 @@ const CustomizeProjectPage = () => {
                                             fontSize: '0.9rem',
                                             fontWeight: activeDetailField === field ? 600 : 500,
                                             color: activeDetailField === field ? '#2563eb' : 'var(--text-muted)',
-                                            background: activeDetailField === field ? '#eff6ff' : 'transparent',
+                                            background: activeDetailField === field ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
                                             marginBottom: '8px',
                                             textTransform: 'capitalize'
                                         }}
@@ -237,7 +237,7 @@ const CustomizeProjectPage = () => {
                                         </div>
                                     ))}
                                     {projectMasterFields[activeDetailField].length === 0 && (
-                                        <div style={{ gridColumn: '1/-1', padding: '32px', textAlign: 'center', color: 'var(--text-muted)', border: '2px dashed #e2e8f0', borderRadius: '8px' }}>
+                                        <div style={{ gridColumn: '1/-1', padding: '32px', textAlign: 'center', color: 'var(--text-muted)', border: '2px dashed rgba(148, 163, 184, 0.15)', borderRadius: '8px' }}>
                                             No items found. Add one to get started.
                                         </div>
                                     )}
@@ -295,13 +295,13 @@ const CustomizeProjectPage = () => {
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '16px' }}>
                                 {(projectAmenities[amenityCategory] || []).map(amenity => (
                                     <div key={amenity.id} style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', background: 'var(--bg-card)', borderRadius: '8px', border: '1px solid var(--border-color)', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}>
-                                        <div style={{ width: '36px', height: '36px', background: '#eff6ff', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6', marginRight: '12px' }}>
+                                        <div style={{ width: '36px', height: '36px', background: 'rgba(59, 130, 246, 0.1)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6', marginRight: '12px' }}>
                                             <i className={`fas ${amenity.icon}`}></i>
                                         </div>
                                         <div style={{ flex: 1, fontWeight: 600, color: 'var(--text-main)', fontSize: '0.9rem' }}>{amenity.name}</div>
                                         <button
                                             onClick={() => handleDeleteAmenity(amenity.id)}
-                                            style={{ width: '28px', height: '28px', background: '#fee2e2', color: '#ef4444', border: 'none', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                            style={{ width: '28px', height: '28px', background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', border: 'none', borderRadius: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                                         >
                                             <i className="fas fa-trash-alt" style={{ fontSize: '0.75rem' }}></i>
                                         </button>
@@ -370,7 +370,7 @@ const CustomizeProjectPage = () => {
                                                     value={newAmenity.icon}
                                                     onChange={e => setNewAmenity({ ...newAmenity, icon: e.target.value })}
                                                 />
-                                                <div style={{ width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#eff6ff', borderRadius: '6px', color: '#3b82f6' }}>
+                                                <div style={{ width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(59, 130, 246, 0.1)', borderRadius: '6px', color: '#3b82f6' }}>
                                                     <i className={`fas ${newAmenity.icon || 'fa-question'}`}></i>
                                                 </div>
                                             </div>

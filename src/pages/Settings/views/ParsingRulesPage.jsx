@@ -134,7 +134,7 @@ const ParsingRulesPage = ({ isEmbedded = false }) => {
                             <div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
                                     <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)', margin: 0 }}>Hubs, Projects & Localities</h3>
-                                    <span style={{ fontSize: '0.75rem', padding: '2px 8px', background: '#dcfce7', color: '#166534', borderRadius: '4px', fontWeight: 700 }}>Dynamic Regex</span>
+                                    <span style={{ fontSize: '0.75rem', padding: '2px 8px', background: 'rgba(34, 197, 94, 0.15)', color: '#166534', borderRadius: '4px', fontWeight: 700 }}>Dynamic Regex</span>
                                 </div>
                                 <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '16px' }}>
                                     Add known projects or localities (e.g. "Green Lotus", "Aerocity"). The parser will automatically recognize these in text messages.
@@ -263,14 +263,14 @@ const ParsingRulesPage = ({ isEmbedded = false }) => {
                                         {/* Status Tag */}
                                         <div style={{ display: 'flex', gap: '8px' }}>
                                             <span style={{
-                                                background: testResult.intent === 'BUYER' ? '#dcfce7' : '#dbeafe',
+                                                background: testResult.intent === 'BUYER' ? 'rgba(34, 197, 94, 0.15)' : 'rgba(59, 130, 246, 0.2)',
                                                 color: testResult.intent === 'BUYER' ? '#166534' : '#1e40af',
                                                 padding: '4px 12px', borderRadius: '4px', fontWeight: 800, fontSize: '0.8rem'
                                             }}>
                                                 {testResult.intent} INTENT
                                             </span>
                                             {testResult.confidence === 'High' && (
-                                                <span style={{ background: '#fef3c7', color: '#92400e', padding: '4px 8px', borderRadius: '4px', fontWeight: 700, fontSize: '0.75rem' }}>
+                                                <span style={{ background: 'rgba(245, 158, 11, 0.2)', color: '#92400e', padding: '4px 8px', borderRadius: '4px', fontWeight: 700, fontSize: '0.75rem' }}>
                                                     HIGH CONFIDENCE
                                                 </span>
                                             )}

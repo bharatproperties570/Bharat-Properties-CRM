@@ -93,7 +93,7 @@ const DealCaptureSettingsPage = () => {
                         <p style={{ marginTop: '16px', color: 'var(--text-muted)' }}>Loading forms...</p>
                     </div>
                 ) : forms.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '100px', background: 'var(--bg-light)', borderRadius: '24px', border: '2px dashed #e2e8f0' }}>
+                    <div style={{ textAlign: 'center', padding: '100px', background: 'var(--bg-light)', borderRadius: '24px', border: '2px dashed rgba(148, 163, 184, 0.15)' }}>
                         <div style={{ width: '80px', height: '80px', background: 'var(--bg-card)', borderRadius: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px', fontSize: '2rem', color: 'var(--text-muted)' }}>
                             <i className="fas fa-handshake"></i>
                         </div>
@@ -134,7 +134,7 @@ const DealCaptureSettingsPage = () => {
                                     </div>
 
                                     <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: 'var(--text-main)' }}>{form.name}</h3>
-                                    <p style={{ fontSize: '0.85rem', color: '#3b82f6', fontWeight: 600, marginTop: '4px', background: '#eff6ff', padding: '4px 10px', borderRadius: '6px', display: 'inline-block' }}>/capture/{form.slug}</p>
+                                    <p style={{ fontSize: '0.85rem', color: '#3b82f6', fontWeight: 600, marginTop: '4px', background: 'rgba(59, 130, 246, 0.1)', padding: '4px 10px', borderRadius: '6px', display: 'inline-block' }}>/capture/{form.slug}</p>
 
                                     {/* Stats Grid */}
                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', marginTop: '24px', padding: '16px', background: 'var(--bg-light)', borderRadius: '12px' }}>
@@ -162,7 +162,7 @@ const DealCaptureSettingsPage = () => {
                                         </button>
                                         <button
                                             onClick={() => handleDelete(form._id)}
-                                            style={{ padding: '10px 14px', borderRadius: '10px', border: '1px solid #fee2e2', background: 'var(--bg-card)', color: '#ef4444', cursor: 'pointer' }}
+                                            style={{ padding: '10px 14px', borderRadius: '10px', border: '1px solid rgba(239, 68, 68, 0.15)', background: 'var(--bg-card)', color: '#ef4444', cursor: 'pointer' }}
                                         >
                                             <i className="far fa-trash-alt"></i>
                                         </button>
@@ -200,7 +200,7 @@ const DealCaptureSettingsPage = () => {
                             </button>
                         </div>
 
-                        <div style={{ marginTop: '32px', display: 'flex', gap: '16px', alignItems: 'center', padding: '20px', background: '#eff6ff', borderRadius: '16px', border: '1px solid #dbeafe' }}>
+                        <div style={{ marginTop: '32px', display: 'flex', gap: '16px', alignItems: 'center', padding: '20px', background: 'rgba(59, 130, 246, 0.1)', borderRadius: '16px', border: '1px solid rgba(59, 130, 246, 0.2)' }}>
                             <div style={{ width: '40px', height: '40px', background: '#3b82f6', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff' }}>
                                 <i className="fas fa-qrcode"></i>
                             </div>

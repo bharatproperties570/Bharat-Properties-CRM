@@ -310,7 +310,7 @@ const TriggersSettingsPage = () => {
                                                         fontWeight: '600',
                                                         border: 'none',
                                                         cursor: 'pointer',
-                                                        background: trigger.isActive ? '#dcfce7' : '#fee2e2',
+                                                        background: trigger.isActive ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
                                                         color: trigger.isActive ? '#166534' : '#991b1b'
                                                     }}
                                                 >
@@ -400,7 +400,7 @@ const TriggersSettingsPage = () => {
                                             borderRadius: '4px',
                                             fontSize: '11px',
                                             fontWeight: '700',
-                                            background: log.success ? '#dcfce7' : '#fee2e2',
+                                            background: log.success ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
                                             color: log.success ? '#166534' : '#991b1b'
                                         }}>
                                             {log.success ? 'SUCCESS' : 'FAILED'}
