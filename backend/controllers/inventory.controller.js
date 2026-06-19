@@ -2433,35 +2433,25 @@ export const bulkUpdatePropertyOwners = async (req, res) => {
 
                 let fullAddress = row.address || row.ownerAddress || row.fullAddress || row['Full Address'] || row['Address'] || '';
                 
-                // 🚀 [HARDENED ENTERPRISE LOOPHOLE FIX]
-                // Force ALL mapped fields through the AddressParsingService to enforce strict taxonomy.
-                const combinedAddressToParse = [hNo, street, area, locality, city, tehsil, postOffice, state, pincode, fullAddress]
-                    .filter(Boolean)
-                    .join(', ');
-
-                if (combinedAddressToParse) {
+                // 🚀 [USER FEEDBACK FIX] 
+                // Only run parsing if the fullAddress field is mapped.
+                // Do NOT overwrite explicitly mapped individual fields with parsed data.
+                if (fullAddress) {
                     try {
-                        const parsed = await AddressParsingService.parseAddress(combinedAddressToParse, true);
+                        const parsed = await AddressParsingService.parseAddress(fullAddress, true);
                         
-                        // Override raw mapped fields with strictly validated Master Data fields
-                        hNo = parsed.houseNo || hNo;
-                        street = parsed.street || street;
-                        area = parsed.area || area;
-                        locality = parsed.location || parsed.area || locality;
+                        // Fill in gaps where individual fields were NOT mapped
+                        hNo = hNo || parsed.houseNo;
+                        street = street || parsed.street;
+                        area = area || parsed.area;
+                        locality = locality || parsed.location || parsed.area;
                         
-                        // Enforce Thanesar -> Kurukshetra mappings
-                        if (parsed.city) {
-                            city = parsed.city;
-                        }
-                        if (parsed.tehsil) {
-                            tehsil = parsed.tehsil;
-                        }
-                        if (parsed.postOffice) {
-                            postOffice = parsed.postOffice;
-                        }
-
-                        state = parsed.state || state;
-                        pincode = parsed.pincode || pincode;
+                        // Enforce mappings only for unmapped fields
+                        if (!city && parsed.city) city = parsed.city;
+                        if (!tehsil && parsed.tehsil) tehsil = parsed.tehsil;
+                        if (!postOffice && parsed.postOffice) postOffice = parsed.postOffice;
+                        if (!state && parsed.state) state = parsed.state;
+                        if (!pincode && parsed.pincode) pincode = parsed.pincode;
                     } catch (parseErr) {
                         console.error("[BULK_OWNER_UPDATE] Address parse fallback failed:", parseErr.message);
                     }
