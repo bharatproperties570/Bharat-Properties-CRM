@@ -256,7 +256,7 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onEditProject }) => 
                         {isMenuOpen && (
                             <>
                                 <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 999 }} onClick={() => setIsMenuOpen(false)}></div>
-                                <div style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, width: '220px', background: 'var(--bg-card)', borderRadius: '12px', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)', border: '1px solid var(--border-color)', zIndex: 1000, overflow: 'hidden' }}>
+                                <div style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, width: '220px', background: isDark ? 'rgba(7, 22, 43, 0.98)' : '#ffffff', borderRadius: '12px', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.2), 0 8px 10px -6px rgba(0,0,0,0.1)', border: '1px solid var(--border-color)', zIndex: 1000, overflow: 'hidden', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}>
                                     <div onClick={() => { setIsMenuOpen(false); onEditProject && onEditProject(project); }} style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)', borderBottom: '1px solid var(--border-color)' }}>
                                         <i className="fas fa-edit text-blue-500" style={{ width: '16px' }}></i> Edit Project
                                     </div>
