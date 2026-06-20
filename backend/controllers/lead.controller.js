@@ -1720,6 +1720,30 @@ export const matchLeads = async (req, res) => {
 
             if (score < 30) return null;
 
+            // --- STRICT ENTERPRISE PREFERRED MATCH ---
+            const leadSubCats = (Array.isArray(lead.subCategory) ? lead.subCategory : []).map(s => getLookupValLocal(s)).filter(Boolean);
+            const dealSubCat = getLookupValLocal(deal.subCategory);
+            const isSubCatMatch = leadSubCats.length === 0 || (dealSubCat && leadSubCats.some(s => dealSubCat.includes(s) || s.includes(dealSubCat)));
+
+            const leadSizeTypes = (Array.isArray(lead.sizeType) ? lead.sizeType : []).map(s => getLookupValLocal(s)).filter(Boolean);
+            const leadUnitTypes = (Array.isArray(lead.unitType) ? lead.unitType : []).map(u => getLookupValLocal(u)).filter(Boolean);
+            
+            const dealSizeDesc = [
+                deal.sizeType, deal.inventoryId?.sizeType,
+                deal.unitType, deal.inventoryId?.unitType,
+                deal.sizeConfig, deal.inventoryId?.sizeConfig,
+                deal.sizeLabel, deal.inventoryId?.sizeLabel,
+                deal.unitSpecification?.sizeLabel, deal.inventoryId?.unitSpecification?.sizeLabel
+            ].map(s => getLookupValLocal(s)).filter(Boolean).join(" ");
+
+            const isSizeTypeMatch = leadSizeTypes.length === 0 || leadSizeTypes.some(s => dealSizeDesc.includes(s));
+            const isUnitTypeMatch = leadUnitTypes.length === 0 || leadUnitTypes.some(u => dealSizeDesc.includes(u));
+
+            const isBudgetMatch = lMax === 0 || (dealPrice > 0 && dealPrice >= lMin && dealPrice <= lMax);
+            const isLocationMatch = locScore === 100 || (!dealLoc || !leadLocVal);
+
+            const isPreferredMatch = isSubCatMatch && isSizeTypeMatch && isUnitTypeMatch && isBudgetMatch && isLocationMatch;
+
             const leadReqLabel = getLookupLabelLocal(lead.requirement) || "Buy";
             const leadBudgetLabel = getLookupLabelLocal(lead.budget) || "";
             const leadLocLabel = getLookupLabelLocal(lead.location) || "";
@@ -1729,6 +1753,7 @@ export const matchLeads = async (req, res) => {
 
             return {
                 ...lead,
+                isPreferredMatch,
                 score: Math.round(score),
                 matchPercentage: Math.round(score),
                 matchReasons: reasons,

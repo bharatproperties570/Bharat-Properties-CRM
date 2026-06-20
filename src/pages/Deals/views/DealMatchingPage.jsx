@@ -152,14 +152,24 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
         const price = deal ? formatIndianCurrency(deal.price || 0) : '';
         selected.forEach(l => {
             const msg = `Hi ${l.firstName}, we have a property matching your requirement at ${loc}. Price: ${price}. Interested?`;
-            window.open(`https://wa.me/91${l.mobile}?text=${encodeURIComponent(msg)}`, '_blank');
+            const encodedMsg = encodeURIComponent(msg);
+            if (l.isPreferredMatch) {
+                window.location.href = `whatsapp://send?phone=91${l.mobile}&text=${encodedMsg}`;
+            } else {
+                window.open(`https://wa.me/91${l.mobile}?text=${encodedMsg}`, '_blank');
+            }
         });
     };
 
     // Communication Handlers
     const handleWhatsApp = (lead) => {
         const msg = `Hi ${lead.firstName}, I found a property matching your requirement: ${renderVal(deal.propertyType)} at ${renderVal(deal.location)}. Price: ${formatIndianCurrency(deal.price)}. Interested?`;
-        window.open(`https://wa.me/91${lead.mobile}?text=${encodeURIComponent(msg)}`, '_blank');
+        const encodedMsg = encodeURIComponent(msg);
+        if (lead.isPreferredMatch) {
+            window.location.href = `whatsapp://send?phone=91${lead.mobile}&text=${encodedMsg}`;
+        } else {
+            window.open(`https://wa.me/91${lead.mobile}?text=${encodedMsg}`, '_blank');
+        }
     };
 
     const handleSelectLead = (mobile) => {
@@ -307,6 +317,11 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
                                             <h4 style={{ margin: 0, color: isDark ? 'var(--text-main)' : '#0f172a', fontSize: '1rem', fontWeight: 800 }}>{lead.firstName} {lead.lastName}</h4>
                                             <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#2563eb', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#eff6ff', padding: '1px 7px', borderRadius: '20px', border: '1px solid #bfdbfe', flexShrink: 0 }}>{renderVal(lead.stage) !== 'N/A' ? renderVal(lead.stage) : 'Lead'}</span>
+                                            {lead.isPreferredMatch && (
+                                                <span style={{ background: 'linear-gradient(135deg, #fef08a 0%, #f59e0b 100%)', color: '#78350f', padding: '2px 8px', borderRadius: '6px', fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.5px', boxShadow: '0 2px 4px rgba(245, 158, 11, 0.2)', marginLeft: '4px' }}>
+                                                    <i className="fas fa-star" style={{ marginRight: '4px' }}></i>Preferred Match
+                                                </span>
+                                            )}
                                         </div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: isDark ? 'var(--text-muted)' : '#64748b', fontSize: '0.8rem', marginBottom: '6px' }}>
                                             <i className="fas fa-map-marker-alt" style={{ color: '#ef4444', fontSize: '0.7rem' }}></i>
