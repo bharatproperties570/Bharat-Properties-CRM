@@ -663,6 +663,12 @@ export const smsTemplates = [
         tags: ['Offer', 'Exclusive']
     },
     {
+        id: 10,
+        name: 'Deal Property Match',
+        body: 'Hi {{firstName}}, exclusive property match! {{projectName}} in {{location}}. Size: {{size}}, Price: {{price}}. Reply YES for priority visit. - Bharat Properties',
+        tags: ['Deal Match', 'Priority']
+    },
+    {
         id: 'fb_interested_hot_sms',
         name: 'Feedback: Interested (Hot)',
         body: "{unit} Update: Hi {owner}, finalized meeting for {time}. Please keep documents ready.",

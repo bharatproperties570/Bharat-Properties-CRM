@@ -11,6 +11,7 @@ import { formatIndianCurrency, formatLeadBudget } from '../../../utils/numberToW
 
 // Deal Match Template ID (from constants/templates.js)
 const DEAL_MATCH_TEMPLATE_ID = 8;
+const DEAL_MATCH_SMS_TEMPLATE_ID = 10;
 
 const DealMatchingPage = ({ onNavigate, dealId }) => {
     const { isDark } = useTheme();
@@ -534,7 +535,15 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                 dealData={deal}
                 dealDataBuilder={buildDealEmailBody}
             />
-            <SendMessageModal isOpen={isMessageOpen} onClose={() => setIsMessageOpen(false)} initialRecipients={selectedContactsForMessage.map(c => ({ ...c, phone: c.mobile }))} onSend={() => setIsMessageOpen(false)} />
+            <SendMessageModal 
+                isOpen={isMessageOpen} 
+                onClose={() => setIsMessageOpen(false)} 
+                initialRecipients={selectedContactsForMessage.map(c => ({ ...c, phone: c.mobile }))} 
+                onSend={() => setIsMessageOpen(false)} 
+                initialTemplateId={DEAL_MATCH_SMS_TEMPLATE_ID}
+                initialChannel="SMS"
+                initialProperty={deal}
+            />
             <CreateActivityModal isOpen={isActivityOpen} onClose={() => setIsActivityOpen(false)} initialData={activityInitialData} onSave={(data) => { addActivity(data); setIsActivityOpen(false); }} />
         </div>
     );
