@@ -342,7 +342,7 @@ const ProfessionalMap = ({
                             <div style="display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #475569;">
                                 <div style="display: flex; justify-content: space-between;">
                                     <span><strong>Client:</strong> ${clientName}</span>
-                                    ${intentStr ? `<span style="color: ${itemColor}; font-weight: 600;">${intentStr.toUpperCase()}</span>` : ''}
+                                    ${(!isInventory && intentStr) ? `<span style="color: ${itemColor}; font-weight: 600;">${intentStr.toUpperCase()}</span>` : ''}
                                 </div>
                                 ${!isInventory ? `
                                 <div style="display: flex; justify-content: space-between; align-items: flex-start;">
