@@ -1546,11 +1546,14 @@ export const checkDuplicatesImport = async (req, res, next) => {
 
 export const matchLeads = async (req, res) => {
     try {
-        const { 
+        const {
             dealId,
-            budgetFlexibility = 20, 
-            sizeFlexibility = 20
+            budgetFlexibility = 20,
+            sizeFlexibility = 20,
+            showOtherCities: showOtherCitiesParam
         } = req.query;
+
+        const showOtherCities = showOtherCitiesParam === 'true';
 
         if (!dealId) {
             return res.status(400).json({ success: false, error: "dealId is required" });
@@ -1559,230 +1562,361 @@ export const matchLeads = async (req, res) => {
         const bFlex = parseFloat(budgetFlexibility) / 100;
         const sFlex = parseFloat(sizeFlexibility) / 100;
 
-        // 1. Contextual Hydration
-        const deal = await Deal.findById(dealId).populate('inventoryId').lean();
-        if (!deal) return res.status(404).json({ success: false, error: "Deal not found" });
-
-        const getNum = (v) => {
-            if (typeof v === 'number') return v;
-            if (typeof v === 'object' && v !== null) return Number(v.value || 0);
-            return Number(v || 0);
+        // ─── UTILITY FUNCTIONS ────────────────────────────────────────────────────
+        const extractNumericSize = (val) => {
+            if (typeof val === 'number') return val;
+            if (!val) return 0;
+            const clean = String(val).replace(/,/g, '');
+            const nums = clean.match(/\d+(\.\d+)?/g);
+            if (nums && nums.length > 0) return Math.max(...nums.map(Number));
+            return 0;
         };
-        
-        let dealSize = getNum(deal.size);
-        if (dealSize === 0 && deal.inventoryId) {
-            dealSize = getNum(deal.inventoryId.length) * getNum(deal.inventoryId.width);
-        }
-        const dealPrice = getNum(deal.price || deal.quotePrice);
 
-        // 2. Optimized: Pre-fetch all lookups once into a memory map (prevents O(N×M) DB queries)
+        const convertToSqYd = (val, unit) => {
+            let num = extractNumericSize(val);
+            if (isNaN(num)) return 0;
+            let u = '';
+            if (typeof val === 'string' && /[a-zA-Z]/.test(val)) u = val.toLowerCase();
+            if (!u && unit) u = String(unit).toLowerCase().trim();
+            if (!u) return num;
+            if (u.includes('sq.yd') || u.includes('sqyd') || u.includes('sq yd') || u.includes('gaj') || u.includes('gaz')) return num;
+            if (u.includes('sq.ft') || u.includes('sqft') || u.includes('sq ft')) return num / 9.0;
+            if (u.includes('sq.m') || u.includes('sqm') || u.includes('sq meter')) return num * 1.19599;
+            if (u.includes('kanal')) return num * 605;
+            if (u.includes('marla')) return num * 30.25;
+            if (u.includes('acre')) return num * 4840;
+            return num;
+        };
+
+        // ─── 0. PRE-FETCH LOOKUPS ─────────────────────────────────────────────────
         const allLookups = await Lookup.find({}).lean();
-        const lookupMap = allLookups.reduce((acc, l) => {
-            acc[l._id.toString()] = String(l.lookup_value).toLowerCase();
-            return acc;
-        }, {});
+        const lookupIdMap = new Map(allLookups.map(l => [String(l._id), l.lookup_value]));
 
-        const lookupLabelMap = allLookups.reduce((acc, l) => {
-            acc[l._id.toString()] = l.lookup_value;
-            return acc;
-        }, {});
-
-        const getLookupValLocal = (val) => {
-            if (!val) return "";
+        const getLookupVal = (val) => {
+            if (!val) return '';
             if (val.lookup_value) return String(val.lookup_value).toLowerCase();
-            const idStr = (val._id || val).toString();
-            return lookupMap[idStr] || (/^[0-9a-fA-F]{24}$/.test(idStr) ? "" : idStr.toLowerCase());
+            const idStr = String(val._id || val);
+            const resolved = lookupIdMap.get(idStr);
+            if (resolved) return resolved.toLowerCase();
+            if (!/^[0-9a-fA-F]{24}$/.test(idStr)) return idStr.toLowerCase();
+            return '';
         };
 
-        const getLookupLabelLocal = (val) => {
-            if (!val) return "";
+        const getLookupLabel = (val) => {
+            if (!val) return '';
             if (val.lookup_value) return val.lookup_value;
-            const idStr = (val._id || val).toString();
-            return lookupLabelMap[idStr] || (/^[0-9a-fA-F]{24}$/.test(idStr) ? "" : idStr);
+            const idStr = String(val._id || val);
+            const resolved = lookupIdMap.get(idStr);
+            if (resolved) return resolved;
+            if (!/^[0-9a-fA-F]{24}$/.test(idStr)) return idStr;
+            return '';
         };
 
-        const dealIntent   = getLookupValLocal(deal.intent);
-        const dealCategory = getLookupValLocal(deal.category);
-        const dealLoc      = getLookupValLocal(deal.location);
-        
-        console.log(`[MATCH_DEBUG] Deal Context: Intent=${dealIntent}, Cat=${dealCategory}, Loc=${dealLoc}, Price=${dealPrice}`);
+        // ─── 1. DEAL HYDRATION ────────────────────────────────────────────────────
+        const deal = await Deal.findById(dealId).populate('inventoryId').lean();
+        if (!deal) return res.status(404).json({ success: false, error: 'Deal not found' });
 
+        const dealIntent      = getLookupVal(deal.intent);
+        const dealIntentLbl   = getLookupLabel(deal.intent);
+        const dealCategory    = getLookupVal(deal.category || deal.inventoryId?.category);
+        const dealCategoryLbl = getLookupLabel(deal.category || deal.inventoryId?.category);
+        const dealSubCat      = getLookupVal(deal.subCategory || deal.inventoryId?.subCategory);
+        const dealSubCatLbl   = getLookupLabel(deal.subCategory || deal.inventoryId?.subCategory);
+        const dealPrice       = parseFloat(deal.price || deal.quotePrice) || 0;
+        const dealProjName    = (deal.projectName || deal.inventoryId?.projectName || '').toLowerCase();
+        const dealLocVal      = getLookupVal(deal.location || deal.inventoryId?.address?.locality);
+        const dealLocArea     = getLookupVal(deal.locationDetails?.area || deal.inventoryId?.sector || deal.sector);
+        const dealCity        = getLookupVal(deal.locationDetails?.city || deal.inventoryId?.address?.city);
+        const dealLat         = parseFloat(deal.latitude || deal.inventoryId?.latitude || deal.inventoryId?.address?.latitude);
+        const dealLng         = parseFloat(deal.longitude || deal.inventoryId?.longitude || deal.inventoryId?.address?.longitude);
+
+        // Deal size
+        const configStr = getLookupVal(deal.unitSpecification?.sizeLabel || deal.sizeConfig || deal.inventoryId?.sizeConfig || deal.inventoryId?.unitSpecification?.sizeLabel);
+        let rawDealSizeStr = null;
+        if (configStr) rawDealSizeStr = configStr;
+        else if (deal.size?.value > 0) rawDealSizeStr = deal.size.value;
+        else if (deal.inventoryId?.size?.value > 0) rawDealSizeStr = deal.inventoryId.size.value;
+        else if (typeof deal.size === 'number' && deal.size > 0) rawDealSizeStr = deal.size;
+        const dealSizeUnit = deal.sizeUnit || deal.inventoryId?.size?.unit || deal.inventoryId?.sizeUnit || 'Sq.Yd.';
+        const dealSizeNorm = convertToSqYd(rawDealSizeStr, dealSizeUnit);
+        const dealSizeNum  = extractNumericSize(rawDealSizeStr);
+
+        const dealSizeDesc = [
+            deal.sizeType, deal.inventoryId?.sizeType,
+            deal.unitType, deal.inventoryId?.unitType,
+            deal.sizeConfig, deal.inventoryId?.sizeConfig,
+            deal.sizeLabel, deal.inventoryId?.sizeLabel,
+            deal.unitSpecification?.sizeLabel, deal.inventoryId?.unitSpecification?.sizeLabel
+        ].map(s => getLookupVal(s)).filter(Boolean).join(' ');
+
+        console.log(`[DEAL_MATCH_ENGINE] Deal: ${dealProjName} | Intent=${dealIntentLbl} | Cat=${dealCategoryLbl} | City=${dealCity} | Price=${(dealPrice/100000).toFixed(1)}L | Size=${dealSizeNum} ${dealSizeUnit}`);
+
+        // ─── 2. FETCH LEADS ───────────────────────────────────────────────────────
         const excludedStatusIds = allLookups
-            .filter(l => ["Lost", "Closed", "Rejected"].includes(l.lookup_value))
+            .filter(l => ['Lost', 'Closed', 'Rejected', 'Converted'].includes(l.lookup_value))
             .map(l => l._id.toString());
 
-        const { getVisibilityFilter } = await import("../utils/visibility.js");
-        const visibilityFilter = await getVisibilityFilter(req.user);
-        
-        let query = { ...visibilityFilter };
-        const statusFilter = { status: { $nin: excludedStatusIds } };
-        
-        if (Object.keys(query).length > 0) {
-            query = { $and: [{...query}, statusFilter] };
-        } else {
-            query = statusFilter;
-        }
+        const visFilter = await getVisibilityFilter(req.user);
+        const leadQuery = { ...visFilter, status: { $nin: excludedStatusIds } };
+        const leads = await Lead.find(leadQuery).lean();
+        console.log(`[DEAL_MATCH_ENGINE] Evaluating ${leads.length} active leads`);
 
-        const leads = await Lead.find(query).lean();
+        // ─── 3. DISPATCH HISTORY ─────────────────────────────────────────────────
+        const dispatchActivities = await Activity.find({
+            'details.dealId': dealId,
+            type: 'Marketing',
+            status: 'Completed'
+        }).sort({ performedAt: -1 }).lean();
 
-        console.log(`[MATCH_DEBUG] Found ${leads.length} active leads to evaluate`);
+        const dispatchMap = new Map();
+        dispatchActivities.forEach(act => {
+            const lId = String(act.entityId || '');
+            if (lId && !dispatchMap.has(lId)) {
+                dispatchMap.set(lId, {
+                    date: act.performedAt,
+                    channels: (act.details?.results || []).filter(r => r.status === 'success').map(r => r.channel)
+                });
+            }
+        });
 
-        // 3. Scoring Engine (Synchronous for speed)
-        const matchingLeads = leads.map((lead) => {
+        // ─── 4. SCORING ENGINE ────────────────────────────────────────────────────
+        const excludedLeads = [];
+        const matchingLeads = [];
+
+        for (const lead of leads) {
+            const leadReq     = getLookupVal(lead.requirement);
+            const leadReqLbl  = getLookupLabel(lead.requirement);
+            const leadCats    = (Array.isArray(lead.propertyType) ? lead.propertyType : []).map(c => getLookupVal(c)).filter(Boolean);
+            const leadCatsLbl = (Array.isArray(lead.propertyType) ? lead.propertyType : []).map(c => getLookupLabel(c)).filter(Boolean).join(' / ') || 'Any';
+
+            // A. HARD FILTER: INTENT
+            if (dealIntent && leadReq) {
+                const d = dealIntent; const l = leadReq;
+                let intentOk = false;
+                if ((d.includes('sell') || d.includes('sale')) && (l.includes('buy') || l.includes('purchase') || l.includes('req'))) intentOk = true;
+                else if ((d.includes('rent') || d.includes('lease')) && (l.includes('rent') || l.includes('lease'))) intentOk = true;
+                else if ((d.includes('buy') || d.includes('purchase')) && (l.includes('sell') || l.includes('sale'))) intentOk = true;
+                else if (d === l || d.includes(l) || l.includes(d)) intentOk = true;
+                if (!intentOk) {
+                    excludedLeads.push({ _id: lead._id, name: `${lead.firstName || ''} ${lead.lastName || ''}`.trim() || 'Unknown', mobile: lead.mobile, excludeReason: `Intent mismatch — deal is "${dealIntentLbl}" but lead requires "${leadReqLbl}"` });
+                    continue;
+                }
+            }
+
+            // B. HARD FILTER: CATEGORY
+            if (dealCategory && leadCats.length > 0) {
+                const catOk = (
+                    (dealCategory.includes('res') && leadCats.some(c => c.includes('res'))) ||
+                    (dealCategory.includes('comm') && leadCats.some(c => c.includes('comm'))) ||
+                    (dealCategory.includes('plot') && leadCats.some(c => c.includes('plot'))) ||
+                    (dealCategory.includes('agri') && leadCats.some(c => c.includes('agri'))) ||
+                    leadCats.some(c => dealCategory.includes(c) || c.includes(dealCategory))
+                );
+                if (!catOk) {
+                    excludedLeads.push({ _id: lead._id, name: `${lead.firstName || ''} ${lead.lastName || ''}`.trim() || 'Unknown', mobile: lead.mobile, excludeReason: `Category mismatch — deal is "${dealCategoryLbl}" but lead wants "${leadCatsLbl}"` });
+                    continue;
+                }
+            }
+
+            // C. HARD FILTER: CITY
+            const leadLocCity = getLookupVal(lead.locCity || lead.city);
+            if (dealCity && leadLocCity && !showOtherCities && !dealCity.includes(leadLocCity) && !leadLocCity.includes(dealCity)) {
+                excludedLeads.push({ _id: lead._id, name: `${lead.firstName || ''} ${lead.lastName || ''}`.trim() || 'Unknown', mobile: lead.mobile, excludeReason: `City mismatch — deal is in "${dealCity}" but lead looks in "${leadLocCity}"` });
+                continue;
+            }
+
+            // SCORING
             let score = 0;
-            const reasons = [];
+            const matchDetails = [];
+            const scoreBreakdown = {
+                location: { earned: 0, max: 30, label: 'No location signal' },
+                type:     { earned: 0, max: 20, label: 'No type data' },
+                budget:   { earned: 0, max: 25, label: 'No budget set' },
+                size:     { earned: 0, max: 25, label: 'No size data' }
+            };
 
-            // A. Intent Resolution
-            const leadReq = getLookupValLocal(lead.requirement);
-            const intentMatched = (() => {
-                if (!dealIntent || !leadReq) return true;
-                const d = dealIntent.toLowerCase();
-                const l = leadReq.toLowerCase();
-                if ((d.includes("sell") || d.includes("sale")) && (l.includes("buy") || l.includes("purchase") || l.includes("req"))) return true;
-                if ((d.includes("rent") || d.includes("lease")) && (l.includes("rent") || l.includes("lease"))) return true;
-                if ((l.includes("buy") || l.includes("purchase")) && (d.includes("sale") || d.includes("sell"))) return true;
-                if (d === l || d.includes(l) || l.includes(d)) return true;
-                return false;
-            })();
-            
-            if (!intentMatched) return null;
+            // 1. LOCATION (30 pts)
+            const leadLocVal   = getLookupVal(lead.location);
+            const leadLocArea  = String(lead.locArea || '').toLowerCase();
+            const leadSector   = String(lead.sector || '').toLowerCase();
+            const leadProjects = (Array.isArray(lead.projectName) ? lead.projectName : []).map(p => String(p || '').toLowerCase()).filter(Boolean);
+            const leadBlocks   = (Array.isArray(lead.locBlock) ? lead.locBlock : []).map(b => String(b || '').toLowerCase()).filter(Boolean);
+            const leadLat  = parseFloat(lead.locLat);
+            const leadLng  = parseFloat(lead.locLng);
+            const leadRange = parseFloat(lead.range) || 5;
 
-            // B. Category Resolution
-            const leadCats = (Array.isArray(lead.propertyType) ? lead.propertyType : []).map(c => getLookupValLocal(c));
-            
-            let catScore = 0;
-            if (!dealCategory || leadCats.length === 0 || leadCats.every(c => !c)) {
-                catScore = 85; // Neutral: neither side specified category
-            } else if (leadCats.some(c => c && (
-                c.includes(dealCategory) || 
-                dealCategory.includes(c) || 
-                (dealCategory.includes("res") && c.includes("res")) || 
-                (dealCategory.includes("comm") && c.includes("comm")) ||
-                (dealCategory.includes("plot") && c.includes("plot")) ||
-                (dealCategory.includes("agri") && c.includes("agri"))
-            ))) {
-                catScore = 100;
-                reasons.push("Category Alignment");
+            let locationResolved = false;
+            if (leadLat && leadLng && dealLat && dealLng) {
+                const R = 6371;
+                const dLat = (dealLat - leadLat) * Math.PI / 180;
+                const dLon = (dealLng - leadLng) * Math.PI / 180;
+                const a = Math.sin(dLat/2)**2 + Math.cos(leadLat * Math.PI/180) * Math.cos(dealLat * Math.PI/180) * Math.sin(dLon/2)**2;
+                const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                if (dist <= leadRange) {
+                    score += 30; scoreBreakdown.location = { earned: 30, max: 30, label: `Within ${leadRange}km radius (${dist.toFixed(1)}km away)` }; matchDetails.push('Exact Radius Match');
+                } else {
+                    const earned = Math.max(0, 30 - ((dist - leadRange) / leadRange) * 15);
+                    score += earned; scoreBreakdown.location = { earned: Math.round(earned), max: 30, label: `Outside radius (${dist.toFixed(1)}km away)` };
+                    if (earned > 12) matchDetails.push('Near Radius');
+                }
+                locationResolved = true;
+            }
+
+            if (!locationResolved) {
+                const locSignals = [
+                    leadProjects.some(p => p && (dealProjName.includes(p) || p.includes(dealProjName))),
+                    !!(leadSector && dealLocArea && (dealLocArea.includes(leadSector) || leadSector.includes(dealLocArea))),
+                    !!(leadLocArea && (dealLocVal.includes(leadLocArea) || leadLocArea.includes(dealLocVal))),
+                    !!(leadLocVal && (dealProjName.includes(leadLocVal) || dealLocVal.includes(leadLocVal) || dealLocArea.includes(leadLocVal))),
+                    !!(leadLocCity && dealCity && (dealCity.includes(leadLocCity) || leadLocCity.includes(dealCity))),
+                    leadBlocks.some(b => b && dealProjName.includes(b))
+                ];
+                const locMatchCount = locSignals.filter(Boolean).length;
+                const hasLeadLocSignal = !!(leadLocVal || leadLocArea || leadLocCity || leadProjects.length > 0);
+                if (locMatchCount >= 1) {
+                    score += 30; scoreBreakdown.location = { earned: 30, max: 30, label: locSignals[0] ? 'Exact project match' : 'Strong location match' }; matchDetails.push('Location Match');
+                } else if (!hasLeadLocSignal) {
+                    score += 10; scoreBreakdown.location = { earned: 10, max: 30, label: 'Lead has no location set' };
+                } else {
+                    scoreBreakdown.location = { earned: 0, max: 30, label: 'No matching location found' };
+                }
+            }
+
+            // 2. TYPE / SUBCATEGORY (20 pts)
+            const leadSubs = (Array.isArray(lead.subType) ? lead.subType : []).map(s => getLookupVal(s)).filter(Boolean);
+            if (leadSubs.length > 0 && dealSubCat && leadSubs.some(s => dealSubCat.includes(s) || s.includes(dealSubCat))) {
+                score += 20; scoreBreakdown.type = { earned: 20, max: 20, label: `Exact sub-type match: ${dealSubCatLbl}` }; matchDetails.push('Type Match');
+            } else if (leadCats.length > 0 && dealCategory && leadCats.some(c => dealCategory.includes(c) || c.includes(dealCategory))) {
+                score += 15; scoreBreakdown.type = { earned: 15, max: 20, label: `Category match: ${dealCategoryLbl}` }; matchDetails.push('Category Alignment');
+            } else if (leadCats.length === 0) {
+                score += 8; scoreBreakdown.type = { earned: 8, max: 20, label: 'No specific type preference' };
+            }
+
+            // 3. BUDGET (25 pts)
+            const lBudgetMin = parseFloat(lead.budgetMin) || 0;
+            const lBudgetMax = parseFloat(lead.budgetMax) > 0 ? parseFloat(lead.budgetMax) : 0;
+            if (dealPrice > 0 && lBudgetMax > 0) {
+                if (dealPrice >= lBudgetMin && dealPrice <= lBudgetMax) {
+                    score += 25; scoreBreakdown.budget = { earned: 25, max: 25, label: `${(dealPrice/100000).toFixed(1)}L within lead budget` }; matchDetails.push('Budget Fit');
+                } else {
+                    const low = lBudgetMin * (1 - bFlex); const high = lBudgetMax * (1 + bFlex);
+                    if (dealPrice >= low && dealPrice <= high) {
+                        score += 17; scoreBreakdown.budget = { earned: 17, max: 25, label: `${(dealPrice/100000).toFixed(1)}L within +/-${budgetFlexibility}% tolerance` }; matchDetails.push('Budget Fit');
+                    } else {
+                        scoreBreakdown.budget = { earned: 0, max: 25, label: `${(dealPrice/100000).toFixed(1)}L is ${dealPrice > lBudgetMax ? 'above' : 'below'} lead budget` };
+                    }
+                }
+            } else if (dealPrice > 0 && lBudgetMax === 0) {
+                score += 8; scoreBreakdown.budget = { earned: 8, max: 25, label: 'Lead has no budget preference set' };
             } else {
-                catScore = 40; // Partial: category mismatch but don't fully exclude
+                score += 8; scoreBreakdown.budget = { earned: 8, max: 25, label: 'Deal price not recorded' };
             }
-            score += (catScore * 0.30);
 
-            // C. Location Intelligence
-            const leadLocVal = getLookupValLocal(lead.location);
-            const leadLocArea = String(lead.locArea || "").toLowerCase();
-            let locScore = 0;
-            if (dealLoc && (
-                dealLoc === leadLocVal || 
-                dealLoc.includes(leadLocVal) || 
-                leadLocVal.includes(dealLoc) || 
-                dealLoc.includes(leadLocArea) ||
-                (leadLocArea && dealLoc.includes(leadLocArea))
-            )) {
-                locScore = 100;
-                reasons.push("Location Match");
-            } else if (!dealLoc || !leadLocVal) {
-                locScore = 50; 
-            }
-            score += (locScore * 0.35);
-
-            // D. Budget Intelligence
-            const lMin = getNum(lead.budgetMin);
-            const lMax = getNum(lead.budgetMax);
-            let budgetScore = 0;
-            if (dealPrice > 0 && lMax > 0) {
-                const minAcc = lMin * (1 - bFlex);
-                const maxAcc = lMax * (1 + bFlex);
-                if (dealPrice >= minAcc && dealPrice <= maxAcc) {
-                    budgetScore = 100;
-                    reasons.push("Budget Fit");
+            // 4. SIZE (25 pts)
+            const leadAreaUnit    = lead.areaMetric || 'Sq.Yd.';
+            const leadAreaMinNorm = convertToSqYd(lead.areaMin, leadAreaUnit);
+            const leadAreaMaxNorm = convertToSqYd(lead.areaMax, leadAreaUnit);
+            if (dealSizeNorm > 0 && leadAreaMaxNorm > 0) {
+                const aMin = leadAreaMinNorm * (1 - sFlex); const aMax = leadAreaMaxNorm * (1 + sFlex);
+                if (dealSizeNorm >= aMin && dealSizeNorm <= aMax) {
+                    score += 25; scoreBreakdown.size = { earned: 25, max: 25, label: `${dealSizeNum} ${dealSizeUnit} within lead preferred range` }; matchDetails.push('Size Fit');
+                } else if (dealSizeNorm >= leadAreaMinNorm * (1 - sFlex*2) && dealSizeNorm <= leadAreaMaxNorm * (1 + sFlex*2)) {
+                    score += 12; scoreBreakdown.size = { earned: 12, max: 25, label: `${dealSizeNum} ${dealSizeUnit} approximate range` }; matchDetails.push('Approx Size Match');
+                } else {
+                    scoreBreakdown.size = { earned: 0, max: 25, label: `${dealSizeNum} ${dealSizeUnit} is outside lead preferred range` };
                 }
-            } else if (dealPrice > 0) {
-                budgetScore = 60;
+            } else if (dealSizeNorm > 0 && leadAreaMaxNorm === 0) {
+                score += 8; scoreBreakdown.size = { earned: 8, max: 25, label: 'Lead has no area preference set' };
+            } else {
+                score += 8; scoreBreakdown.size = { earned: 8, max: 25, label: 'Deal size not recorded' };
             }
-            score += (budgetScore * 0.20);
 
-            // E. Size Intelligence
-            const aMin = getNum(lead.areaMin);
-            const aMax = getNum(lead.areaMax);
-            let sizeScore = 0;
-            if (dealSize > 0 && aMax > 0) {
-                const minAcc = aMin * (1 - sFlex);
-                const maxAcc = aMax * (1 + sFlex);
-                if (dealSize >= minAcc && dealSize <= maxAcc) {
-                    sizeScore = 100;
-                    reasons.push("Size Fit");
-                }
-            } else if (dealSize > 0) {
-                sizeScore = 60;
+            if (score < 10) continue;
+
+            // DISPATCH DECAY
+            const lastDispatch = dispatchMap.get(String(lead._id)) || null;
+            let decayFactor = 1, sharedStatus = null, daysSinceShared = null;
+            if (lastDispatch?.date) {
+                daysSinceShared = (Date.now() - new Date(lastDispatch.date)) / (1000 * 60 * 60 * 24);
+                if (daysSinceShared < 3)  { decayFactor = 0.5;  sharedStatus = 'hot'; }
+                else if (daysSinceShared < 7)  { decayFactor = 0.75; sharedStatus = 'recent'; }
+                else if (daysSinceShared < 30) { decayFactor = 0.9;  sharedStatus = 'stale'; }
             }
-            score += (sizeScore * 0.15);
+            const decayedScore = score * decayFactor;
+            if (decayedScore < 8) continue;
 
-            if (score < 30) return null;
+            // PREFERRED MATCH — needs real signals, not empty-field bypass
+            const hasLeadBudget   = lBudgetMax > 0;
+            const hasLeadArea     = leadAreaMaxNorm > 0;
+            const hasLeadLocation = !!(leadLocVal || leadLocArea || leadLocCity || leadProjects.length > 0);
+            const leadHasData     = [hasLeadBudget, hasLeadArea, hasLeadLocation].filter(Boolean).length;
 
-            // --- STRICT ENTERPRISE PREFERRED MATCH ---
-            const leadSubCats = (Array.isArray(lead.subCategory) ? lead.subCategory : []).map(s => getLookupValLocal(s)).filter(Boolean);
-            const dealSubCat = getLookupValLocal(deal.subCategory);
-            const isSubCatMatch = leadSubCats.length === 0 || (dealSubCat && leadSubCats.some(s => dealSubCat.includes(s) || s.includes(dealSubCat)));
-
-            const leadSizeTypes = (Array.isArray(lead.sizeType) ? lead.sizeType : []).map(s => getLookupValLocal(s)).filter(Boolean);
-            const leadUnitTypes = (Array.isArray(lead.unitType) ? lead.unitType : []).map(u => getLookupValLocal(u)).filter(Boolean);
-            
-            const dealSizeDesc = [
-                deal.sizeType, deal.inventoryId?.sizeType,
-                deal.unitType, deal.inventoryId?.unitType,
-                deal.sizeConfig, deal.inventoryId?.sizeConfig,
-                deal.sizeLabel, deal.inventoryId?.sizeLabel,
-                deal.unitSpecification?.sizeLabel, deal.inventoryId?.unitSpecification?.sizeLabel
-            ].map(s => getLookupValLocal(s)).filter(Boolean).join(" ");
-
+            const leadSizeTypes = (Array.isArray(lead.sizeType) ? lead.sizeType : []).map(s => getLookupVal(s)).filter(Boolean);
+            const leadUnitTypes = (Array.isArray(lead.unitType) ? lead.unitType : []).map(u => getLookupVal(u)).filter(Boolean);
+            const isSubCatMatch   = leadSubs.length === 0 || (dealSubCat && leadSubs.some(s => dealSubCat.includes(s) || s.includes(dealSubCat)));
             const isSizeTypeMatch = leadSizeTypes.length === 0 || leadSizeTypes.some(s => dealSizeDesc.includes(s));
             const isUnitTypeMatch = leadUnitTypes.length === 0 || leadUnitTypes.some(u => dealSizeDesc.includes(u));
+            const isBudgetPref    = hasLeadBudget ? (dealPrice > 0 && dealPrice >= lBudgetMin && dealPrice <= lBudgetMax) : false;
+            const isLocationPref  = hasLeadLocation ? (scoreBreakdown.location.earned >= 25) : false;
+            const isTypePref      = isSubCatMatch && isSizeTypeMatch && isUnitTypeMatch;
+            const isPreferredMatch = isBudgetPref && isLocationPref && isTypePref && leadHasData >= 2;
 
-            const isBudgetMatch = lMax === 0 || (dealPrice > 0 && dealPrice >= lMin && dealPrice <= lMax);
-            const isLocationMatch = locScore === 100 || (!dealLoc || !leadLocVal);
+            const leadReqLabel   = getLookupLabel(lead.requirement) || 'Buy';
+            const leadLocLabel   = getLookupLabel(lead.location) || lead.locArea || lead.locCity || 'Not Set';
+            const leadCatsLabels = (Array.isArray(lead.propertyType) ? lead.propertyType : []).map(c => getLookupLabel(c)).filter(Boolean);
 
-            const isPreferredMatch = isSubCatMatch && isSizeTypeMatch && isUnitTypeMatch && isBudgetMatch && isLocationMatch;
-
-            const leadReqLabel = getLookupLabelLocal(lead.requirement) || "Buy";
-            const leadBudgetLabel = getLookupLabelLocal(lead.budget) || "";
-            const leadLocLabel = getLookupLabelLocal(lead.location) || "";
-            const leadCatsLabels = (Array.isArray(lead.propertyType) ? lead.propertyType : [])
-                .map(c => getLookupLabelLocal(c))
-                .filter(Boolean);
-
-            return {
+            matchingLeads.push({
                 ...lead,
                 isPreferredMatch,
-                score: Math.round(score),
-                matchPercentage: Math.round(score),
-                matchReasons: reasons,
-                
-                // Hydrated/resolved fields for UI consistency
-                requirement: { lookup_value: leadReqLabel },
-                budget: { lookup_value: leadBudgetLabel },
-                location: { lookup_value: leadLocLabel || lead.locArea || lead.locCity || "Not Set" },
+                score: Math.min(Math.round(decayedScore), 100),
+                rawScore: Math.min(Math.round(score), 100),
+                matchDetails,
+                matchReasons: matchDetails,
+                scoreBreakdown,
+                lastDispatch,
+                sharedStatus,
+                daysSinceShared: daysSinceShared ? Math.round(daysSinceShared) : null,
+                requirement:  { lookup_value: leadReqLabel },
+                location:     { lookup_value: leadLocLabel },
                 propertyType: leadCatsLabels.map(label => ({ lookup_value: label })),
-                
-                // Budget Aliasing for Frontend Compatibility
-                minBudget: lead.budgetMin,
-                maxBudget: lead.budgetMax,
-                budgetMin: lead.budgetMin,
-                budgetMax: lead.budgetMax
-            };
+                budgetMin: lead.budgetMin, budgetMax: lead.budgetMax,
+                minBudget: lead.budgetMin, maxBudget: lead.budgetMax
+            });
+        }
+
+        const sorted = matchingLeads.sort((a, b) => b.score - a.score).slice(0, 50);
+        const preferredCount = sorted.filter(l => l.isPreferredMatch).length;
+
+        // ─── 5. SMART SUGGESTIONS ─────────────────────────────────────────────────
+        const suggestions = [];
+        const totalLeads     = leads.length;
+        const leadsNoBudget  = leads.filter(l => !(parseFloat(l.budgetMax) > 0)).length;
+        const leadsNoLoc     = leads.filter(l => !l.locCity && !l.locArea && !l.location).length;
+        const intentExcluded = excludedLeads.filter(l => l.excludeReason.includes('Intent')).length;
+        const catExcluded    = excludedLeads.filter(l => l.excludeReason.includes('Category')).length;
+
+        if (leadsNoBudget > totalLeads * 0.5)  suggestions.push({ type: 'missing_budget',       icon: 'fa-rupee-sign',    severity: 'high',   title: `${leadsNoBudget} Leads Have No Budget Set`,     message: 'Over half the leads have no budget data. Filling budgets improves match precision.',      action: 'Update Lead Budgets' });
+        if (leadsNoLoc   > totalLeads * 0.4)   suggestions.push({ type: 'missing_location',      icon: 'fa-map-marker-alt',severity: 'medium', title: `${leadsNoLoc} Leads Have No Location Set`,     message: 'Location is worth 30 pts. Leads without location score much lower.',                      action: 'Update Lead Locations' });
+        if (intentExcluded >= 3)               suggestions.push({ type: 'intent_mismatch',       icon: 'fa-exchange-alt',  severity: 'high',   title: `${intentExcluded} Leads Excluded by Intent`,   message: `Leads have requirement types conflicting with deal intent "${dealIntentLbl}". Verify deal intent is correct.`, action: 'Review Deal Intent' });
+        if (catExcluded >= 3)                  suggestions.push({ type: 'category_mismatch',     icon: 'fa-tags',          severity: 'medium', title: `${catExcluded} Leads Excluded by Category`,    message: `${catExcluded} leads want a different category than "${dealCategoryLbl}".`,               action: 'Review Deal Category' });
+        if (!dealPrice)                        suggestions.push({ type: 'missing_price',          icon: 'fa-rupee-sign',    severity: 'high',   title: 'Deal Has No Price Set',                         message: 'Without a price, budget matching (25 pts) cannot work. Add a price to this deal.',       action: 'Set Deal Price' });
+        if (!dealLocVal && !dealCity && !dealProjName) suggestions.push({ type: 'missing_deal_location', icon: 'fa-map', severity: 'high', title: 'Deal Has No Location Signal', message: 'Without location, location scoring (30 pts) is neutral for all leads.', action: 'Set Deal Location' });
+
+        console.log(`[DEAL_MATCH_ENGINE] Result: ${sorted.length} matched | ${preferredCount} preferred | ${excludedLeads.length} excluded`);
+
+        return res.status(200).json({
+            success: true,
+            count: sorted.length,
+            preferredCount,
+            matchingLeads: sorted,
+            excluded: excludedLeads.slice(0, 20),
+            excludedCount: excludedLeads.length,
+            suggestions,
+            deal
         });
 
-        const finalResults = matchingLeads.filter(Boolean).sort((a, b) => b.score - a.score).slice(0, 50);
-        console.log(`[ENTERPRISE_MATCH] ${finalResults.length} leads matched successfully`);
-
-        return res.status(200).json({ 
-            success: true, 
-            count: finalResults.length, 
-            matchingLeads: finalResults,
-            deal 
-        });
     } catch (error) {
-        console.error("[ENTERPRISE_MATCH] Fatal Error:", error);
+        console.error('[DEAL_MATCH_ENGINE] Fatal Error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 };
