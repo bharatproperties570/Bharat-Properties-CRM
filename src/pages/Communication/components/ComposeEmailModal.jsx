@@ -139,6 +139,10 @@ const ComposeEmailModal = ({
         const signature = currentUser?.preferences?.emailSignature || `<strong>${currentUser?.name || 'Sender'}</strong>`;
         compiled = compiled.replace(/\{\{Sender's signature\}\}/g, signature);
         
+        // Agent Mobile for WhatsApp Links
+        const agentMobile = currentUser?.mobile || currentUser?.phone || '9991333570';
+        compiled = compiled.replace(/\{\{AgentMobile\}\}/g, agentMobile);
+        
         // We do NOT replace recipient's first name here anymore, 
         // because the backend handles it dynamically for batch emails.
         // The WYSIWYG editor will show {{First name}} as a placeholder.

@@ -196,10 +196,10 @@ export const emailTemplates = [
 
     <!-- CTA Buttons -->
     <div style="text-align: center; margin-bottom: 24px;">
-      <a href="tel:+919991333570" style="display: inline-block; background: linear-gradient(135deg, #2563eb, #1d4ed8); color: #ffffff; padding: 14px 32px; border-radius: 50px; text-decoration: none; font-size: 14px; font-weight: 800; letter-spacing: 0.3px; box-shadow: 0 4px 15px rgba(37,99,235,0.35); margin-right: 10px; margin-bottom: 10px;">
-        📞 Call to Schedule Visit
+      <a href="https://crm.bharatproperties.co/public/form/standard-project-tour-scheduler-bqnh6" style="display: inline-block; background: linear-gradient(135deg, #2563eb, #1d4ed8); color: #ffffff; padding: 14px 32px; border-radius: 50px; text-decoration: none; font-size: 14px; font-weight: 800; letter-spacing: 0.3px; box-shadow: 0 4px 15px rgba(37,99,235,0.35); margin-right: 10px; margin-bottom: 10px;">
+        📅 Schedule Visit
       </a>
-      <a href="https://wa.me/919991333570" style="display: inline-block; background: linear-gradient(135deg, #25d366, #128c7e); color: #ffffff; padding: 14px 32px; border-radius: 50px; text-decoration: none; font-size: 14px; font-weight: 800; letter-spacing: 0.3px; box-shadow: 0 4px 15px rgba(37,211,102,0.35); margin-bottom: 10px;">
+      <a href="https://wa.me/91{{AgentMobile}}?text=Hi%2C%20I'm%20interested%20in%20the%20property%20%2A{{DealProject}}%2A%20at%20%2A{{DealLocation}}%2A." style="display: inline-block; background: linear-gradient(135deg, #25d366, #128c7e); color: #ffffff; padding: 14px 32px; border-radius: 50px; text-decoration: none; font-size: 14px; font-weight: 800; letter-spacing: 0.3px; box-shadow: 0 4px 15px rgba(37,211,102,0.35); margin-bottom: 10px;">
         💬 WhatsApp Us
       </a>
     </div>
