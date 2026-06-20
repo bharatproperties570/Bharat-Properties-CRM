@@ -11,7 +11,14 @@ export const sendEmail = async (req, res) => {
         res.json({ success: true, data: result });
     } catch (error) {
         console.error('Controller Error sending email:', error);
-        res.status(500).json({ success: false, message: error.message });
+        let errorMessage = error.message;
+        
+        // Handle Google OAuth expiration
+        if (errorMessage && errorMessage.includes('invalid_grant')) {
+            errorMessage = 'Google Authentication Expired. Please go to Settings > Integrations and reconnect your Google account to continue sending emails.';
+        }
+        
+        res.status(500).json({ success: false, message: errorMessage });
     }
 };
 
