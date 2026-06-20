@@ -117,7 +117,9 @@ const ComposeEmailModal = ({
     initialBody = '',
     recipients = [], // Support array of {id, name, email}
     autoAttachments = [],
-    initialTemplateId = ''
+    initialTemplateId = '',
+    dealData = null,          // Deal object for variable substitution
+    dealDataBuilder = null,   // Function(templateContent) => substituted HTML
 }) => {
     const [subject, setSubject] = useState(initialSubject);
     const [body, setBody] = useState(initialBody || '');
@@ -149,23 +151,38 @@ const ComposeEmailModal = ({
             setSubject(initialSubject);
             setBody(initialBody || '');
             setToEmail(initialTo);
-            if (initialTemplateId) {
-                setSelectedTemplate(initialTemplateId);
-                const tmpl = emailTemplates.find(t => t.id === parseInt(initialTemplateId));
+
+            // Auto-load template if initialTemplateId is set
+            const tid = initialTemplateId ? parseInt(initialTemplateId) : null;
+            if (tid) {
+                setSelectedTemplate(String(tid));
+                const tmpl = emailTemplates.find(t => t.id === tid);
                 if (tmpl) {
-                    setSubject(tmpl.subject);
-                    const compiledContent = compileTemplate(tmpl.content);
+                    // Use passed initialSubject if non-empty (deal match subject), else template subject
+                    setSubject(initialSubject || tmpl.subject);
+
+                    // Apply sender variables first
+                    let compiledContent = compileTemplate(tmpl.content);
+
+                    // Then apply deal variables if builder is provided (Deal Match template)
+                    if (dealDataBuilder && typeof dealDataBuilder === 'function') {
+                        compiledContent = dealDataBuilder(compiledContent);
+                    }
+
                     setBody(compiledContent);
                     if (editorRef.current) {
                         editorRef.current.innerHTML = compiledContent;
                     }
+                    return;
                 }
             }
-            if (editorRef.current && !initialTemplateId) {
+
+            // Fallback: use initialBody
+            if (editorRef.current) {
                 editorRef.current.innerHTML = initialBody || '';
             }
         }
-    }, [isOpen, initialSubject, initialBody, initialTo, initialTemplateId]);
+    }, [isOpen, initialSubject, initialBody, initialTo, initialTemplateId, dealDataBuilder]);
 
     const variables = [
         { label: 'Contact Name', value: '{{ContactName}}' },

@@ -9,6 +9,9 @@ import { useActivities } from '../../../context/ActivityContext';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import { formatIndianCurrency, formatLeadBudget } from '../../../utils/numberToWords';
 
+// Deal Match Template ID (from constants/templates.js)
+const DEAL_MATCH_TEMPLATE_ID = 8;
+
 const DealMatchingPage = ({ onNavigate, dealId }) => {
     const { isDark } = useTheme();
     const { addActivity } = useActivities();
@@ -125,11 +128,26 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
         });
     };
 
+    // Injects real deal data into the Deal Property Match template variables
+    const buildDealEmailBody = useCallback((templateContent) => {
+        if (!deal || !templateContent) return templateContent;
+        const size = deal.size?.value || deal.size || 0;
+        const sizeStr = size > 0 ? `${size} ${deal.sizeUnit || 'Sq.Ft.'}` : 'N/A';
+        return templateContent
+            .replace(/\{\{DealProject\}\}/g, deal.projectName || deal.inventoryId?.projectName || 'N/A')
+            .replace(/\{\{DealLocation\}\}/g, renderVal(deal.location || deal.inventoryId?.address?.locality))
+            .replace(/\{\{DealPrice\}\}/g, formatIndianCurrency(deal.price || deal.quotePrice || 0))
+            .replace(/\{\{DealUnit\}\}/g, deal.unitNo || deal.inventoryId?.unitNo || 'N/A')
+            .replace(/\{\{DealSize\}\}/g, sizeStr)
+            .replace(/\{\{DealCategory\}\}/g, renderVal(deal.category || deal.inventoryId?.category))
+            .replace(/\{\{DealSubCategory\}\}/g, renderVal(deal.subCategory || deal.inventoryId?.subCategory) !== 'N/A' ? renderVal(deal.subCategory || deal.inventoryId?.subCategory) : 'N/A')
+            .replace(/\{\{DealBlock\}\}/g, deal.block || deal.inventoryId?.block || 'N/A')
+            .replace(/\{\{DealStage\}\}/g, renderVal(deal.stage) || 'Available');
+    }, [deal, renderVal]);
+
     const handleBatchMail = () => {
         const contactsForMail = matchedLeads.filter(l => selectedLeads.includes(l.mobile));
         setSelectedContactsForMail(contactsForMail);
-        setMailSubject(`Property Match: ${renderVal(deal?.propertyType)} at ${renderVal(deal?.location)}`);
-        setMailBody(`Dear Lead,\n\nWe found a property matching your requirement.\n\nProperty: ${renderVal(deal?.propertyType)}\nLocation: ${renderVal(deal?.location)}\nPrice: ${formatIndianCurrency(deal?.price)}\n\nPlease contact us for more details.`);
         setIsMailOpen(true);
     };
 
@@ -467,7 +485,7 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                                                     <button title="SMS" onClick={() => { setSelectedContactsForMessage([lead]); setIsMessageOpen(true); }} style={{ width: '34px', height: '34px', borderRadius: '9px', border: '1px solid #dbeafe', background: isDark ? 'rgba(37,99,235,0.1)' : '#eff6ff', color: '#1d4ed8', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', transition: 'all 0.15s' }}>
                                                         <i className="fas fa-comment-alt"></i>
                                                     </button>
-                                                    <button title="Email" onClick={() => { setSelectedContactsForMail([lead]); setMailSubject(`Property Match for ${lead.firstName}`); setIsMailOpen(true); }} style={{ width: '34px', height: '34px', borderRadius: '9px', border: '1px solid #ede9fe', background: isDark ? 'rgba(109,40,217,0.1)' : '#f5f3ff', color: '#6d28d9', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', transition: 'all 0.15s' }}>
+                                                    <button title="Email" onClick={() => { setSelectedContactsForMail([lead]); setIsMailOpen(true); }} style={{ width: '34px', height: '34px', borderRadius: '9px', border: '1px solid #ede9fe', background: isDark ? 'rgba(109,40,217,0.1)' : '#f5f3ff', color: '#6d28d9', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', transition: 'all 0.15s' }}>
                                                         <i className="fas fa-envelope"></i>
                                                     </button>
                                                 </div>
@@ -507,7 +525,15 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
             )}
 
             {/* Modals */}
-            <ComposeEmailModal isOpen={isMailOpen} onClose={() => setIsMailOpen(false)} recipients={selectedContactsForMail} initialSubject={mailSubject} initialBody={mailBody} />
+            <ComposeEmailModal
+                isOpen={isMailOpen}
+                onClose={() => setIsMailOpen(false)}
+                recipients={selectedContactsForMail}
+                initialSubject={`🏠 Exclusive Property Match Found for You | ${deal?.projectName || deal?.inventoryId?.projectName || ''}`}
+                initialTemplateId={DEAL_MATCH_TEMPLATE_ID}
+                dealData={deal}
+                dealDataBuilder={buildDealEmailBody}
+            />
             <SendMessageModal isOpen={isMessageOpen} onClose={() => setIsMessageOpen(false)} initialRecipients={selectedContactsForMessage.map(c => ({ ...c, phone: c.mobile }))} onSend={() => setIsMessageOpen(false)} />
             <CreateActivityModal isOpen={isActivityOpen} onClose={() => setIsActivityOpen(false)} initialData={activityInitialData} onSave={(data) => { addActivity(data); setIsActivityOpen(false); }} />
         </div>

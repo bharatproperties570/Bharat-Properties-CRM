@@ -70,6 +70,148 @@ export const emailTemplates = [
         shared: true
     },
     {
+        id: 8,
+        name: 'Deal Property Match',
+        author: 'Bharat Properties',
+        visibility: 'Owned by everyone',
+        tags: ['Deal Match', 'Priority', 'Leads'],
+        subject: '🏠 Exclusive Property Match Found for You | {{DealProject}}',
+        isDealMatchTemplate: true,
+        content: `<div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 640px; margin: 0 auto; background: #f8fafc;">
+
+  <!-- Header Banner -->
+  <div style="background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 60%, #0ea5e9 100%); padding: 36px 40px 32px; border-radius: 16px 16px 0 0; text-align: center;">
+    <div style="display: inline-block; background: rgba(255,255,255,0.15); border-radius: 50px; padding: 6px 20px; margin-bottom: 16px;">
+      <span style="color: #bfdbfe; font-size: 12px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase;">⭐ Exclusive Property Match</span>
+    </div>
+    <h1 style="margin: 0 0 8px; color: #ffffff; font-size: 26px; font-weight: 800; letter-spacing: -0.5px;">We Found Your Perfect Match!</h1>
+    <p style="margin: 0; color: #bfdbfe; font-size: 15px; font-weight: 500;">Based on your requirements, here is a curated property that fits you perfectly.</p>
+  </div>
+
+  <!-- Greeting -->
+  <div style="background: #ffffff; padding: 32px 40px 0;">
+    <p style="margin: 0 0 6px; font-size: 15px; color: #475569;">Dear <strong style="color: #1e293b;">{{First name}}</strong>,</p>
+    <p style="margin: 0; font-size: 14px; color: #64748b; line-height: 1.7;">I am pleased to share an exclusive property opportunity that perfectly aligns with your investment goals and lifestyle requirements. This unit is currently available and seeing strong buyer interest — I recommend reviewing it at the earliest convenience.</p>
+  </div>
+
+  <!-- Property Card -->
+  <div style="background: #ffffff; padding: 24px 40px 32px;">
+
+    <!-- Project Name Banner -->
+    <div style="background: linear-gradient(135deg, #f0f9ff, #e0f2fe); border: 1px solid #bae6fd; border-radius: 12px; padding: 20px 24px; margin-bottom: 20px;">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px;">
+        <div>
+          <div style="font-size: 11px; font-weight: 700; color: #0284c7; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">📍 Project</div>
+          <div style="font-size: 22px; font-weight: 900; color: #0c4a6e; margin: 0;">{{DealProject}}</div>
+          <div style="font-size: 13px; color: #0369a1; margin-top: 4px; font-weight: 600;">{{DealLocation}}</div>
+        </div>
+        <div style="text-align: right;">
+          <div style="font-size: 11px; font-weight: 700; color: #059669; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">💰 Asking Price</div>
+          <div style="font-size: 24px; font-weight: 900; color: #065f46;">{{DealPrice}}</div>
+          <div style="font-size: 11px; color: #6b7280; margin-top: 3px; font-weight: 600;">All Inclusive</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Property Details Grid -->
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px;">
+
+      <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px;">
+        <div style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">🏗 Unit Number</div>
+        <div style="font-size: 16px; font-weight: 800; color: #1e293b;">{{DealUnit}}</div>
+      </div>
+
+      <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px;">
+        <div style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">📐 Size / Area</div>
+        <div style="font-size: 16px; font-weight: 800; color: #1e293b;">{{DealSize}}</div>
+      </div>
+
+      <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px;">
+        <div style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">🏠 Category</div>
+        <div style="font-size: 15px; font-weight: 800; color: #1e293b;">{{DealCategory}}</div>
+      </div>
+
+      <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px;">
+        <div style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">🏷 Type / Specification</div>
+        <div style="font-size: 15px; font-weight: 800; color: #1e293b;">{{DealSubCategory}}</div>
+      </div>
+
+      <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px;">
+        <div style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">🏢 Block / Floor</div>
+        <div style="font-size: 15px; font-weight: 800; color: #1e293b;">{{DealBlock}}</div>
+      </div>
+
+      <div style="background: #fefce8; border: 1px solid #fde68a; border-radius: 10px; padding: 14px 16px;">
+        <div style="font-size: 10px; font-weight: 700; color: #92400e; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">📊 Availability Status</div>
+        <div style="font-size: 15px; font-weight: 800; color: #78350f;">{{DealStage}}</div>
+      </div>
+
+    </div>
+
+    <!-- Why This Property -->
+    <div style="background: linear-gradient(135deg, #faf5ff, #ede9fe); border: 1px solid #ddd6fe; border-radius: 12px; padding: 20px 24px; margin-bottom: 20px;">
+      <div style="font-size: 13px; font-weight: 800; color: #5b21b6; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+        <span>✨</span> Why This Property Matches You
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 6px; height: 6px; border-radius: 50%; background: #7c3aed; flex-shrink: 0;"></div>
+          <span style="font-size: 13px; color: #374151; font-weight: 600;">Location matches your preferred area in <strong>{{DealLocation}}</strong></span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 6px; height: 6px; border-radius: 50%; background: #7c3aed; flex-shrink: 0;"></div>
+          <span style="font-size: 13px; color: #374151; font-weight: 600;">Asking price of <strong>{{DealPrice}}</strong> is aligned with your budget range</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 6px; height: 6px; border-radius: 50%; background: #7c3aed; flex-shrink: 0;"></div>
+          <span style="font-size: 13px; color: #374151; font-weight: 600;">Property type and size configuration suit your stated requirements</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 6px; height: 6px; border-radius: 50%; background: #7c3aed; flex-shrink: 0;"></div>
+          <span style="font-size: 13px; color: #374151; font-weight: 600;">Currently <strong>{{DealStage}}</strong> — act quickly to secure this unit</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Urgency Banner -->
+    <div style="background: linear-gradient(135deg, #fff7ed, #ffedd5); border: 1px solid #fed7aa; border-radius: 12px; padding: 16px 20px; margin-bottom: 24px; display: flex; align-items: center; gap: 12px;">
+      <span style="font-size: 20px;">⏰</span>
+      <div>
+        <div style="font-size: 13px; font-weight: 800; color: #9a3412; margin-bottom: 2px;">Limited Availability — Priority Booking Open</div>
+        <div style="font-size: 12px; color: #c2410c; font-weight: 500;">This unit is being shared with a select group of serious buyers. Please confirm your interest to hold priority.</div>
+      </div>
+    </div>
+
+    <!-- CTA Buttons -->
+    <div style="text-align: center; margin-bottom: 24px;">
+      <a href="tel:+919991333570" style="display: inline-block; background: linear-gradient(135deg, #2563eb, #1d4ed8); color: #ffffff; padding: 14px 32px; border-radius: 50px; text-decoration: none; font-size: 14px; font-weight: 800; letter-spacing: 0.3px; box-shadow: 0 4px 15px rgba(37,99,235,0.35); margin-right: 10px; margin-bottom: 10px;">
+        📞 Call to Schedule Visit
+      </a>
+      <a href="https://wa.me/919991333570" style="display: inline-block; background: linear-gradient(135deg, #25d366, #128c7e); color: #ffffff; padding: 14px 32px; border-radius: 50px; text-decoration: none; font-size: 14px; font-weight: 800; letter-spacing: 0.3px; box-shadow: 0 4px 15px rgba(37,211,102,0.35); margin-bottom: 10px;">
+        💬 WhatsApp Us
+      </a>
+    </div>
+
+    <!-- Divider -->
+    <div style="border-top: 1px solid #e2e8f0; margin: 8px 0 24px;"></div>
+
+    <!-- Closing -->
+    <p style="font-size: 14px; color: #475569; line-height: 1.7; margin: 0 0 16px;">I am available for a detailed walkthrough at your preferred time. Please feel free to reach out, and I will ensure a seamless experience from property viewing to documentation.</p>
+    <p style="font-size: 14px; color: #475569; margin: 0 0 6px;">Warm regards,</p>
+    <strong style="font-size: 15px; color: #1e293b;">{{Sender's signature}}</strong>
+    <p style="font-size: 12px; color: #94a3b8; margin: 4px 0 0;">Bharat Properties | 📞 +91-9991333570</p>
+  </div>
+
+  <!-- Footer -->
+  <div style="background: #1e293b; padding: 20px 40px; border-radius: 0 0 16px 16px; text-align: center;">
+    <p style="margin: 0 0 6px; font-size: 12px; color: #64748b;">This is a curated match sent exclusively to you. To unsubscribe, reply with "STOP".</p>
+    <p style="margin: 0; font-size: 11px; color: #475569;">© 2025 Bharat Properties. All rights reserved.</p>
+  </div>
+
+</div>`,
+        shared: true
+    },
+    {
         id: 'fb_interested_hot',
         name: 'Feedback: Interested (Hot)',
         author: 'System',
