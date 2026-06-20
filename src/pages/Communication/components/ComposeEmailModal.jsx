@@ -126,6 +126,7 @@ const ComposeEmailModal = ({
     const [isSending, setIsSending] = useState(false);
     const [selectedTemplate, setSelectedTemplate] = useState('');
     const [toEmail, setToEmail] = useState(initialTo);
+    const [hideUnitNumber, setHideUnitNumber] = useState(true);
     const editorRef = useRef(null);
     const { currentUser } = useUserContext();
 
@@ -138,9 +139,9 @@ const ComposeEmailModal = ({
         const signature = currentUser?.preferences?.emailSignature || `<strong>${currentUser?.name || 'Sender'}</strong>`;
         compiled = compiled.replace(/\{\{Sender's signature\}\}/g, signature);
         
-        // Sender's first name
-        const firstName = currentUser?.name?.split(' ')[0] || 'Sender';
-        compiled = compiled.replace(/\{\{Sender's first name\}\}/g, firstName);
+        // We do NOT replace recipient's first name here anymore, 
+        // because the backend handles it dynamically for batch emails.
+        // The WYSIWYG editor will show {{First name}} as a placeholder.
 
         return compiled;
     };
@@ -166,7 +167,7 @@ const ComposeEmailModal = ({
 
                     // Then apply deal variables if builder is provided (Deal Match template)
                     if (dealDataBuilder && typeof dealDataBuilder === 'function') {
-                        compiledContent = dealDataBuilder(compiledContent);
+                        compiledContent = dealDataBuilder(compiledContent, hideUnitNumber);
                     }
 
                     setBody(compiledContent);
@@ -182,7 +183,7 @@ const ComposeEmailModal = ({
                 editorRef.current.innerHTML = initialBody || '';
             }
         }
-    }, [isOpen, initialSubject, initialBody, initialTo, initialTemplateId, dealDataBuilder]);
+    }, [isOpen, initialSubject, initialBody, initialTo, initialTemplateId, dealDataBuilder, hideUnitNumber]);
 
     const variables = [
         { label: 'Contact Name', value: '{{ContactName}}' },
@@ -246,6 +247,7 @@ const ComposeEmailModal = ({
 
             const response = await emailAPI.send({
                 to: finalRecipients.join(', '),
+                recipients: recipients.length > 0 ? recipients : null, // Send full array for backend personalization
                 subject,
                 html: body,
                 attachments: autoAttachments
@@ -337,35 +339,65 @@ const ComposeEmailModal = ({
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <label style={{ ...styles.label, marginBottom: 0 }}>Message</label>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                <select
-                                    style={{ fontSize: '0.75rem', border: '1px solid #e2e8f0', borderRadius: '100px', padding: '4px 12px', outline: 'none', cursor: 'pointer', color: '#475569', maxWidth: '180px' }}
-                                    value={selectedTemplate}
-                                    onChange={(e) => {
-                                        const templateId = e.target.value;
-                                        setSelectedTemplate(templateId);
-                                        if (templateId) {
-                                            const tmpl = emailTemplates.find(t => t.id === parseInt(templateId));
-                                            if (tmpl) {
-                                                setSubject(tmpl.subject);
-                                                const compiledContent = compileTemplate(tmpl.content);
-                                                setBody(compiledContent);
-                                                if (editorRef.current) {
-                                                    editorRef.current.innerHTML = compiledContent;
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span style={{ fontSize: '13px', fontWeight: 600, color: '#475569' }}>Template:</span>
+                                    <select
+                                        value={selectedTemplate}
+                                        onChange={(e) => {
+                                            const templateId = e.target.value;
+                                            setSelectedTemplate(templateId);
+                                            if (templateId) {
+                                                const tmpl = emailTemplates.find(t => t.id === parseInt(templateId));
+                                                if (tmpl) {
+                                                    setSubject(tmpl.subject);
+                                                    let compiledContent = compileTemplate(tmpl.content);
+                                                    if (dealDataBuilder && typeof dealDataBuilder === 'function') {
+                                                        compiledContent = dealDataBuilder(compiledContent, hideUnitNumber);
+                                                    }
+                                                    setBody(compiledContent);
+                                                    if (editorRef.current) {
+                                                        editorRef.current.innerHTML = compiledContent;
+                                                    }
                                                 }
                                             }
-                                        }
-                                    }}
-                                >
-                                    <option value="">Select Template</option>
-                                    {emailTemplates.map(tmpl => <option key={tmpl.id} value={tmpl.id}>{tmpl.name}</option>)}
-                                </select>
-                                <div style={{ width: '1px', height: '16px', backgroundColor: '#e2e8f0' }}></div>
-                                <div style={{ display: 'flex', gap: '6px' }}>
-                                    {variables.map(v => (
-                                        <button key={v.value} onClick={() => insertVariable(v.value)} style={styles.variablePill}>{v.label}</button>
-                                    ))}
+                                        }}
+                                        style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', outline: 'none' }}
+                                    >
+                                        <option value="">No Template</option>
+                                        {emailTemplates.map(t => (
+                                            <option key={t.id} value={t.id}>{t.name}</option>
+                                        ))}
+                                    </select>
                                 </div>
+                                {dealData && (
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 600, color: '#10b981' }}>
+                                        <input 
+                                            type="checkbox" 
+                                            checked={hideUnitNumber} 
+                                            onChange={(e) => {
+                                                setHideUnitNumber(e.target.checked);
+                                                const tmpl = emailTemplates.find(t => t.id === parseInt(selectedTemplate));
+                                                if (tmpl) {
+                                                    let compiledContent = compileTemplate(tmpl.content);
+                                                    compiledContent = dealDataBuilder(compiledContent, e.target.checked);
+                                                    setBody(compiledContent);
+                                                    if (editorRef.current) {
+                                                        editorRef.current.innerHTML = compiledContent;
+                                                    }
+                                                }
+                                            }}
+                                            style={{ cursor: 'pointer' }}
+                                        />
+                                        Hide Unit Number (Privacy)
+                                    </label>
+                                )}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <div style={{ width: '1px', height: '16px', backgroundColor: '#e2e8f0' }}></div>
+                                {variables.map(v => (
+                                    <button key={v.value} onClick={() => insertVariable(v.value)} style={styles.variablePill}>{v.label}</button>
+                                ))}
                             </div>
                         </div>
 

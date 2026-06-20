@@ -89,7 +89,7 @@ class EmailService {
         return userInfo.data.email;
     }
 
-    async sendEmail(to, subject, text, html) {
+    async sendEmail(to, subject, text, html, recipients = null) {
         const config = await this.getEmailConfig();
 
         // Setup transporter based on config
@@ -114,24 +114,59 @@ class EmailService {
             },
         };
 
-        console.log(`[EmailService] Attempting to send email to ${to} using ${config.useOAuth ? 'OAuth2' : 'Password'}`);
         const transporter = nodemailer.createTransport(transporterOptions);
-
-        const mailOptions = {
-            from: `"${config.email.split('@')[0]}" <${config.email}>`,
-            to,
-            subject,
-            text,
-            html,
-        };
+        const sender = `"${config.email.split('@')[0]}" <${config.email}>`;
 
         try {
-            const info = await transporter.sendMail(mailOptions);
-            console.log('[EmailService] Email sent successfully:', info.messageId);
-            console.log('[EmailService] Accepted:', info.accepted);
-            console.log('[EmailService] Rejected:', info.rejected);
-            console.log('[EmailService] Response:', info.response);
-            return info;
+            if (recipients && Array.isArray(recipients) && recipients.length > 0) {
+                console.log(`[EmailService] Attempting to send personalized batch email to ${recipients.length} recipients using ${config.useOAuth ? 'OAuth2' : 'Password'}`);
+                const results = [];
+                for (const recipient of recipients) {
+                    const recipientEmail = recipient.email;
+                    if (!recipientEmail) continue;
+
+                    let personalizedHtml = html || '';
+                    let personalizedText = text || '';
+                    const rName = recipient.firstName || recipient.name?.split(' ')[0] || 'Customer';
+
+                    // Replace variables for this recipient
+                    if (personalizedHtml) {
+                        personalizedHtml = personalizedHtml.replace(/\{\{ContactName\}\}/g, recipient.name || 'Customer');
+                        personalizedHtml = personalizedHtml.replace(/\{\{First name\}\}/g, rName);
+                        personalizedHtml = personalizedHtml.replace(/\{\{firstName\}\}/g, rName);
+                    }
+                    if (personalizedText) {
+                        personalizedText = personalizedText.replace(/\{\{ContactName\}\}/g, recipient.name || 'Customer');
+                        personalizedText = personalizedText.replace(/\{\{First name\}\}/g, rName);
+                        personalizedText = personalizedText.replace(/\{\{firstName\}\}/g, rName);
+                    }
+
+                    const mailOptions = {
+                        from: sender,
+                        to: recipientEmail,
+                        subject,
+                        text: personalizedText,
+                        html: personalizedHtml,
+                    };
+
+                    const info = await transporter.sendMail(mailOptions);
+                    results.push(info);
+                }
+                console.log(`[EmailService] Batch processing complete. Sent ${results.length} emails.`);
+                return { messageId: 'batch', results };
+            } else {
+                console.log(`[EmailService] Attempting to send single email to ${to} using ${config.useOAuth ? 'OAuth2' : 'Password'}`);
+                const mailOptions = {
+                    from: sender,
+                    to,
+                    subject,
+                    text,
+                    html,
+                };
+                const info = await transporter.sendMail(mailOptions);
+                console.log('[EmailService] Email sent successfully:', info.messageId);
+                return info;
+            }
         } catch (error) {
             console.error('[EmailService] Error in sendMail:', error);
             throw error;

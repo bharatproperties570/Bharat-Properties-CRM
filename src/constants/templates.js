@@ -141,6 +141,18 @@ export const emailTemplates = [
         <div style="font-size: 15px; font-weight: 800; color: #1e293b;">{{DealBlock}}</div>
       </div>
 
+      <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px;">
+        <div style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">🧭 Orientation</div>
+        <div style="font-size: 15px; font-weight: 800; color: #1e293b;">{{DealOrientation}}</div>
+      </div>
+
+      <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px;">
+        <div style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">📐 Size Type</div>
+        <div style="font-size: 15px; font-weight: 800; color: #1e293b;">{{DealSizeLabel}}</div>
+      </div>
+
+      {{DealBuiltupHTML}}
+
       <div style="background: #fefce8; border: 1px solid #fde68a; border-radius: 10px; padding: 14px 16px;">
         <div style="font-size: 10px; font-weight: 700; color: #92400e; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">📊 Availability Status</div>
         <div style="font-size: 15px; font-weight: 800; color: #78350f;">{{DealStage}}</div>

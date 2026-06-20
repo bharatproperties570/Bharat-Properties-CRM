@@ -2,12 +2,12 @@ import emailService from '../services/email.service.js';
 
 export const sendEmail = async (req, res) => {
     try {
-        const { to, subject, text, html } = req.body;
-        if (!to || !subject || (!text && !html)) {
-            return res.status(400).json({ success: false, message: 'Missing required fields: to, subject, and (text or html)' });
+        const { to, subject, text, html, recipients } = req.body;
+        if ((!to && (!recipients || recipients.length === 0)) || !subject || (!text && !html)) {
+            return res.status(400).json({ success: false, message: 'Missing required fields: to/recipients, subject, and (text or html)' });
         }
 
-        const result = await emailService.sendEmail(to, subject, text, html);
+        const result = await emailService.sendEmail(to, subject, text, html, recipients);
         res.json({ success: true, data: result });
     } catch (error) {
         console.error('Controller Error sending email:', error);

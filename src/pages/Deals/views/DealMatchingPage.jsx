@@ -130,16 +130,30 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
     };
 
     // Injects real deal data into the Deal Property Match template variables
-    const buildDealEmailBody = useCallback((templateContent) => {
+    const buildDealEmailBody = useCallback((templateContent, hideUnitNumber = false) => {
         if (!deal || !templateContent) return templateContent;
         const size = deal.size?.value || deal.size || 0;
         const sizeStr = size > 0 ? `${size} ${deal.sizeUnit || 'Sq.Ft.'}` : 'N/A';
+        
+        let builtupHtml = '';
+        const builtupType = deal.builtupType || deal.inventoryId?.builtupType;
+        if (builtupType) {
+            builtupHtml = `
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px;">
+                <div style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">🏗 Built-up Status</div>
+                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">${renderVal(builtupType)}</div>
+            </div>`;
+        }
+        
         return templateContent
             .replace(/\{\{DealProject\}\}/g, deal.projectName || deal.inventoryId?.projectName || 'N/A')
             .replace(/\{\{DealLocation\}\}/g, renderVal(deal.location || deal.inventoryId?.address?.locality))
             .replace(/\{\{DealPrice\}\}/g, formatIndianCurrency(deal.price || deal.quotePrice || 0))
-            .replace(/\{\{DealUnit\}\}/g, deal.unitNo || deal.inventoryId?.unitNo || 'N/A')
+            .replace(/\{\{DealUnit\}\}/g, hideUnitNumber ? 'Available on Request' : (deal.unitNo || deal.inventoryId?.unitNo || 'N/A'))
             .replace(/\{\{DealSize\}\}/g, sizeStr)
+            .replace(/\{\{DealSizeLabel\}\}/g, renderVal(deal.sizeLabel || deal.sizeConfig || deal.inventoryId?.sizeConfig) || 'Standard')
+            .replace(/\{\{DealOrientation\}\}/g, renderVal(deal.facing || deal.direction || deal.inventoryId?.facing || deal.inventoryId?.direction) || 'Not Specified')
+            .replace(/\{\{DealBuiltupHTML\}\}/g, builtupHtml)
             .replace(/\{\{DealCategory\}\}/g, renderVal(deal.category || deal.inventoryId?.category))
             .replace(/\{\{DealSubCategory\}\}/g, renderVal(deal.subCategory || deal.inventoryId?.subCategory) !== 'N/A' ? renderVal(deal.subCategory || deal.inventoryId?.subCategory) : 'N/A')
             .replace(/\{\{DealBlock\}\}/g, deal.block || deal.inventoryId?.block || 'N/A')
