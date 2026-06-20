@@ -22,10 +22,14 @@ export const resolveLookup = async (type, value, parent_lookup_id = null) => {
     const trimmedVal = String(value).trim();
     if (!trimmedVal) return null;
 
-    // Search for existing
+    // Search for existing by value OR aliases
+    const regexMatch = new RegExp(`^${escapeRegExp(trimmedVal)}$`, 'i');
     const query = { 
         lookup_type: type, 
-        lookup_value: { $regex: new RegExp(`^${escapeRegExp(trimmedVal)}$`, 'i') } 
+        $or: [
+            { lookup_value: { $regex: regexMatch } },
+            { "metadata.aliases": { $regex: regexMatch } }
+        ]
     };
     
     // 🛡️ [DATA INTEGRITY] Only apply parent_lookup_id if it's a valid ObjectId string/object

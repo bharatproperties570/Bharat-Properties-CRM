@@ -100,6 +100,19 @@ class AddressParsingService {
                 if (l.lookup_type === 'Location') this.masterCache.locations.set(val, l.lookup_value);
                 if (l.lookup_type === 'State') this.masterCache.states.set(val, l.lookup_value);
                 
+                // Add aliases to the parsing cache
+                if (l.metadata && Array.isArray(l.metadata.aliases)) {
+                    l.metadata.aliases.forEach(alias => {
+                        if (!alias) return;
+                        const aliasVal = alias.toLowerCase().trim();
+                        if (aliasVal.length < 3) return;
+                        if (l.lookup_type === 'City') this.masterCache.cities.set(aliasVal, l.lookup_value);
+                        if (l.lookup_type === 'Tehsil') this.masterCache.tehsils.set(aliasVal, l.lookup_value);
+                        if (l.lookup_type === 'Location') this.masterCache.locations.set(aliasVal, l.lookup_value);
+                        if (l.lookup_type === 'State') this.masterCache.states.set(aliasVal, l.lookup_value);
+                    });
+                }
+
                 this.masterCache.idToLookup.set(l._id.toString(), l);
             });
             

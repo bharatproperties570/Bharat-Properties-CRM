@@ -40,7 +40,13 @@ const resolveLookup = async (type, value, createIfMissing = true) => {
 
     const escapedValue = escapeRegExp(value);
     const re = new RegExp(`^${escapedValue}$`, 'i');
-    let lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: re } });
+    let lookup = await Lookup.findOne({ 
+        lookup_type: type, 
+        $or: [
+            { lookup_value: { $regex: re } },
+            { "metadata.aliases": { $regex: re } }
+        ]
+    });
 
     if (!lookup) {
         if (!createIfMissing) return null;

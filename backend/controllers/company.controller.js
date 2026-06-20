@@ -63,9 +63,13 @@ const resolveLookup = async (type, value) => {
     const lookupValue = typeof value === 'object' ? (value.lookup_value || value.name) : value;
     if (!lookupValue || lookupValue === 'N/A') return null;
 
+    const regexMatch = new RegExp(`^${lookupValue}$`, 'i');
     let lookup = await Lookup.findOne({
         lookup_type: type,
-        lookup_value: { $regex: new RegExp(`^${lookupValue}$`, 'i') }
+        $or: [
+            { lookup_value: { $regex: regexMatch } },
+            { "metadata.aliases": { $regex: regexMatch } }
+        ]
     });
 
     if (!lookup) {

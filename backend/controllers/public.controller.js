@@ -27,7 +27,14 @@ const resolveLookup = async (type, value) => {
     if (!value) return null;
     if (mongoose.Types.ObjectId.isValid(value)) return value;
     const escapedValue = escapeRegExp(value);
-    let lookup = await Lookup.findOne({ lookup_type: type, lookup_value: { $regex: new RegExp(`^${escapedValue}$`, 'i') } });
+    const regexMatch = new RegExp(`^${escapedValue}$`, 'i');
+    let lookup = await Lookup.findOne({ 
+        lookup_type: type, 
+        $or: [
+            { lookup_value: { $regex: regexMatch } },
+            { "metadata.aliases": { $regex: regexMatch } }
+        ]
+    });
     if (!lookup) {
         lookup = await Lookup.create({ lookup_type: type, lookup_value: value });
     }

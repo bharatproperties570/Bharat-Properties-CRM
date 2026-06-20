@@ -526,11 +526,28 @@ export const mergeOrMoveLookup = async (req, res) => {
                 );
             }
 
-            // 5. Delete source lookup
+            // 5. Build Alias Array on Target
+            targetLookup.metadata = targetLookup.metadata || {};
+            targetLookup.metadata.aliases = targetLookup.metadata.aliases || [];
+            
+            if (!targetLookup.metadata.aliases.includes(sourceLookup.lookup_value)) {
+                targetLookup.metadata.aliases.push(sourceLookup.lookup_value);
+            }
+            if (sourceLookup.metadata && Array.isArray(sourceLookup.metadata.aliases)) {
+                sourceLookup.metadata.aliases.forEach(alias => {
+                    if (!targetLookup.metadata.aliases.includes(alias)) {
+                        targetLookup.metadata.aliases.push(alias);
+                    }
+                });
+            }
+            targetLookup.markModified('metadata');
+            await targetLookup.save();
+
+            // 6. Delete source lookup
             await Lookup.deleteOne({ _id: sourceLookup._id });
 
-            console.log(`[LOOKUPS] Merged ${sourceLookup.lookup_type} ${sourceLookup._id} ("${sourceLookup.lookup_value}") into ${targetLookup._id} ("${targetLookup.lookup_value}")`);
-            return res.json({ status: "success", message: `Successfully merged "${sourceLookup.lookup_value}" into "${targetLookup.lookup_value}" across all records.` });
+            console.log(`[LOOKUPS] Merged ${sourceLookup.lookup_type} ${sourceLookup._id} ("${sourceLookup.lookup_value}") into ${targetLookup._id} ("${targetLookup.lookup_value}") with aliases.`);
+            return res.json({ status: "success", message: `Successfully merged "${sourceLookup.lookup_value}" into "${targetLookup.lookup_value}" across all records and added as an alias.` });
         }
 
         return res.status(400).json({ status: "error", message: `Unsupported action: "${action}"` });
