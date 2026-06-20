@@ -144,6 +144,17 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                 <div style="font-size: 15px; font-weight: 800; color: #1e293b;">${renderVal(builtupType)}</div>
             </div>`;
         }
+
+        const dir = renderVal(deal.direction || deal.inventoryId?.direction);
+        const facing = renderVal(deal.facing || deal.inventoryId?.facing);
+        const road = renderVal(deal.roadWidth || deal.inventoryId?.roadWidth);
+        let orientationParts = [];
+        if (dir && dir !== 'N/A') orientationParts.push(dir);
+        if (facing && facing !== 'N/A') orientationParts.push(`${facing} facing`);
+        if (road && road !== 'N/A') orientationParts.push(`${road} road`);
+        const orientationStr = orientationParts.length > 0 ? orientationParts.join(' | ') : 'Not Specified';
+
+        const ownershipStr = renderVal(deal.ownership || deal.inventoryId?.ownership) || 'N/A';
         
         return templateContent
             .replace(/\{\{DealProject\}\}/g, deal.projectName || deal.inventoryId?.projectName || 'N/A')
@@ -152,7 +163,8 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
             .replace(/\{\{DealUnit\}\}/g, hideUnitNumber ? 'Available on Request' : (deal.unitNo || deal.inventoryId?.unitNo || 'N/A'))
             .replace(/\{\{DealSize\}\}/g, sizeStr)
             .replace(/\{\{DealSizeLabel\}\}/g, renderVal(deal.sizeLabel || deal.sizeConfig || deal.inventoryId?.sizeConfig) || 'Standard')
-            .replace(/\{\{DealOrientation\}\}/g, renderVal(deal.facing || deal.direction || deal.inventoryId?.facing || deal.inventoryId?.direction) || 'Not Specified')
+            .replace(/\{\{DealOrientation\}\}/g, orientationStr)
+            .replace(/\{\{DealOwnership\}\}/g, ownershipStr)
             .replace(/\{\{DealBuiltupHTML\}\}/g, builtupHtml)
             .replace(/\{\{DealCategory\}\}/g, renderVal(deal.category || deal.inventoryId?.category))
             .replace(/\{\{DealSubCategory\}\}/g, renderVal(deal.subCategory || deal.inventoryId?.subCategory) !== 'N/A' ? renderVal(deal.subCategory || deal.inventoryId?.subCategory) : 'N/A')
