@@ -878,12 +878,18 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
 
                 const encodedMsg = encodeURIComponent(resolvedBody);
 
-                // Step 2: Detect if we should try native protocol (Mac/Windows desktop)
-                // Use the official WhatsApp API Gateway for all platforms.
-                // This prevents the Mac Desktop app from stripping the text parameter, 
-                // which often happens when invoking the raw whatsapp:// scheme directly.
+                // Reverted to whatsapp:// scheme as per user request to directly open the app
+                const isMac = navigator.userAgent.toLowerCase().includes('mac');
+                const appUrl = `whatsapp://send?phone=${formattedPhone}&text=${encodedMsg}`;
                 const webUrl = `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodedMsg}`;
-                window.open(webUrl, '_blank');
+                
+                // Try opening the native app first, fallback to web
+                window.location.href = appUrl;
+                
+                // We use a small timeout to open the web version if the app doesn't open
+                setTimeout(() => {
+                    window.open(webUrl, '_blank');
+                }, 1000);
 
                 // Step 3: Show a persistent toast with clear instructions for desktop users
                 toast(
@@ -1415,7 +1421,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
 
                             {/* Item Info */}
                             <div style={{ padding: '4px 0' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
                                     <div style={{
                                         background: item.matchPercentage > 80 ? isDark ? 'rgba(255, 255, 255, 0.03)' : '#dcfce7' : item.matchPercentage > 50 ? '#fef3c7' : isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9',
                                         color: item.matchPercentage > 80 ? '#166534' : item.matchPercentage > 50 ? '#92400e' : isDark ? 'var(--text-main)' : '#475569',
@@ -1433,6 +1439,11 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                     <span style={{ fontSize: '0.9rem', fontWeight: 800, color: '#10b981', background: '#ecfdf5', padding: '2px 10px', borderRadius: '100px', border: '1px solid #b9f6ca' }}>
                                         ₹{renderValue(item.price)}
                                     </span>
+                                    {item.isPreferredMatch && (
+                                        <span style={{ background: 'linear-gradient(135deg, #fef08a 0%, #f59e0b 100%)', color: '#78350f', padding: '2px 8px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.5px', boxShadow: '0 2px 4px rgba(245, 158, 11, 0.2)' }}>
+                                            <i className="fas fa-star" style={{ marginRight: '4px' }}></i>Preferred Match
+                                        </span>
+                                    )}
                                 </div>
 
                                 <div style={{ marginBottom: '8px' }}>

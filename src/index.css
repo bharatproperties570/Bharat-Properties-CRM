@@ -1608,7 +1608,7 @@ body {
 .lead-list-grid {
     display: grid;
     /* Optimized Grid: Shifting Match slightly Left */
-    grid-template-columns: 32px minmax(220px, 1.4fr) 85px minmax(180px, 1.2fr) minmax(300px, 1.2fr) minmax(160px, 1.1fr) 130px 140px;
+    grid-template-columns: 32px minmax(200px, 1.4fr) 100px minmax(180px, 1.2fr) minmax(300px, 1.2fr) minmax(160px, 1.1fr) 130px 140px;
     gap: 15px;
     align-items: center;
     padding: 12px 1.5rem 12px 0.75rem;

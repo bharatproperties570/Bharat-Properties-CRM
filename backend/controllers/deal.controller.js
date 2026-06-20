@@ -650,9 +650,33 @@ export const matchDeals = async (req, res) => {
                 // Enrich inventoryId with resolved lookup strings (prevents ObjectId leakage in WhatsApp variables)
                 const enrichedInventory = enrichInventoryLookups(deal.inventoryId);
 
+                // --- PREFERRED MATCH LOGIC ---
+                // We check if the deal properly matched all specified criteria. If a criteria is 0 max, we ignore it.
+                // Intent and Category are already strict filters above.
+                // --- STRICT ENTERPRISE PREFERRED MATCH ---
+                const leadSizeTypes = (Array.isArray(lead.sizeType) ? lead.sizeType : []).map(s => getLookupValueLocal(s)).filter(Boolean);
+                const leadUnitTypes = (Array.isArray(lead.unitType) ? lead.unitType : []).map(u => getLookupValueLocal(u)).filter(Boolean);
+                
+                const dealSizeDesc = [
+                    deal.sizeType, deal.inventoryId?.sizeType,
+                    deal.unitType, deal.inventoryId?.unitType,
+                    deal.sizeConfig, deal.inventoryId?.sizeConfig,
+                    deal.sizeLabel, deal.inventoryId?.sizeLabel,
+                    deal.unitSpecification?.sizeLabel, deal.inventoryId?.unitSpecification?.sizeLabel
+                ].map(s => getLookupValueLocal(s)).filter(Boolean).join(" ");
+
+                const isSubCatMatch = leadSubs.length === 0 || (dealSub && leadSubs.some(s => dealSub.includes(s) || s.includes(dealSub)));
+                const isSizeTypeMatch = leadSizeTypes.length === 0 || leadSizeTypes.some(s => dealSizeDesc.includes(s));
+                const isUnitTypeMatch = leadUnitTypes.length === 0 || leadUnitTypes.some(u => dealSizeDesc.includes(u));
+                const isBudgetMatch = lBudgetMax === 0 || (dealPrice > 0 && dealPrice >= lBudgetMin && dealPrice <= lBudgetMax);
+                const isLocationMatch = scoreBreakdown.location.label === 'Lead has no location set' || scoreBreakdown.location.earned >= scoreBreakdown.location.max;
+                
+                const isPreferredMatch = isSubCatMatch && isSizeTypeMatch && isUnitTypeMatch && isBudgetMatch && isLocationMatch;
+
                 return {
                     ...deal,
                     inventoryId: enrichedInventory,
+                    isPreferredMatch,
                     score: Math.min(Math.round(decayedScore), 100),
                     rawScore: Math.min(Math.round(score), 100),
                     isPinned: lead.pinnedMatches?.some(id => String(id) === String(deal.inventoryId?._id || deal.inventoryId || deal._id)),
@@ -2418,7 +2442,8 @@ export const getBulkExactMatchCounts = async (leads, options = {}) => {
 
         // 3. Score calculation for each lead
         for (const lead of leads) {
-            let count = 0;
+            let totalCount = 0;
+            let prefCount = 0;
             const leadReq = getLookupValueLocal(lead.requirement);
             const leadCats = (Array.isArray(lead.propertyType) ? lead.propertyType : []).map(getLookupValueLocal).filter(Boolean);
             const leadLocCity = getLookupValueLocal(lead.locCity);
@@ -2473,6 +2498,7 @@ export const getBulkExactMatchCounts = async (leads, options = {}) => {
                 if (leadLocCity && dealCity && !leadCityMatch && !showOtherCities) continue;
 
                 let score = 0;
+                let locEarned = 0, typeEarned = 0, budgetEarned = 0, sizeEarned = 0;
                 
                 // A. Location
                 const locWeight = weights.location || 30;
@@ -2495,11 +2521,13 @@ export const getBulkExactMatchCounts = async (leads, options = {}) => {
                     if (dist !== null) {
                         if (dist <= leadRange) {
                             score += locWeight;
+                            locEarned = locWeight;
                         } else {
                             const extraDist = dist - leadRange;
                             const penalty = (extraDist / leadRange) * locWeight * 0.5;
                             const earned = Math.max(0, locWeight - penalty);
                             score += earned;
+                            locEarned = earned;
                         }
                         locationResolved = true;
                     }
@@ -2515,11 +2543,15 @@ export const getBulkExactMatchCounts = async (leads, options = {}) => {
                                 const projectBaseRange = 3; 
                                 if (dist <= projectBaseRange) {
                                     score += locWeight;
+                                    locEarned = locWeight;
                                 } else {
                                     const extraDist = dist - projectBaseRange;
                                     const penalty = (extraDist / projectBaseRange) * locWeight * 0.5; 
                                     const earned = Math.max(0, locWeight - penalty);
-                                    if (earned > 0) score += earned;
+                                    if (earned > 0) {
+                                        score += earned;
+                                        locEarned = earned;
+                                    }
                                 }
                                 locationResolved = true;
                                 break;
@@ -2544,6 +2576,7 @@ export const getBulkExactMatchCounts = async (leads, options = {}) => {
 
                     if (projectMatchedDirectly || projectMatchById || locMatchCount >= 1) {
                         score += locWeight;
+                        locEarned = locWeight;
                     }
                 }
 
@@ -2554,10 +2587,13 @@ export const getBulkExactMatchCounts = async (leads, options = {}) => {
 
                 if (leadSubs.length > 0 && dealSub && leadSubs.some(s => dealSub.includes(s) || s.includes(dealSub))) {
                     score += typeWeight;
+                    typeEarned = typeWeight;
                 } else if (leadCats.length > 0 && dealCategory && leadCats.some(t => dealCategory.includes(t) || t.includes(dealCategory))) {
                     score += typeWeight * 0.75;
+                    typeEarned = typeWeight * 0.75;
                 } else if (leadCats.length === 0) {
                     score += typeWeight * 0.4;
+                    typeEarned = typeWeight * 0.4;
                 }
 
                 // C. Budget
@@ -2566,15 +2602,18 @@ export const getBulkExactMatchCounts = async (leads, options = {}) => {
                 if (dealPrice > 0 && lBudgetMax > 0) {
                     if (dealPrice >= lBudgetMin && dealPrice <= lBudgetMax) {
                         score += budgetWeight;
+                        budgetEarned = budgetWeight;
                     } else {
                         const lowBound = lBudgetMin * (1 - bFlex);
                         const highBound = lBudgetMax === Infinity ? Infinity : lBudgetMax * (1 + bFlex);
                         if (dealPrice >= lowBound && dealPrice <= highBound) {
                             score += budgetWeight * 0.7;
+                            budgetEarned = budgetWeight * 0.7;
                         }
                     }
                 } else if (dealPrice === 0) {
                     score += budgetWeight * 0.3;
+                    budgetEarned = budgetWeight * 0.3;
                 }
 
                 // D. Size
@@ -2612,22 +2651,50 @@ export const getBulkExactMatchCounts = async (leads, options = {}) => {
                 if (dSizeSqYd > 0 && lSizeSqYdMax > 0) {
                     if (dSizeSqYd >= lSizeSqYdMin && dSizeSqYd <= lSizeSqYdMax) {
                         score += sizeWeight;
+                        sizeEarned = sizeWeight;
                     } else {
                         const lowBound = lSizeSqYdMin * (1 - sFlex);
                         const highBound = lSizeSqYdMax * (1 + sFlex);
                         if (dSizeSqYd >= lowBound && dSizeSqYd <= highBound) {
                             score += sizeWeight * 0.7;
+                            sizeEarned = sizeWeight * 0.7;
                         }
                     }
                 } else if (dSizeSqYd === 0) {
                     score += sizeWeight * 0.3;
+                    sizeEarned = sizeWeight * 0.3;
                 }
 
+                const isLocationMissing = !leadLocCity && !leadSector && !leadLocArea && leadProjects.length === 0;
+
+                // --- STRICT ENTERPRISE PREFERRED MATCH ---
+                const leadSizeTypes = (Array.isArray(lead.sizeType) ? lead.sizeType : []).map(s => getLookupValueLocal(s)).filter(Boolean);
+                const leadUnitTypes = (Array.isArray(lead.unitType) ? lead.unitType : []).map(u => getLookupValueLocal(u)).filter(Boolean);
+                
+                const dealSizeDesc = [
+                    deal.sizeType, deal.inventoryId?.sizeType,
+                    deal.unitType, deal.inventoryId?.unitType,
+                    deal.sizeConfig, deal.inventoryId?.sizeConfig,
+                    deal.sizeLabel, deal.inventoryId?.sizeLabel,
+                    deal.unitSpecification?.sizeLabel, deal.inventoryId?.unitSpecification?.sizeLabel
+                ].map(s => getLookupValueLocal(s)).filter(Boolean).join(" ");
+
+                const isSubCatMatch = leadSubs.length === 0 || (dealSub && leadSubs.some(s => dealSub.includes(s) || s.includes(dealSub)));
+                const isSizeTypeMatch = leadSizeTypes.length === 0 || leadSizeTypes.some(s => dealSizeDesc.includes(s));
+                const isUnitTypeMatch = leadUnitTypes.length === 0 || leadUnitTypes.some(u => dealSizeDesc.includes(u));
+                const isBudgetMatch = lBudgetMax === 0 || (dealPrice > 0 && dealPrice >= lBudgetMin && dealPrice <= lBudgetMax);
+                const isLocationMatch = isLocationMissing || locEarned >= locWeight;
+                
+                const isPreferredMatch = isSubCatMatch && isSizeTypeMatch && isUnitTypeMatch && isBudgetMatch && isLocationMatch;
+
+                if (isPreferredMatch) {
+                    prefCount++;
+                }
                 if (score >= 30) {
-                    count++;
+                    totalCount++;
                 }
             }
-            counts[lead._id.toString()] = count;
+            counts[lead._id.toString()] = { total: totalCount, pref: prefCount };
         }
 
         return counts;

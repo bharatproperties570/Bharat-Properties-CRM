@@ -811,7 +811,8 @@ export const getLeads = async (req, res, next) => {
                 const bulkMatchCounts = await getBulkExactMatchCounts(results.records);
                 results.records = results.records.map(lead => ({
                     ...lead,
-                    matched: bulkMatchCounts[lead._id?.toString() || String(lead._id)] || 0
+                    matched: bulkMatchCounts[lead._id?.toString() || String(lead._id)]?.total || 0,
+                    exactMatchCount: bulkMatchCounts[lead._id?.toString() || String(lead._id)]?.pref || 0
                 }));
             } catch (err) {
                 console.error("[BulkExactMatchCounts] error in list view:", err);

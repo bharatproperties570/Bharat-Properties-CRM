@@ -371,13 +371,13 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                 return resolveLeadLookup(lead.subType, 'SubCategory') || "";
                             })(),
                             sizeType: (() => {
-                                if (Array.isArray(lead.unitType)) {
-                                    return lead.unitType
-                                        .map(u => resolveLeadLookup(u, 'UnitType'))
+                                if (Array.isArray(lead.sizeType)) {
+                                    return lead.sizeType
+                                        .map(u => resolveLeadLookup(u, 'PropertyType'))
                                         .filter(Boolean)
                                         .join(", ");
                                 }
-                                return resolveLeadLookup(lead.unitType, 'UnitType') || "";
+                                return resolveLeadLookup(lead.sizeType, 'PropertyType') || "";
                             })(),
                             size: `${lead.areaMin || ""}${lead.areaMin && lead.areaMax ? "-" : ""}${lead.areaMax || ""} ${lead.areaMetric || ""}`.trim(),
                         },
@@ -1627,9 +1627,9 @@ const LeadItem = React.memo(function LeadItem({
                                 const rect = e.currentTarget.getBoundingClientRect();
                                 setActiveMatchPopover({ name: lead.name, x: rect.left, y: rect.bottom + 10 });
                             }}
-                            style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#e0f2fe', color: '#0284c7', fontWeight: 800, padding: '3px 10px', borderRadius: '6px', cursor: 'pointer', border: '1px solid rgba(2, 132, 199, 0.1)' }}
+                            style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#e0f2fe', color: '#0284c7', fontWeight: 800, padding: '3px 10px', borderRadius: '6px', cursor: 'pointer', border: '1px solid rgba(2, 132, 199, 0.1)', display: 'inline-flex', gap: '4px', alignItems: 'center' }}
                         >
-                            {lead.matched} Matches
+                            {lead.exactMatchCount} Matches
                         </span>
                     </div>
                 </div>
