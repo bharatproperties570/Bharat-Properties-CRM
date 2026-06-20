@@ -137,11 +137,6 @@ export const emailTemplates = [
       </div>
 
       <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px;">
-        <div style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">🧭 Orientation (Face/Dir/Road)</div>
-        <div style="font-size: 15px; font-weight: 800; color: #1e293b;">{{DealOrientation}}</div>
-      </div>
-
-      <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px;">
         <div style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">📜 Ownership</div>
         <div style="font-size: 15px; font-weight: 800; color: #1e293b;">{{DealOwnership}}</div>
       </div>
@@ -159,6 +154,8 @@ export const emailTemplates = [
       </div>
 
     </div>
+
+    {{DealOrientationStripHTML}}
 
     <!-- Why This Property -->
     <div style="background: linear-gradient(135deg, #faf5ff, #ede9fe); border: 1px solid #ddd6fe; border-radius: 12px; padding: 20px 24px; margin-bottom: 20px;">
