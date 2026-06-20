@@ -1269,7 +1269,14 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 8px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                             <input type="checkbox" onChange={handleSelectAll} checked={selectedItems.length === matchedItems.length && matchedItems.length > 0} />
-                            <span style={{ fontSize: '0.95rem', fontWeight: 700 }}>{matchedItems.length} Matches Found</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{ fontSize: '0.95rem', fontWeight: 700 }}>{matchedItems.length} Matches Found</span>
+                                {matchedItems.filter(i => i.isPreferredMatch).length > 0 && (
+                                    <span style={{ fontSize: '0.75rem', fontWeight: 800, background: '#10b981', color: '#fff', padding: '2px 8px', borderRadius: '100px' }}>
+                                        {matchedItems.filter(i => i.isPreferredMatch).length} Pref.
+                                    </span>
+                                )}
+                            </div>
                         </div>
                         
                         <div 
