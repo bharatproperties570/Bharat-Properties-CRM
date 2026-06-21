@@ -501,7 +501,7 @@ const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
     if (!masterPlan?.imageUrl) {
         return (
             <div style={{ padding: '40px', textAlign: 'center', background: 'var(--bg-card)', borderRadius: '12px', border: '1px dashed var(--border-color)' }}>
-                <div style={{ fontSize: '3rem', color: 'var(--primary)', marginBottom: '16px' }}>
+                <div style={{ fontSize: '3rem', color: 'var(--primary-color)', marginBottom: '16px' }}>
                     <i className="fas fa-map"></i>
                 </div>
                 <h3 style={{ margin: '0 0 12px 0', color: 'var(--text-main)' }}>Upload Master Plan</h3>
@@ -511,7 +511,7 @@ const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
                 <input type="file" id="map-upload" accept="image/*" style={{ display: 'none' }} onChange={handleImageUpload} />
                 <button 
                     onClick={() => document.getElementById('map-upload').click()} 
-                    style={{ padding: '12px 24px', background: 'var(--primary)', color: '#ffffff', borderRadius: '8px', fontWeight: 600, border: 'none', cursor: 'pointer', opacity: isUploading ? 0.7 : 1 }}
+                    style={{ padding: '12px 24px', background: 'var(--primary-color)', color: '#ffffff', borderRadius: '8px', fontWeight: 600, border: 'none', cursor: 'pointer', opacity: isUploading ? 0.7 : 1 }}
                     disabled={isUploading}
                 >
                     {isUploading ? <><i className="fas fa-spinner fa-spin" style={{marginRight: '8px', color: '#ffffff'}}></i> Uploading...</> : <><i className="fas fa-upload" style={{marginRight: '8px', color: '#ffffff'}}></i> Choose Image File</>}
