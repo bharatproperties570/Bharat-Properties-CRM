@@ -407,7 +407,9 @@ const ProjectMasterPlanTab = ({ project, onProjectUpdate }) => {
         const fd = new FormData();
         fd.append('file', file);
         try {
-            const res = await api.post('/upload', fd);
+            const res = await api.post('/upload', fd, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
             if (res.data?.url) {
                 const newPlan = {
                     imageUrl: res.data.url,
