@@ -120,6 +120,7 @@ const resolveAllReferenceFields = async (doc) => {
         propertyType: 'Category',
         subType: 'SubCategory',
         unitType: 'UnitType',
+        sizeType: 'PropertyType',
         facing: 'Facing',
         roadWidth: 'RoadWidth',
         direction: 'Direction'
@@ -1782,14 +1783,40 @@ export const matchLeads = async (req, res) => {
                 }
             }
 
-            // 2. TYPE / SUBCATEGORY (20 pts)
+            // 2. TYPE / SUBCATEGORY / SIZE TYPE (20 pts)
             const leadSubs = (Array.isArray(lead.subType) ? lead.subType : []).map(s => getLookupVal(s)).filter(Boolean);
-            if (leadSubs.length > 0 && dealSubCat && leadSubs.some(s => dealSubCat.includes(s) || s.includes(dealSubCat))) {
-                score += 20; scoreBreakdown.type = { earned: 20, max: 20, label: `Exact sub-type match: ${dealSubCatLbl}` }; matchDetails.push('Type Match');
-            } else if (leadCats.length > 0 && dealCategory && leadCats.some(c => dealCategory.includes(c) || c.includes(dealCategory))) {
+            const leadSizeTypes = (Array.isArray(lead.sizeType) ? lead.sizeType : []).map(s => getLookupVal(s)).filter(Boolean);
+            const leadUnitTypes = (Array.isArray(lead.unitType) ? lead.unitType : []).map(u => getLookupVal(u)).filter(Boolean);
+
+            const hasSubPref = leadSubs.length > 0;
+            const hasSizePref = leadSizeTypes.length > 0;
+            const hasUnitPref = leadUnitTypes.length > 0;
+            const subMatched = hasSubPref && dealSubCat && leadSubs.some(s => dealSubCat.includes(s) || s.includes(dealSubCat));
+            const sizeMatched = hasSizePref && leadSizeTypes.some(s => dealSizeDesc.includes(s));
+            const unitMatched = hasUnitPref && leadUnitTypes.some(u => dealSizeDesc.includes(u));
+            const catMatched = leadCats.length > 0 && dealCategory && leadCats.some(c => dealCategory.includes(c) || c.includes(dealCategory));
+
+            const isFullyMatched = subMatched && sizeMatched && (hasUnitPref ? unitMatched : true);
+            const isMostlyMatched = subMatched && (hasSizePref ? sizeMatched : true) && (hasUnitPref ? unitMatched : true);
+
+            if (isFullyMatched) {
+                score += 20; scoreBreakdown.type = { earned: 20, max: 20, label: `Exact sub-type & config match: ${dealSubCatLbl}` }; matchDetails.push('Perfect Type Match');
+            } else if (isMostlyMatched) {
+                score += 18; scoreBreakdown.type = { earned: 18, max: 20, label: `Strong type match: ${dealSubCatLbl}` }; matchDetails.push('Type Match');
+            } else if (subMatched) {
+                score += 15; scoreBreakdown.type = { earned: 15, max: 20, label: `Sub-type match but config mismatch` }; matchDetails.push('Type Match');
+            } else if (catMatched && sizeMatched) {
+                score += 15; scoreBreakdown.type = { earned: 15, max: 20, label: `Category & config match` }; matchDetails.push('Category Alignment');
+            } else if (catMatched && !hasSizePref && !hasUnitPref) {
                 score += 15; scoreBreakdown.type = { earned: 15, max: 20, label: `Category match: ${dealCategoryLbl}` }; matchDetails.push('Category Alignment');
-            } else if (leadCats.length === 0) {
+            } else if (catMatched) {
+                score += 10; scoreBreakdown.type = { earned: 10, max: 20, label: `Category match but config mismatch` }; matchDetails.push('Category Alignment');
+            } else if (sizeMatched) {
+                score += 12; scoreBreakdown.type = { earned: 12, max: 20, label: `Config type matched` }; matchDetails.push('Config Fit');
+            } else if (!hasSubPref && !hasSizePref && leadCats.length === 0) {
                 score += 8; scoreBreakdown.type = { earned: 8, max: 20, label: 'No specific type preference' };
+            } else {
+                scoreBreakdown.type = { earned: 0, max: 20, label: 'Type mismatch' };
             }
 
             // 3. BUDGET (25 pts)
@@ -1849,17 +1876,20 @@ export const matchLeads = async (req, res) => {
             const hasLeadBudget   = lBudgetMax > 0;
             const hasLeadArea     = leadAreaMaxNorm > 0;
             const hasLeadLocation = !!(leadLocVal || leadLocArea || leadLocCity || leadProjects.length > 0);
-            const leadHasData     = [hasLeadBudget, hasLeadArea, hasLeadLocation].filter(Boolean).length;
 
-            const leadSizeTypes = (Array.isArray(lead.sizeType) ? lead.sizeType : []).map(s => getLookupVal(s)).filter(Boolean);
-            const leadUnitTypes = (Array.isArray(lead.unitType) ? lead.unitType : []).map(u => getLookupVal(u)).filter(Boolean);
-            const isSubCatMatch   = leadSubs.length === 0 || (dealSubCat && leadSubs.some(s => dealSubCat.includes(s) || s.includes(dealSubCat)));
-            const isSizeTypeMatch = leadSizeTypes.length === 0 || leadSizeTypes.some(s => dealSizeDesc.includes(s));
-            const isUnitTypeMatch = leadUnitTypes.length === 0 || leadUnitTypes.some(u => dealSizeDesc.includes(u));
+            const isCatMatch      = leadCats.length > 0 && dealCategory && leadCats.some(c => dealCategory.includes(c) || c.includes(dealCategory));
+            const isSubCatMatch   = leadSubs.length > 0 && dealSubCat && leadSubs.some(s => dealSubCat.includes(s) || s.includes(dealSubCat));
+            
+            // SizeType is optional, but if specified it must match.
+            // Since frontend sometimes sends size types in unitType (like "Booth"), we check if any provided size/unit string matches dealSizeDesc.
+            const hasSizeOrUnitPref = leadSizeTypes.length > 0 || leadUnitTypes.length > 0;
+            const sizeOrUnitMatched = !hasSizeOrUnitPref || leadSizeTypes.some(s => dealSizeDesc.includes(s)) || leadUnitTypes.some(u => dealSizeDesc.includes(u));
+
             const isBudgetPref    = hasLeadBudget ? (dealPrice > 0 && dealPrice >= lBudgetMin && dealPrice <= lBudgetMax) : false;
             const isLocationPref  = hasLeadLocation ? (scoreBreakdown.location.earned >= 25) : false;
-            const isTypePref      = isSubCatMatch && isSizeTypeMatch && isUnitTypeMatch;
-            const isPreferredMatch = isBudgetPref && isLocationPref && isTypePref && leadHasData >= 2;
+            
+            // Unit Type is intentionally EXCLUDED from Preferred Match as per user request
+            const isPreferredMatch = isCatMatch && isSubCatMatch && sizeOrUnitMatched && isBudgetPref && isLocationPref;
 
             const leadReqLabel   = getLookupLabel(lead.requirement) || 'Buy';
             const leadLocLabel   = getLookupLabel(lead.location) || lead.locArea || lead.locCity || 'Not Set';
@@ -2089,5 +2119,232 @@ export const interpretLeadRequirements = async (req, res) => {
     } catch (error) {
         console.error("[AI_INTERPRET] Fatal Error:", error);
         res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+
+export const getBulkDealExactMatchCounts = async (deals, user = null) => {
+    try {
+        const Lead = (await import('../models/Lead.js')).default;
+        const Lookup = (await import('../models/Lookup.js')).default;
+        
+        const reqUser = user || { _id: null };
+        let visFilter = {};
+        if (reqUser._id) {
+            const { getVisibilityFilter } = await import('../utils/visibility.js');
+            visFilter = await getVisibilityFilter(reqUser);
+        }
+
+        const userVisibilityQuery = {
+            ...visFilter,
+            stage: { $nin: ['Closed', 'Lost', 'Junk', 'Unqualified', 'Sold Out'] }
+        };
+
+        const activeLeads = await Lead.find(userVisibilityQuery)
+        .select('_id budgetMin budgetMax areaMin areaMax locCity locArea sector projectName requirement propertyType subType sizeType unitType location')
+        .populate('projectName', 'name')
+        .lean();
+        
+        const allLookups = await Lookup.find({}).lean();
+        const lookupIdMap = new Map(allLookups.map(l => [String(l._id), String(l.lookup_value || '').toLowerCase()]));
+
+        const getLookupVal = (val) => {
+            if (!val) return '';
+            if (val.lookup_value) return String(val.lookup_value).toLowerCase();
+            const idStr = String(val._id || val);
+            const resolved = lookupIdMap.get(idStr);
+            if (resolved) return resolved;
+            if (!/^[0-9a-fA-F]{24}$/.test(idStr)) return idStr.toLowerCase();
+            return '';
+        };
+
+        const extractNumericSize = (val) => {
+            if (typeof val === 'number') return val;
+            if (!val) return 0;
+            const clean = String(val).replace(/,/g, '');
+            const nums = clean.match(/\d+(\.\d+)?/g);
+            if (nums && nums.length > 0) return Math.max(...nums.map(Number));
+            return 0;
+        };
+
+        const counts = {};
+        for (const deal of deals) {
+            let prefCount = 0;
+            const price = parseFloat(String(deal.price || deal.quotePrice || '').replace(/,/g, '')) || 0;
+            const dealProj = String(deal.projectName || deal.inventoryId?.projectName || '').toLowerCase();
+            const dealSector = getLookupVal(deal.inventoryId?.sector || deal.sector);
+            const dealCity = getLookupVal(deal.locationDetails?.city || deal.inventoryId?.address?.city);
+            const dealLoc = getLookupVal(deal.location || deal.inventoryId?.address?.locality);
+            
+            const dealCategory = getLookupVal(deal.category || deal.inventoryId?.category);
+            const dealSubCat = getLookupVal(deal.subCategory || deal.inventoryId?.subCategory);
+            const dealSizeDesc = [
+                deal.sizeType, deal.inventoryId?.sizeType,
+                deal.unitType, deal.inventoryId?.unitType,
+                deal.sizeConfig, deal.inventoryId?.sizeConfig,
+                deal.sizeLabel, deal.inventoryId?.sizeLabel,
+                deal.unitSpecification?.sizeLabel, deal.inventoryId?.unitSpecification?.sizeLabel
+            ].map(s => getLookupVal(s)).filter(Boolean).join(' ').toLowerCase();
+
+            for (const lead of activeLeads) {
+                const lMin = parseFloat(lead.budgetMin) || 0;
+                const lMax = parseFloat(lead.budgetMax) || 0;
+                const hasLeadBudget = lMax > 0;
+                const isBudgetPref = hasLeadBudget ? (price > 0 && price >= lMin && price <= lMax) : false;
+                
+                let locMatchCount = 0;
+                const leadSector = String(lead.sector || '').toLowerCase();
+                const leadCity = String(lead.locCity || '').toLowerCase();
+                const leadArea = String(lead.locArea || '').toLowerCase();
+                const leadLocVal = String(lead.location || '').toLowerCase();
+                const leadProjects = (Array.isArray(lead.projectName) ? lead.projectName : [lead.projectName]).filter(Boolean).map(p => String(p?.name || p || '').toLowerCase());
+                
+                if (leadProjects.length > 0 && leadProjects.some(p => p && dealProj.includes(p))) {
+                    locMatchCount++;
+                } else {
+                    const locSignals = [
+                        !!(leadArea && dealLoc && (dealLoc.includes(leadArea) || leadArea.includes(dealLoc))),
+                        !!(leadSector && dealSector && (dealSector.includes(leadSector) || leadSector.includes(dealSector))),
+                        !!(leadCity && dealCity && (dealCity.includes(leadCity) || leadCity.includes(dealCity))),
+                        leadArea && dealProj.includes(leadArea)
+                    ];
+                    if (locSignals.filter(Boolean).length >= 1) locMatchCount++;
+                }
+                const hasLeadLocation = !!(leadLocVal || leadArea || leadSector || leadCity || leadProjects.length > 0);
+                const isLocationPref = hasLeadLocation ? (locMatchCount >= 1) : false;
+                
+                const leadCats = (Array.isArray(lead.propertyType) ? lead.propertyType : []).map(c => getLookupVal(c)).filter(Boolean);
+                const leadSubCats = (Array.isArray(lead.subType) ? lead.subType : []).map(s => getLookupVal(s)).filter(Boolean);
+                const leadSizeTypes = (Array.isArray(lead.sizeType) ? lead.sizeType : []).map(s => getLookupVal(s)).filter(Boolean);
+                const leadUnitTypes = (Array.isArray(lead.unitType) ? lead.unitType : []).map(u => getLookupVal(u)).filter(Boolean);
+
+                const isCatMatch = leadCats.length > 0 && dealCategory && leadCats.some(c => dealCategory.includes(c) || c.includes(dealCategory));
+                const isSubCatMatch = leadSubCats.length > 0 && dealSubCat && leadSubCats.some(c => dealSubCat.includes(c) || c.includes(dealSubCat));
+                
+                const hasSizeOrUnitPref = leadSizeTypes.length > 0 || leadUnitTypes.length > 0;
+                const sizeOrUnitMatched = !hasSizeOrUnitPref || leadSizeTypes.some(s => dealSizeDesc.includes(s)) || leadUnitTypes.some(u => dealSizeDesc.includes(u));
+
+                const isPreferredMatch = isCatMatch && isSubCatMatch && sizeOrUnitMatched && isBudgetPref && isLocationPref;
+                
+                if (isPreferredMatch) {
+                    prefCount++;
+                }
+            }
+            counts[deal._id.toString()] = prefCount;
+        }
+        return counts;
+    } catch (e) {
+        console.error("[BulkDealExactMatchCounts] Error:", e);
+        return {};
+    }
+};
+
+export const getExactMatchLeadsForDeal = async (deal, user = null) => {
+    try {
+        const Lead = (await import('../models/Lead.js')).default;
+        const Lookup = (await import('../models/Lookup.js')).default;
+        
+        const reqUser = user || { _id: null };
+        let visFilter = {};
+        if (reqUser._id) {
+            const { getVisibilityFilter } = await import('../utils/visibility.js');
+            visFilter = await getVisibilityFilter(reqUser);
+        }
+
+        const userVisibilityQuery = {
+            ...visFilter,
+            stage: { $nin: ['Closed', 'Lost', 'Junk', 'Unqualified', 'Sold Out'] }
+        };
+
+        const activeLeads = await Lead.find(userVisibilityQuery)
+        .select('_id firstName lastName email mobile phone budgetMin budgetMax areaMin areaMax locCity locArea sector projectName requirement propertyType subType sizeType unitType location assignedTo')
+        .populate('projectName', 'name')
+        .lean();
+        
+        const allLookups = await Lookup.find({}).lean();
+        const lookupIdMap = new Map(allLookups.map(l => [String(l._id), String(l.lookup_value || '').toLowerCase()]));
+
+        const getLookupVal = (val) => {
+            if (!val) return '';
+            if (val.lookup_value) return String(val.lookup_value).toLowerCase();
+            const idStr = String(val._id || val);
+            const resolved = lookupIdMap.get(idStr);
+            if (resolved) return resolved;
+            if (!/^[0-9a-fA-F]{24}$/.test(idStr)) return idStr.toLowerCase();
+            return '';
+        };
+
+        const extractNumericSize = (val) => {
+            if (typeof val === 'number') return val;
+            if (!val) return 0;
+            const clean = String(val).replace(/,/g, '');
+            const nums = clean.match(/\d+(\.\d+)?/g);
+            if (nums && nums.length > 0) return Math.max(...nums.map(Number));
+            return 0;
+        };
+
+        const matchingLeads = [];
+        const price = parseFloat(String(deal.price || deal.quotePrice || '').replace(/,/g, '')) || 0;
+        const dealProj = String(deal.projectName || deal.inventoryId?.projectName || '').toLowerCase();
+        const dealSector = getLookupVal(deal.inventoryId?.sector || deal.sector);
+        const dealCity = getLookupVal(deal.locationDetails?.city || deal.inventoryId?.address?.city);
+        const dealLoc = getLookupVal(deal.location || deal.inventoryId?.address?.locality);
+        
+        const dealCategory = getLookupVal(deal.category || deal.inventoryId?.category);
+        const dealSubCat = getLookupVal(deal.subCategory || deal.inventoryId?.subCategory);
+        const dealSizeDesc = [
+            deal.sizeType, deal.inventoryId?.sizeType,
+            deal.unitType, deal.inventoryId?.unitType,
+            deal.sizeConfig, deal.inventoryId?.sizeConfig,
+            deal.sizeLabel, deal.inventoryId?.sizeLabel,
+            deal.unitSpecification?.sizeLabel, deal.inventoryId?.unitSpecification?.sizeLabel
+        ].map(s => getLookupVal(s)).filter(Boolean).join(' ').toLowerCase();
+
+        for (const lead of activeLeads) {
+            const lMin = parseFloat(lead.budgetMin) || 0;
+            const lMax = parseFloat(lead.budgetMax) || 0;
+            const hasLeadBudget = lMax > 0;
+            const isBudgetPref = hasLeadBudget ? (price > 0 && price >= lMin && price <= lMax) : false;
+            
+            let locMatchCount = 0;
+            const leadSector = String(lead.sector || '').toLowerCase();
+            const leadCity = String(lead.locCity || '').toLowerCase();
+            const leadArea = String(lead.locArea || '').toLowerCase();
+            const leadLocVal = String(lead.location || '').toLowerCase();
+            const leadProjects = (Array.isArray(lead.projectName) ? lead.projectName : [lead.projectName]).filter(Boolean).map(p => String(p?.name || p || '').toLowerCase());
+            
+            if (leadProjects.length > 0 && leadProjects.some(p => p && dealProj.includes(p))) {
+                locMatchCount++;
+            } else {
+                const locSignals = [
+                    !!(leadArea && dealLoc && (dealLoc.includes(leadArea) || leadArea.includes(dealLoc))),
+                    !!(leadSector && dealSector && (dealSector.includes(leadSector) || leadSector.includes(dealSector))),
+                    !!(leadCity && dealCity && (dealCity.includes(leadCity) || leadCity.includes(dealCity))),
+                    leadArea && dealProj.includes(leadArea)
+                ];
+                if (locSignals.filter(Boolean).length >= 1) locMatchCount++;
+            }
+            const hasLeadLocation = !!(leadLocVal || leadArea || leadSector || leadCity || leadProjects.length > 0);
+            const isLocationPref = hasLeadLocation ? (locMatchCount >= 1) : false;
+            
+            const leadCats = (Array.isArray(lead.propertyType) ? lead.propertyType : []).map(c => getLookupVal(c)).filter(Boolean);
+            const leadSubCats = (Array.isArray(lead.subType) ? lead.subType : []).map(s => getLookupVal(s)).filter(Boolean);
+            const leadSizeTypes = (Array.isArray(lead.sizeType) ? lead.sizeType : []).map(s => getLookupVal(s)).filter(Boolean);
+            const leadUnitTypes = (Array.isArray(lead.unitType) ? lead.unitType : []).map(u => getLookupVal(u)).filter(Boolean);
+
+            const isCatMatch = leadCats.length > 0 && dealCategory && leadCats.some(c => dealCategory.includes(c) || c.includes(dealCategory));
+            const isSubCatMatch = leadSubCats.length > 0 && dealSubCat && leadSubCats.some(c => dealSubCat.includes(c) || c.includes(dealSubCat));
+            
+            const hasSizeOrUnitPref = leadSizeTypes.length > 0 || leadUnitTypes.length > 0;
+            const sizeOrUnitMatched = !hasSizeOrUnitPref || leadSizeTypes.some(s => dealSizeDesc.includes(s)) || leadUnitTypes.some(u => dealSizeDesc.includes(u));
+
+            if (isCatMatch && isSubCatMatch && sizeOrUnitMatched && isBudgetPref && isLocationPref) {
+                matchingLeads.push(lead);
+            }
+        }
+        return matchingLeads;
+    } catch (e) {
+        console.error("[getExactMatchLeadsForDeal] Error:", e);
+        return [];
     }
 };

@@ -33,6 +33,7 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
     const [sizeFlexibility, setSizeFlexibility]     = useState(20);
     const [showOtherCities, setShowOtherCities]     = useState(false);
     const [showExcluded, setShowExcluded]           = useState(false);
+    const [showOnlyPreferred, setShowOnlyPreferred] = useState(false);
     const [showSuggestions, setShowSuggestions]     = useState(true);
     const [selectedLeads, setSelectedLeads]         = useState([]);
     const [isMailOpen, setIsMailOpen]               = useState(false);
@@ -139,7 +140,7 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
         const builtupType = deal.builtupType || deal.inventoryId?.builtupType;
         if (builtupType) {
             builtupHtml = `
-            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px;">
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px; margin-bottom: 20px;">
                 <div style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">🏗 Built-up Status</div>
                 <div style="font-size: 15px; font-weight: 800; color: #1e293b;">${renderVal(builtupType)}</div>
             </div>`;
@@ -152,12 +153,12 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
         let orientationHtml = '';
         if ((dir && dir !== 'N/A') || (facing && facing !== 'N/A') || (road && road !== 'N/A')) {
             orientationHtml = `
-            <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 14px 16px; margin-bottom: 20px;">
+            <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 14px 16px; margin-bottom: 20px; font-size: 0;">
                 <div style="font-size: 10px; font-weight: 700; color: #166534; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 10px;">🧭 Orientation</div>
-                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                    ${dir && dir !== 'N/A' ? `<div style="background: #ffffff; border: 1px solid #dcfce7; padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: 700; color: #166534; display: flex; align-items: center; gap: 6px;"><span style="font-size: 14px;">🎯</span> ${dir}</div>` : ''}
-                    ${facing && facing !== 'N/A' ? `<div style="background: #ffffff; border: 1px solid #dcfce7; padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: 700; color: #166534; display: flex; align-items: center; gap: 6px;"><span style="font-size: 14px;">👀</span> ${facing} Facing</div>` : ''}
-                    ${road && road !== 'N/A' ? `<div style="background: #ffffff; border: 1px solid #dcfce7; padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: 700; color: #166534; display: flex; align-items: center; gap: 6px;"><span style="font-size: 14px;">🛣</span> ${road} Road</div>` : ''}
+                <div style="display: block;">
+                    ${dir && dir !== 'N/A' ? `<div style="display: inline-block; background: #ffffff; border: 1px solid #dcfce7; padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: 700; color: #166534; margin-right: 8px; margin-bottom: 8px; vertical-align: middle;"><span style="font-size: 14px; vertical-align: middle; margin-right: 4px;">🎯</span> ${dir}</div>` : ''}
+                    ${facing && facing !== 'N/A' ? `<div style="display: inline-block; background: #ffffff; border: 1px solid #dcfce7; padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: 700; color: #166534; margin-right: 8px; margin-bottom: 8px; vertical-align: middle;"><span style="font-size: 14px; vertical-align: middle; margin-right: 4px;">👀</span> ${facing} Facing</div>` : ''}
+                    ${road && road !== 'N/A' ? `<div style="display: inline-block; background: #ffffff; border: 1px solid #dcfce7; padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: 700; color: #166534; margin-right: 8px; margin-bottom: 8px; vertical-align: middle;"><span style="font-size: 14px; vertical-align: middle; margin-right: 4px;">🛣</span> ${road} Road</div>` : ''}
                 </div>
             </div>`;
         }
@@ -219,6 +220,8 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
     const txt  = isDark ? '#e2e8f0' : '#0f172a';
     const sub  = isDark ? '#94a3b8' : '#64748b';
 
+    const displayedLeads = showOnlyPreferred ? matchedLeads.filter(l => l.isPreferredMatch) : matchedLeads;
+
     return (
         <div style={{ background: bg, minHeight: '100vh', padding: '24px', fontFamily: "'Inter', sans-serif" }}>
 
@@ -247,13 +250,24 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                     { label: 'Excluded Leads', value: excludedCount, icon: 'fa-user-slash', color: '#ef4444', bg: isDark ? 'rgba(239,68,68,0.15)' : '#fef2f2' },
                     { label: 'Deal Price', value: formatIndianCurrency(deal.price || deal.quotePrice || 0), icon: 'fa-rupee-sign', color: '#10b981', bg: isDark ? 'rgba(16,185,129,0.15)' : '#ecfdf5' },
                 ].map((stat, i) => (
-                    <div key={i} style={{ background: stat.bg, border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'transparent'}`, borderRadius: '14px', padding: '16px 20px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div 
+                        key={i} 
+                        onClick={stat.label === 'Preferred Matches' ? () => setShowOnlyPreferred(!showOnlyPreferred) : undefined}
+                        style={{ 
+                            background: stat.label === 'Preferred Matches' && showOnlyPreferred ? '#d97706' : stat.bg, 
+                            border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'transparent'}`, 
+                            borderRadius: '14px', padding: '16px 20px', display: 'flex', alignItems: 'center', gap: '12px',
+                            cursor: stat.label === 'Preferred Matches' ? 'pointer' : 'default',
+                            transition: 'background 0.2s',
+                            color: stat.label === 'Preferred Matches' && showOnlyPreferred ? '#fff' : 'inherit'
+                        }}
+                    >
                         <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <i className={`fas ${stat.icon}`} style={{ color: stat.color, fontSize: '1rem' }}></i>
+                            <i className={`fas ${stat.icon}`} style={{ color: stat.label === 'Preferred Matches' && showOnlyPreferred ? '#fff' : stat.color, fontSize: '1rem' }}></i>
                         </div>
                         <div>
-                            <div style={{ fontSize: '1.4rem', fontWeight: 900, color: stat.color, lineHeight: 1 }}>{matchingLoading ? '…' : stat.value}</div>
-                            <div style={{ fontSize: '0.72rem', fontWeight: 700, color: sub, textTransform: 'uppercase', letterSpacing: '0.3px' }}>{stat.label}</div>
+                            <div style={{ fontSize: '1.4rem', fontWeight: 900, color: stat.label === 'Preferred Matches' && showOnlyPreferred ? '#fff' : stat.color, lineHeight: 1 }}>{matchingLoading ? '…' : stat.value}</div>
+                            <div style={{ fontSize: '0.72rem', fontWeight: 700, color: stat.label === 'Preferred Matches' && showOnlyPreferred ? 'rgba(255,255,255,0.8)' : sub, textTransform: 'uppercase', letterSpacing: '0.3px' }}>{stat.label}</div>
                         </div>
                     </div>
                 ))}
@@ -304,7 +318,15 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                                 { label: 'Price', value: formatIndianCurrency(deal.price || deal.quotePrice), accent: true },
                                 { label: 'Category', value: renderVal(deal.category || deal.inventoryId?.category) },
                                 { label: 'Location', value: renderVal(deal.location || deal.inventoryId?.address?.locality) },
-                                { label: 'Size', value: (() => { const s = deal.size?.value || deal.size || 0; if (s > 0) return `${s} ${deal.sizeUnit || 'Sq.Ft.'}`; return 'N/A'; })() },
+                                { label: 'Size', value: (() => { 
+                                    const l = deal.sizeLabel?.lookup_value || deal.sizeLabel || deal.inventoryId?.sizeLabel?.lookup_value || deal.inventoryId?.sizeLabel;
+                                    if (typeof l === 'string' && l.trim()) return l;
+                                    const c = deal.sizeConfig?.lookup_value || deal.sizeConfig || deal.inventoryId?.sizeConfig?.lookup_value || deal.inventoryId?.sizeConfig;
+                                    if (typeof c === 'string' && c.trim()) return c;
+                                    const s = deal.size?.value || deal.size || deal.inventoryId?.size?.value || deal.inventoryId?.size || 0; 
+                                    if (s > 0) return `${s} ${deal.sizeUnit || deal.inventoryId?.sizeUnit || 'Sq.Ft.'}`; 
+                                    return 'N/A'; 
+                                })() },
                                 { label: 'Stage', value: renderVal(deal.stage || 'Open') },
                             ].map((row, i) => (
                                 <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: i < 6 ? `1px solid ${isDark ? 'rgba(255,255,255,0.04)' : '#f8fafc'}` : 'none' }}>
@@ -381,9 +403,9 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                 <input type="checkbox" onChange={handleSelectAll} checked={selectedLeads.length === matchedLeads.length && matchedLeads.length > 0} style={{ width: '16px', height: '16px', accentColor: '#2563eb', cursor: 'pointer' }} />
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <span style={{ fontSize: '0.95rem', fontWeight: 700, color: txt }}>{matchedLeads.length} Leads Matched</span>
+                                    <span style={{ fontSize: '0.95rem', fontWeight: 700, color: txt }}>{displayedLeads.length} Leads Matched</span>
                                     {preferredCount > 0 && (
-                                        <span style={{ fontSize: '0.72rem', fontWeight: 800, background: '#f59e0b', color: '#fff', padding: '2px 8px', borderRadius: '100px' }}>
+                                        <span onClick={() => setShowOnlyPreferred(!showOnlyPreferred)} style={{ cursor: 'pointer', fontSize: '0.72rem', fontWeight: 800, background: showOnlyPreferred ? '#d97706' : '#f59e0b', color: '#fff', padding: '2px 8px', borderRadius: '100px', transition: 'background 0.2s' }}>
                                             <i className="fas fa-star" style={{ marginRight: '4px', fontSize: '0.6rem' }}></i>{preferredCount} Preferred
                                         </span>
                                     )}
@@ -393,14 +415,14 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                     )}
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', opacity: matchingLoading ? 0.6 : 1, transition: 'opacity 0.2s' }}>
-                        {matchedLeads.length === 0 ? (
+                        {displayedLeads.length === 0 ? (
                             <div style={{ background: card, border: `1px solid ${brd}`, padding: '80px', borderRadius: '20px', textAlign: 'center' }}>
                                 <i className="fas fa-user-slash" style={{ fontSize: '2.5rem', color: '#cbd5e1', marginBottom: '16px' }}></i>
                                 <h3 style={{ color: txt }}>No Matching Leads Found</h3>
                                 <p style={{ color: sub }}>Try broadening budget/size tolerance or enable Show All Cities.</p>
                             </div>
                         ) : (
-                            matchedLeads.map((lead) => {
+                            displayedLeads.map((lead) => {
                                 const sb = lead.scoreBreakdown || {};
                                 const isSelected = selectedLeads.includes(lead.mobile);
                                 return (

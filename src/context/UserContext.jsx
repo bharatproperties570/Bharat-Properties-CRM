@@ -97,6 +97,7 @@ export const UserProvider = ({ children }) => {
                 const newToken = response.token || response.data?.token || response.data?.accessToken;
                 if (newToken) {
                     safeStorage.setItem('authToken', newToken);
+                    document.cookie = `authToken=${encodeURIComponent(newToken)}; path=/; ${window.location.protocol === 'https:' ? 'Secure;' : ''}`;
                     setToken(newToken);
                     setCurrentUser(processUserWithAdminFlag(response.data?.user || response.user));
                     fetchAllData();

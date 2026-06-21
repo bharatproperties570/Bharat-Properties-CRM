@@ -99,96 +99,116 @@ export const emailTemplates = [
 
     <!-- Project Name Banner -->
     <div style="background: linear-gradient(135deg, #f0f9ff, #e0f2fe); border: 1px solid #bae6fd; border-radius: 12px; padding: 20px 24px; margin-bottom: 20px;">
-      <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px;">
-        <div>
-          <div style="font-size: 11px; font-weight: 700; color: #0284c7; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">📍 Project</div>
-          <div style="font-size: 22px; font-weight: 900; color: #0c4a6e; margin: 0;">{{DealProject}}</div>
-          <div style="font-size: 13px; color: #0369a1; margin-top: 4px; font-weight: 600;">{{DealLocation}}</div>
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td valign="top" style="padding-bottom: 12px; text-align: left;">
+            <div style="font-size: 11px; font-weight: 700; color: #0284c7; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">📍 Project</div>
+            <div style="font-size: 22px; font-weight: 900; color: #0c4a6e; margin: 0; word-break: break-word;">{{DealProject}}</div>
+            <div style="font-size: 13px; color: #0369a1; margin-top: 4px; font-weight: 600;">{{DealLocation}}</div>
+          </td>
+          <td valign="top" style="text-align: right;">
+            <div style="font-size: 11px; font-weight: 700; color: #059669; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">💰 Asking Price</div>
+            <div style="font-size: 24px; font-weight: 900; color: #065f46;">{{DealPrice}}</div>
+            <div style="font-size: 11px; color: #6b7280; margin-top: 3px; font-weight: 600;">All Inclusive</div>
+          </td>
+        </tr>
+      </table>
+    </div>
+
+    <!-- Property Details Grid (Mobile Friendly Fluid Blocks) -->
+    <div style="margin-bottom: 12px; text-align: left; font-size: 0;">
+
+      <!-- Row 1 -->
+      <div style="display: inline-block; width: 100%; max-width: 270px; vertical-align: top; margin-bottom: 12px; margin-right: 10px;">
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px; font-size: 14px;">
+          <div style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">🏗 Unit Number</div>
+          <div style="font-size: 16px; font-weight: 800; color: #1e293b; word-break: break-word;">{{DealUnit}}</div>
         </div>
-        <div style="text-align: right;">
-          <div style="font-size: 11px; font-weight: 700; color: #059669; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">💰 Asking Price</div>
-          <div style="font-size: 24px; font-weight: 900; color: #065f46;">{{DealPrice}}</div>
-          <div style="font-size: 11px; color: #6b7280; margin-top: 3px; font-weight: 600;">All Inclusive</div>
+      </div>
+
+      <div style="display: inline-block; width: 100%; max-width: 270px; vertical-align: top; margin-bottom: 12px;">
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px; font-size: 14px;">
+          <div style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">🏠 Category</div>
+          <div style="font-size: 15px; font-weight: 800; color: #1e293b; word-break: break-word;">{{DealCategory}}</div>
+        </div>
+      </div>
+
+      <!-- Row 2 -->
+      <div style="display: inline-block; width: 100%; max-width: 270px; vertical-align: top; margin-bottom: 12px; margin-right: 10px;">
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px; font-size: 14px;">
+          <div style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">🏷 Type / Specification</div>
+          <div style="font-size: 15px; font-weight: 800; color: #1e293b; word-break: break-word;">{{DealSubCategory}}</div>
+        </div>
+      </div>
+
+      <div style="display: inline-block; width: 100%; max-width: 270px; vertical-align: top; margin-bottom: 12px;">
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px; font-size: 14px;">
+          <div style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">🏢 Block / Floor</div>
+          <div style="font-size: 15px; font-weight: 800; color: #1e293b; word-break: break-word;">{{DealBlock}}</div>
+        </div>
+      </div>
+
+      <!-- Row 3 -->
+      <div style="display: inline-block; width: 100%; max-width: 270px; vertical-align: top; margin-bottom: 12px; margin-right: 10px;">
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px; font-size: 14px;">
+          <div style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">📜 Ownership</div>
+          <div style="font-size: 15px; font-weight: 800; color: #1e293b; word-break: break-word;">{{DealOwnership}}</div>
+        </div>
+      </div>
+
+      <div style="display: inline-block; width: 100%; max-width: 270px; vertical-align: top; margin-bottom: 12px;">
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px; font-size: 14px;">
+          <div style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">📐 Size Type</div>
+          <div style="font-size: 15px; font-weight: 800; color: #1e293b; word-break: break-word;">{{DealSizeLabel}}</div>
         </div>
       </div>
     </div>
 
-    <!-- Property Details Grid -->
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px;">
+    {{DealBuiltupHTML}}
 
-      <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px;">
-        <div style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">🏗 Unit Number</div>
-        <div style="font-size: 16px; font-weight: 800; color: #1e293b;">{{DealUnit}}</div>
-      </div>
-
-      <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px;">
-        <div style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">🏠 Category</div>
-        <div style="font-size: 15px; font-weight: 800; color: #1e293b;">{{DealCategory}}</div>
-      </div>
-
-      <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px;">
-        <div style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">🏷 Type / Specification</div>
-        <div style="font-size: 15px; font-weight: 800; color: #1e293b;">{{DealSubCategory}}</div>
-      </div>
-
-      <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px;">
-        <div style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">🏢 Block / Floor</div>
-        <div style="font-size: 15px; font-weight: 800; color: #1e293b;">{{DealBlock}}</div>
-      </div>
-
-      <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px;">
-        <div style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">📜 Ownership</div>
-        <div style="font-size: 15px; font-weight: 800; color: #1e293b;">{{DealOwnership}}</div>
-      </div>
-
-      <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px;">
-        <div style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">📐 Size Type</div>
-        <div style="font-size: 15px; font-weight: 800; color: #1e293b;">{{DealSizeLabel}}</div>
-      </div>
-
-      {{DealBuiltupHTML}}
-
-      <div style="background: #fefce8; border: 1px solid #fde68a; border-radius: 10px; padding: 14px 16px;">
-        <div style="font-size: 10px; font-weight: 700; color: #92400e; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">📊 Availability Status</div>
-        <div style="font-size: 15px; font-weight: 800; color: #78350f;">{{DealStage}}</div>
-      </div>
-
+    <div style="background: #fefce8; border: 1px solid #fde68a; border-radius: 10px; padding: 14px 16px; margin-bottom: 20px;">
+      <div style="font-size: 10px; font-weight: 700; color: #92400e; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">📊 Availability Status</div>
+      <div style="font-size: 15px; font-weight: 800; color: #78350f; word-break: break-word;">{{DealStage}}</div>
     </div>
 
     {{DealOrientationStripHTML}}
 
     <!-- Why This Property -->
     <div style="background: linear-gradient(135deg, #faf5ff, #ede9fe); border: 1px solid #ddd6fe; border-radius: 12px; padding: 20px 24px; margin-bottom: 20px;">
-      <div style="font-size: 13px; font-weight: 800; color: #5b21b6; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
-        <span>✨</span> Why This Property Matches You
+      <div style="font-size: 13px; font-weight: 800; color: #5b21b6; margin-bottom: 12px;">
+        <span style="vertical-align: middle; margin-right: 6px;">✨</span> <span style="vertical-align: middle;">Why This Property Matches You</span>
       </div>
-      <div style="display: flex; flex-direction: column; gap: 8px;">
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <div style="width: 6px; height: 6px; border-radius: 50%; background: #7c3aed; flex-shrink: 0;"></div>
-          <span style="font-size: 13px; color: #374151; font-weight: 600;">Location matches your preferred area in <strong>{{DealLocation}}</strong></span>
+      <div style="display: block;">
+        <div style="margin-bottom: 10px;">
+          <div style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #7c3aed; margin-right: 10px; vertical-align: middle;"></div>
+          <span style="display: inline-block; width: 90%; font-size: 13px; color: #374151; font-weight: 600; vertical-align: middle; word-break: break-word;">Location matches your preferred area in <strong>{{DealLocation}}</strong></span>
         </div>
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <div style="width: 6px; height: 6px; border-radius: 50%; background: #7c3aed; flex-shrink: 0;"></div>
-          <span style="font-size: 13px; color: #374151; font-weight: 600;">Asking price of <strong>{{DealPrice}}</strong> is aligned with your budget range</span>
+        <div style="margin-bottom: 10px;">
+          <div style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #7c3aed; margin-right: 10px; vertical-align: middle;"></div>
+          <span style="display: inline-block; width: 90%; font-size: 13px; color: #374151; font-weight: 600; vertical-align: middle; word-break: break-word;">Asking price of <strong>{{DealPrice}}</strong> is aligned with your budget range</span>
         </div>
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <div style="width: 6px; height: 6px; border-radius: 50%; background: #7c3aed; flex-shrink: 0;"></div>
-          <span style="font-size: 13px; color: #374151; font-weight: 600;">Property type and size configuration suit your stated requirements</span>
+        <div style="margin-bottom: 10px;">
+          <div style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #7c3aed; margin-right: 10px; vertical-align: middle;"></div>
+          <span style="display: inline-block; width: 90%; font-size: 13px; color: #374151; font-weight: 600; vertical-align: middle; word-break: break-word;">Property type and size configuration suit your stated requirements</span>
         </div>
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <div style="width: 6px; height: 6px; border-radius: 50%; background: #7c3aed; flex-shrink: 0;"></div>
-          <span style="font-size: 13px; color: #374151; font-weight: 600;">Currently <strong>{{DealStage}}</strong> — act quickly to secure this unit</span>
+        <div style="margin-bottom: 10px;">
+          <div style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #7c3aed; margin-right: 10px; vertical-align: middle;"></div>
+          <span style="display: inline-block; width: 90%; font-size: 13px; color: #374151; font-weight: 600; vertical-align: middle; word-break: break-word;">Currently <strong>{{DealStage}}</strong> — act quickly to secure this unit</span>
         </div>
       </div>
     </div>
 
     <!-- Urgency Banner -->
-    <div style="background: linear-gradient(135deg, #fff7ed, #ffedd5); border: 1px solid #fed7aa; border-radius: 12px; padding: 16px 20px; margin-bottom: 24px; display: flex; align-items: center; gap: 12px;">
-      <span style="font-size: 20px;">⏰</span>
-      <div>
-        <div style="font-size: 13px; font-weight: 800; color: #9a3412; margin-bottom: 2px;">Limited Availability — Priority Booking Open</div>
-        <div style="font-size: 12px; color: #c2410c; font-weight: 500;">This unit is being shared with a select group of serious buyers. Please confirm your interest to hold priority.</div>
-      </div>
+    <div style="background: linear-gradient(135deg, #fff7ed, #ffedd5); border: 1px solid #fed7aa; border-radius: 12px; padding: 16px 20px; margin-bottom: 24px;">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td width="30" valign="top" style="font-size: 20px; padding-right: 12px;">⏰</td>
+          <td valign="top">
+            <div style="font-size: 13px; font-weight: 800; color: #9a3412; margin-bottom: 2px;">Limited Availability — Priority Booking Open</div>
+            <div style="font-size: 12px; color: #c2410c; font-weight: 500;">This unit is being shared with a select group of serious buyers. Please confirm your interest to hold priority.</div>
+          </td>
+        </tr>
+      </table>
     </div>
 
     <!-- CTA Buttons -->
@@ -674,7 +694,7 @@ export const smsTemplates = [
     {
         id: 10,
         name: 'Deal Property Match',
-        body: 'Hi {{firstName}}, exclusive property match! {{projectName}} in {{location}}. Size: {{size}}, Price: {{price}}. Reply YES for priority visit. - Bharat Properties',
+        body: 'EXCLUSIVE MATCH 🌟 Hi {{firstName}}, we found a highly sought-after {{size}} unit at {{projectName}}, {{location}} matching your exact criteria! 🔑 Premium inventory, moving fast at {{price}}. Reply YES or call us ASAP to secure a priority viewing! - Bharat Properties',
         tags: ['Deal Match', 'Priority']
     },
     {

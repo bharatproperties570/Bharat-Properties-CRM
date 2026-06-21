@@ -6,7 +6,7 @@ const envPath = path.resolve(process.cwd(), '..', '.env');
 dotenv.config({ path: envPath });
 
 const config = {
-  port: Number(process.env.PORT) || 4000,
+  port: Number(process.env.PORT) || 4001, // changed from 4000 to avoid conflict
   nodeEnv: process.env.NODE_ENV || 'development',
   // expose any other needed env vars here
 };

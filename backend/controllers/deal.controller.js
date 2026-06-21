@@ -664,6 +664,17 @@ export const matchDeals = async (req, res) => {
                     deal.sizeLabel, deal.inventoryId?.sizeLabel,
                     deal.unitSpecification?.sizeLabel, deal.inventoryId?.unitSpecification?.sizeLabel
                 ].map(s => getLookupValueLocal(s)).filter(Boolean).join(" ");
+                
+                const uiSizeLabelArr = [
+                    deal.sizeLabel, deal.inventoryId?.sizeLabel,
+                    deal.unitSpecification?.sizeLabel, deal.inventoryId?.unitSpecification?.sizeLabel,
+                    deal.sizeConfig, deal.inventoryId?.sizeConfig,
+                    deal.sizeType, deal.inventoryId?.sizeType
+                ].map(s => getLookupValueLocal(s)).filter(Boolean);
+                
+                // Use Set to remove exact duplicates, then join. Or just take the most specific one.
+                // Taking the most specific non-duplicate words:
+                const uiSizeLabel = [...new Set(uiSizeLabelArr)][0] || "";
 
                 const isSubCatMatch = leadSubs.length === 0 || (dealSub && leadSubs.some(s => dealSub.includes(s) || s.includes(dealSub)));
                 const isSizeTypeMatch = leadSizeTypes.length === 0 || leadSizeTypes.some(s => dealSizeDesc.includes(s));
@@ -688,6 +699,8 @@ export const matchDeals = async (req, res) => {
                     // Re-inject labels for UI consistency
                     intent: { lookup_value: dealIntentLabel },
                     category: { lookup_value: dealCategoryLabel },
+                    subCategory: { lookup_value: dealSub },
+                    sizeLabel: { lookup_value: uiSizeLabel },
                     location: { lookup_value: dealLocality || dealSector || dealProjName }
                 };
             })
@@ -955,7 +968,7 @@ export const getDeals = async (req, res) => {
 
         // 🚀 SENIOR OPTIMIZATION: Redis Cache Layer for List View (Page 1)
         const isPageOne = Number(page) === 1 && !search;
-        const cacheKey = `deals_list_v3:${req.user._id}:${JSON.stringify(req.query)}`;
+        const cacheKey = `deals_list_v4:${req.user._id}:${JSON.stringify(req.query)}`;
         
         if (isPageOne) {
             const cachedData = await safeRedisCall('get', cacheKey);
@@ -1470,6 +1483,17 @@ export const getDeals = async (req, res) => {
         });
         console.timeEnd("getDeals_Lookup_Resolution");
 
+        // --- Fetch Preferred Match Counts ---
+        try {
+            const { getBulkDealExactMatchCounts } = await import('./lead.controller.js');
+            const bulkMatchCounts = await getBulkDealExactMatchCounts(enrichedRecords, req.user);
+            enrichedRecords.forEach(deal => {
+                deal.exactMatchCount = bulkMatchCounts[deal._id.toString()] || 0;
+            });
+        } catch (e) {
+            console.error("[getDeals] Failed to fetch preferred match counts:", e);
+        }
+
         const responseObj = {
             success: true,
             ...results,
@@ -1839,6 +1863,31 @@ export const addDeal = async (req, res) => {
         CampaignEngine.launch(deal._id).catch(err =>
             console.error('[CampaignEngine] Auto-launch error for new deal:', err.message)
         );
+
+        // 🎯 AI Lead Matching & Outreach (Email)
+        if (sanitizedData.sendMatchedDeal?.email) {
+            import('../services/outreach.service.js').then(async (m) => {
+                const DealObj = (await import('../models/Deal.js')).default;
+                const populatedDeal = await DealObj.findById(deal._id).populate([
+                    { path: 'subCategory', select: 'lookup_value' },
+                    { path: 'sizeType', select: 'lookup_value' },
+                    { path: 'unitType', select: 'lookup_value' },
+                    { path: 'sizeConfig', select: 'lookup_value' },
+                    { path: 'sizeLabel', select: 'lookup_value' },
+                    {
+                        path: 'inventoryId',
+                        populate: [
+                            { path: 'subCategory', select: 'lookup_value' },
+                            { path: 'sizeType', select: 'lookup_value' },
+                            { path: 'unitType', select: 'lookup_value' },
+                            { path: 'sizeConfig', select: 'lookup_value' },
+                            { path: 'sizeLabel', select: 'lookup_value' }
+                        ]
+                    }
+                ]).lean();
+                m.triggerDealMatchEmailOutreach(populatedDeal || deal, req.user);
+            }).catch(e => console.error("[OUTREACH_TRIGGER_ERROR]", e));
+        }
 
         res.status(201).json({ success: true, data: deal });
     } catch (error) {

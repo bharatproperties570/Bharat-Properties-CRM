@@ -1,6 +1,6 @@
 // API Configuration
 import axios from 'axios';
-
+import toast from 'react-hot-toast';
 // 🛡️ Senior Implementation: Environment Variable Safety
 export const getEnvVar = (name) => {
     // Removed import.meta.env to prevent Metro Bundler SyntaxError
@@ -49,6 +49,18 @@ export const safeStorage = {
             // ignore
         }
     }
+};
+
+// Cookie fallback for auth token (helps SSR environments)
+export const getAuthToken = () => {
+    const stored = safeStorage.getItem('authToken');
+    if (stored) return stored;
+    // Parse document.cookie
+    if (typeof document !== 'undefined' && document.cookie) {
+        const match = document.cookie.match(/(?:^|; )authToken=([^;]*)/);
+        return match ? decodeURIComponent(match[1]) : null;
+    }
+    return null;
 };
 
 const isProd = (typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'production') || getEnvVar('PROD') === 'true' || getEnvVar('PROD') === true;
@@ -178,32 +190,20 @@ export const api = axios.create({
 });
 
 // Add a request interceptor to inject the token
-api.interceptors.request.use((config) => {
+api.interceptors.request.use(
+  (config) => {
     console.log(`[API Request Audit] ${config.method?.toUpperCase()} ${config.url}`, config.params);
-    const token = safeStorage.getItem('authToken');
-        if (token) {
-            config.headers.Authorization = `Bearer ${token}`;
-        }
-        
-        // Let Axios handle boundary for FormData automatically
-        if (config.data instanceof FormData) {
-            delete config.headers['Content-Type'];
-            delete config.headers['content-type'];
-            if (config.headers.delete) {
-                config.headers.delete('content-type');
-                config.headers.delete('Content-Type');
-            }
-        }
-
-        // Also normalize the URL here for safety if called directly
-        if (config.url && config.url.startsWith('/')) {
-            config.url = config.url.substring(1);
-        }
-        return config;
-    },
-    (error) => {
-        return Promise.reject(error);
+    const token = getAuthToken();
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
     }
+    // Also normalize the URL here for safety if called directly
+    if (config.url && config.url.startsWith('/')) {
+      config.url = config.url.substring(1);
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
 );
 
 // Add a response interceptor to handle 401 errors with Silent Refresh
@@ -230,6 +230,8 @@ api.interceptors.response.use(
                 // If the refresh token call itself fails, we must logout
                 console.warn('Refresh token expired. Logging out...');
                 safeStorage.removeItem('authToken');
+                // Clear cookie as well
+                document.cookie = 'authToken=; Max-Age=0; path=/';
                 window.dispatchEvent(new CustomEvent('unauthorized-token'));
                 return Promise.reject(error);
             }

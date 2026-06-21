@@ -173,6 +173,34 @@ const AddressMasterSettingsPage = () => {
         }
     };
 
+    const downloadCSV = (data, title) => {
+        if (!data || data.length === 0) {
+            showMessage("No data to download", "error");
+            return;
+        }
+        
+        const headers = ['ID', 'Type', 'Name', 'Parent ID', 'Parent Name'];
+        
+        const rows = data.map(item => [
+            item._id,
+            item.lookup_type,
+            `"${item.lookup_value}"`,
+            item.parent_lookup_id || '',
+            `"${item.parent_lookup_value || ''}"`
+        ]);
+        
+        const csvContent = [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+        
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', `${title}_export.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
     const refreshData = async (type) => {
         if (type === 'Country') await loadCountries();
         else if (type === 'State') await loadAllStates();
@@ -349,6 +377,72 @@ const AddressMasterSettingsPage = () => {
     const handleDragLeave = () => {
         setDragOverItemId(null);
     };
+
+    // Robust auto-scroll logic using requestAnimationFrame
+    const scrollState = React.useRef({ scrolling: false, speed: 0, container: null, lastTime: 0 });
+
+    const stopAutoScroll = () => {
+        scrollState.current.scrolling = false;
+        scrollState.current.speed = 0;
+        scrollState.current.container = null;
+    };
+
+    const doAutoScroll = () => {
+        if (!scrollState.current.scrolling || !scrollState.current.container) return;
+        
+        // Stop scrolling if we haven't seen a dragOver event recently (mouse left container)
+        if (Date.now() - scrollState.current.lastTime > 150) {
+            stopAutoScroll();
+            return;
+        }
+
+        scrollState.current.container.scrollTop += scrollState.current.speed;
+        requestAnimationFrame(doAutoScroll);
+    };
+
+    const handleColumnDragOver = (e) => {
+        e.preventDefault();
+        const container = e.currentTarget;
+        const scrollThreshold = 150; // Increased to give larger active area for scrolling
+        const maxSpeed = 30; // Slightly faster max speed
+
+        const rect = container.getBoundingClientRect();
+        const y = e.clientY - rect.top;
+
+        let speed = 0;
+        if (y < scrollThreshold) {
+            // Scroll UP
+            speed = -maxSpeed * Math.max(0, (1 - y / scrollThreshold));
+        } else if (y > rect.height - scrollThreshold) {
+            // Scroll DOWN
+            const distFromBottom = rect.height - y;
+            speed = maxSpeed * Math.max(0, (1 - distFromBottom / scrollThreshold));
+        }
+
+        scrollState.current.lastTime = Date.now();
+
+        if (speed !== 0) {
+            scrollState.current.speed = speed;
+            scrollState.current.container = container;
+            if (!scrollState.current.scrolling) {
+                scrollState.current.scrolling = true;
+                requestAnimationFrame(doAutoScroll);
+            }
+        } else {
+            scrollState.current.scrolling = false;
+        }
+    };
+
+    // Make sure we stop scrolling when drop happens or drag ends globally
+    useEffect(() => {
+        const handleDragEnd = () => stopAutoScroll();
+        window.addEventListener('dragend', handleDragEnd);
+        window.addEventListener('drop', handleDragEnd);
+        return () => {
+            window.removeEventListener('dragend', handleDragEnd);
+            window.removeEventListener('drop', handleDragEnd);
+        };
+    }, []);
 
     const getDropActions = (sourceType, targetType) => {
         const actions = [];
@@ -582,11 +676,12 @@ const AddressMasterSettingsPage = () => {
                     <div className="column-header">
                         <h3>1. Countries</h3>
                         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                            <button className="add-btn-mini" onClick={() => downloadCSV(countries, "Countries")} title="Download Countries"><i className="fas fa-download" style={{fontSize: '0.75rem'}}></i></button>
                             <button className="add-btn-mini" onClick={() => handleAdd("Country", "Country", null, loadCountries)}>+</button>
                             <span className="count-badge">{countries.length}</span>
                         </div>
                     </div>
-                    <div className="column-body">
+                    <div className="column-body" onDragOver={handleColumnDragOver}>
                         {countries.map(c => (
                             <div 
                                 key={c._id}
@@ -615,11 +710,12 @@ const AddressMasterSettingsPage = () => {
                     <div className="column-header">
                         <h3>2. States</h3>
                         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                            <button className="add-btn-mini" disabled={!selectedCountryId} onClick={() => downloadCSV(filteredStates, "States")} title="Download States"><i className="fas fa-download" style={{fontSize: '0.75rem'}}></i></button>
                             <button className="add-btn-mini" disabled={!selectedCountryId} onClick={() => handleAdd("State", "State", selectedCountryId, loadAllStates)}>+</button>
                             <span className="count-badge">{filteredStates.length}</span>
                         </div>
                     </div>
-                    <div className="column-body">
+                    <div className="column-body" onDragOver={handleColumnDragOver}>
                         {loading && states.length === 0 ? (
                             <div className="column-loader">Loading...</div>
                         ) : filteredStates.length === 0 ? (
@@ -659,11 +755,12 @@ const AddressMasterSettingsPage = () => {
                     <div className="column-header">
                         <h3>3. Cities</h3>
                         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                            <button className="add-btn-mini" disabled={!selectedStateId} onClick={() => downloadCSV(cities, "Cities")} title="Download Cities"><i className="fas fa-download" style={{fontSize: '0.75rem'}}></i></button>
                             <button className="add-btn-mini" disabled={!selectedStateId} onClick={() => handleAdd("City", "City", selectedStateId, () => handleStateClick(selectedStateId))}>+</button>
                             <span className="count-badge">{cities.length}</span>
                         </div>
                     </div>
-                    <div className="column-body">
+                    <div className="column-body" onDragOver={handleColumnDragOver}>
                         {!selectedStateId ? (
                             <div className="column-empty">Select a state to view cities</div>
                         ) : cities.length === 0 ? (
@@ -713,7 +810,7 @@ const AddressMasterSettingsPage = () => {
                         ))}
                     </div>
                     
-                    <div className="column-body">
+                    <div className="column-body" onDragOver={handleColumnDragOver}>
                         {childLoading ? (
                             <div className="column-loader">Loading lookups...</div>
                         ) : !selectedCityId ? (
@@ -728,20 +825,30 @@ const AddressMasterSettingsPage = () => {
                                             activeTab === 'PostOffice' ? postOffices.length : pincodes.length
                                         })
                                     </span>
-                                    <button 
-                                        className="add-btn-mini"
-                                        onClick={() => {
-                                            const parentId = activeTab === 'Pincode' && selectedPostOfficeId !== 'unassigned' ? selectedPostOfficeId : selectedCityId;
-                                            handleAdd(
-                                                activeTab, 
-                                                activeTab, 
-                                                parentId, 
-                                                activeTab === 'Pincode' ? () => loadPincodesForPostOffice(selectedPostOfficeId) : () => loadCityChildren(selectedCityId)
-                                            );
-                                        }}
-                                    >
-                                        +
-                                    </button>
+                                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                        <button className="add-btn-mini" onClick={() => {
+                                            let dataToDownload = [];
+                                            if (activeTab === 'Location') dataToDownload = locations;
+                                            else if (activeTab === 'Tehsil') dataToDownload = tehsils;
+                                            else if (activeTab === 'PostOffice') dataToDownload = postOffices;
+                                            else if (activeTab === 'Pincode') dataToDownload = pincodes;
+                                            downloadCSV(dataToDownload, activeTab);
+                                        }} title={`Download ${activeTab}s`}><i className="fas fa-download" style={{fontSize: '0.75rem'}}></i></button>
+                                        <button 
+                                            className="add-btn-mini"
+                                            onClick={() => {
+                                                const parentId = activeTab === 'Pincode' && selectedPostOfficeId !== 'unassigned' ? selectedPostOfficeId : selectedCityId;
+                                                handleAdd(
+                                                    activeTab, 
+                                                    activeTab, 
+                                                    parentId, 
+                                                    activeTab === 'Pincode' ? () => loadPincodesForPostOffice(selectedPostOfficeId) : () => loadCityChildren(selectedCityId)
+                                                );
+                                            }}
+                                        >
+                                            +
+                                        </button>
+                                    </div>
                                 </div>
 
                                 {activeTab === 'Location' && (
@@ -842,7 +949,7 @@ const AddressMasterSettingsPage = () => {
                                                 </div>
                                             ))}
                                         </div>
-                                        <div className="pincode-sublist">
+                                        <div className="pincode-sublist" onDragOver={handleColumnDragOver}>
                                             {pincodes.length === 0 ? (
                                                 <div className="column-empty">No pincodes here. Drag pincodes onto a post office to re-parent.</div>
                                             ) : (

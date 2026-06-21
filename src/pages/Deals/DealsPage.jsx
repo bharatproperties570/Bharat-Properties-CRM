@@ -77,44 +77,59 @@ function DealsPage({ onNavigate, onAddActivity }) {
     const [isOfferModalOpen, setIsOfferModalOpen] = useState(false);
     const [activeRowMenu, setActiveRowMenu] = useState(null);
     const [activeMatchPopover, setActiveMatchPopover] = useState(null); // {dealId, x, y}
+    // Enterprise match options (persisted in localStorage)
+    const defaultMatchOptions = {
+        budgetFlexibility: Number(localStorage.getItem('matchBudgetFlex') ?? 20), // 0‑100 %
+        sizeFlexibility: Number(localStorage.getItem('matchSizeFlex') ?? 20),
+        matchType: localStorage.getItem('matchType') ?? 'preferred' // 'exact' | 'preferred' | 'all'
+    };
+    const [matchOptions, setMatchOptions] = useState(defaultMatchOptions);
+
+    // Sync options to localStorage whenever they change
+    useEffect(() => {
+        localStorage.setItem('matchBudgetFlex', matchOptions.budgetFlexibility);
+        localStorage.setItem('matchSizeFlex', matchOptions.sizeFlexibility);
+        localStorage.setItem('matchType', matchOptions.matchType);
+    }, [matchOptions]);
     const [previewMatches, setPreviewMatches] = useState([]);
     const [loadingMatches, setLoadingMatches] = useState(false);
 
     // --- Professional Match Fetching ---
+    const fetchMatches = useCallback(async () => {
+        if (!activeMatchPopover) return;
+        setLoadingMatches(true);
+        try {
+            const res = await api.get('leads/match', { params: { dealId: activeMatchPopover.dealId, budgetFlexibility: matchOptions.budgetFlexibility, sizeFlexibility: matchOptions.sizeFlexibility, matchType: matchOptions.matchType } });
+            if (res.data && res.data.success) {
+                setPreviewMatches((res.data.matchingLeads || []).slice(0, 5).map(m => ({
+                    ...m,
+                    name: m.name || (m.firstName ? (m.firstName + ' ' + (m.lastName || '')).trim() : 'Lead'),
+                    matchPercentage: m.matchPercentage || m.score,
+                    id: m._id || m.id
+                })));
+            } else {
+                setPreviewMatches([]);
+            }
+        } catch (err) {
+            console.error("Match fetch error:", err);
+            setPreviewMatches([]);
+        } finally {
+            setLoadingMatches(false);
+        }
+    }, [activeMatchPopover, matchOptions]);
+
     useEffect(() => {
         if (!activeMatchPopover) {
             setPreviewMatches([]);
             return;
         }
 
-        const fetchMatches = async () => {
-            setLoadingMatches(true);
-            try {
-                const res = await api.get('leads/match', { params: { dealId: activeMatchPopover.dealId } });
-                if (res.data && res.data.success) {
-                    setPreviewMatches((res.data.matchingLeads || []).slice(0, 5).map(m => ({
-                        ...m,
-                        name: m.name || (m.firstName ? (m.firstName + ' ' + (m.lastName || '')).trim() : 'Lead'),
-                        matchPercentage: m.matchPercentage || m.score,
-                        id: m._id || m.id
-                    })));
-                } else {
-                    setPreviewMatches([]);
-                }
-            } catch (err) {
-                console.error("Match fetch error:", err);
-                setPreviewMatches([]);
-            } finally {
-                setLoadingMatches(false);
-            }
-        };
-
         const timeout = setTimeout(() => {
             fetchMatches();
         }, 300); // debounce hover
 
         return () => clearTimeout(timeout);
-    }, [activeMatchPopover]);
+    }, [activeMatchPopover, fetchMatches]);
  // dealId of open menu
     const [editingDeal, setEditingDeal] = useState(null);
     const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
@@ -1312,52 +1327,82 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                 {loadingMatches ? <span className="loading-dots">Updating</span> : <span style={{ color: 'var(--primary-color)' }}>{previewMatches.length} Found</span>}
                             </div>
 
-                            {loadingMatches ? (
-                                <div style={{ padding: '20px 0', textAlign: 'center' }}>
-                                    <div className="spinner" style={{ width: '20px', height: '20px', margin: '0 auto', border: '3px solid var(--border-color)', borderTop: '3px solid var(--primary-color)', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+                            {/* Match Options Controls */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '12px', padding: '8px', background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.02)', borderRadius: '8px' }}>
+                                {/* Budget Flexibility Slider */}
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                    <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Budget Flexibility: {matchOptions.budgetFlexibility}%</span>
+                                    <input type="range" min="0" max="100" step="5" value={matchOptions.budgetFlexibility}
+                                        onChange={e => setMatchOptions(prev => ({ ...prev, budgetFlexibility: Number(e.target.value) }))}
+                                        style={{ width: '140px' }} />
                                 </div>
-                            ) : (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                    {previewMatches.map((item, i) => (
-                                        <div
-                                            key={i}
-                                            className="match-item-hover"
-                                            onClick={() => onNavigate('deal-matching', activeMatchPopover.dealId)}
-                                            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', borderRadius: '8px', cursor: 'pointer', transition: 'all 0.2s', border: '1px solid transparent' }}
-                                        >
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                                <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'linear-gradient(135deg, var(--primary-color) 0%, #a855f7 100%)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 800 }}>
-                                                    {item.name ? item.name.charAt(0).toUpperCase() : 'L'}
-                                                </div>
-                                                <div>
-                                                    <div style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '2px' }}>{item.name}</div>
-                                                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Lead • {item.maxBudget ? (item.maxBudget >= 10000000 ? (item.maxBudget / 10000000).toFixed(2) + ' Cr' : (item.maxBudget / 100000).toFixed(2) + ' Lac') : 'N/A'}</div>
-                                                </div>
-                                            </div>
-                                            <div style={{ 
-                                                background: item.matchPercentage > 80 
-                                                    ? (isDark ? 'rgba(74, 222, 128, 0.15)' : '#dcfce7') 
-                                                    : (isDark ? 'rgba(250, 204, 21, 0.15)' : '#fef3c7'), 
-                                                color: item.matchPercentage > 80 
-                                                    ? (isDark ? '#4ade80' : '#166534') 
-                                                    : (isDark ? '#facc15' : '#92400e'), 
-                                                padding: '2px 8px', 
-                                                borderRadius: '6px', 
-                                                fontSize: '0.7rem', 
-                                                fontWeight: 900, 
-                                                flexShrink: 0 
-                                            }}>
-                                                {item.matchPercentage}%
-                                            </div>
-                                        </div>
+                                {/* Size Flexibility Slider */}
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                    <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Size Flexibility: {matchOptions.sizeFlexibility}%</span>
+                                    <input type="range" min="0" max="100" step="5" value={matchOptions.sizeFlexibility}
+                                        onChange={e => setMatchOptions(prev => ({ ...prev, sizeFlexibility: Number(e.target.value) }))}
+                                        style={{ width: '140px' }} />
+                                </div>
+                                {/* Match Type Radio Group */}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                    <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>Match Type:</span>
+                                    {['exact', 'preferred', 'all'].map(type => (
+                                        <label key={type} style={{ fontSize: '0.75rem', cursor: 'pointer', color: 'var(--text-main)' }}>
+                                            <input type="radio" name="matchType" value={type}
+                                                checked={matchOptions.matchType === type}
+                                                onChange={e => setMatchOptions(prev => ({ ...prev, matchType: e.target.value }))}
+                                                style={{ marginRight: '4px' }} />
+                                            {type.charAt(0).toUpperCase() + type.slice(1)}
+                                        </label>
                                     ))}
-                                    {previewMatches.length === 0 && (
-                                        <div style={{ textAlign: 'center', padding: '16px 0', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
-                                            No direct matches found.
-                                        </div>
-                                    )}
                                 </div>
-                            )}
+                                {/* Run Match Button */}
+                                <button onClick={fetchMatches}
+                                    style={{ alignSelf: 'flex-start', background: 'var(--primary-color)', color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 12px', fontWeight: 600, cursor: 'pointer' }}>
+                                    Run Match
+                                </button>
+                            </div>
+                            {/* Preview Matches List */}
+                            <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                                {previewMatches.map((item, i) => (
+                                    <div
+                                        key={i}
+                                        className="match-item-hover"
+                                        onClick={() => onNavigate('deal-matching', activeMatchPopover.dealId)}
+                                        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', borderRadius: '8px', cursor: 'pointer', transition: 'all 0.2s', border: '1px solid transparent' }}
+                                    >
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                            <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'linear-gradient(135deg, var(--primary-color) 0%, #a855f7 100%)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 800 }}>
+                                                {item.name ? item.name.charAt(0).toUpperCase() : 'L'}
+                                            </div>
+                                            <div>
+                                                <div style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '2px' }}>{item.name}</div>
+                                                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Lead • {item.maxBudget ? (item.maxBudget >= 10000000 ? (item.maxBudget / 10000000).toFixed(2) + ' Cr' : (item.maxBudget / 100000).toFixed(2) + ' Lac') : 'N/A'}</div>
+                                            </div>
+                                        </div>
+                                        <div style={{ 
+                                            background: item.matchPercentage > 80 
+                                                ? (isDark ? 'rgba(74, 222, 128, 0.15)' : '#dcfce7') 
+                                                : (isDark ? 'rgba(250, 204, 21, 0.15)' : '#fef3c7'), 
+                                            color: item.matchPercentage > 80 
+                                                ? (isDark ? '#4ade80' : '#166534') 
+                                                : (isDark ? '#facc15' : '#92400e'), 
+                                            padding: '2px 8px', 
+                                            borderRadius: '6px', 
+                                            fontSize: '0.7rem', 
+                                            fontWeight: 900, 
+                                            flexShrink: 0 
+                                        }}>
+                                            {item.matchPercentage}%
+                                        </div>
+                                    </div>
+                                ))}
+                                {previewMatches.length === 0 && (
+                                    <div style={{ textAlign: 'center', padding: '16px 0', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+                                        No direct matches found.
+                                    </div>
+                                )}
+                            </div>
 
                             <button
                                 onClick={() => onNavigate('deal-matching', activeMatchPopover.dealId)}
@@ -1528,15 +1573,15 @@ const DealRow = React.memo(({ deal, selected, onSelect, onNavigate, index, getLo
             <div style={{ lineHeight: 1.4, padding: '8px', background: 'var(--bg-gray)', borderRadius: '6px' }}>
                 <div style={{ fontWeight: 800, color: 'var(--text-main)', fontSize: '0.8rem', textTransform: 'capitalize', marginBottom: '4px' }}>{renderValue(resolveDealLookup(deal.intent, 'Intent'))}</div>
                 <div style={{ fontSize: '0.7rem' }}>
-                    <span 
-                        onMouseEnter={(e) => {
+                    <button
+                        onClick={(e) => {
                             const rect = e.currentTarget.getBoundingClientRect();
                             setActiveMatchPopover({ dealId: deal._id, x: rect.left, y: rect.bottom + 10 });
                         }}
-                        style={{ cursor: 'pointer', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: '#fff', fontWeight: 700, padding: '3px 10px', borderRadius: '12px', boxShadow: '0 2px 4px rgba(102, 126, 234, 0.3)' }}
+                        style={{ cursor: 'pointer', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: '#fff', fontWeight: 700, padding: '3px 10px', borderRadius: '12px', boxShadow: '0 2px 4px rgba(102, 126, 234, 0.3)', border: 'none' }}
                     >
-                        {deal.matched} Matches
-                    </span>
+                        {deal.exactMatchCount || 0} Match
+                    </button>
                 </div>
             </div>
 

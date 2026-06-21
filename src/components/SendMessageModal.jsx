@@ -69,7 +69,7 @@ const SendMessageModal = ({
             loadVariableRegistry();
             setWhatsappComponents([]);
         }
-    }, [isOpen, initialChannel, initialTemplateId, initialRecipients, initialProperties, initialProperty]);
+    }, [isOpen, initialChannel, initialTemplateId]);
 
     useEffect(() => {
         if (initialProperty) {
@@ -486,9 +486,13 @@ const SendMessageModal = ({
         };
 
         if (channel === 'SMS') {
+            console.log("SMS Resolver: templateId =", templateId, "type =", typeof templateId);
+            console.log("smsTemplates available:", smsTemplates);
             const template = smsTemplates.find(t => t._id === templateId || String(t.id) === String(templateId));
+            console.log("Found template:", template);
             if (template) {
                 resolvedBody = resolveVars(template.body || '');
+                console.log("Resolved body:", resolvedBody);
                 setMessageBody(resolvedBody);
             }
         } else if (channel === 'WHATSAPP') {
@@ -528,11 +532,12 @@ const SendMessageModal = ({
             if (template) {
                 setRcsTitle(template.name || '');
                 resolvedBody = resolveVars(template.body || '');
+                console.log("Resolved body:", resolvedBody);
                 setMessageBody(resolvedBody);
                 setRcsActions(template.buttons || []);
             }
         }
-    }, [templateId, channel, whatsappTemplates, smsTemplates, recipients, variableRegistry, initialProperty]);
+    }, [isOpen, templateId, channel, whatsappTemplates, smsTemplates, recipients, variableRegistry, initialProperty, properties]);
 
     const handleTemplateChange = (e) => {
         setTemplateId(e.target.value);
@@ -805,7 +810,7 @@ const SendMessageModal = ({
                                     >
                                         <option value="">-- {isLoadingSms ? 'Loading templates...' : 'Choose an SMS Template'} --</option>
                                         {smsTemplates.map(t => (
-                                            <option key={t._id} value={t._id}>{t.name}</option>
+                                            <option key={t._id || t.id} value={t._id || t.id}>{t.name}</option>
                                         ))}
                                     </select>
                                 </div>
