@@ -709,186 +709,45 @@ export const bulkRecalcStages = async (req, res) => {
  * GET /api/stage-engine/leads/scores
  *
  * Bulk lightweight score for all leads — optimised for list views.
- * Uses intent_index (ML score) if present, else computes from:
- *   stageWeight + activityRecency + stageHistoryDepth
- * Returns: { success, scores: { leadId: { score, color, label } } }
  */
 export const getLeadScores = async (req, res) => {
     try {
-    console.log('getLeadScores invoked', { query: req.query });
-        // 1. Fetch System Settings (Source of Truth for Scores)
-        const SystemSetting = mongoose.model('SystemSetting');
-        const settings = await SystemSetting.find({
-            key: { $in: ['activityMasterFields', 'stageMultipliers', 'scoreBands'] }
-        }).lean();
-
-        // Fallback: ensure we have config objects even if DB entries are missing
-        const activityConfig = settings.find(s => s.key === 'activityMasterFields')?.value || {};
-        const scoreBands = settings.find(s => s.key === 'scoreBands')?.value || {};
-        const stageMultipliers = settings.find(s => s.key === 'stageMultipliers')?.value || {};
-
-        // Fallback weights if multipliers are missing (scaled to 100)
-        const STAGE_WEIGHTS = {
-            'Incoming': 10, 'Prospect': 20, 'Opportunity': 40, 'Negotiation': 65,
-            'Closed Won': 100, 'Closed Lost': 0
-        };
-
-        // Professional Fix: Helper to find purpose config robustly
-        const findPurposeConfig = (typeConfig, activity) => {
-            if (!typeConfig || !typeConfig.purposes) return null;
-            const purposeStr = (activity.details?.purpose || activity.purpose || '').toLowerCase();
-            const subjectStr = (activity.subject || '').toLowerCase();
-
-            // 1. Try exact purpose name match
-            let found = typeConfig.purposes.find(p => (p.name || '').toLowerCase() === purposeStr);
-            if (found) return found;
-
-            // 2. Try matching purpose name within subject (e.g. "Presentation" in "Sales Presentation with Amit")
-            found = typeConfig.purposes.find(p => {
-                const pName = (p.name || '').toLowerCase();
-                return pName && (subjectStr.includes(pName) || pName.includes(subjectStr));
-            });
-
-            return found;
-        };
-
-        // 2. Fetch leads with their basic data (Support single-lead filter)
         const leadQuery = {};
         if (req.query.leadId && mongoose.Types.ObjectId.isValid(req.query.leadId)) {
             leadQuery._id = req.query.leadId;
         }
 
         const leads = await Lead.find(leadQuery)
-            .select('_id intent_index leadScore stage stageHistory lastActivityAt stageChangedAt')
-            .populate('stage', 'lookup_value')
+            .select('_id intent_index leadScore')
             .lean();
 
-        const leadIds = leads.map(l => l._id);
-
-        // 3. Fetch recent completed activities for these leads to compute behaviour score
-        const activities = await Activity.find({
-            entityId: { $in: leadIds },
-            entityType: { $regex: /lead/i },
-            status: { $regex: /completed/i }
-        }).select('entityId type details subject completionResult createdAt').sort({ createdAt: -1 }).lean();
-
-        // 4. Group activities by lead
-        const activityGroups = activities.reduce((acc, act) => {
-            const id = act.entityId.toString();
-            if (!acc[id]) acc[id] = [];
-            acc[id].push(act);
-            return acc;
-        }, {});
-
         const scores = {};
-        const now = Date.now();
 
         for (const lead of leads) {
-            let score = 0;
-            const leadIdStr = lead._id.toString();
-
-            // 1. Calculate the core baseline score
-            // FIX (Bug 7): Stage weight is an ADDITIVE boost (30% contribution), not a competitor.
-            // Using Math.max() was WRONG — it discarded either the ML score or stage weight entirely.
-            // Now: baseScore = enrichment ML score + 30% of stage progression weight
-            const intentScore = lead.intent_index || 0;
-            const stageName = lead.stage?.lookup_value || lead.stage || 'New';
-            const stageProgressionWeight = STAGE_WEIGHTS[stageName] || 10;
-            // Combine: ML enrichment score (primary) + stage position as a 30% additive boost
-            const stageBoost = Math.round(stageProgressionWeight * 0.30);
-            const baseScore = intentScore + stageBoost;
-
-            // 2. Activity Behaviour Score (Dynamic)
-            let behavioralScore = 0;
-            const leadActivities = activityGroups[leadIdStr] || [];
-
-            leadActivities.forEach(act => {
-                const actType = (act.type || '').toLowerCase();
-                const typeConfig = activityConfig.activities?.find(a => (a.name || '').toLowerCase() === actType);
-                if (typeConfig) {
-                    const purposeConfig = findPurposeConfig(typeConfig, act);
-                    if (purposeConfig) {
-                        // Find outcome score - Case-insensitive and robust check
-                        let outcomeLabel = (
-                            act.details?.completionResult ||
-                            act.details?.meetingOutcomeStatus ||
-                            act.details?.callOutcome ||
-                            act.details?.outcome ||
-                            act.completionResult ||
-                            ''
-                        );
-
-                        // Professional Fix: Scan nested properties for Site Visits
-                        if (!outcomeLabel && actType === 'site visit' && Array.isArray(act.details?.visitedProperties)) {
-                            // Find the most significant business result (Very Interested > Somewhat > etc)
-                            const priority = { 'very interested': 1, 'shortlisted': 2, 'somewhat interested': 3 };
-                            const foundResult = act.details.visitedProperties
-                                .map(p => (p.result || '').toLowerCase())
-                                .filter(r => r)
-                                .sort((a, b) => (priority[a] || 99) - (priority[b] || 99))[0];
-
-                            if (foundResult) outcomeLabel = foundResult;
-                        }
-
-                        outcomeLabel = outcomeLabel.toLowerCase();
-
-                        const outcomeConfig = purposeConfig.outcomes?.find(o => {
-                            const label = (o.label || '').toLowerCase();
-                            return label === outcomeLabel || outcomeLabel.includes(label) || label.includes(outcomeLabel);
-                        });
-
-                        if (outcomeConfig) {
-                            behavioralScore += (outcomeConfig.score || 0);
-                        } else {
-                            // Safeguard: Penalty for unsuccessful attempts if not explicitly in config
-                            const isMissed = ['no-answer', 'no answer', 'busy', 'failed', 'not connected', 'missed', 'not interested'].some(s => outcomeLabel.includes(s));
-                            if (isMissed) {
-                                behavioralScore -= 3;
-                            }
-                        }
-                    }
-                }
-            });
-
-            // 3. Recency Bonus
-            const lastActivity = lead.lastActivityAt || lead.stageChangedAt;
-            const daysAgo = lastActivity ? Math.floor((now - new Date(lastActivity)) / 86400000) : 999;
-            const recencyBonus = daysAgo <= 3 ? 10 : daysAgo <= 7 ? 5 : 0;
-
-            // 4. Combine Engines
-            // We cap behavior + recency bonuses to avoid breaking out of 100 max bounds unnecessarily,
-            // while still rewarding engaged sequences.
-            const dynamicBonus = behavioralScore + recencyBonus;
-
-            // Final clamped blended score
-            score = Math.max(0, Math.min(100, baseScore + dynamicBonus));
-
-            // Temperature coding based on Dynamic Score Bands
-            let color = scoreBands.cold?.color || '#94A3B8';
-            let label = scoreBands.cold?.label || 'Cold';
-
-            if (score >= (scoreBands.superHot?.min || 81)) {
-                color = scoreBands.superHot?.color || '#7C3AED';
-                label = scoreBands.superHot?.label || 'Super Hot';
-            } else if (score >= (scoreBands.hot?.min || 61)) {
-                color = scoreBands.hot?.color || '#EF4444';
-                label = scoreBands.hot?.label || 'Hot';
-            } else if (score >= (scoreBands.warm?.min || 31)) {
-                color = scoreBands.warm?.color || '#F59E0B';
-                label = scoreBands.warm?.label || 'Warm';
+            const finalScore = lead.leadScore || lead.intent_index || 50;
+            
+            let color = '#64748B'; // Default grey
+            let label = 'Cold';
+            
+            if (finalScore >= 81) {
+                color = '#7C3AED';
+                label = 'Super Hot';
+            } else if (finalScore >= 61) {
+                color = '#EF4444';
+                label = 'Hot';
+            } else if (finalScore >= 31) {
+                color = '#F59E0B';
+                label = 'Warm';
             }
 
-            const tempClass = score >= (scoreBands.superHot?.min || 81) ? 'super-hot' :
-                score >= (scoreBands.hot?.min || 61) ? 'hot' :
-                    score >= (scoreBands.warm?.min || 31) ? 'warm' : 'cold';
-
-            // 5. Get Live Stage String
-            const liveStage = await resolveStageValue(lead.stage);
-
-            scores[leadIdStr] = { score, color, label, tempClass, stage: liveStage };
+            scores[lead._id.toString()] = {
+                score: finalScore,
+                color,
+                label
+            };
         }
 
-        res.json({ success: true, count: leads.length, scores });
+        res.json({ success: true, scores });
     } catch (err) {
         console.error('[StageEngine] getLeadScores error:', err);
         res.status(500).json({ success: false, error: err.message });

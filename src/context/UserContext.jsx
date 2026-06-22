@@ -149,6 +149,27 @@ export const UserProvider = ({ children }) => {
         }
     };
 
+    const updateSignatures = async (signatures) => {
+        if (!currentUser) return { success: false, error: 'No user' };
+        const currentPrefs = currentUser.preferences || {};
+        const updatedPrefs = { ...currentPrefs, emailSignatures: signatures };
+        
+        // Optimistically update local state for fast UI
+        setCurrentUser(prev => ({ ...prev, preferences: updatedPrefs }));
+        
+        try {
+            // Send to real/mock backend
+            const response = await authAPI.updateProfile({ preferences: updatedPrefs });
+            if (response.success) {
+                const updatedUser = processUserWithAdminFlag(response.user || response.data);
+                setCurrentUser(updatedUser);
+            }
+            return { success: true };
+        } catch (err) {
+            return { success: false, error: err.message };
+        }
+    };
+
     // User Operations
     const addUser = async (userData) => {
         try {
@@ -295,6 +316,7 @@ export const UserProvider = ({ children }) => {
         login,
         logout,
         updateProfile,
+        updateSignatures,
         token,
         currentUser
     };

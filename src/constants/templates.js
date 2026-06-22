@@ -320,6 +320,27 @@ export const emailTemplates = [
         subject: 'Contact verification for {unit}',
         content: `Hi,<br><br>We attempted to contact the registered owner for <strong>{unit}</strong> but the number appears to be incorrect or unavailable. Our team will verify and update the records.<br><br>Best regards,<br>Bharat Properties`,
         shared: true
+    },
+    // --- NEW TEMPLATES FROM TEMPLATE CONTEXT ---
+    {
+        id: 'tpl_drip_day3_trust',
+        name: 'Drip Day 3 - Top 5 Reasons',
+        author: 'Bharat Properties',
+        visibility: 'Owned by everyone',
+        tags: ['Drip', 'Nurture'],
+        subject: 'Top 5 reasons to invest in {{Project_Name}}',
+        content: `Dear {{First name}},<br><br>Still thinking about your real estate investment? Here are the top 5 reasons why our project is considered the best choice by experts:<br><br>1. Prime Location<br>2. High ROI<br>3. Premium Amenities<br>4. RERA Approved<br>5. Trusted Builder<br><br>Reply to this email to book a free consultation!<br><br>Best regards,<br>{{Sender's signature}}`,
+        shared: true
+    },
+    {
+        id: 'tpl_post_sales_anniversary',
+        name: 'Post-Sales - 1 Year Anniversary',
+        author: 'Bharat Properties',
+        visibility: 'Owned by everyone',
+        tags: ['Post-Sales', 'Automated'],
+        subject: '🎉 Happy 1st Anniversary of your Booking!',
+        content: `Dear {{First name}},<br><br>Happy 1st Anniversary of joining our community! 🎉 It has been a wonderful year building your dream home.<br><br>We are organizing a special get-together for all future residents next month. Stay tuned for the invite!<br><br>Best regards,<br>{{Sender's signature}}`,
+        shared: true
     }
 ];
 
@@ -633,6 +654,47 @@ Best regards,
 {{3}}
 Bharat Properties`,
         tags: ['Property', 'Match Alert']
+    },
+    // --- NEW WHATSAPP TEMPLATES ---
+    {
+        id: 'tpl_drip_day7_video',
+        name: 'Drip Day 7 - Virtual Tour',
+        category: 'MARKETING',
+        language: 'en',
+        status: 'APPROVED',
+        content: `Hello {{ContactName}} 👋,\nTake a VIP Virtual Tour of our Sample Flat right from your phone! 📱\nClick here to watch: [Video Link]\nLet me know what you think! - {{AgentName}}`
+    },
+    {
+        id: 'tpl_drip_day14_urgency',
+        name: 'Drip Day 14 - Scarcity Offer',
+        category: 'MARKETING',
+        language: 'en',
+        status: 'APPROVED',
+        content: `Hi {{ContactName}}! ⏳ Just 3 corner-units left in Phase 1. If you book a site visit this weekend, we will arrange a complimentary cab pick-up. 🚖 Reply "YES" to claim.`
+    },
+    {
+        id: 'tpl_post_sales_welcome',
+        name: 'Post-Sales - Welcome Home',
+        category: 'UTILITY',
+        language: 'en',
+        status: 'APPROVED',
+        content: `Congratulations {{ContactName}}! 🎊 Welcome to the Bharat Properties family. We have successfully registered your booking. Here is a link to your Next Steps and Payment Schedule document: [Doc Link]. Please reach out if you need any assistance!`
+    },
+    {
+        id: 'tpl_post_sales_update_m1',
+        name: 'Post-Sales - Month 1 Construction',
+        category: 'UTILITY',
+        language: 'en',
+        status: 'APPROVED',
+        content: `Hi {{ContactName}}, hope you are doing great! 🏗️ Here is the Month 1 construction update for your future home. The foundation work is 80% complete! See live photos here: [Photos Link]`
+    },
+    {
+        id: 'tpl_referral_request',
+        name: 'Referral - Infinite Marketing Loop',
+        category: 'MARKETING',
+        language: 'en',
+        status: 'APPROVED',
+        content: `Hello {{ContactName}}! 🌟 We hope you are excited about your new investment. Did you know you can earn rewards? Refer a friend using your unique link: [Referral Link]. If they book, YOU get a free modular kitchen upgrade! 🎁 Share it today!`
     }
 ];
 

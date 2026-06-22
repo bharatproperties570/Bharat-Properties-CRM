@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { useSequences } from '../context/SequenceContext';
+import { useTemplates } from '../context/TemplateContext';
 
 const CreateSequenceModal = ({ isOpen, onClose, editData }) => {
     const { addSequence, updateSequence } = useSequences();
+    const { templates } = useTemplates();
     const [activeTab, setActiveTab] = useState('basic');
     const [formData, setFormData] = useState(editData || {
         name: '',
@@ -27,7 +29,7 @@ const CreateSequenceModal = ({ isOpen, onClose, editData }) => {
     const handleAddStep = () => {
         setFormData({
             ...formData,
-            steps: [...formData.steps, { id: Date.now(), day: 1, time: '09:00', type: 'Call', instruction: '' }]
+            steps: [...formData.steps, { id: Date.now(), day: 1, time: '09:00', type: 'Call', templateId: '' }]
         });
     };
 
@@ -200,12 +202,29 @@ const CreateSequenceModal = ({ isOpen, onClose, editData }) => {
                                                 </select>
                                             </div>
                                             <div>
-                                                <label style={{ fontSize: '11px', color: '#6b7280' }}>Instructions</label>
-                                                <input type="text" placeholder="e.g. Discuss new site..." value={step.instruction} onChange={(e) => {
-                                                    const newSteps = [...formData.steps];
-                                                    newSteps[index].instruction = e.target.value;
-                                                    setFormData({ ...formData, steps: newSteps });
-                                                }} style={{ width: '100%', padding: '8px', border: '1px solid #d1d5db', borderRadius: '6px' }} />
+                                                <label style={{ fontSize: '11px', color: '#6b7280' }}>Message Template / Instructions</label>
+                                                {['WhatsApp', 'Email', 'SMS', 'RCS'].includes(step.type) ? (
+                                                    <select
+                                                        value={step.templateId || ''}
+                                                        onChange={(e) => {
+                                                            const newSteps = [...formData.steps];
+                                                            newSteps[index].templateId = e.target.value;
+                                                            setFormData({ ...formData, steps: newSteps });
+                                                        }}
+                                                        style={{ width: '100%', padding: '8px', border: '1px solid #d1d5db', borderRadius: '6px' }}
+                                                    >
+                                                        <option value="">-- Select Template --</option>
+                                                        {templates.filter(t => t.channel === step.type).map(t => (
+                                                            <option key={t.id} value={t.id}>{t.name}</option>
+                                                        ))}
+                                                    </select>
+                                                ) : (
+                                                    <input type="text" placeholder="e.g. Discuss new site..." value={step.instruction || step.templateId || ''} onChange={(e) => {
+                                                        const newSteps = [...formData.steps];
+                                                        newSteps[index].templateId = e.target.value;
+                                                        setFormData({ ...formData, steps: newSteps });
+                                                    }} style={{ width: '100%', padding: '8px', border: '1px solid #d1d5db', borderRadius: '6px' }} />
+                                                )}
                                             </div>
                                         </div>
                                     </div>

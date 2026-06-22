@@ -32,6 +32,12 @@ export const useNotifications = (onNavigate) => {
                         console.warn('[Audio] Autoplay blocked. Interaction needed.');
                     });
                     window.dispatchEvent(new CustomEvent('new-notification-alert'));
+                    
+                    // Trigger Call Resolution Modal if applicable
+                    const newPendingCalls = newNotifications.filter(n => !knownIds.current.has(n._id) && n.type === 'pending_call_resolution');
+                    newPendingCalls.forEach(callNotif => {
+                        window.dispatchEvent(new CustomEvent('resolve-pending-call', { detail: callNotif }));
+                    });
                 }
 
                 // Explicitly sort newest first for absolute reliability

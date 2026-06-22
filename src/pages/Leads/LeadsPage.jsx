@@ -438,10 +438,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                 setTotalCount(totalDocs);
                 setTotalPages(pages);
 
-                // ── Stage Engine: fetch live scores for this page's leads ──
-                api.get('stage-engine/leads/scores')
-                    .then(r => { if (r.data?.success) setLiveScores(r.data.scores); })
-                    .catch(() => { }); // non-blocking — silent fallback to client-side score
+                // (Removed redundant stage-engine/leads/scores fetch. Using lead.leadScore directly from database)
 
             } catch (error) {
                 console.error("Error fetching leads:", error);
@@ -1475,17 +1472,17 @@ const LeadItem = React.memo(function LeadItem({
 
     const fullPropertyType = [category, subCategory].filter(Boolean).join(" - ");
 
-    // Unified Scoring Logic for List View
+    // Unified Scoring Logic for List View (Strict Database Sync)
     const normalizedLead = {
         ...lead,
         source: getLookupValue('Source', lead.source) || lead.source,
         stage: getLookupValue('Stage', lead.stage) || lead.stage
     };
-    const scoring = calculateLeadScore(normalizedLead, lead.activities || [], scoringConfig);
-    const calculatedScore = Math.max(scoring?.total || 0, lead.intentIndex || 0);
-    const displayScore = Math.max(liveBackendScore?.score || 0, calculatedScore);
-    const displayColor = (liveBackendScore && liveBackendScore.score >= displayScore) ? liveBackendScore.color : (scoring?.temperature?.color || '#94a3b8');
-    const tempClass = (liveBackendScore && liveBackendScore.score >= displayScore) ? String(liveBackendScore.tempClass) : String(scoring?.temperature?.class || 'cold');
+    
+    // STRICT ENTERPRISE SCORE - No client-side recalculation
+    const displayScore = lead.leadScore || lead.intentIndex || 50;
+    const tempClass = displayScore >= 81 ? 'super-hot' : displayScore >= 61 ? 'hot' : displayScore >= 31 ? 'warm' : 'cold';
+    const displayColor = displayScore >= 81 ? '#7C3AED' : displayScore >= 61 ? '#EF4444' : displayScore >= 31 ? '#F59E0B' : '#94a3b8';
 
     return (
         <div className="list-item lead-list-grid">
@@ -1844,11 +1841,11 @@ const LeadCard = React.memo(function LeadCard({
         source: getLookupValue('Source', lead.source) || lead.source,
         stage: getLookupValue('Stage', lead.stage) || lead.stage
     };
-    const scoring = calculateLeadScore(normalizedLead, lead.activities || [], scoringConfig);
-    const calculatedScore = Math.max(scoring?.total || 0, lead.intentIndex || 0);
-    const displayScore = Math.max(liveBackendScore?.score || 0, calculatedScore);
-    const displayColor = (liveBackendScore && liveBackendScore.score >= displayScore) ? liveBackendScore.color : (scoring?.temperature?.color || '#94a3b8');
-    const tempClass = (liveBackendScore && liveBackendScore.score >= displayScore) ? String(liveBackendScore.tempClass) : String(scoring?.temperature?.class || 'cold');
+    
+    // STRICT ENTERPRISE SCORE - No client-side recalculation
+    const displayScore = lead.leadScore || lead.intentIndex || 50;
+    const tempClass = displayScore >= 81 ? 'super-hot' : displayScore >= 61 ? 'hot' : displayScore >= 31 ? 'warm' : 'cold';
+    const displayColor = displayScore >= 81 ? '#7C3AED' : displayScore >= 61 ? '#EF4444' : displayScore >= 31 ? '#F59E0B' : '#94a3b8';
 
     return (
         <div

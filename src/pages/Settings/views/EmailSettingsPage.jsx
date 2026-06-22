@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { emailTemplates } from '../../../constants/templates';
 import { systemSettingsAPI, emailAPI } from '../../../utils/api';
 import Toast from '../../../components/Toast';
+import { useUserContext } from '../../../context/UserContext';
 
 // --- Sub-Components (Moved outside to prevent re-renders) ---
 
@@ -341,12 +342,22 @@ const TemplateModal = ({ isOpen, onClose, onSave, initialData }) => {
 // --- Main Component ---
 
 const EmailSettingsPage = () => {
+    const { currentUser, updateSignatures } = useUserContext();
+    const initialSigs = currentUser?.preferences?.emailSignatures?.length > 0 
+        ? currentUser.preferences.emailSignatures 
+        : [{ id: 'sig_1', name: 'Default Signature', type: 'simple', content: '--Real Deal', isDefault: true }];
+    
     const [subTab, setSubTab] = useState('connection');
     const [isAddEmailModalOpen, setIsAddEmailModalOpen] = useState(false);
     const [isAddTemplateModalOpen, setIsAddTemplateModalOpen] = useState(false);
-    const [signatureType, setSignatureType] = useState('simple');
-    const [simpleSignature, setSimpleSignature] = useState('--Real Deal');
-    const [htmlSignature, setHtmlSignature] = useState('--Real Deal');
+    
+    const [signatures, setSignatures] = useState(initialSigs);
+    const [activeSigId, setActiveSigId] = useState(initialSigs[0]?.id || null);
+    
+    const activeSig = signatures.find(s => s.id === activeSigId) || signatures[0] || {};
+    const signatureType = activeSig.type || 'simple';
+    const simpleSignature = activeSig.type === 'simple' ? activeSig.content : '';
+    const htmlSignature = activeSig.type === 'html' ? activeSig.content : '';
     const [connectedEmail, setConnectedEmail] = useState('');
     const [isAdvancedSettingsOpen, setIsAdvancedSettingsOpen] = useState(true);
     const [selectedProvider, setSelectedProvider] = useState('Other');
@@ -525,20 +536,52 @@ const EmailSettingsPage = () => {
         deals: 'Not visible to users'
     });
 
-    const [isSwitchModalOpen, setIsSwitchModalOpen] = useState(false);
+    const [isSwitchModalOpen, setShowSwitchModal] = useState(false);
 
     const handleSignatureTypeChange = (type) => {
         if (signatureType === 'html' && type === 'simple') {
-            setIsSwitchModalOpen(true);
+            setShowSwitchModal(true);
         } else {
-            setSignatureType(type);
+            updateActiveSignature({ type, content: type === 'simple' ? '--Real Deal' : '--Real Deal' });
         }
     };
 
     const confirmSwitch = () => {
-        setSignatureType('simple');
-        setHtmlSignature('--Real Deal');
-        setIsSwitchModalOpen(false);
+        setShowSwitchModal(false);
+        updateActiveSignature({ type: 'simple', content: '--Real Deal' });
+    };
+
+    const updateActiveSignature = (updates) => {
+        setSignatures(prev => prev.map(s => s.id === activeSigId ? { ...s, ...updates } : s));
+    };
+
+    const addNewSignature = () => {
+        const newSig = { id: 'sig_' + Date.now(), name: `Signature ${signatures.length + 1}`, type: 'simple', content: '', isDefault: signatures.length === 0 };
+        setSignatures(prev => [...prev, newSig]);
+        setActiveSigId(newSig.id);
+    };
+
+    const deleteSignature = (id) => {
+        setSignatures(prev => {
+            const next = prev.filter(s => s.id !== id);
+            if (activeSigId === id) setActiveSigId(next[0]?.id || null);
+            return next;
+        });
+    };
+
+    const setDefaultSignature = (id) => {
+        setSignatures(prev => prev.map(s => ({ ...s, isDefault: s.id === id })));
+    };
+
+    const saveSignatures = async () => {
+        if (updateSignatures) {
+            const res = await updateSignatures(signatures);
+            if (res.success) {
+                setToast({ type: 'success', message: 'Signatures saved globally!' });
+            } else {
+                setToast({ type: 'error', message: 'Failed to save signatures.' });
+            }
+        }
     };
 
     // --- Tab Renderers ---
@@ -673,60 +716,89 @@ const EmailSettingsPage = () => {
 
     const renderSignature = () => (
         <div>
-            <div style={{ marginBottom: '24px' }}>
-                <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-main)', margin: '0 0 8px 0' }}>Email signature</h3>
+            <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-main)', margin: '0' }}>Email Signatures</h3>
+                <button className="btn-outline" onClick={addNewSignature} style={{ fontSize: '0.85rem' }}>+ Add Signature</button>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '32px' }}>
-                <div onClick={() => handleSignatureTypeChange('simple')} style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', cursor: 'pointer' }}>
-                    <div style={{ width: '18px', height: '18px', borderRadius: '50%', border: '2px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: '2px', background: signatureType === 'simple' ? 'var(--primary-color)' : 'var(--bg-card)', borderColor: signatureType === 'simple' ? 'var(--primary-color)' : 'var(--border-color)' }}>
-                        {signatureType === 'simple' && <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--bg-card)' }}></div>}
-                    </div>
-                    <div>
-                        <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)' }}>Simple signature</div>
-                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Use simple text formatting.</div>
-                    </div>
+            <div style={{ display: 'flex', gap: '24px' }}>
+                {/* Signature List Sidebar */}
+                <div style={{ width: '250px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {signatures.map(sig => (
+                        <div 
+                            key={sig.id} 
+                            onClick={() => setActiveSigId(sig.id)}
+                            style={{ padding: '12px', border: '1px solid', borderColor: activeSigId === sig.id ? 'var(--primary-color)' : 'var(--border-color)', background: activeSigId === sig.id ? 'var(--bg-light)' : 'var(--bg-card)', borderRadius: '6px', cursor: 'pointer' }}
+                        >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                <input 
+                                    type="text" 
+                                    value={sig.name} 
+                                    onChange={(e) => {
+                                        setSignatures(prev => prev.map(s => s.id === sig.id ? { ...s, name: e.target.value } : s));
+                                    }}
+                                    onClick={e => e.stopPropagation()}
+                                    style={{ border: 'none', background: 'transparent', fontWeight: 600, fontSize: '0.9rem', outline: 'none', width: '100%' }}
+                                />
+                                {signatures.length > 1 && (
+                                    <i className="fas fa-trash-alt" onClick={(e) => { e.stopPropagation(); deleteSignature(sig.id); }} style={{ color: '#ef4444', cursor: 'pointer', fontSize: '0.8rem' }}></i>
+                                )}
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{sig.type === 'html' ? 'HTML' : 'Simple'}</span>
+                                <label style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                                    <input type="radio" checked={sig.isDefault} onChange={() => setDefaultSignature(sig.id)} />
+                                    Default
+                                </label>
+                            </div>
+                        </div>
+                    ))}
                 </div>
-                <div onClick={() => handleSignatureTypeChange('html')} style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', cursor: 'pointer' }}>
-                    <div style={{ width: '18px', height: '18px', borderRadius: '50%', border: '2px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: '2px', background: signatureType === 'html' ? 'var(--primary-color)' : 'var(--bg-card)', borderColor: signatureType === 'html' ? 'var(--primary-color)' : 'var(--border-color)' }}>
-                        {signatureType === 'html' && <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--bg-card)' }}></div>}
-                    </div>
-                    <div>
-                        <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)' }}>HTML</div>
-                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Add a company logo, social media icons, or style your signature with brand colors.</div>
-                    </div>
-                </div>
-            </div>
 
-            {signatureType === 'simple' ? (
-                <div style={{ border: '1px solid var(--border-color)', borderRadius: '4px', overflow: 'hidden' }}>
-                    <textarea
-                        style={{ width: '100%', height: '120px', padding: '16px', border: 'none', resize: 'none', outline: 'none', fontSize: '0.95rem' }}
-                        placeholder="Your signature..."
-                        value={simpleSignature}
-                        onChange={(e) => setSimpleSignature(e.target.value)}
-                    />
-                    <div style={{ padding: '8px 20px', borderTop: '1px solid #f1f5f9', display: 'flex', gap: '20px', color: 'var(--text-muted)', fontSize: '1rem', background: 'var(--bg-card)', justifyContent: 'center' }}>
-                        <i className="fas fa-bold"></i><i className="fas fa-italic"></i><i className="fas fa-underline"></i><i className="fas fa-list-ul"></i><i className="far fa-image"></i><i className="fas fa-link"></i>
+                {/* Editor Area */}
+                {activeSigId && (
+                    <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', gap: '16px', marginBottom: '24px' }}>
+                            <div onClick={() => handleSignatureTypeChange('simple')} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                                <input type="radio" checked={signatureType === 'simple'} readOnly /> Simple Text
+                            </div>
+                            <div onClick={() => handleSignatureTypeChange('html')} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                                <input type="radio" checked={signatureType === 'html'} readOnly /> HTML
+                            </div>
+                        </div>
+
+                        {signatureType === 'simple' ? (
+                            <div style={{ border: '1px solid var(--border-color)', borderRadius: '4px', overflow: 'hidden' }}>
+                                <textarea
+                                    style={{ width: '100%', height: '120px', padding: '16px', border: 'none', resize: 'none', outline: 'none', fontSize: '0.95rem' }}
+                                    placeholder="Your signature..."
+                                    value={simpleSignature}
+                                    onChange={(e) => updateActiveSignature({ content: e.target.value })}
+                                />
+                                <div style={{ padding: '8px 20px', borderTop: '1px solid #f1f5f9', display: 'flex', gap: '20px', color: 'var(--text-muted)', fontSize: '1rem', background: 'var(--bg-card)', justifyContent: 'center' }}>
+                                    <i className="fas fa-bold"></i><i className="fas fa-italic"></i><i className="fas fa-underline"></i><i className="fas fa-list-ul"></i><i className="far fa-image"></i><i className="fas fa-link"></i>
+                                </div>
+                            </div>
+                        ) : (
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                                <div style={{ border: '1px solid var(--border-color)', borderRadius: '4px', overflow: 'hidden' }}>
+                                    <textarea
+                                        style={{ width: '100%', height: '300px', padding: '16px', border: 'none', resize: 'none', outline: 'none', fontSize: '0.9rem', fontFamily: 'monospace' }}
+                                        placeholder="HTML Code..."
+                                        value={htmlSignature}
+                                        onChange={(e) => updateActiveSignature({ content: e.target.value })}
+                                    />
+                                </div>
+                                <div style={{ border: '1px solid var(--border-color)', borderRadius: '4px', padding: '16px', background: 'var(--bg-card)', height: '300px', overflowY: 'auto' }}>
+                                    <div dangerouslySetInnerHTML={{ __html: htmlSignature || '--Real Deal' }} />
+                                </div>
+                            </div>
+                        )}
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '24px' }}>
+                            <button className="btn-primary" onClick={saveSignatures} style={{ padding: '8px 32px' }}>Save Signatures</button>
+                        </div>
                     </div>
-                </div>
-            ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                    <div style={{ border: '1px solid var(--border-color)', borderRadius: '4px', overflow: 'hidden' }}>
-                        <textarea
-                            style={{ width: '100%', height: '300px', padding: '16px', border: 'none', resize: 'none', outline: 'none', fontSize: '0.9rem', fontFamily: 'monospace' }}
-                            placeholder="HTML Code..."
-                            value={htmlSignature}
-                            onChange={(e) => setHtmlSignature(e.target.value)}
-                        />
-                    </div>
-                    <div style={{ border: '1px solid var(--border-color)', borderRadius: '4px', padding: '16px', background: 'var(--bg-card)', height: '300px', overflowY: 'auto' }}>
-                        <div dangerouslySetInnerHTML={{ __html: htmlSignature || '--Real Deal' }} />
-                    </div>
-                </div>
-            )}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '24px' }}>
-                <button className="btn-primary" style={{ padding: '8px 32px' }}>Save</button>
+                )}
             </div>
         </div>
     );

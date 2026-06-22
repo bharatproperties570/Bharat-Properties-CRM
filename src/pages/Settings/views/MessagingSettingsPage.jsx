@@ -736,11 +736,25 @@ const MessagingSettingsPage = () => {
                 systemSettingsAPI.getByKey('crm_whatsapp_templates'),
                 systemSettingsAPI.getByKey('crm_rcs_templates'),
             ]);
-            setAllTemplates(prev => ({
-                ...prev,
-                whatsapp: (waRes?.data?.value?.length  ? waRes.data.value  : prev.whatsapp),
-                rcs:      (rcsRes?.data?.value?.length ? rcsRes.data.value : prev.rcs),
-            }));
+            
+            setAllTemplates(prev => {
+                const mergeTemplates = (defaultList, dbList) => {
+                    if (!dbList || !dbList.length) return defaultList;
+                    const merged = [...defaultList];
+                    dbList.forEach(dbTpl => {
+                        const idx = merged.findIndex(t => String(t.id) === String(dbTpl.id));
+                        if (idx >= 0) merged[idx] = dbTpl; // Override existing
+                        else merged.push(dbTpl); // Add new
+                    });
+                    return merged;
+                };
+
+                return {
+                    ...prev,
+                    whatsapp: mergeTemplates(whatsappTemplates, waRes?.data?.value),
+                    rcs: mergeTemplates(rcsTemplates, rcsRes?.data?.value),
+                };
+            });
         } catch (err) {
             console.warn('Could not load persisted templates, using defaults:', err.message);
         }

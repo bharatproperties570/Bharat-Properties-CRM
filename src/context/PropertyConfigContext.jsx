@@ -106,6 +106,9 @@ export const PropertyConfigProvider = ({ children }) => {
         floorLevels: [
             'Basement', 'Ground Floor', 'First Floor', 'Second Floor', 'Third Floor', 'Top Floor'
         ],
+        floorPlans: [
+            'Drawing Room', 'Bedroom', 'Kitchen', 'Bathroom', 'Store', 'Balcony', 'Dining Room', 'Study', 'Pooja Room', 'Servant Room'
+        ],
         documents: [
             'Registry', 'Mutation', 'GPA', 'Aadhaar Card', 'PAN Card'
         ],

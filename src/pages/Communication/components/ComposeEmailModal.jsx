@@ -131,13 +131,21 @@ const ComposeEmailModal = ({
     const { currentUser } = useUserContext();
 
     // Helper to compile template
-    const compileTemplate = (content) => {
+    const compileTemplate = (content, signatureContent) => {
         if (!content) return '';
         let compiled = content;
         
         // Sender's signature
-        const signature = currentUser?.preferences?.emailSignature || `<strong>${currentUser?.name || 'Sender'}</strong>`;
-        compiled = compiled.replace(/\{\{Sender's signature\}\}/g, signature);
+        const signatureToUse = signatureContent || `<strong>${currentUser?.name || 'Sender'}</strong>`;
+        const wrappedSignature = `<div id="bp-signature-block" style="margin-top: 20px;">${signatureToUse}</div>`;
+        
+        // Replace placeholder if exists, otherwise we'll append later if needed
+        if (compiled.includes("{{Sender's signature}}")) {
+            compiled = compiled.replace(/\{\{Sender's signature\}\}/g, wrappedSignature);
+        } else {
+            // Force append if no placeholder is found
+            compiled = compiled + wrappedSignature;
+        }
         
         // Agent Mobile for WhatsApp Links
         const agentMobile = currentUser?.mobile || currentUser?.phone || '9991333570';
@@ -157,6 +165,10 @@ const ComposeEmailModal = ({
             setBody(initialBody || '');
             setToEmail(initialTo);
 
+            const userSignatures = currentUser?.preferences?.emailSignatures || [];
+            const defaultSig = userSignatures.find(s => s.isDefault) || userSignatures[0];
+            const sigContent = defaultSig ? defaultSig.content : `<strong>${currentUser?.name || 'Sender'}</strong>`;
+
             // Auto-load template if initialTemplateId is set
             const tid = initialTemplateId ? parseInt(initialTemplateId) : null;
             if (tid) {
@@ -167,7 +179,7 @@ const ComposeEmailModal = ({
                     setSubject(initialSubject || tmpl.subject);
 
                     // Apply sender variables first
-                    let compiledContent = compileTemplate(tmpl.content);
+                    let compiledContent = compileTemplate(tmpl.content, sigContent);
 
                     // Then apply deal variables if builder is provided (Deal Match template)
                     if (dealDataBuilder && typeof dealDataBuilder === 'function') {
@@ -184,10 +196,44 @@ const ComposeEmailModal = ({
 
             // Fallback: use initialBody
             if (editorRef.current) {
-                editorRef.current.innerHTML = initialBody || '';
+                let fallbackBody = initialBody || '';
+                if (!fallbackBody.includes('bp-signature-block')) {
+                    fallbackBody += `<br><br><div id="bp-signature-block" style="margin-top: 20px;">${sigContent}</div>`;
+                }
+                editorRef.current.innerHTML = fallbackBody;
+                setBody(fallbackBody);
             }
         }
-    }, [isOpen, initialSubject, initialBody, initialTo, initialTemplateId, dealDataBuilder, hideUnitNumber]);
+    }, [isOpen, initialSubject, initialBody, initialTo, initialTemplateId, dealDataBuilder, hideUnitNumber, currentUser]);
+
+    const changeSignature = (e) => {
+        const sigId = e.target.value;
+        const userSignatures = currentUser?.preferences?.emailSignatures || [];
+        const selectedSig = userSignatures.find(s => s.id === sigId) || userSignatures[0];
+        const newSigContent = selectedSig ? selectedSig.content : '';
+
+        if (editorRef.current) {
+            const editorHtml = editorRef.current.innerHTML;
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(editorHtml, 'text/html');
+            const sigBlock = doc.getElementById('bp-signature-block');
+            
+            if (sigBlock) {
+                sigBlock.innerHTML = newSigContent;
+            } else {
+                // If somehow deleted, append it
+                const newBlock = doc.createElement('div');
+                newBlock.id = 'bp-signature-block';
+                newBlock.style.marginTop = '20px';
+                newBlock.innerHTML = newSigContent;
+                doc.body.appendChild(newBlock);
+            }
+            
+            const updatedHtml = doc.body.innerHTML;
+            editorRef.current.innerHTML = updatedHtml;
+            setBody(updatedHtml);
+        }
+    };
 
     const variables = [
         { label: 'Contact Name', value: '{{ContactName}}' },
@@ -383,7 +429,9 @@ const ComposeEmailModal = ({
                                                 setHideUnitNumber(e.target.checked);
                                                 const tmpl = emailTemplates.find(t => t.id === parseInt(selectedTemplate));
                                                 if (tmpl) {
-                                                    let compiledContent = compileTemplate(tmpl.content);
+                                                    const userSignatures = currentUser?.preferences?.emailSignatures || [];
+                                                    const defaultSig = userSignatures.find(s => s.isDefault) || userSignatures[0];
+                                                    let compiledContent = compileTemplate(tmpl.content, defaultSig ? defaultSig.content : '');
                                                     compiledContent = dealDataBuilder(compiledContent, e.target.checked);
                                                     setBody(compiledContent);
                                                     if (editorRef.current) {
@@ -415,6 +463,17 @@ const ComposeEmailModal = ({
                                     const url = prompt("Enter URL:");
                                     if (url) document.execCommand('createLink', false, url);
                                 }}><i className="fas fa-link"></i></button>
+                                <div style={{ width: '1px', height: '16px', backgroundColor: '#cbd5e1', margin: '0 4px' }}></div>
+                                <select 
+                                    onChange={changeSignature}
+                                    style={{ border: 'none', background: 'transparent', fontSize: '0.85rem', color: '#475569', fontWeight: 600, outline: 'none', cursor: 'pointer' }}
+                                    title="Insert Signature"
+                                >
+                                    <option value="" disabled selected>Insert Signature</option>
+                                    {(currentUser?.preferences?.emailSignatures || []).map(sig => (
+                                        <option key={sig.id} value={sig.id}>{sig.name}</option>
+                                    ))}
+                                </select>
                             </div>
                             <div
                                 ref={editorRef}

@@ -7,31 +7,49 @@ export const SequenceProvider = ({ children }) => {
     // Sequence Definitions (Pre-seeded with examples)
     const [sequences, setSequences] = useState([
         {
-            id: 'seq1',
-            name: 'New Lead Follow-up',
+            id: 'seq_fresh',
+            name: 'Fresh Lead to Site Visit',
             module: 'leads',
-            purpose: 'New Lead',
-            trigger: { type: 'onCreated' },
+            purpose: 'Nurture',
+            trigger: { type: 'onCreated' }, // Triggers for new leads
             active: true,
             steps: [
-                { id: 1, day: 0, time: '09:00', type: 'Call', instruction: 'Initial Intro Call' },
-                { id: 2, day: 1, time: '10:00', type: 'WhatsApp', instruction: 'Send Introduction PDF' },
-                { id: 3, day: 3, time: '11:00', type: 'Call', instruction: 'Follow-up on Interest' },
-                { id: 4, day: 5, time: '09:00', type: 'Property Match', instruction: 'Send Top 3 Inventory Matches' },
-                { id: 5, day: 7, time: '10:00', type: 'Reminder', instruction: 'Check-in Call' }
+                { id: 1, day: 0, time: '09:00', type: 'WhatsApp', templateId: 'tpl_wa_greeting' },
+                { id: 2, day: 3, time: '10:00', type: 'Email', templateId: 'tpl_email_top5' },
+                { id: 3, day: 5, time: '11:00', type: 'WhatsApp', templateId: 'tpl_wa_video_tour' },
+                { id: 4, day: 8, time: '09:00', type: 'SMS', templateId: 'tpl_sms_cab_offer' },
+                { id: 5, day: 14, time: '10:00', type: 'Email', templateId: 'tpl_email_urgency' }
             ],
             exitConditions: { onDealCreated: true, onLost: true }
         },
         {
-            id: 'seq2',
-            name: 'Hot Lead Fast-Track',
+            id: 'seq_post_visit',
+            name: 'Post-Site Visit Decision',
             module: 'leads',
             purpose: 'Follow-up',
-            trigger: { type: 'onScoreBandEntry', minScore: 80, maxScore: 100 },
+            trigger: { type: 'onStageChange', targetStage: 'Site Visit Completed' },
             active: true,
             steps: [
-                { id: 1, day: 0, time: '09:00', type: 'Call', instruction: 'Immediate Connection' },
-                { id: 2, day: 1, time: '09:30', type: 'Site Visit', instruction: 'Schedule Property Visit' }
+                { id: 1, day: 1, time: '10:00', type: 'WhatsApp', templateId: 'tpl_wa_post_visit' },
+                { id: 2, day: 4, time: '09:00', type: 'Email', templateId: 'tpl_email_comparison' },
+                { id: 3, day: 10, time: '11:00', type: 'Email', templateId: 'tpl_email_testimonial' },
+                { id: 4, day: 15, time: '10:00', type: 'WhatsApp', templateId: 'tpl_wa_homeloan' },
+                { id: 5, day: 30, time: '09:00', type: 'SMS', templateId: 'tpl_sms_final_offer' }
+            ],
+            exitConditions: { onDealCreated: true, onLost: true }
+        },
+        {
+            id: 'seq_revival',
+            name: 'Dormant Lead Revival',
+            module: 'leads',
+            purpose: 'Re-engagement',
+            trigger: { type: 'onStageChange', targetStage: 'Lost' },
+            active: true,
+            steps: [
+                { id: 1, day: 30, time: '10:00', type: 'Email', templateId: 'tpl_email_market_update' },
+                { id: 2, day: 60, time: '11:00', type: 'WhatsApp', templateId: 'tpl_wa_still_looking' },
+                { id: 3, day: 120, time: '09:00', type: 'Email', templateId: 'tpl_email_new_launch' },
+                { id: 4, day: 180, time: '10:00', type: 'SMS', templateId: 'tpl_sms_flash_sale' }
             ],
             exitConditions: { onDealCreated: true }
         }

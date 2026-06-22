@@ -528,7 +528,7 @@ const PropertySettingsPage = () => {
     const handleAddMasterItem = () => {
         openInputModal(`Enter new ${activeOrientationField.slice(0, -1)}`, '', (value) => {
             if (value) {
-                const currentList = masterFields[activeOrientationField];
+                const currentList = masterFields[activeOrientationField] || [];
                 const itemExists = currentList.some(item => {
                     const itemName = typeof item === 'object' ? item.name : item;
                     return itemName?.toLowerCase() === value.toLowerCase();
@@ -1245,8 +1245,7 @@ const PropertySettingsPage = () => {
                             <div style={{ width: '280px', borderRight: '1px solid var(--border-color)', background: 'var(--bg-light)', display: 'flex', flexDirection: 'column' }}>
                                 <div style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.85rem' }}>Field Name</div>
                                 <div style={{ overflowY: 'auto', flex: 1 }}>
-                                    {masterFields && Object.keys(masterFields)
-                                        .filter(field => ['facings', 'roadWidths', 'directions', 'unitTypes', 'relations'].includes(field))
+                                    {masterFields && ['facings', 'roadWidths', 'directions', 'unitTypes', 'relations', 'floorLevels', 'floorPlans']
                                         .map(field => (
                                             <div key={field} onClick={() => setActiveOrientationField(field)} style={{ padding: '16px', cursor: 'pointer', fontWeight: activeOrientationField === field ? 700 : 500, color: activeOrientationField === field ? '#2563eb' : 'var(--text-main)', background: activeOrientationField === field ? 'var(--bg-card)' : 'transparent', borderLeft: activeOrientationField === field ? '4px solid #2563eb' : '4px solid transparent', textTransform: 'capitalize' }}>
                                                 {field.replace(/([A-Z])/g, ' $1').trim()}
@@ -1265,7 +1264,7 @@ const PropertySettingsPage = () => {
                             </div>
                             <div style={{ overflowY: 'auto', flex: 1, padding: '20px' }}>
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px' }}>
-                                    {masterFields && masterFields[activeOrientationField].map((item, idx) => {
+                                    {masterFields && (masterFields[activeOrientationField] || []).map((item, idx) => {
                                         const itemName = typeof item === 'object' ? item.name : item;
                                         const itemKey = typeof item === 'object' ? (item.id || idx) : item;
                                         return (

@@ -184,6 +184,31 @@ const ContactCoreInfo = React.memo(function ContactCoreInfo({
 
                 <div style={{ height: '1px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9', margin: '4px 0' }}></div>
 
+                {/* Performance Marketing / UTM Attribution */}
+                {recordType === 'lead' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        <h4 style={{ fontSize: '0.7rem', fontWeight: 900, color: '#2563eb', textTransform: 'uppercase', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <i className="fas fa-bullseye"></i> Marketing Attribution
+                        </h4>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
+                            {['utm_source', 'utm_medium', 'utm_campaign'].map(utmKey => {
+                                const utmVal = contact[utmKey];
+                                if (!utmVal) return null;
+                                return (
+                                    <div key={utmKey} style={{ background: isDark ? 'rgba(37, 99, 235, 0.1)' : '#eff6ff', padding: '8px 12px', borderRadius: '8px', border: '1px solid #bfdbfe', display: 'flex', flexDirection: 'column' }}>
+                                        <span style={{ fontSize: '0.6rem', color: '#3b82f6', fontWeight: 700, textTransform: 'uppercase' }}>{utmKey.replace('utm_', '')}</span>
+                                        <span style={{ fontSize: '0.8rem', color: '#1e40af', fontWeight: 800 }}>{utmVal}</span>
+                                    </div>
+                                );
+                            })}
+                            {!contact.utm_source && !contact.utm_medium && !contact.utm_campaign && (
+                                <span style={{ fontSize: '0.8rem', color: '#94a3b8', fontStyle: 'italic' }}>Organic / Direct (No UTM Data)</span>
+                            )}
+                        </div>
+                        <div style={{ height: '1px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f1f5f9', margin: '4px 0' }}></div>
+                    </div>
+                )}
+
                 {/* Row 2: Location Intelligence */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                     <div style={{ gridColumn: 'span 2' }}>

@@ -11,7 +11,7 @@ export default function AddBuiltupDetailsModal({
     entityData,
     onSave
 }) {
-    const { propertyConfig, getLookupId, getLookupValue } = usePropertyConfig();
+    const { propertyConfig, masterFields, getLookupId, getLookupValue } = usePropertyConfig();
 
     const [loading, setLoading] = useState(false);
     const [subCategory, setSubCategory] = useState('');
@@ -373,19 +373,18 @@ export default function AddBuiltupDetailsModal({
                                 <div key={idx} style={{ background: '#f8fafc', padding: '12px 16px', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'grid', gridTemplateColumns: '1.2fr 1.2fr 0.8fr 0.8fr 1.2fr 1.8fr 40px', gap: '12px', alignItems: 'center' }}>
                                     <div>
                                         <select style={selectStyle} value={row.floor} onChange={e => updateBuiltupRow(idx, 'floor', e.target.value)}>
-                                            <option>Ground Floor</option>
-                                            <option>First Floor</option>
-                                            <option>Second Floor</option>
-                                            <option>Third Floor</option>
-                                            <option>Other</option>
+                                            <option value="">Select Floor</option>
+                                            {masterFields?.floorLevels?.map(f => (
+                                                <option key={f} value={f}>{f}</option>
+                                            ))}
                                         </select>
                                     </div>
                                     <div>
                                         <select style={selectStyle} value={row.cluster} onChange={e => updateBuiltupRow(idx, 'cluster', e.target.value)}>
                                             <option value="">Select Plan</option>
-                                            <option>Type A</option>
-                                            <option>Type B</option>
-                                            <option>Type C</option>
+                                            {masterFields?.floorPlans?.map(p => (
+                                                <option key={p} value={p}>{p}</option>
+                                            ))}
                                         </select>
                                     </div>
                                     <div>

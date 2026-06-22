@@ -21,6 +21,7 @@ import { CallProvider, useCall } from './context/CallContext'; // Import CallPro
 import { ParsingProvider } from './context/ParsingContext'; // Import ParsingProvider
 import { UserProvider, useUserContext } from './context/UserContext';
 import { ImportProvider } from './context/ImportContext';
+import { TemplateProvider } from './context/TemplateContext';
 import LoginPage from './pages/Auth/LoginPage';
 import ForgotPasswordPage from './pages/Auth/ForgotPasswordPage';
 import ResetPasswordPage from './pages/Auth/ResetPasswordPage';
@@ -30,6 +31,7 @@ import PublicDealForm from './pages/Public/PublicDealForm';
 import PublicFeedbackForm from './pages/Public/PublicFeedbackForm';
 import CaptureFormPage from './pages/Public/CaptureFormPage';
 import CallModal from './components/CallModal'; // Import CallModal
+import CallResolutionModal from './components/CallResolutionModal';
 import PublicChatWidget from './components/PublicChatWidget';
 
 // Helper Wrapper to connect Context to Modal
@@ -359,6 +361,7 @@ const AppContent = () => {
                 )}
             </MainLayout>
             <CallModalWrapper />
+            <CallResolutionModal />
         </>
     );
 };
@@ -380,11 +383,13 @@ function App() {
                                                     <TriggersProvider>
                                                         <CallProvider>
                                                             <ImportProvider>
-                                                                {isWeb && <Toaster 
-                                                                    position="top-right" 
-                                                                    containerStyle={{ zIndex: 999999 }}
-                                                                />}
-                                                                <AppContent />
+                                                                <TemplateProvider>
+                                                                    {isWeb && <Toaster 
+                                                                        position="top-right" 
+                                                                        containerStyle={{ zIndex: 999999 }}
+                                                                    />}
+                                                                    <AppContent />
+                                                                </TemplateProvider>
                                                             </ImportProvider>
                                                         </CallProvider>
                                                     </TriggersProvider>

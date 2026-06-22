@@ -955,6 +955,7 @@ export const syncMobileCalls = async (req, res) => {
         }
 
         const syncedActivities = [];
+        const pendingResolutions = [];
 
         // Helper for entity matching
         const findEntity = async (phone) => {
@@ -1001,7 +1002,7 @@ export const syncMobileCalls = async (req, res) => {
                 status: 'Completed',
                 description: `Synced from mobile. Duration: ${call.duration}s. Raw: ${call.number}`,
                 details: {
-                    direction: call.type?.toUpperCase() === 'INCOMING' ? 'Incoming' : 'Outgoing',
+                    direction: call.type?.toUpperCase() === 'INCOMING' ? 'Incoming Call' : (call.type?.toUpperCase() === 'MISSED' ? 'Missed Call' : 'Outgoing Call'),
                     duration: call.duration,
                     platform: 'Mobile',
                     mobileId: call.id,
@@ -1031,13 +1032,42 @@ export const syncMobileCalls = async (req, res) => {
                 googleSyncQueue.add('syncEvent', { activityId: activity._id }).catch(() => { });
                 syncedActivities.push(activity);
 
-                // Trigger Notification
-                if (req.user?.id || req.user?._id) {
+                let pendingActivity = null;
+                if (match) {
+                    pendingActivity = await Activity.findOne({
+                        type: 'Call',
+                        status: { $in: ['Pending', 'In Progress'] },
+                        'relatedTo.id': match.entity._id,
+                        assignedTo: req.user?._id || req.user?.id
+                    }).lean();
+                }
+
+                if (pendingActivity && (req.user?.id || req.user?._id)) {
                     await createNotification(
                         req.user.id || req.user._id,
-                        activity.details?.direction === 'Incoming' ? 'assignment' : 'system',
+                        'pending_call_resolution',
+                        `Action Required: Call Logged`,
+                        `Please complete your scheduled call activity for ${participantName}.`,
+                        `/activities/${pendingActivity._id}`,
+                        { 
+                            activityId: pendingActivity._id, 
+                            syncActivityId: activity._id, 
+                            type: 'pending_call_resolution',
+                            participantName,
+                            number: call.number
+                        }
+                    );
+                    pendingResolutions.push({
+                        activityId: pendingActivity._id,
+                        entityName: participantName,
+                        mobile: call.number
+                    });
+                } else if (req.user?.id || req.user?._id) {
+                    await createNotification(
+                        req.user.id || req.user._id,
+                        activity.details?.direction === 'Incoming Call' ? 'assignment' : 'system',
                         `Mobile Call: ${activity.details?.direction}`,
-                        `${activity.details?.direction} call from ${participantName} (${call.number})`,
+                        `${activity.details?.direction} from ${participantName} (${call.number})`,
                         `/activities/${activity._id}`,
                         { activityId: activity._id, type: 'Call' }
                     );
@@ -1061,9 +1091,9 @@ export const syncMobileCalls = async (req, res) => {
                 participants: [{ name: participantName, mobile: msg.address }],
                 dueDate: new Date(msg.date),
                 status: 'Completed',
-                description: msg.body,
+                description: `Synced from mobile SMS. Raw: ${msg.address}\n\nBody: ${msg.body}`,
                 details: {
-                    direction: msg.type?.toLowerCase() === 'sent' ? 'Outgoing' : 'Incoming',
+                    direction: msg.type?.toUpperCase() === 'INCOMING' ? 'Incoming' : 'Outgoing',
                     platform: 'MobileSMS',
                     mobileId: msg.id || `${msg.address}_${msg.date}`,
                     isMatched: !!match
@@ -1104,6 +1134,7 @@ export const syncMobileCalls = async (req, res) => {
         res.json({
             success: true,
             syncedCount: syncedActivities.length,
+            pendingResolutions,
             data: syncedActivities
         });
 

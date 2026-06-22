@@ -2,6 +2,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import Swal from 'sweetalert2';
 import { api, activitiesAPI } from '../../utils/api';
+import { performanceAPI } from '../../utils/performanceAPI';
 import toast from 'react-hot-toast';
 import AddOfferModal from '../../components/AddOfferModal';
 import AddOwnerModal from '../../components/AddOwnerModal';
@@ -480,6 +481,19 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                 fetchLiveScore();
                 fetchDealActivities();
                 enrichDealIntelligence();
+                
+                // Trigger Performance Marketing CAPI if Closed Won
+                if (newStage === 'Closed Won') {
+                    performanceAPI.sendConversionEvent('Purchase', {
+                        value: deal.price,
+                        currency: 'INR',
+                        dealId: dealId
+                    }, {
+                        // Assuming primary contact is linked to deal
+                        phone: deal.buyer?.mobile || deal.seller?.mobile,
+                        email: deal.buyer?.email || deal.seller?.email
+                    });
+                }
             } else {
                 throw new Error("Server rejected status update");
             }
