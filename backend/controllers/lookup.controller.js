@@ -3,6 +3,25 @@ import Lookup from "../models/Lookup.js";
 import Lead from "../models/Lead.js";
 import Contact from "../models/Contact.js";
 import Inventory from "../models/Inventory.js";
+import ParsingRule from "../src/modules/parsing/parsingRule.model.js";
+import { clearPatternsCache } from "../src/modules/intake/intakeParser.js";
+
+const autoCreateParsingRule = async (lookup_value, lookup_type, tenantId = null) => {
+    try {
+        let parsingType = null;
+        if (lookup_type === 'City') parsingType = 'CITY';
+        else if (['Location', 'Tehsil', 'PostOffice'].includes(lookup_type)) parsingType = 'LOCATION';
+        else if (['PropertyType', 'BuiltupType'].includes(lookup_type)) parsingType = 'TYPE';
+
+        if (parsingType) {
+            const filter = { type: parsingType, value: lookup_value, tenantId: tenantId || null };
+            await ParsingRule.findOneAndUpdate(filter, filter, { upsert: true, new: true, setDefaultsOnInsert: true });
+            clearPatternsCache(tenantId);
+        }
+    } catch (err) {
+        console.error("[LOOKUPS] Failed to create parsing rule automatically:", err.message);
+    }
+};
 
 
 export const getLookups = async (req, res) => {
@@ -19,6 +38,7 @@ export const getLookups = async (req, res) => {
                 _id: { $in: idArray.map(id => new mongoose.Types.ObjectId(id)) }
             }).lean();
             console.log(`[LOOKUP_FETCH] Batch ID fetch: ${idArray.length} requested, ${lookupsByIds.length} found`);
+            res.set('Cache-Control', 'no-store');
             return res.json({ status: "success", data: lookupsByIds });
         }
 
@@ -91,6 +111,7 @@ export const getLookups = async (req, res) => {
         }
 
         console.log(`[LOOKUP_FETCH] Success: Found ${lookups.length} records for ${lookup_type}`);
+        res.set('Cache-Control', 'no-store');
         res.json({ status: "success", data: lookups });
     } catch (error) {
         console.error(`[LOOKUP_FETCH] Error fetching lookups for ${lookup_type}:`, error);
@@ -250,7 +271,19 @@ export const updateLookup = async (req, res) => {
 
         // 2. If the current lookup is renamed, update the parent_lookup_value reference in all child lookups
         if (req.body.lookup_value && req.body.lookup_value !== lookup.lookup_value) {
+            const oldName = lookup.lookup_value;
             await Lookup.updateMany({ parent_lookup_id: id }, { parent_lookup_value: req.body.lookup_value });
+            
+            // Auto-save the old name as an alias so future data maps to the correct new name
+            lookup.metadata = lookup.metadata || {};
+            lookup.metadata.aliases = lookup.metadata.aliases || [];
+            if (!lookup.metadata.aliases.includes(oldName)) {
+                lookup.metadata.aliases.push(oldName);
+                lookup.markModified('metadata');
+            }
+
+            // Create a parsing rule for the old name so the intake regex recognizes it
+            await autoCreateParsingRule(oldName, lookup.lookup_type, req.user?.tenantId);
         }
 
         Object.assign(lookup, req.body);
@@ -332,25 +365,47 @@ export const checkDuplicatesImport = async (req, res) => {
  * @access  Private
  */
 export const mergeOrMoveLookup = async (req, res) => {
+    const isStream = req.query.stream === 'true';
+    if (isStream) {
+        res.setHeader('Content-Type', 'application/x-ndjson');
+        res.setHeader('Transfer-Encoding', 'chunked');
+    }
+
+    const sendProgress = (progress, message) => {
+        if (isStream) {
+            res.write(JSON.stringify({ type: 'progress', progress, message }) + '\n');
+        }
+    };
+
+    const sendResponse = (status, message, statusCode = 200) => {
+        if (isStream) {
+            res.write(JSON.stringify({ status, message }) + '\n');
+            res.end();
+        } else {
+            res.status(statusCode).json({ status, message });
+        }
+    };
+
     try {
         const { action, sourceId, targetId } = req.body;
         if (!action || !sourceId || !targetId) {
-            return res.status(400).json({ status: "error", message: "Missing required parameters: action, sourceId, targetId" });
+            return sendResponse("error", "Missing required parameters: action, sourceId, targetId", 400);
         }
 
         if (!mongoose.Types.ObjectId.isValid(sourceId) || !mongoose.Types.ObjectId.isValid(targetId)) {
-            return res.status(400).json({ status: "error", message: "Invalid sourceId or targetId format" });
+            return sendResponse("error", "Invalid sourceId or targetId format", 400);
         }
 
+        sendProgress(5, "Verifying lookups...");
         const sourceLookup = await Lookup.findById(sourceId);
         if (!sourceLookup) {
-            return res.status(404).json({ status: "error", message: "Source lookup not found" });
+            return sendResponse("error", "Source lookup not found", 404);
         }
 
         if (action === 'move' || action === 'convert') {
             const targetParent = await Lookup.findById(targetId);
             if (!targetParent) {
-                return res.status(404).json({ status: "error", message: "Target parent lookup not found" });
+                return sendResponse("error", "Target parent lookup not found", 404);
             }
 
             const oldType = sourceLookup.lookup_type;
@@ -371,7 +426,7 @@ export const mergeOrMoveLookup = async (req, res) => {
             const parentField = typeToFieldMap[targetParent.lookup_type];
 
             if (!oldField || !newField) {
-                return res.status(400).json({ status: "error", message: `Unsupported lookup type` });
+                return sendResponse("error", "Unsupported lookup type", 400);
             }
 
             // 1. Update sourceLookup Type and Parent
@@ -426,15 +481,21 @@ export const mergeOrMoveLookup = async (req, res) => {
                 }
             }
 
-            const actionText = action === 'convert' ? 'Converted' : 'Moved';
-            console.log(`[LOOKUPS] ${actionText} ${oldType} ${sourceLookup._id} ("${sourceLookup.lookup_value}") to ${newType} under ${targetParent._id}`);
-            return res.json({ status: "success", message: `Successfully ${actionText.toLowerCase()} "${sourceLookup.lookup_value}" to ${newType} under "${targetParent.lookup_value}".` });
+            // Create parsing rule for the lookup under its NEW type context
+            if (oldType !== newType) {
+                await autoCreateParsingRule(sourceLookup.lookup_value, newType, req.user?.tenantId);
+            }
+
+            sendProgress(100, `Successfully ${action === 'convert' ? 'converted' : 'moved'}`);
+            console.log(`[LOOKUPS] ${action === 'convert' ? 'Converted' : 'Moved'} ${sourceLookup._id} from ${oldType} to ${newType}`);
+            return sendResponse("success", `Successfully ${action === 'convert' ? 'converted' : 'moved'}.`);
         }
 
         if (action === 'merge') {
+            sendProgress(10, "Verifying merge target...");
             const targetLookup = await Lookup.findById(targetId);
             if (!targetLookup) {
-                return res.status(404).json({ status: "error", message: "Target lookup not found" });
+                return sendResponse("error", "Target lookup not found", 404);
             }
 
             if (sourceLookup.lookup_type !== targetLookup.lookup_type) {
@@ -461,22 +522,25 @@ export const mergeOrMoveLookup = async (req, res) => {
                     // Delete source lookup
                     await Lookup.deleteOne({ _id: sourceLookup._id });
 
+                    sendProgress(100, "Merge completed successfully");
                     console.log(`[LOOKUPS] Merged Location ${sourceLookup._id} ("${sourceLookup.lookup_value}") into Tehsil ${targetLookup._id} ("${targetLookup.lookup_value}")`);
-                    return res.json({ status: "success", message: `Successfully merged Location "${sourceLookup.lookup_value}" into Tehsil "${targetLookup.lookup_value}" and re-linked contacts.` });
+                    return sendResponse("success", `Successfully merged Location "${sourceLookup.lookup_value}" into Tehsil "${targetLookup.lookup_value}" and re-linked contacts.`);
                 }
                 
-                return res.status(400).json({ status: "error", message: `Cannot merge different lookup types: "${sourceLookup.lookup_type}" and "${targetLookup.lookup_type}"` });
+                return sendResponse("error", `Cannot merge different lookup types: "${sourceLookup.lookup_type}" and "${targetLookup.lookup_type}"`, 400);
             }
 
             // Standard merge of same types (State->State, City->City, Location->Location, etc.)
             
             // 1. Update parent ID of any child lookups pointing to source
+            sendProgress(20, "Re-parenting child lookups...");
             await Lookup.updateMany(
                 { parent_lookup_id: sourceLookup._id },
                 { $set: { parent_lookup_id: targetLookup._id, parent_lookup_value: targetLookup.lookup_value } }
             );
 
             // 2. Update Contacts
+            sendProgress(40, "Updating Contact records...");
             const Contact = mongoose.model('Contact');
             const contactFields = ['location', 'tehsil', 'postOffice', 'city', 'state', 'pincode', 'country', 'locality', 'area'];
             for (const field of contactFields) {
@@ -491,6 +555,7 @@ export const mergeOrMoveLookup = async (req, res) => {
             }
 
             // 3. Update Leads
+            sendProgress(60, "Updating Lead records...");
             const Lead = mongoose.model('Lead');
             const leadFields = ['location', 'locPincode', 'requirement', 'subRequirement', 'budget', 'source', 'subSource', 'campaign', 'status', 'stage', 'sequence'];
             for (const field of leadFields) {
@@ -509,6 +574,7 @@ export const mergeOrMoveLookup = async (req, res) => {
             }
 
             // 4. Update Inventory
+            sendProgress(80, "Updating Inventory records...");
             const Inventory = mongoose.model('Inventory');
             const inventoryAddrFields = ['city', 'tehsil', 'state', 'postOffice', 'pincode', 'locality', 'location', 'area', 'country'];
             for (const field of inventoryAddrFields) {
@@ -527,6 +593,7 @@ export const mergeOrMoveLookup = async (req, res) => {
             }
 
             // 5. Build Alias Array on Target
+            sendProgress(90, "Building aliases and rules...");
             targetLookup.metadata = targetLookup.metadata || {};
             targetLookup.metadata.aliases = targetLookup.metadata.aliases || [];
             
@@ -546,15 +613,23 @@ export const mergeOrMoveLookup = async (req, res) => {
             // 6. Delete source lookup
             await Lookup.deleteOne({ _id: sourceLookup._id });
 
+            // 7. Auto-create ParsingRule for the old lookup name
+            await autoCreateParsingRule(sourceLookup.lookup_value, sourceLookup.lookup_type, req.user?.tenantId);
+
             console.log(`[LOOKUPS] Merged ${sourceLookup.lookup_type} ${sourceLookup._id} ("${sourceLookup.lookup_value}") into ${targetLookup._id} ("${targetLookup.lookup_value}") with aliases.`);
-            return res.json({ status: "success", message: `Successfully merged "${sourceLookup.lookup_value}" into "${targetLookup.lookup_value}" across all records and added as an alias.` });
+            return sendResponse("success", `Successfully merged "${sourceLookup.lookup_value}" into "${targetLookup.lookup_value}" across all records and added as an alias.`);
         }
 
-        return res.status(400).json({ status: "error", message: `Unsupported action: "${action}"` });
+        return sendResponse("error", `Unsupported action: "${action}"`, 400);
 
     } catch (error) {
         console.error("[LOOKUPS_MERGE_MOVE_ERROR]", error);
-        res.status(500).json({ status: "error", message: error.message });
+        if (isStream && !res.writableEnded) {
+            res.write(JSON.stringify({ status: "error", message: error.message }) + '\n');
+            res.end();
+        } else if (!isStream) {
+            res.status(500).json({ status: "error", message: error.message });
+        }
     }
 };
 

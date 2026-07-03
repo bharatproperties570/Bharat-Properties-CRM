@@ -182,10 +182,11 @@ export const triggerTestNotification = () => api.post('/notifications/test').the
 
 // Create and export axios instance
 export const api = axios.create({
-    baseURL: (typeof API_BASE_URL === 'string' && API_BASE_URL.endsWith('/')) ? API_BASE_URL : String(API_BASE_URL || '') + '/',
+    // Use the stable tunnel URL to avoid localhost/network issues in development and production
+    baseURL: STABLE_TUNNEL_URL.endsWith('/') ? STABLE_TUNNEL_URL : `${STABLE_TUNNEL_URL}/`,
     headers: {
         "Content-Type": "application/json",
-        "Bypass-Tunnel-Reminder": "true", // 🚀 Required to skip Localtunnel's splash page for API calls
+        "Bypass-Tunnel-Reminder": "true",
     },
 });
 
@@ -356,16 +357,51 @@ const apiRequest = async (endpoint, options = {}) => {
 
 // Lookups API
 export const lookupsAPI = {
-    getAll: () => apiRequest('/lookups'),
-    getByCategory: (category) => apiRequest(`/lookups?lookup_type=${encodeURIComponent(category)}`),
-    getStates: () => apiRequest('/lookups?lookup_type=State'),
-    getCities: (stateId) => apiRequest(`/lookups?lookup_type=City&parent_lookup_id=${stateId}`),
-    getLocations: (cityId) => apiRequest(`/lookups?parent_lookup_id=${cityId}`),
+    getAll: () => apiRequest(`/lookups?_t=${Date.now()}`),
+    getByCategory: (category) => apiRequest(`/lookups?lookup_type=${encodeURIComponent(category)}&_t=${Date.now()}`),
+    getStates: () => apiRequest(`/lookups?lookup_type=State&_t=${Date.now()}`),
+    getCities: (stateId) => apiRequest(`/lookups?lookup_type=City&parent_lookup_id=${stateId}&_t=${Date.now()}`),
+    getLocations: (cityId) => apiRequest(`/lookups?parent_lookup_id=${cityId}&_t=${Date.now()}`),
     create: (data) => apiRequest('/lookups', { method: 'POST', body: JSON.stringify(data) }),
     update: (id, data) => apiRequest(`/lookups/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id) => apiRequest(`/lookups/${id}`, { method: 'DELETE' }),
     bulkCreate: (data) => apiRequest('/lookups/bulk', { method: 'POST', body: JSON.stringify(data) }),
     mergeOrMove: (data) => apiRequest('/lookups/merge-or-move', { method: 'POST', body: JSON.stringify(data) }),
+    mergeOrMoveStream: async (data, onProgress) => {
+        const token = getAuthToken();
+        const response = await fetch(`${API_BASE_URL}/lookups/merge-or-move?stream=true`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+            },
+            body: JSON.stringify(data)
+        });
+        
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let result = null;
+        
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const chunk = decoder.decode(value, { stream: true });
+            const lines = chunk.split('\n').filter(Boolean);
+            for (const line of lines) {
+                try {
+                    const parsed = JSON.parse(line);
+                    if (parsed.status === 'success' || parsed.status === 'error') {
+                        result = parsed;
+                    } else if (parsed.type === 'progress' && onProgress) {
+                        onProgress(parsed);
+                    }
+                } catch (e) {
+                    console.error("Stream parse error:", e, "Line:", line);
+                }
+            }
+        }
+        return result || { status: 'error', message: 'Stream ended without result' };
+    },
 };
 
 // Custom Fields API

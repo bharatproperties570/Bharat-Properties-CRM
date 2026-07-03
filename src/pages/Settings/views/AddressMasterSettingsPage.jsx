@@ -12,6 +12,7 @@ const AddressMasterSettingsPage = () => {
     
     // Selection states
     const [selectedCountryId, setSelectedCountryId] = useState('');
+    const [selectedIds, setSelectedIds] = useState([]); // array of selected lookup _id strings
     const [selectedStateId, setSelectedStateId] = useState('');
     const [selectedCityId, setSelectedCityId] = useState('');
     const [selectedPostOfficeId, setSelectedPostOfficeId] = useState('unassigned');
@@ -23,6 +24,7 @@ const AddressMasterSettingsPage = () => {
     const [pincodes, setPincodes] = useState([]); // Pincodes for selected PO or unassigned
 
     const [activeTab, setActiveTab] = useState('Location');
+    const [childSearchQuery, setChildSearchQuery] = useState('');
     const [loading, setLoading] = useState(false);
     const [childLoading, setChildLoading] = useState(false);
     
@@ -37,11 +39,22 @@ const AddressMasterSettingsPage = () => {
     const [actionChoices, setActionChoices] = useState([]);
     const [dropTargetItem, setDropTargetItem] = useState(null);
     const [selectedItem, setSelectedItem] = useState(null);
+    // Helper to toggle selection
+    const toggleSelection = (id) => {
+        setSelectedIds(prev => {
+            if (prev.includes(id)) return prev.filter(i => i !== id);
+            return [...prev, id];
+        });
+    };
     const [moveTargetParentId, setMoveTargetParentId] = useState('');
     const [moveTargetParentName, setMoveTargetParentName] = useState('');
     const [mergeTargetItemId, setMergeTargetItemId] = useState('');
     const [actionLoading, setActionLoading] = useState(false);
     const [message, setMessage] = useState({ text: '', type: '' });
+    const [streamProgress, setStreamProgress] = useState(0);
+    const [streamMessage, setStreamMessage] = useState('');
+    const [streamEta, setStreamEta] = useState('');
+    const [isStreaming, setIsStreaming] = useState(false);
 
     // Toast feedback
     const showMessage = (text, type = 'success') => {
@@ -60,6 +73,12 @@ const AddressMasterSettingsPage = () => {
             case 'Pincode': return setPincodes;
             default: return null;
         }
+    };
+
+    // Helper to get item by ID from any lookup list
+    const getItemById = (id) => {
+        const allItems = [...states, ...cities, ...locations, ...tehsils, ...postOffices, ...pincodes];
+        return allItems.find(item => item._id === id);
     };
 
     // Generic Add Handling
@@ -288,6 +307,7 @@ const AddressMasterSettingsPage = () => {
         setTehsils([]);
         setPostOffices([]);
         setPincodes([]);
+        setChildSearchQuery('');
 
         if (!cityId) return;
         await loadCityChildren(cityId);
@@ -360,6 +380,11 @@ const AddressMasterSettingsPage = () => {
     // HTML5 Drag & Drop handlers
     const handleDragStart = (e, item) => {
         setDraggedItem(item);
+        if (!selectedIds.includes(item._id)) {
+            setSelectedIds([]); // Clear any old checkbox selections to prevent merging wrong items
+            setSelectedItem(item);
+        }
+        
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('text/plain', item._id);
     };
@@ -504,7 +529,13 @@ const AddressMasterSettingsPage = () => {
             return;
         }
 
-        setSelectedItem(draggedItem);
+        // If multiple items are selected, keep them; otherwise set the dragged item as the only selected
+        if (selectedIds.length === 0) {
+            setSelectedItem(draggedItem);
+            setSelectedIds([draggedItem._id]);
+        } else {
+            setSelectedItem(draggedItem);
+        }
         setDropTargetItem(targetItem);
 
         // Special Location into Tehsil Merge Override
@@ -542,6 +573,11 @@ const AddressMasterSettingsPage = () => {
                 showMessage(`Successfully converted "${selectedItem.lookup_value}" to ${newType} under "${dropTargetItem.lookup_value}"`);
                 setShowActionChoiceModal(false);
                 
+                const setter = getStateSetter(selectedItem.lookup_type);
+                if (setter) setter(prev => prev.filter(i => i._id !== selectedItem._id));
+                setSelectedIds([]);
+                setSelectedItem(null);
+
                 // Refresh affected column view
                 if (selectedItem.lookup_type === 'State' || newType === 'State') await loadAllStates();
                 if (selectedItem.lookup_type === 'City' || newType === 'City') {
@@ -564,30 +600,54 @@ const AddressMasterSettingsPage = () => {
     const executeMove = async () => {
         try {
             setActionLoading(true);
-            const payload = {
-                action: 'move',
-                sourceId: selectedItem._id,
-                targetId: moveTargetParentId
-            };
-            const res = await lookupsAPI.mergeOrMove(payload);
-            if (res.status === 'success') {
-                showMessage(`Successfully moved "${selectedItem.lookup_value}" under "${moveTargetParentName}"`);
-                setShowMoveModal(false);
-                
-                // Refresh affected column view
-                if (selectedItem.lookup_type === 'State') {
-                    await loadAllStates();
-                } else if (selectedItem.lookup_type === 'City') {
-                    if (selectedStateId) handleStateClick(selectedStateId);
-                } else {
-                    if (selectedCityId) await loadCityChildren(selectedCityId);
+            const idsToProcess = selectedIds.length > 0 ? selectedIds : (selectedItem ? [selectedItem._id] : []);
+            if (idsToProcess.length === 0) return;
+
+            let successCount = 0;
+            let errorCount = 0;
+
+            for (const id of idsToProcess) {
+                const payload = {
+                    action: 'move',
+                    sourceId: id,
+                    targetId: moveTargetParentId
+                };
+                try {
+                    const res = await lookupsAPI.mergeOrMove(payload);
+                    if (res.status === 'success') successCount++;
+                    else errorCount++;
+                } catch (err) {
+                    console.error("Move item error:", err);
+                    errorCount++;
                 }
-            } else {
-                showMessage(res.message || 'Move operation failed', 'error');
+            }
+
+            if (successCount > 0) showMessage(`Successfully moved ${successCount} item(s) under "${moveTargetParentName}"`);
+            if (errorCount > 0) showMessage(`Failed to move ${errorCount} item(s)`, 'error');
+
+            setShowMoveModal(false);
+            
+            const safeItem = selectedItem || (idsToProcess.length > 0 ? getItemById(idsToProcess[0]) : null);
+            const type = safeItem ? safeItem.lookup_type : null;
+            if (type) {
+                const setter = getStateSetter(type);
+                if (setter) setter(prev => prev.filter(i => !idsToProcess.includes(i._id)));
+            }
+            
+            setSelectedIds([]);
+            setSelectedItem(null);
+
+            // Refresh affected column view
+            if (type === 'State') {
+                await loadAllStates();
+            } else if (type === 'City') {
+                if (selectedStateId) handleStateClick(selectedStateId);
+            } else if (type) {
+                if (selectedCityId) await loadCityChildren(selectedCityId);
             }
         } catch (err) {
             console.error(err);
-            showMessage(err.message || 'Error occurred during move', 'error');
+            showMessage(err.message || 'Error occurred during batch move', 'error');
         } finally {
             setActionLoading(false);
         }
@@ -597,32 +657,113 @@ const AddressMasterSettingsPage = () => {
     const executeMerge = async () => {
         try {
             setActionLoading(true);
-            const payload = {
-                action: 'merge',
-                sourceId: selectedItem._id,
-                targetId: mergeTargetItemId
-            };
-            const res = await lookupsAPI.mergeOrMove(payload);
-            if (res.status === 'success') {
-                showMessage(res.message || 'Lookups merged successfully');
-                setShowMergeModal(false);
+            setIsStreaming(true);
+            setStreamProgress(0);
+            setStreamMessage('Starting merge operation...');
+            setStreamEta('Calculating...');
+            
+            const idsToProcess = selectedIds.length > 0 ? selectedIds : (selectedItem ? [selectedItem._id] : []);
+            if (idsToProcess.length === 0) {
+                setIsStreaming(false);
+                setActionLoading(false);
+                return;
+            }
 
-                // Refresh affected lists
-                if (selectedItem.lookup_type === 'State') {
+            let successCount = 0;
+            let errorCount = 0;
+            const startTime = Date.now();
+            const totalItems = idsToProcess.length;
+
+            for (let i = 0; i < totalItems; i++) {
+                const id = idsToProcess[i];
+                if (id === mergeTargetItemId) continue; // Skip self
+
+                const payload = {
+                    action: 'merge',
+                    sourceId: id,
+                    targetId: mergeTargetItemId
+                };
+                
+                const baseProgress = (i / totalItems) * 100;
+                const chunkWeight = 100 / totalItems;
+
+                try {
+                    const res = await lookupsAPI.mergeOrMoveStream(payload, (chunk) => {
+                        if (chunk.type === 'progress') {
+                            const currentTotalProgress = baseProgress + (chunk.progress / 100 * chunkWeight);
+                            setStreamProgress(currentTotalProgress);
+                            setStreamMessage(`[${i+1}/${totalItems}] ${chunk.message}`);
+                            
+                            if (currentTotalProgress > 0) {
+                                const elapsed = Date.now() - startTime;
+                                const estimatedTotal = (elapsed / currentTotalProgress) * 100;
+                                const remaining = estimatedTotal - elapsed;
+                                setStreamEta(remaining > 0 ? `${Math.ceil(remaining / 1000)}s remaining` : 'Almost done...');
+                            }
+                        }
+                    });
+                    
+                    if (res.status === 'success') successCount++;
+                    else errorCount++;
+                } catch (err) {
+                    console.error("Merge item error:", err);
+                    errorCount++;
+                }
+            }
+
+            setStreamProgress(100);
+            setStreamMessage('Merge completed!');
+            setStreamEta('');
+            
+            setTimeout(async () => {
+                if (successCount > 0) showMessage(`Successfully merged ${successCount} item(s)`);
+                if (errorCount > 0) showMessage(`Failed to merge ${errorCount} item(s)`, 'error');
+
+                setShowMergeModal(false);
+                setIsStreaming(false);
+                
+                const safeItem = selectedItem || (idsToProcess.length > 0 ? getItemById(idsToProcess[0]) : null);
+                const type = safeItem ? safeItem.lookup_type : null;
+                
+                if (type) {
+                    const setter = getStateSetter(type);
+                    if (setter) setter(prev => prev.filter(i => !idsToProcess.includes(i._id)));
+                }
+                
+                setSelectedIds([]);
+                setSelectedItem(null);
+
+                // Refresh appropriate view
+                if (type === 'State') {
                     await loadAllStates();
-                } else if (selectedItem.lookup_type === 'City') {
+                } else if (type === 'City') {
                     if (selectedStateId) handleStateClick(selectedStateId);
-                } else {
+                } else if (type) {
                     if (selectedCityId) await loadCityChildren(selectedCityId);
                 }
-            } else {
-                showMessage(res.message || 'Merge operation failed', 'error');
-            }
+                setActionLoading(false);
+            }, 1000);
+            
         } catch (err) {
             console.error(err);
-            showMessage(err.message || 'Error occurred during merge', 'error');
-        } finally {
+            showMessage(err.message || 'Error occurred during batch merge', 'error');
             setActionLoading(false);
+            setIsStreaming(false);
+        }
+    };
+
+    // Unified batch action dispatcher
+    const executeBatchAction = async (action) => {
+        try {
+            if (action === 'move') {
+                await executeMove();
+            } else if (action === 'merge') {
+                await executeMerge();
+            } else {
+                console.warn(`Unsupported batch action: ${action}`);
+            }
+        } catch (err) {
+            console.error('Batch action error:', err);
         }
     };
 
@@ -657,6 +798,11 @@ const AddressMasterSettingsPage = () => {
         ? states.filter(s => String(s.parent_lookup_id) === String(selectedCountryId) || !s.parent_lookup_id)
         : states;
 
+    const filteredLocations = locations.filter(l => l.lookup_value.toLowerCase().includes(childSearchQuery.toLowerCase()));
+    const filteredTehsils = tehsils.filter(l => l.lookup_value.toLowerCase().includes(childSearchQuery.toLowerCase()));
+    const filteredPostOffices = postOffices.filter(l => l.lookup_value.toLowerCase().includes(childSearchQuery.toLowerCase()));
+    const filteredPincodes = pincodes.filter(l => l.lookup_value.toLowerCase().includes(childSearchQuery.toLowerCase()));
+
     return (
         <div className="address-master-container">
             <div className="address-master-header">
@@ -667,6 +813,15 @@ const AddressMasterSettingsPage = () => {
             {message.text && (
                 <div className={`address-master-toast ${message.type}`}>
                     {message.text}
+                </div>
+            )}
+
+            {selectedIds.length > 0 && (
+                <div className="batch-action-bar" style={{ position: 'sticky', top: 0, background: '#fff', padding: '10px', borderBottom: '1px solid #ddd', display: 'flex', gap: '10px', alignItems: 'center' }}>
+                    <span>{selectedIds.length} items selected</span>
+                    <button className="modal-btn confirm-btn" onClick={() => { if (selectedIds.length > 0) { setSelectedItem(getItemById(selectedIds[0])); } setShowMergeModal(true); }} disabled={actionLoading}>Batch Merge</button>
+                    <button className="modal-btn danger-confirm-btn" onClick={() => setShowMoveModal(true)} disabled={actionLoading}>Batch Move</button>
+                    <button className="modal-btn cancel-btn" onClick={() => setSelectedIds([])} disabled={actionLoading}>Clear Selection</button>
                 </div>
             )}
 
@@ -817,52 +972,62 @@ const AddressMasterSettingsPage = () => {
                             <div className="column-empty">Select a city to view lookups</div>
                         ) : (
                             <>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 16px', background: 'var(--bg-light)', borderBottom: '1px solid var(--border-color)' }}>
-                                    <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)' }}>
-                                        {activeTab} List ({
-                                            activeTab === 'Location' ? locations.length :
-                                            activeTab === 'Tehsil' ? tehsils.length :
-                                            activeTab === 'PostOffice' ? postOffices.length : pincodes.length
-                                        })
-                                    </span>
-                                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                        <button className="add-btn-mini" onClick={() => {
-                                            let dataToDownload = [];
-                                            if (activeTab === 'Location') dataToDownload = locations;
-                                            else if (activeTab === 'Tehsil') dataToDownload = tehsils;
-                                            else if (activeTab === 'PostOffice') dataToDownload = postOffices;
-                                            else if (activeTab === 'Pincode') dataToDownload = pincodes;
-                                            downloadCSV(dataToDownload, activeTab);
-                                        }} title={`Download ${activeTab}s`}><i className="fas fa-download" style={{fontSize: '0.75rem'}}></i></button>
-                                        <button 
-                                            className="add-btn-mini"
-                                            onClick={() => {
-                                                const parentId = activeTab === 'Pincode' && selectedPostOfficeId !== 'unassigned' ? selectedPostOfficeId : selectedCityId;
-                                                handleAdd(
-                                                    activeTab, 
-                                                    activeTab, 
-                                                    parentId, 
-                                                    activeTab === 'Pincode' ? () => loadPincodesForPostOffice(selectedPostOfficeId) : () => loadCityChildren(selectedCityId)
-                                                );
-                                            }}
-                                        >
-                                            +
-                                        </button>
+                                <div style={{ display: 'flex', flexDirection: 'column', padding: '8px 16px', background: 'var(--bg-light)', borderBottom: '1px solid var(--border-color)', gap: '8px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+                                            {activeTab} List ({
+                                                activeTab === 'Location' ? filteredLocations.length :
+                                                activeTab === 'Tehsil' ? filteredTehsils.length :
+                                                activeTab === 'PostOffice' ? filteredPostOffices.length : filteredPincodes.length
+                                            })
+                                        </span>
+                                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                            <button className="add-btn-mini" onClick={() => {
+                                                let dataToDownload = [];
+                                                if (activeTab === 'Location') dataToDownload = locations;
+                                                else if (activeTab === 'Tehsil') dataToDownload = tehsils;
+                                                else if (activeTab === 'PostOffice') dataToDownload = postOffices;
+                                                else if (activeTab === 'Pincode') dataToDownload = pincodes;
+                                                downloadCSV(dataToDownload, activeTab);
+                                            }} title={`Download ${activeTab}s`}><i className="fas fa-download" style={{fontSize: '0.75rem'}}></i></button>
+                                            <button 
+                                                className="add-btn-mini"
+                                                onClick={() => {
+                                                    const parentId = activeTab === 'Pincode' && selectedPostOfficeId !== 'unassigned' ? selectedPostOfficeId : selectedCityId;
+                                                    handleAdd(
+                                                        activeTab, 
+                                                        activeTab, 
+                                                        parentId, 
+                                                        activeTab === 'Pincode' ? () => loadPincodesForPostOffice(selectedPostOfficeId) : () => loadCityChildren(selectedCityId)
+                                                    );
+                                                }}
+                                            >
+                                                +
+                                            </button>
+                                        </div>
                                     </div>
+                                    <input 
+                                        type="text" 
+                                        placeholder={`Search ${activeTab}s...`} 
+                                        value={childSearchQuery} 
+                                        onChange={(e) => setChildSearchQuery(e.target.value)}
+                                        style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #ccc', fontSize: '0.8rem' }}
+                                    />
                                 </div>
 
                                 {activeTab === 'Location' && (
-                                    locations.length === 0 ? <div className="column-empty">No locations</div> :
-                                    locations.map(item => (
+                                    filteredLocations.length === 0 ? <div className="column-empty">No locations found</div> :
+                                    filteredLocations.map(item => (
                                         <div 
                                             key={item._id}
                                             draggable
+                                            onClick={(e) => { e.stopPropagation(); toggleSelection(item._id); }}
                                             onDragStart={(e) => handleDragStart(e, item)}
                                             onDragOver={(e) => handleDragOver(e, item, 'Location')}
                                             onDragLeave={handleDragLeave}
                                             onDrop={(e) => handleDrop(e, item, 'Location')}
-                                            className={`workspace-card child-card ${dragOverItemId === item._id ? 'merge-target-hover' : ''}`}
-                                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+                                            className={`workspace-card child-card ${dragOverItemId === item._id ? 'merge-target-hover' : ''} ${selectedIds.includes(item._id) ? 'selected-item' : ''}`}
+                                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: selectedIds.includes(item._id) ? 'rgba(0,123,255,0.1)' : 'transparent' }}
                                         >
                                             <div style={{ display: 'flex', alignItems: 'center', flex: 1 }}>
                                                 <div className="card-drag-handle">⋮⋮</div>
@@ -877,17 +1042,18 @@ const AddressMasterSettingsPage = () => {
                                 )}
 
                                 {activeTab === 'Tehsil' && (
-                                    tehsils.length === 0 ? <div className="column-empty">No tehsils</div> :
-                                    tehsils.map(item => (
+                                    filteredTehsils.length === 0 ? <div className="column-empty">No tehsils found</div> :
+                                    filteredTehsils.map(item => (
                                         <div 
                                             key={item._id}
                                             draggable
+                                            onClick={(e) => { e.stopPropagation(); toggleSelection(item._id); }}
                                             onDragStart={(e) => handleDragStart(e, item)}
                                             onDragOver={(e) => handleDragOver(e, item, 'Tehsil')}
                                             onDragLeave={handleDragLeave}
                                             onDrop={(e) => handleDrop(e, item, 'Tehsil')}
-                                            className={`workspace-card child-card ${dragOverItemId === item._id ? 'merge-target-hover' : ''}`}
-                                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+                                            className={`workspace-card child-card ${dragOverItemId === item._id ? 'merge-target-hover' : ''} ${selectedIds.includes(item._id) ? 'selected-item' : ''}`}
+                                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: selectedIds.includes(item._id) ? 'rgba(0,123,255,0.1)' : 'transparent' }}
                                         >
                                             <div style={{ display: 'flex', alignItems: 'center', flex: 1 }}>
                                                 <div className="card-drag-handle">⋮⋮</div>
@@ -902,17 +1068,18 @@ const AddressMasterSettingsPage = () => {
                                 )}
 
                                 {activeTab === 'PostOffice' && (
-                                    postOffices.length === 0 ? <div className="column-empty">No post offices</div> :
-                                    postOffices.map(item => (
+                                    filteredPostOffices.length === 0 ? <div className="column-empty">No post offices found</div> :
+                                    filteredPostOffices.map(item => (
                                         <div 
                                             key={item._id}
                                             draggable
+                                            onClick={(e) => { e.stopPropagation(); toggleSelection(item._id); }}
                                             onDragStart={(e) => handleDragStart(e, item)}
                                             onDragOver={(e) => handleDragOver(e, item, 'PostOffice')}
                                             onDragLeave={handleDragLeave}
                                             onDrop={(e) => handleDrop(e, item, 'PostOffice')}
-                                            className={`workspace-card child-card ${dragOverItemId === item._id ? 'merge-target-hover' : ''}`}
-                                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+                                            className={`workspace-card child-card ${dragOverItemId === item._id ? 'merge-target-hover' : ''} ${selectedIds.includes(item._id) ? 'selected-item' : ''}`}
+                                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: selectedIds.includes(item._id) ? 'rgba(0,123,255,0.1)' : 'transparent' }}
                                         >
                                             <div style={{ display: 'flex', alignItems: 'center', flex: 1 }}>
                                                 <div className="card-drag-handle">⋮⋮</div>
@@ -950,19 +1117,20 @@ const AddressMasterSettingsPage = () => {
                                             ))}
                                         </div>
                                         <div className="pincode-sublist" onDragOver={handleColumnDragOver}>
-                                            {pincodes.length === 0 ? (
+                                            {filteredPincodes.length === 0 ? (
                                                 <div className="column-empty">No pincodes here. Drag pincodes onto a post office to re-parent.</div>
                                             ) : (
-                                                pincodes.map(item => (
+                                                filteredPincodes.map(item => (
                                                     <div 
                                                         key={item._id}
                                                         draggable
+                                                        onClick={(e) => { e.stopPropagation(); toggleSelection(item._id); }}
                                                         onDragStart={(e) => handleDragStart(e, item)}
                                                         onDragOver={(e) => handleDragOver(e, item, 'Pincode')}
                                                         onDragLeave={handleDragLeave}
                                                         onDrop={(e) => handleDrop(e, item, 'Pincode')}
-                                                        className={`workspace-card pincode-card ${dragOverItemId === item._id ? 'merge-target-hover' : ''}`}
-                                                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+                                                        className={`workspace-card pincode-card ${dragOverItemId === item._id ? 'merge-target-hover' : ''} ${selectedIds.includes(item._id) ? 'selected-item' : ''}`}
+                                                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: selectedIds.includes(item._id) ? 'rgba(0,123,255,0.1)' : 'transparent' }}
                                                     >
                                                         <div style={{ display: 'flex', alignItems: 'center', flex: 1 }}>
                                                             <div className="card-drag-handle">⋮⋮</div>
@@ -985,11 +1153,11 @@ const AddressMasterSettingsPage = () => {
             </div>
 
             {/* MOVE MODAL */}
-            {showMoveModal && selectedItem && (
+            {showMoveModal && (
                 <div className="master-modal-overlay">
                     <div className="master-modal">
                         <h3>Confirm Hierarchy Adjustment</h3>
-                        <p>You are moving <strong>"{selectedItem.lookup_value}"</strong> ({selectedItem.lookup_type}) under parent <strong>"{moveTargetParentName}"</strong>.</p>
+                        <p>You are moving {selectedIds.length} item(s) under parent <strong>"{moveTargetParentName || dropTargetItem?.lookup_value}"</strong>.</p>
                         
                         <div className="modal-buttons">
                             <button 
@@ -1001,10 +1169,10 @@ const AddressMasterSettingsPage = () => {
                             </button>
                             <button 
                                 className="modal-btn confirm-btn" 
-                                onClick={executeMove}
+                                onClick={() => executeBatchAction('move')}
                                 disabled={actionLoading}
                             >
-                                {actionLoading ? 'Moving...' : 'Confirm Parent Move'}
+                                {actionLoading ? 'Moving...' : 'Confirm Move'}
                             </button>
                         </div>
                     </div>
@@ -1012,38 +1180,52 @@ const AddressMasterSettingsPage = () => {
             )}
 
             {/* MERGE MODAL */}
-            {showMergeModal && selectedItem && (
+            {showMergeModal && (
                 <div className="master-modal-overlay">
                     <div className="master-modal merge-modal-wide">
                         <h3>Confirm Duplicate Merge</h3>
                         <div className="warning-banner">
-                            <strong>⚠️ WARNING:</strong> Merging is permanent! This will merge <strong>"{selectedItem.lookup_value}"</strong> into the target lookup. All contacts, leads, properties, and child lookups linked to this record will be automatically re-linked before it is deleted.
+                            <strong>⚠️ WARNING:</strong> Merging {selectedIds.length} item(s) is permanent!
                         </div>
 
-                        <div className="modal-form-group">
-                            <label>Select Target Lookup to Merge Into</label>
-                            <select 
-                                value={mergeTargetItemId} 
-                                onChange={(e) => setMergeTargetItemId(e.target.value)}
-                            >
-                                <option value="">-- Select Target --</option>
-                                {getMergeCandidates().map(item => (
-                                    <option key={item._id} value={item._id}>
-                                        {item.lookup_value} (ID: {item._id.substring(18)})
-                                    </option>
-                                ))}
-                                {/* Support Location into Tehsil Merge specifically */}
-                                {selectedItem.lookup_type === 'Location' && (
-                                    <optgroup label="Or Merge into Tehsil">
-                                        {tehsils.map(teh => (
-                                            <option key={teh._id} value={teh._id}>
-                                                [Tehsil] {teh.lookup_value}
-                                            </option>
-                                        ))}
-                                    </optgroup>
-                                )}
-                            </select>
-                        </div>
+                        {isStreaming ? (
+                            <div className="stream-progress-container" style={{ margin: '20px 0', padding: '15px', background: 'var(--bg-light)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.9rem', color: 'var(--text-color)' }}>
+                                    <span style={{ fontWeight: 500 }}>{streamMessage}</span>
+                                    <strong style={{ color: 'var(--primary-color)' }}>{Math.round(streamProgress)}%</strong>
+                                </div>
+                                <div style={{ width: '100%', height: '8px', background: '#e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
+                                    <div style={{ width: `${streamProgress}%`, height: '100%', background: 'var(--primary-color)', transition: 'width 0.3s ease' }}></div>
+                                </div>
+                                <div style={{ textAlign: 'right', marginTop: '8px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                                    ⏱ ETA: {streamEta}
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="modal-form-group">
+                                <label>Select Target Lookup to Merge Into</label>
+                                <select 
+                                    value={mergeTargetItemId} 
+                                    onChange={(e) => setMergeTargetItemId(e.target.value)}
+                                >
+                                    <option value="">-- Select Target --</option>
+                                    {getMergeCandidates().map(item => (
+                                        <option key={item._id} value={item._id}>
+                                            {item.lookup_value} (ID: {item._id.substring(18)})
+                                        </option>
+                                    ))}
+                                    {selectedItem?.lookup_type === 'Location' && (
+                                        <optgroup label="Or Merge into Tehsil">
+                                            {tehsils.map(teh => (
+                                                <option key={teh._id} value={teh._id}>
+                                                    [Tehsil] {teh.lookup_value}
+                                                </option>
+                                            ))}
+                                        </optgroup>
+                                    )}
+                                </select>
+                            </div>
+                        )}
 
                         <div className="modal-buttons">
                             <button 
@@ -1055,7 +1237,7 @@ const AddressMasterSettingsPage = () => {
                             </button>
                             <button 
                                 className="modal-btn danger-confirm-btn" 
-                                onClick={executeMerge}
+                                onClick={() => executeBatchAction('merge')}
                                 disabled={actionLoading}
                             >
                                 {actionLoading ? 'Merging...' : 'Confirm & Merge'}
@@ -1070,7 +1252,7 @@ const AddressMasterSettingsPage = () => {
                 <div className="master-modal-overlay">
                     <div className="master-modal">
                         <h3>Select Drop Action</h3>
-                        <p>You dropped <strong>"{selectedItem.lookup_value}"</strong> ({selectedItem.lookup_type}) onto <strong>"{dropTargetItem.lookup_value}"</strong> ({dropTargetItem.lookup_type}).</p>
+                        <p>You dropped <strong>"{selectedItem.lookup_value}"</strong> onto <strong>"{dropTargetItem.lookup_value}"</strong>.</p>
                         
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '20px' }}>
                             {actionChoices.map((choice, idx) => (
