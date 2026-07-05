@@ -281,7 +281,7 @@ export const getLeads = async (req, res, next) => {
             page = 1, limit = 100, search = "", stage, status, teamId, userId, mobile, showDormant,
             source, project, location, budgetMin, budgetMax, areaMin, areaMax,
             propertyType, subType, unitType, facing, direction, roadWidth, requirement,
-            view
+            view, sortBy, sortOrder, ...dynamicFilters
         } = req.query;
 
         // 🏗️ ENTERPRISE HARDENING: Limit cap to prevent memory exhaustion on large fetches
@@ -300,6 +300,19 @@ export const getLeads = async (req, res, next) => {
         console.log(`[LEAD_AUDIT] Request reaching controller: ${JSON.stringify(auditData)}`);
 
         let query = { ...visibilityFilter };
+
+        // 🛡️ [SENIOR FIX] Dynamically apply all un-extracted filter keys (e.g. locCity, locState)
+        for (const [key, value] of Object.entries(dynamicFilters)) {
+            if (value && value !== "" && value !== "undefined") {
+                if (Array.isArray(value)) {
+                    query[key] = { $in: value };
+                } else if (mongoose.Types.ObjectId.isValid(value)) {
+                    query[key] = value;
+                } else {
+                    query[key] = value;
+                }
+            }
+        }
 
         // 🛡️ [SENIOR HARDENING] Sanitize filters to prevent empty string matches
         if (stage && stage !== "" && stage !== "undefined") {

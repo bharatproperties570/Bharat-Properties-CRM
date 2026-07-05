@@ -963,7 +963,7 @@ export const getDeals = async (req, res) => {
         const { 
             page = 1, limit = 25, search = "", sortBy, sortOrder,
             projectId, inventoryId, category, subCategory, 
-            status, contactPhone, view
+            status, contactPhone, view, ...dynamicFilters
         } = req.query;
 
         // 🚀 COMPACT VIEW FLAG: Mobile list requests use view=compact to skip all
@@ -990,6 +990,19 @@ export const getDeals = async (req, res) => {
 
         // [ENTERPRISE FILTERS] Multi-Source Visibility & Query Resolution
         let query = { ...visibilityFilter, isVisible: { $ne: false } };
+
+        // 🛡️ [SENIOR FIX] Dynamically apply all un-extracted filter keys
+        for (const [key, value] of Object.entries(dynamicFilters)) {
+            if (value && value !== "" && value !== "undefined") {
+                if (Array.isArray(value)) {
+                    query[key] = { $in: value };
+                } else if (mongoose.Types.ObjectId.isValid(value)) {
+                    query[key] = value;
+                } else {
+                    query[key] = value;
+                }
+            }
+        }
 
         if (search) {
             query = {

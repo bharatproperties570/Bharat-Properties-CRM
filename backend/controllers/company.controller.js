@@ -158,7 +158,7 @@ const sanitizeData = (data) => {
 
 export const getCompanies = async (req, res, next) => {
     try {
-        const { page = 1, limit = 10, search = "", sortBy, sortOrder, view } = req.query;
+        const { page = 1, limit = 10, search = "", sortBy, sortOrder, view, ...dynamicFilters } = req.query;
         const visibilityFilter = await getVisibilityFilter(req.user);
 
         // 🚀 COMPACT VIEW FLAG: Mobile list view — skip heavy address populations
@@ -176,6 +176,19 @@ export const getCompanies = async (req, res, next) => {
         ] : populateFields;
 
         let query = { ...visibilityFilter };
+
+        // 🛡️ [SENIOR FIX] Dynamically apply all un-extracted filter keys
+        for (const [key, value] of Object.entries(dynamicFilters)) {
+            if (value && value !== "" && value !== "undefined") {
+                if (Array.isArray(value)) {
+                    query[key] = { $in: value };
+                } else if (mongoose.Types.ObjectId.isValid(value)) {
+                    query[key] = value;
+                } else {
+                    query[key] = value;
+                }
+            }
+        }
         if (search) {
             query = {
                 ...query,

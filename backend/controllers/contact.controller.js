@@ -63,7 +63,7 @@ const flattenPopulatedRefs = (obj) => {
 
 export const getContacts = async (req, res, next) => {
     try {
-        const { page = 1, limit = 10, search = "", phone } = req.query;
+        const { page = 1, limit = 10, search = "", phone, sortBy, sortOrder, ...filters } = req.query;
         const visibilityFilter = await getVisibilityFilter(req.user);
         
         // 🛠️ SENIOR DIAGNOSTIC LOG (Harden for potential undefined user)
@@ -75,6 +75,19 @@ export const getContacts = async (req, res, next) => {
         console.log(`[VISIBLE_AUDIT] Generated Filter: ${JSON.stringify(visibilityFilter, null, 2)}`);
 
         let query = { ...visibilityFilter };
+
+        // 🛡️ [SENIOR FIX] Dynamically apply all filter keys (e.g. personalAddress.city, professionCategory)
+        for (const [key, value] of Object.entries(filters)) {
+            if (value && value !== "" && value !== "undefined") {
+                if (Array.isArray(value)) {
+                    query[key] = { $in: value };
+                } else if (mongoose.Types.ObjectId.isValid(value)) {
+                    query[key] = value;
+                } else {
+                    query[key] = value; // Apply string filters directly
+                }
+            }
+        }
 
         if (phone) {
             query["phones.number"] = { $regex: new RegExp(`${phone}$`) };
