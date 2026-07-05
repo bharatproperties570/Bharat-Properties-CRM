@@ -550,14 +550,14 @@ export const getLeads = async (req, res, next) => {
         }
 
         // --- 📊 DYNAMIC SORTING (Senior Professional Optimization) ---
-        const sortBy = req.query.sortBy || 'updatedAt';
-        const sortOrder = parseInt(req.query.sortOrder) || -1;
+        const finalSortBy = req.query.sortBy || 'updatedAt';
+        const finalSortOrder = parseInt(req.query.sortOrder) || -1;
         
-        let sortOption = { [sortBy]: sortOrder };
+        let sortOption = { [finalSortBy]: finalSortOrder };
 
         // 🏗️ [SENIOR FIX] Intelligent Stage Sorting
         // If sorting by 'stage', we want to sort by the logical sequence, not the ObjectId
-        if (sortBy === 'stage') {
+        if (finalSortBy === 'stage') {
             console.log("[LeadSort] Applying Intelligent Stage Sequence sort...");
             // We use the 'stage_sequence' logic: Incoming(1) -> Prospect(2) -> Qualified(3) -> Opportunity(4) -> Negotiation(5) -> Booked(6) -> Closed Won(7)
             // Since we can't easily sort by lookup value sequence in a simple .find(), 
@@ -567,7 +567,7 @@ export const getLeads = async (req, res, next) => {
         }
 
         // Collated sorting for alphabetical fields
-        const collation = ['firstName', 'lastName', 'projectName'].includes(sortBy)
+        const collation = ['firstName', 'lastName', 'projectName'].includes(finalSortBy)
             ? { locale: 'en', strength: 2 }
             : null;
 

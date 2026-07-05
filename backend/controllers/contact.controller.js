@@ -113,9 +113,9 @@ export const getContacts = async (req, res, next) => {
         }
 
         // ─── DYNAMIC SORTING (Senior Professional Optimization) ───
-        const sortBy = req.query.sortBy || 'updatedAt';
-        const sortOrder = parseInt(req.query.sortOrder) || -1;
-        const sortOption = { [sortBy]: sortOrder };
+        const finalSortBy = sortBy || 'updatedAt';
+        const finalSortOrder = parseInt(sortOrder) || -1;
+        const sortOption = { [finalSortBy]: finalSortOrder };
 
         console.log(`[Contacts Backend Debug] Query: ${JSON.stringify(query)}`);
         console.log(`[Contacts Backend Debug] Sort: ${JSON.stringify(sortOption)}`);
