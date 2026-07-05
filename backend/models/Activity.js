@@ -61,6 +61,12 @@ ActivitySchema.index({ entityType: 1, entityId: 1 });
 // teams + dueDate: covers team-filtered activities for dashboard
 ActivitySchema.index({ teams: 1, dueDate: 1, status: 1 });
 
+// 🚀 SENIOR OPTIMIZATION: Global list view indexes
+ActivitySchema.index({ dueDate: 1 });
+ActivitySchema.index({ createdAt: -1 });
+ActivitySchema.index({ type: 1, dueDate: 1 });
+ActivitySchema.index({ status: 1, dueDate: 1 });
+
 ActivitySchema.post('save', invalidateDashboardCache);
 ActivitySchema.post('findOneAndUpdate', invalidateDashboardCache);
 ActivitySchema.post('findOneAndDelete', invalidateDashboardCache);

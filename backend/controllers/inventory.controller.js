@@ -159,8 +159,12 @@ export const getInventory = async (req, res) => {
             project, projectId, block, location, area, contactId, 
             statusCategory, ownerPhone, feedbackOutcome, feedbackReason,
             minSize, maxSize, sizeMin, sizeMax, sizeType,
-            followUpFrom, followUpTo
+            followUpFrom, followUpTo, view
         } = req.query;
+
+        // 🚀 COMPACT VIEW FLAG: Skip all non-essential heavy ops for mobile list
+        const isCompactView = view === 'compact';
+        const isPageOne = Number(page) === 1;
         
         const finalProject = project || projectId;
         const visibilityFilter = await getVisibilityFilter(req.user);
@@ -504,50 +508,53 @@ export const getInventory = async (req, res) => {
         const categoryStatsQuery = { ...query };
         delete categoryStatsQuery.category;
 
+        // 🚀 SENIOR OPTIMIZATION: Run heavy stats aggregations ONLY on page 1.
+        // Scroll-triggered pages (2, 3...) don't need stats — saves 400–1000ms per scroll event.
         let statsAggregation = [], categoryStatsAggregation = [];
-        try {
-            [statsAggregation, categoryStatsAggregation] = await Promise.all([
-                Inventory.aggregate([
-                    { $match: query },
-                    {
-                        $facet: {
-                            active: [
-                                { 
-                                    $match: { 
-                                        $or: [
-                                            { status: { $in: activeStatusIds } }, 
-                                            { status: { $in: activeStatusIdStrings } },
-                                            { status: { $in: activeStatusNames } }
-                                        ] 
-                                    } 
-                                },
-                                { $count: "count" }
-                            ],
-                            inactive: [
-                                { 
-                                    $match: { 
-                                        $or: [
-                                            { status: { $in: inactiveStatusIds } }, 
-                                            { status: { $in: inactiveStatusIdStrings } },
-                                            { status: { $in: inactiveStatusNames } }
-                                        ] 
-                                    } 
-                                },
-                                { $count: "count" }
-                            ]
+        if (isPageOne) {
+            try {
+                [statsAggregation, categoryStatsAggregation] = await Promise.all([
+                    Inventory.aggregate([
+                        { $match: query },
+                        {
+                            $facet: {
+                                active: [
+                                    { 
+                                        $match: { 
+                                            $or: [
+                                                { status: { $in: activeStatusIds } }, 
+                                                { status: { $in: activeStatusIdStrings } },
+                                                { status: { $in: activeStatusNames } }
+                                            ] 
+                                        } 
+                                    },
+                                    { $count: "count" }
+                                ],
+                                inactive: [
+                                    { 
+                                        $match: { 
+                                            $or: [
+                                                { status: { $in: inactiveStatusIds } }, 
+                                                { status: { $in: inactiveStatusIdStrings } },
+                                                { status: { $in: inactiveStatusNames } }
+                                            ] 
+                                        } 
+                                    },
+                                    { $count: "count" }
+                                ]
+                            }
                         }
-                    }
-                ]),
-                Inventory.aggregate([
-                    { $match: categoryStatsQuery },
-                    { $group: { _id: "$category", count: { $sum: 1 } } }
-                ])
-            ]);
-        } catch (aggError) {
-            console.error("[INVENTORY_AGG] Aggregation failed:", aggError.message);
-            // Non-fatal: Allow the request to continue with partial stats
-            statsAggregation = [{ active: [], inactive: [] }];
-            categoryStatsAggregation = [];
+                    ]),
+                    Inventory.aggregate([
+                        { $match: categoryStatsQuery },
+                        { $group: { _id: "$category", count: { $sum: 1 } } }
+                    ])
+                ]);
+            } catch (aggError) {
+                console.error("[INVENTORY_AGG] Aggregation failed:", aggError.message);
+                statsAggregation = [{ active: [], inactive: [] }];
+                categoryStatsAggregation = [];
+            }
         }
 
         const stats = statsAggregation[0] || { active: [], inactive: [] };
@@ -695,39 +702,40 @@ export const getInventory = async (req, res) => {
         const projectMap = new Map(projects.map(p => [p._id.toString(), p]));
 
         // --- Market Gap Integration (Pricing Intelligence) ---
-        const uniquePricingParams = new Set();
-        results.records.forEach(item => {
-            let locVal = item.address?.locality || item.address?.location || item.address?.area;
-            if (locVal && mongoose.Types.ObjectId.isValid(locVal)) {
-                locVal = lookupMap.get(locVal.toString())?.lookup_value || locVal.toString();
-            } else if (typeof locVal === 'object' && locVal?.lookup_value) {
-                locVal = locVal.lookup_value;
-            }
-            
-            let subCatVal = item.subCategory;
-            if (subCatVal && mongoose.Types.ObjectId.isValid(subCatVal)) {
-                subCatVal = lookupMap.get(subCatVal.toString())?.lookup_value || subCatVal.toString();
-            } else if (typeof subCatVal === 'object' && subCatVal?.lookup_value) {
-                subCatVal = subCatVal.lookup_value;
-            }
-            
-            if (locVal && subCatVal && typeof locVal === 'string' && typeof subCatVal === 'string') {
-                uniquePricingParams.add(`${locVal}|${subCatVal}`);
-            }
-        });
-
+        // 🚀 SENIOR OPTIMIZATION: Skip PricingBenchmark fetch for compact/mobile list views.
+        // marketGapPct is a detail-page metric — never shown on the mobile list card.
         const benchmarkMap = new Map();
-        if (uniquePricingParams.size > 0) {
-            const PricingBenchmark = mongoose.models.PricingBenchmark || mongoose.model('PricingBenchmark');
-            const queries = Array.from(uniquePricingParams).map(param => {
-                const [loc, subCat] = param.split('|');
-                return { location: loc, subCategory: subCat, period: 'trailing-90d' };
+        if (!isCompactView) {
+            const uniquePricingParams = new Set();
+            results.records.forEach(item => {
+                let locVal = item.address?.locality || item.address?.location || item.address?.area;
+                if (locVal && mongoose.Types.ObjectId.isValid(locVal)) {
+                    locVal = lookupMap.get(locVal.toString())?.lookup_value || locVal.toString();
+                } else if (typeof locVal === 'object' && locVal?.lookup_value) {
+                    locVal = locVal.lookup_value;
+                }
+                let subCatVal = item.subCategory;
+                if (subCatVal && mongoose.Types.ObjectId.isValid(subCatVal)) {
+                    subCatVal = lookupMap.get(subCatVal.toString())?.lookup_value || subCatVal.toString();
+                } else if (typeof subCatVal === 'object' && subCatVal?.lookup_value) {
+                    subCatVal = subCatVal.lookup_value;
+                }
+                if (locVal && subCatVal && typeof locVal === 'string' && typeof subCatVal === 'string') {
+                    uniquePricingParams.add(`${locVal}|${subCatVal}`);
+                }
             });
-            if (queries.length > 0) {
-                const benchmarks = await PricingBenchmark.find({ $or: queries }).lean();
-                benchmarks.forEach(bm => {
-                    benchmarkMap.set(`${bm.location}|${bm.subCategory}`, bm);
+            if (uniquePricingParams.size > 0) {
+                const PricingBenchmark = mongoose.models.PricingBenchmark || mongoose.model('PricingBenchmark');
+                const queries = Array.from(uniquePricingParams).map(param => {
+                    const [loc, subCat] = param.split('|');
+                    return { location: loc, subCategory: subCat, period: 'trailing-90d' };
                 });
+                if (queries.length > 0) {
+                    const benchmarks = await PricingBenchmark.find({ $or: queries }).lean();
+                    benchmarks.forEach(bm => {
+                        benchmarkMap.set(`${bm.location}|${bm.subCategory}`, bm);
+                    });
+                }
             }
         }
 
@@ -789,17 +797,20 @@ export const getInventory = async (req, res) => {
 
             if (itemObj.address) hydrateAddr(itemObj.address);
 
-            // Hydrate Contact Addresses
-            if (Array.isArray(itemObj.owners)) itemObj.owners.forEach(o => {
-                hydrateAddr(o.personalAddress);
-                hydrateAddr(o.correspondenceAddress);
-            });
-            if (Array.isArray(itemObj.associates)) itemObj.associates.forEach(a => {
-                if (a.contact) {
-                    hydrateAddr(a.contact.personalAddress);
-                    hydrateAddr(a.contact.correspondenceAddress);
-                }
-            });
+            // 🚀 SENIOR OPTIMIZATION: Skip contact personal/correspondence address hydration
+            // for compact/mobile list views. These address fields are never shown on the list card.
+            if (!isCompactView) {
+                if (Array.isArray(itemObj.owners)) itemObj.owners.forEach(o => {
+                    hydrateAddr(o.personalAddress);
+                    hydrateAddr(o.correspondenceAddress);
+                });
+                if (Array.isArray(itemObj.associates)) itemObj.associates.forEach(a => {
+                    if (a.contact) {
+                        hydrateAddr(a.contact.personalAddress);
+                        hydrateAddr(a.contact.correspondenceAddress);
+                    }
+                });
+            }
 
             // Hydrate Relational
             if (itemObj.assignedTo && mongoose.Types.ObjectId.isValid(itemObj.assignedTo)) itemObj.assignedTo = userMap.get(itemObj.assignedTo.toString()) || itemObj.assignedTo;

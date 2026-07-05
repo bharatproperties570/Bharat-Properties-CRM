@@ -240,6 +240,16 @@ InventorySchema.index({ assignedTo: 1, status: 1 });
 InventorySchema.index({ facing: 1 });
 InventorySchema.index({ direction: 1 });
 InventorySchema.index({ geoPoint: "2dsphere" });
+
+// 🚀 SENIOR OPTIMIZATION: Critical indexes for list-view sorting & filtering
+// Without these, MongoDB performs full collection scans on every API call.
+InventorySchema.index({ updatedAt: -1 });                          // Default list sort
+InventorySchema.index({ createdAt: -1 });                          // "Newest First" sort
+InventorySchema.index({ status: 1, updatedAt: -1 });               // Status filter + sort
+InventorySchema.index({ category: 1, updatedAt: -1 });             // Category filter + sort
+InventorySchema.index({ projectId: 1, updatedAt: -1 });            // Project filter + sort
+InventorySchema.index({ owners: 1 });                              // Owner lookup
+InventorySchema.index({ projectName: 1, updatedAt: -1 });          // Project name + sort (visibility queries)
  
 // Permanent Fix: Deep Data Integrity Hooks
 

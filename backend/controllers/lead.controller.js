@@ -280,7 +280,8 @@ export const getLeads = async (req, res, next) => {
         const { 
             page = 1, limit = 100, search = "", stage, status, teamId, userId, mobile, showDormant,
             source, project, location, budgetMin, budgetMax, areaMin, areaMax,
-            propertyType, subType, unitType, facing, direction, roadWidth, requirement
+            propertyType, subType, unitType, facing, direction, roadWidth, requirement,
+            view
         } = req.query;
 
         // 🏗️ ENTERPRISE HARDENING: Limit cap to prevent memory exhaustion on large fetches
@@ -557,8 +558,14 @@ export const getLeads = async (req, res, next) => {
             ? { locale: 'en', strength: 2 }
             : null;
 
+        // 🚀 SENIOR OPTIMIZATION: Conditionally apply projection for compact views (Mobile List)
+        let projection = null;
+        if (view === 'compact') {
+            projection = '_id firstName lastName mobile email stage status source owner assignment projectName locArea locCity budgetMax budgetMin budget requirement subType sizeType project createdAt updatedAt intent_index leadScore location';
+        }
+
         // Enable population for key fields (Use lean population for list view)
-        const results = await paginate(Lead, query, Number(page), safeLimit, sortOption, leadListPopulateFields, collation);
+        const results = await paginate(Lead, query, Number(page), safeLimit, sortOption, leadListPopulateFields, collation, projection);
         results.stats = statsObj;
 
         if (req.query.sortBy) {
@@ -570,9 +577,13 @@ export const getLeads = async (req, res, next) => {
             const leadIds = results.records.map(r => r._id);
             const leadIdsStr = leadIds.map(id => id.toString());
 
-            // 🚀 SENIOR OPTIMIZATION: Use targeted aggregations for interaction data instead of bulk fetching
-            // This prevents "Error loading leads" when limit is set to 50, 100, or higher.
-            const [activityStats, smsStats] = await Promise.all([
+            let activityStats = [];
+            let smsStats = [];
+
+            // 🚀 SENIOR OPTIMIZATION: Skip heavy interaction aggregations if view is compact
+            // Mobile list views don't display interaction stats on the main list.
+            if (view !== 'compact') {
+                [activityStats, smsStats] = await Promise.all([
                 Activity.aggregate([
                     { $match: { entityId: { $in: leadIdsStr }, status: 'Completed' } },
                     { $sort: { createdAt: -1 } },
@@ -594,6 +605,7 @@ export const getLeads = async (req, res, next) => {
                     }}
                 ])
             ]);
+            }
 
             const activityMap = new Map(activityStats.map(s => [s._id.toString(), s]));
             const smsMap = new Map(smsStats.map(s => [s._id.toString(), s.count]));

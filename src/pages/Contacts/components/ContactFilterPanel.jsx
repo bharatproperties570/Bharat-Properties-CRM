@@ -172,7 +172,7 @@ const MultiSelectDropdown = ({ options, selected, onChange, placeholder, disable
 
 const ContactFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
     const { isDark } = useTheme();
-    const { masterFields } = usePropertyConfig();
+    const { masterFields, lookups = {} } = usePropertyConfig();
     const { professionalConfig } = useContactConfig();
     const [isVisible, setIsVisible] = useState(false);
 
@@ -206,7 +206,46 @@ const ContactFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
 
     const statusOptions = masterFields.statuses || ['Active', 'Inactive', 'Pending', 'Closed'];
     const sourceOptions = masterFields.sources || ['Direct', 'Referral', 'Website', 'Facebook', 'Walk-in'];
-    const professionOptions = professionalConfig?.categories?.map(c => c.name) || ['Business', 'Salaried', 'Self Employed', 'Doctor', 'Lawyer', 'Govt. Service'];
+    
+    const getSelectedLookupIds = (type, valuesArray) => {
+        if (!valuesArray || valuesArray.length === 0) return [];
+        return (lookups[type] || [])
+            .filter(l => valuesArray.includes(l.lookup_value))
+            .map(l => l._id);
+    };
+
+    const getDependentOptions = (childType, parentIdsArray) => {
+        if (!parentIdsArray || parentIdsArray.length === 0) return [];
+        return (lookups[childType] || [])
+            .filter(l => parentIdsArray.includes(l.parent_lookup_id))
+            .map(l => l.lookup_value);
+    };
+
+    const selectedCatIds = getSelectedLookupIds('ProfessionalCategory', filters.professionCategory);
+    const selectedSubCatIds = getSelectedLookupIds('ProfessionalSubCategory', filters.professionSubCategory);
+    
+    const categoryOptions = (lookups['ProfessionalCategory'] || []).map(l => l.lookup_value);
+    const subCategoryOptions = getDependentOptions('ProfessionalSubCategory', selectedCatIds);
+    const designationOptions = getDependentOptions('ProfessionalDesignation', selectedSubCatIds);
+
+    const selectedCountryIds = getSelectedLookupIds('Country', filters.country);
+    const selectedStateIds = getSelectedLookupIds('State', filters.state);
+    const selectedCityIds = getSelectedLookupIds('City', filters.city);
+    const selectedPostOfficeIds = getSelectedLookupIds('PostOffice', filters.postOffice);
+
+    const countryOptions = (lookups['Country'] || []).map(l => l.lookup_value);
+    const stateOptions = getDependentOptions('State', selectedCountryIds);
+    const cityOptions = getDependentOptions('City', selectedStateIds);
+    const locationOptions = getDependentOptions('Location', selectedCityIds);
+    const tehsilOptions = getDependentOptions('Tehsil', selectedCityIds);
+    const postOfficeOptions = getDependentOptions('PostOffice', selectedCityIds);
+    
+    let pincodeOptions = [];
+    if (selectedPostOfficeIds.length > 0) {
+        pincodeOptions = getDependentOptions('Pincode', selectedPostOfficeIds);
+    } else if (selectedCityIds.length > 0) {
+        pincodeOptions = getDependentOptions('Pincode', selectedCityIds);
+    }
 
     if (!isOpen && !isVisible) return null;
 
@@ -277,14 +316,21 @@ const ContactFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
                         <span style={styles.sectionTitle}>Professional Details</span>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                             <div>
-                                <label style={styles.label}>Profession</label>
-                                <MultiSelectDropdown
-                                    options={professionOptions}
-                                    selected={filters.professionCategory || []}
-                                    onChange={(val) => updateFilter('professionCategory', val)}
-                                    placeholder="Select Professions"
-                                />
+                                <label style={styles.label}>Category</label>
+                                <MultiSelectDropdown options={categoryOptions} selected={filters.professionCategory || []} onChange={(val) => updateFilter('professionCategory', val)} placeholder="Select Category" />
                             </div>
+                            {subCategoryOptions.length > 0 && (
+                                <div>
+                                    <label style={styles.label}>Sub-Category</label>
+                                    <MultiSelectDropdown options={subCategoryOptions} selected={filters.professionSubCategory || []} onChange={(val) => updateFilter('professionSubCategory', val)} placeholder="Select Sub-Category" />
+                                </div>
+                            )}
+                            {designationOptions.length > 0 && (
+                                <div>
+                                    <label style={styles.label}>Designation</label>
+                                    <MultiSelectDropdown options={designationOptions} selected={filters.designation || []} onChange={(val) => updateFilter('designation', val)} placeholder="Select Designation" />
+                                </div>
+                            )}
                             <div>
                                 <label style={styles.label}>Company / Organization</label>
                                 <input
@@ -300,23 +346,50 @@ const ContactFilterPanel = ({ isOpen, onClose, filters, onFilterChange }) => {
 
                     <div style={{ height: '1px', background: 'var(--border-color)' }}></div>
 
-                    {/* 3. Location */}
+                    {/* 3. Location & Address */}
                     <section>
-                        <span style={styles.sectionTitle}>Location</span>
+                        <span style={styles.sectionTitle}>Address Details</span>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                             <div>
-                                <label style={styles.label}>City</label>
-                                <div style={{ position: 'relative' }}>
-                                    <i className="fas fa-map-marker-alt" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: '0.9rem' }}></i>
-                                    <input
-                                        type="text"
-                                        placeholder="Search City..."
-                                        style={{ ...styles.input, paddingLeft: '36px' }}
-                                        value={filters.city || ''}
-                                        onChange={(e) => updateFilter('city', e.target.value)}
-                                    />
-                                </div>
+                                <label style={styles.label}>Country</label>
+                                <MultiSelectDropdown options={countryOptions} selected={filters.country || []} onChange={(val) => updateFilter('country', val)} placeholder="Select Country" />
                             </div>
+                            {stateOptions.length > 0 && (
+                                <div>
+                                    <label style={styles.label}>State</label>
+                                    <MultiSelectDropdown options={stateOptions} selected={filters.state || []} onChange={(val) => updateFilter('state', val)} placeholder="Select State" />
+                                </div>
+                            )}
+                            {cityOptions.length > 0 && (
+                                <div>
+                                    <label style={styles.label}>City</label>
+                                    <MultiSelectDropdown options={cityOptions} selected={filters.city || []} onChange={(val) => updateFilter('city', val)} placeholder="Select City" />
+                                </div>
+                            )}
+                            {locationOptions.length > 0 && (
+                                <div>
+                                    <label style={styles.label}>Location</label>
+                                    <MultiSelectDropdown options={locationOptions} selected={filters.location || []} onChange={(val) => updateFilter('location', val)} placeholder="Select Location" />
+                                </div>
+                            )}
+                            {tehsilOptions.length > 0 && (
+                                <div>
+                                    <label style={styles.label}>Tehsil</label>
+                                    <MultiSelectDropdown options={tehsilOptions} selected={filters.tehsil || []} onChange={(val) => updateFilter('tehsil', val)} placeholder="Select Tehsil" />
+                                </div>
+                            )}
+                            {postOfficeOptions.length > 0 && (
+                                <div>
+                                    <label style={styles.label}>Post Office</label>
+                                    <MultiSelectDropdown options={postOfficeOptions} selected={filters.postOffice || []} onChange={(val) => updateFilter('postOffice', val)} placeholder="Select Post Office" />
+                                </div>
+                            )}
+                            {pincodeOptions.length > 0 && (
+                                <div>
+                                    <label style={styles.label}>Pin Code</label>
+                                    <MultiSelectDropdown options={pincodeOptions} selected={filters.pinCode || []} onChange={(val) => updateFilter('pinCode', val)} placeholder="Select Pin Code" />
+                                </div>
+                            )}
                         </div>
                     </section>
 

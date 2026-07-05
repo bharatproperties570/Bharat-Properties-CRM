@@ -115,93 +115,57 @@ export const getContacts = async (req, res, next) => {
             const contactIds = results.records.map(r => r._id);
             const contactIdsStr = contactIds.map(id => id.toString());
 
-            // 1. Fetch recent activities for display/scoring
-            const allActivities = await Activity.find({
-                entityId: { $in: contactIdsStr },
-                status: 'Completed'
-            }).sort({ createdAt: -1 }).lean();
-
-            // 2. Fetch all relevant SMS logs
-            const allSmsLogs = await SmsLog.find({
-                entityId: { $in: contactIdsStr },
-                status: { $in: ['Sent', 'Delivered'] }
-            }).lean();
-
-            const activityGroup = new Map();
-            const countsMap = new Map(); // Map<contactId, {call, siteVisit, meeting, email, sms, whatsapp}>
-
-            // Initialize counts for all contacts on page
-            contactIdsStr.forEach(id => {
-                countsMap.set(id, { call: 0, siteVisit: 0, meeting: 0, email: 0, sms: 0, whatsapp: 0 });
-            });
-
-            allActivities.forEach(act => {
-                const id = act.entityId.toString();
-                if (!activityGroup.has(id)) activityGroup.set(id, []);
-                if (activityGroup.get(id).length < 10) {
-                    activityGroup.get(id).push(act);
+            // 1. Efficient Aggregation for Activity Counts and Latest Activity
+            const activityStats = await Activity.aggregate([
+                { $match: { entityId: { $in: contactIdsStr }, status: 'Completed' } },
+                { $sort: { createdAt: -1 } },
+                {
+                    $group: {
+                        _id: "$entityId",
+                        latestActivity: { $first: "$subject" },
+                        latestDate: { $first: "$createdAt" },
+                        call: { $sum: { $cond: [{ $regexMatch: { input: "$type", regex: /call/i } }, 1, 0] } },
+                        meeting: { $sum: { $cond: [{ $regexMatch: { input: "$type", regex: /meeting/i } }, 1, 0] } },
+                        siteVisit: { $sum: { $cond: [{ $regexMatch: { input: "$type", regex: /site visit/i } }, 1, 0] } },
+                        email: { $sum: { $cond: [{ $regexMatch: { input: "$type", regex: /email/i } }, 1, 0] } },
+                        whatsapp: { $sum: { $cond: [{ $regexMatch: { input: "$type", regex: /(whatsapp|messaging)/i } }, 1, 0] } }
+                    }
                 }
+            ]);
 
-                if (countsMap.has(id)) {
-                    const contactCounts = countsMap.get(id);
-                    const t = (act.type || "").toLowerCase();
-                    if (t.includes('call')) contactCounts.call++;
-                    else if (t.includes('meeting')) contactCounts.meeting++;
-                    else if (t.includes('site visit')) contactCounts.siteVisit++;
-                    else if (t.includes('email')) contactCounts.email++;
-                    else if (t.includes('whatsapp') || t.includes('messaging')) contactCounts.whatsapp++;
+            // 2. Efficient Aggregation for SMS Counts
+            const smsStats = await SmsLog.aggregate([
+                { $match: { entityId: { $in: contactIdsStr }, status: { $in: ['Sent', 'Delivered'] } } },
+                { $group: { _id: "$entityId", sms: { $sum: 1 } } }
+            ]);
+
+            const statsMap = new Map();
+            activityStats.forEach(stat => statsMap.set(stat._id, stat));
+            smsStats.forEach(stat => {
+                if (statsMap.has(stat._id)) {
+                    statsMap.get(stat._id).sms = stat.sms;
+                } else {
+                    statsMap.set(stat._id, { sms: stat.sms });
                 }
             });
-
-            allSmsLogs.forEach(log => {
-                const id = log.entityId.toString();
-                if (countsMap.has(id)) {
-                    countsMap.get(id).sms++;
-                }
-            });
-
-            // ─── BATCH LOOKUP HYDRATION (Senior Performance Optimization) ───
-            const uniqueLookupIds = new Set();
-            const mixedFields = ['title', 'countryCode', 'professionCategory', 'professionSubCategory', 'designation', 'source', 'subSource', 'campaign', 'requirement', 'budget', 'location'];
-            const addressFields = ['country', 'state', 'city', 'tehsil', 'postOffice', 'pincode', 'location'];
-            
-            results.records.forEach(contact => {
-                const c = contact.toObject ? contact.toObject() : contact;
-                mixedFields.forEach(f => { if (c[f] && mongoose.Types.ObjectId.isValid(c[f])) uniqueLookupIds.add(c[f].toString()); });
-                ['personalAddress', 'correspondenceAddress'].forEach(addr => {
-                    if (c[addr]) addressFields.forEach(f => { if (c[addr][f] && mongoose.Types.ObjectId.isValid(c[addr][f])) uniqueLookupIds.add(c[addr][f].toString()); });
-                });
-                if (Array.isArray(c.educations)) c.educations.forEach(e => { if (e.education && mongoose.Types.ObjectId.isValid(e.education)) uniqueLookupIds.add(e.education.toString()); if (e.degree && mongoose.Types.ObjectId.isValid(e.degree)) uniqueLookupIds.add(e.degree.toString()); });
-                if (Array.isArray(c.loans)) c.loans.forEach(l => { if (l.loanType && mongoose.Types.ObjectId.isValid(l.loanType)) uniqueLookupIds.add(l.loanType.toString()); if (l.bank && mongoose.Types.ObjectId.isValid(l.bank)) uniqueLookupIds.add(l.bank.toString()); });
-                if (Array.isArray(c.incomes)) c.incomes.forEach(i => { if (i.incomeType && mongoose.Types.ObjectId.isValid(i.incomeType)) uniqueLookupIds.add(i.incomeType.toString()); });
-                if (Array.isArray(c.documents)) c.documents.forEach(d => { if (d.documentCategory && mongoose.Types.ObjectId.isValid(d.documentCategory)) uniqueLookupIds.add(d.documentCategory.toString()); if (d.documentType && mongoose.Types.ObjectId.isValid(d.documentType)) uniqueLookupIds.add(d.documentType.toString()); if (d.documentName && mongoose.Types.ObjectId.isValid(d.documentName)) uniqueLookupIds.add(d.documentName.toString()); });
-            });
-
-            const batchLookups = uniqueLookupIds.size > 0 ? await Lookup.find({ _id: { $in: [...uniqueLookupIds] } }).select('lookup_value').lean() : [];
-            const lookupValueMap = new Map(batchLookups.map(l => [l._id.toString(), l.lookup_value]));
 
             results.records = results.records.map(contact => {
                 const contactId = contact._id.toString();
-                const contactActs = activityGroup.get(contactId) || [];
-                const latest = contactActs[0];
+                const stats = statsMap.get(contactId) || {};
                 const c = contact.toObject ? contact.toObject() : contact;
-
-                // Hydrate
-                mixedFields.forEach(f => { if (c[f] && mongoose.Types.ObjectId.isValid(c[f])) { const r = lookupValueMap.get(c[f].toString()); if (r) c[f] = { _id: c[f], lookup_value: r }; } });
-                ['personalAddress', 'correspondenceAddress'].forEach(addr => {
-                    if (c[addr]) addressFields.forEach(f => { if (c[addr][f] && mongoose.Types.ObjectId.isValid(c[addr][f])) { const r = lookupValueMap.get(c[addr][f].toString()); if (r) c[addr][f] = { _id: c[addr][f], lookup_value: r }; } });
-                });
-                if (Array.isArray(c.educations)) c.educations.forEach(e => { if (e.education && mongoose.Types.ObjectId.isValid(e.education)) { const r = lookupValueMap.get(e.education.toString()); if (r) e.education = { _id: e.education, lookup_value: r }; } if (e.degree && mongoose.Types.ObjectId.isValid(e.degree)) { const r = lookupValueMap.get(e.degree.toString()); if (r) e.degree = { _id: e.degree, lookup_value: r }; } });
-                if (Array.isArray(c.loans)) c.loans.forEach(l => { if (l.loanType && mongoose.Types.ObjectId.isValid(l.loanType)) { const r = lookupValueMap.get(l.loanType.toString()); if (r) l.loanType = { _id: l.loanType, lookup_value: r }; } if (l.bank && mongoose.Types.ObjectId.isValid(l.bank)) { const r = lookupValueMap.get(l.bank.toString()); if (r) l.bank = { _id: l.bank, lookup_value: r }; } });
-                if (Array.isArray(c.incomes)) c.incomes.forEach(i => { if (i.incomeType && mongoose.Types.ObjectId.isValid(i.incomeType)) { const r = lookupValueMap.get(i.incomeType.toString()); if (r) i.incomeType = { _id: i.incomeType, lookup_value: r }; } });
-                if (Array.isArray(c.documents)) c.documents.forEach(d => { if (d.documentCategory && mongoose.Types.ObjectId.isValid(d.documentCategory)) { const r = lookupValueMap.get(d.documentCategory.toString()); if (r) d.documentCategory = { _id: d.documentCategory, lookup_value: r }; } if (d.documentType && mongoose.Types.ObjectId.isValid(d.documentType)) { const r = lookupValueMap.get(d.documentType.toString()); if (r) d.documentType = { _id: d.documentType, lookup_value: r }; } if (d.documentName && mongoose.Types.ObjectId.isValid(d.documentName)) { const r = lookupValueMap.get(d.documentName.toString()); if (r) d.documentName = { _id: d.documentName, lookup_value: r }; } });
 
                 return {
                     ...c,
-                    activities: contactActs,
-                    interactionCounts: countsMap.get(contactId) || { call: 0, siteVisit: 0, meeting: 0, email: 0, sms: 0, whatsapp: 0 },
-                    activity: latest ? latest.subject : "None",
-                    lastAct: latest ? new Date(latest.createdAt).toLocaleDateString() : "Today"
+                    interactionCounts: { 
+                        call: stats.call || 0, 
+                        siteVisit: stats.siteVisit || 0, 
+                        meeting: stats.meeting || 0, 
+                        email: stats.email || 0, 
+                        sms: stats.sms || 0, 
+                        whatsapp: stats.whatsapp || 0 
+                    },
+                    activity: stats.latestActivity || "None",
+                    lastAct: stats.latestDate ? new Date(stats.latestDate).toLocaleDateString() : "Today"
                 };
             });
         }

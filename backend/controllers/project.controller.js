@@ -6,7 +6,12 @@ const projectPopulateFields = [
     { path: 'owner', select: 'fullName email name' },
     { path: 'assign', select: 'fullName email name' },
     { path: 'team', select: 'name' },
-    { path: 'teams', select: 'name' }
+    { path: 'teams', select: 'name' },
+    { path: 'status', select: 'lookup_value' },
+    { path: 'parkingType', select: 'lookup_value' },
+    { path: 'unitType', select: 'lookup_value' },
+    { path: 'category', select: 'lookup_value' },
+    { path: 'subCategory', select: 'lookup_value' }
 ];
 
 import { paginate } from "../utils/pagination.js";
@@ -52,36 +57,11 @@ export const getProjects = async (req, res) => {
             projectPopulateFields
         );
 
-        // --- MANUAL HYDRATION (Mixed Fields) ---
-        const records = await Promise.all(results.records.map(async (record) => {
-            const project = record.toObject ? record.toObject() : record;
-            const fieldsToHydrate = ['status', 'parkingType', 'unitType'];
-            const arrayFields = ['category', 'subCategory'];
-            const Lookup = mongoose.model('Lookup');
-
-            for (const f of fieldsToHydrate) {
-                if (project[f] && mongoose.Types.ObjectId.isValid(project[f])) {
-                    const lookup = await Lookup.findById(project[f]).select('lookup_value').lean();
-                    if (lookup) project[f] = lookup;
-                }
-            }
-            for (const f of arrayFields) {
-                if (Array.isArray(project[f])) {
-                    project[f] = await Promise.all(project[f].map(async (val) => {
-                        if (val && mongoose.Types.ObjectId.isValid(val)) {
-                            const lookup = await Lookup.findById(val).select('lookup_value').lean();
-                            return lookup || val;
-                        }
-                        return val;
-                    }));
-                }
-            }
-            return project;
-        }));
+        // manual hydration removed in favor of .populate()
 
         res.json({ 
             success: true, 
-            data: records, 
+            data: results.records, 
             totalCount: results.totalCount,
             totalPages: results.totalPages,
             currentPage: results.currentPage

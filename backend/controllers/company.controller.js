@@ -158,8 +158,22 @@ const sanitizeData = (data) => {
 
 export const getCompanies = async (req, res, next) => {
     try {
-        const { page = 1, limit = 10, search = "", sortBy, sortOrder } = req.query;
+        const { page = 1, limit = 10, search = "", sortBy, sortOrder, view } = req.query;
         const visibilityFilter = await getVisibilityFilter(req.user);
+
+        // 🚀 COMPACT VIEW FLAG: Mobile list view — skip heavy address populations
+        const isCompactView = view === 'compact';
+
+        // 🚀 SENIOR OPTIMIZATION: Compact populate (5 fields) vs Full populate (51 paths)
+        // Mobile list card only shows: name, phone, industry badge, relationship color.
+        // The 46 address lookup paths are only needed on the Detail page.
+        const listPopulateFields = isCompactView ? [
+            { path: 'companyType', select: 'lookup_value' },
+            { path: 'industry', select: 'lookup_value' },
+            { path: 'relationshipType', select: 'lookup_value' },
+            { path: 'owner', select: 'fullName name' },
+            { path: 'team', select: 'name' }
+        ] : populateFields;
 
         let query = { ...visibilityFilter };
         if (search) {
@@ -180,16 +194,31 @@ export const getCompanies = async (req, res, next) => {
         const finalSortOrder = parseInt(sortOrder) || -1;
         const sortOption = { [finalSortBy]: finalSortOrder };
 
-        const results = await paginate(Company, query, page, limit, sortOption, populateFields);
+        // 🚀 SENIOR OPTIMIZATION: Run pagination + industry stats concurrently.
+        // Fix N+1 anti-pattern: Replace N separate countDocuments() calls
+        // with a single $group aggregation — O(N) → O(1) DB round-trips.
+        const [results, industryStatsAgg] = await Promise.all([
+            paginate(Company, query, page, limit, sortOption, listPopulateFields),
+            Company.aggregate([
+                { $match: query },
+                { $group: { _id: '$industry', count: { $sum: 1 } } }
+            ])
+        ]);
 
-        // Enhanced: Industry-based counts for summary footer
-        const industries = await Lookup.find({ lookup_type: 'Industry' });
-        const industryCounts = await Promise.all(industries.map(async (ind) => {
-            const count = await Company.countDocuments({
-                ...query,
-                industry: ind._id
-            });
-            return { name: ind.lookup_value, count };
+        // Resolve industry ObjectIds to names in a single batch lookup
+        const industryIds = industryStatsAgg
+            .map(s => s._id)
+            .filter(id => id && mongoose.Types.ObjectId.isValid(id));
+        const industryDocs = industryIds.length > 0
+            ? await Lookup.find({ _id: { $in: industryIds } }).select('lookup_value').lean()
+            : [];
+        const industryNameMap = new Map(industryDocs.map(d => [d._id.toString(), d.lookup_value]));
+
+        const industryCounts = industryStatsAgg.map(s => ({
+            name: s._id
+                ? (industryNameMap.get(String(s._id)) || String(s._id))
+                : 'Unknown',
+            count: s.count
         }));
 
         res.status(200).json({

@@ -167,4 +167,13 @@ CompanySchema.pre("findOneAndUpdate", function (next) {
 
 CompanySchema.plugin(mongoosePaginate);
 
+// 🚀 SENIOR OPTIMIZATION: Critical indexes for list-view sort & filter performance
+// Without these, MongoDB performs full collection scans on every API call.
+CompanySchema.index({ updatedAt: -1 });                        // Default sort
+CompanySchema.index({ createdAt: -1 });                        // Newest First sort
+CompanySchema.index({ name: 1 });                              // Search by name
+CompanySchema.index({ industry: 1, updatedAt: -1 });           // Industry filter + sort
+CompanySchema.index({ relationshipType: 1, updatedAt: -1 });   // Relationship filter + sort
+CompanySchema.index({ owner: 1, updatedAt: -1 });              // Owner filter + sort
+
 export default mongoose.model("Company", CompanySchema);

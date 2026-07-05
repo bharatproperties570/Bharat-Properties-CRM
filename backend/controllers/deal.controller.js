@@ -963,8 +963,12 @@ export const getDeals = async (req, res) => {
         const { 
             page = 1, limit = 25, search = "", sortBy, sortOrder,
             projectId, inventoryId, category, subCategory, 
-            status, contactPhone 
+            status, contactPhone, view
         } = req.query;
+
+        // 🚀 COMPACT VIEW FLAG: Mobile list requests use view=compact to skip all
+        // non-essential heavy computations (match counts, activity history, inventory re-fetch)
+        const isCompactView = view === 'compact';
 
         // 🚀 SENIOR OPTIMIZATION: Redis Cache Layer for List View (Page 1)
         const isPageOne = Number(page) === 1 && !search;
@@ -1321,60 +1325,66 @@ export const getDeals = async (req, res) => {
         console.log(">> getDeals API: finished Promise.all");
 
         // Fetch latest activities for owners and associates
-        const contactIds = results.records.reduce((acc, deal) => {
-            if (deal.owner?._id) acc.push(deal.owner._id);
-            if (deal.associatedContact?._id) acc.push(deal.associatedContact._id);
-            return acc;
-        }, []);
-
+        // 🚀 SENIOR OPTIMIZATION: Skip for compact/mobile list views — not displayed on card
         console.time("getDeals_Activity_Fetch");
         let activityMap = {};
-        if (contactIds.length > 0) {
-            const activities = await Activity.aggregate([
-                { $match: { entityId: { $in: contactIds }, entityType: "Contact" } },
-                { $sort: { performedAt: -1 } },
-                { $group: { _id: "$entityId", lastActivity: { $first: "$$ROOT" } } }
-            ]);
-            activities.forEach(a => {
-                activityMap[a._id.toString()] = a.lastActivity;
-            });
+        if (!isCompactView) {
+            const contactIds = results.records.reduce((acc, deal) => {
+                if (deal.owner?._id) acc.push(deal.owner._id);
+                if (deal.associatedContact?._id) acc.push(deal.associatedContact._id);
+                return acc;
+            }, []);
+            if (contactIds.length > 0) {
+                const activities = await Activity.aggregate([
+                    { $match: { entityId: { $in: contactIds }, entityType: "Contact" } },
+                    { $sort: { performedAt: -1 } },
+                    { $group: { _id: "$entityId", lastActivity: { $first: "$$ROOT" } } }
+                ]);
+                activities.forEach(a => {
+                    activityMap[a._id.toString()] = a.lastActivity;
+                });
+            }
         }
         console.timeEnd("getDeals_Activity_Fetch");
 
         // --- OPTIMIZATION 10: Batch Inventory Fetch & Fallback Unlinked Matching ---
+        // 🚀 SENIOR OPTIMIZATION: Skip second inventory fetch for compact/mobile list views.
+        // The paginate() call already populates inventoryId with the necessary fields.
+        // This second fetch only adds Contact owner/associate info, which is not shown on mobile cards.
         console.time("getDeals_Inventory_Fetch");
-        const inventoryIdsToFetch = [...new Set(results.records.map(d => d.inventoryId?._id || d.inventoryId).filter(Boolean))];
-        const unlinkedDeals = results.records.filter(d => !d.inventoryId && d.projectName && d.unitNo);
-
         const inventoryMap = new Map();
         const unlinkedInventoryMap = new Map();
 
-        if (inventoryIdsToFetch.length > 0) {
-            const inventories = await Inventory.find({ _id: { $in: inventoryIdsToFetch } })
-                .populate({ path: 'owners', model: 'Contact' })
-                .populate({ path: 'associates.contact', model: 'Contact' })
-                .select('+sizeLabel +sizeConfig') // Ensure these are included if they were excluded by default
-                .lean();
-            inventories.forEach(inv => inventoryMap.set(String(inv._id), inv));
-        }
+        if (!isCompactView) {
+            const inventoryIdsToFetch = [...new Set(results.records.map(d => d.inventoryId?._id || d.inventoryId).filter(Boolean))];
+            const unlinkedDeals = results.records.filter(d => !d.inventoryId && d.projectName && d.unitNo);
 
-        if (unlinkedDeals.length > 0) {
-            const unlinkedQuery = {
-                $or: unlinkedDeals.map(d => ({
-                    projectName: { $regex: new RegExp(`^${escapeRegExp(d.projectName)}$`, 'i') },
-                    unitNo: { $regex: new RegExp(`^${escapeRegExp(d.unitNo)}$`, 'i') }
-                }))
-            };
-            const unlinkedInventories = await Inventory.find(unlinkedQuery)
-                .populate({ path: 'owners', model: 'Contact' })
-                .populate({ path: 'associates.contact', model: 'Contact' })
-                .select('+sizeLabel +sizeConfig')
-                .lean();
-            
-            unlinkedInventories.forEach(inv => {
-                const key = `${String(inv.projectName).toLowerCase().trim()}_${String(inv.unitNo).toLowerCase().trim()}`;
-                unlinkedInventoryMap.set(key, inv);
-            });
+            if (inventoryIdsToFetch.length > 0) {
+                const inventories = await Inventory.find({ _id: { $in: inventoryIdsToFetch } })
+                    .populate({ path: 'owners', model: 'Contact' })
+                    .populate({ path: 'associates.contact', model: 'Contact' })
+                    .select('+sizeLabel +sizeConfig')
+                    .lean();
+                inventories.forEach(inv => inventoryMap.set(String(inv._id), inv));
+            }
+
+            if (unlinkedDeals.length > 0) {
+                const unlinkedQuery = {
+                    $or: unlinkedDeals.map(d => ({
+                        projectName: { $regex: new RegExp(`^${escapeRegExp(d.projectName)}$`, 'i') },
+                        unitNo: { $regex: new RegExp(`^${escapeRegExp(d.unitNo)}$`, 'i') }
+                    }))
+                };
+                const unlinkedInventories = await Inventory.find(unlinkedQuery)
+                    .populate({ path: 'owners', model: 'Contact' })
+                    .populate({ path: 'associates.contact', model: 'Contact' })
+                    .select('+sizeLabel +sizeConfig')
+                    .lean();
+                unlinkedInventories.forEach(inv => {
+                    const key = `${String(inv.projectName).toLowerCase().trim()}_${String(inv.unitNo).toLowerCase().trim()}`;
+                    unlinkedInventoryMap.set(key, inv);
+                });
+            }
         }
         console.timeEnd("getDeals_Inventory_Fetch");
 
@@ -1484,14 +1494,19 @@ export const getDeals = async (req, res) => {
         console.timeEnd("getDeals_Lookup_Resolution");
 
         // --- Fetch Preferred Match Counts ---
-        try {
-            const { getBulkDealExactMatchCounts } = await import('./lead.controller.js');
-            const bulkMatchCounts = await getBulkDealExactMatchCounts(enrichedRecords, req.user);
-            enrichedRecords.forEach(deal => {
-                deal.exactMatchCount = bulkMatchCounts[deal._id.toString()] || 0;
-            });
-        } catch (e) {
-            console.error("[getDeals] Failed to fetch preferred match counts:", e);
+        // 🚀 SENIOR OPTIMIZATION: Skip for compact/mobile list views — the O(N×M) loop
+        // comparing all deals against all leads is the largest single bottleneck.
+        // Match counts are only needed on the Deal Detail page.
+        if (!isCompactView) {
+            try {
+                const { getBulkDealExactMatchCounts } = await import('./lead.controller.js');
+                const bulkMatchCounts = await getBulkDealExactMatchCounts(enrichedRecords, req.user);
+                enrichedRecords.forEach(deal => {
+                    deal.exactMatchCount = bulkMatchCounts[deal._id.toString()] || 0;
+                });
+            } catch (e) {
+                console.error("[getDeals] Failed to fetch preferred match counts:", e);
+            }
         }
 
         const responseObj = {

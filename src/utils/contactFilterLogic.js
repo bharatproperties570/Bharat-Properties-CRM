@@ -18,9 +18,15 @@ export const applyContactFilters = (contacts, filters) => {
             if (!filters.source.includes(contact.source)) return false;
         }
 
-        // 3. Profession Category (Multi-Select)
-        if (filters.professionCategory && filters.professionCategory.length > 0) {
-            if (!filters.professionCategory.includes(contact.professionCategory)) return false;
+        // 3. Professional Fields (Multi-Select)
+        if (filters.professionCategory?.length > 0) {
+            if (!filters.professionCategory.includes(contact.professionCategory?.lookup_value || contact.professionCategory)) return false;
+        }
+        if (filters.professionSubCategory?.length > 0) {
+            if (!filters.professionSubCategory.includes(contact.professionSubCategory?.lookup_value || contact.professionSubCategory)) return false;
+        }
+        if (filters.designation?.length > 0) {
+            if (!filters.designation.includes(contact.designation?.lookup_value || contact.designation)) return false;
         }
 
         // 4. Company (Text Search)
@@ -29,14 +35,14 @@ export const applyContactFilters = (contacts, filters) => {
             if (!companyName.toLowerCase().includes(filters.company.toLowerCase())) return false;
         }
 
-        // 5. City (Text Search - Check Personal & Correspondence)
-        if (filters.city) {
-            const pCity = contact.personalAddress?.city || "";
-            const cCity = contact.correspondenceAddress?.city || "";
-            const term = filters.city.toLowerCase();
-
-            if (!pCity.toLowerCase().includes(term) && !cCity.toLowerCase().includes(term)) return false;
-        }
+        // 5. Address Fields (Multi-Select - Check Personal)
+        if (filters.country?.length > 0 && !filters.country.includes(contact.personalAddress?.country?.lookup_value || contact.personalAddress?.country)) return false;
+        if (filters.state?.length > 0 && !filters.state.includes(contact.personalAddress?.state?.lookup_value || contact.personalAddress?.state)) return false;
+        if (filters.city?.length > 0 && !filters.city.includes(contact.personalAddress?.city?.lookup_value || contact.personalAddress?.city)) return false;
+        if (filters.location?.length > 0 && !filters.location.includes(contact.personalAddress?.location?.lookup_value || contact.personalAddress?.location)) return false;
+        if (filters.tehsil?.length > 0 && !filters.tehsil.includes(contact.personalAddress?.tehsil?.lookup_value || contact.personalAddress?.tehsil)) return false;
+        if (filters.postOffice?.length > 0 && !filters.postOffice.includes(contact.personalAddress?.postOffice?.lookup_value || contact.personalAddress?.postOffice)) return false;
+        if (filters.pinCode?.length > 0 && !filters.pinCode.includes(contact.personalAddress?.pinCode?.lookup_value || contact.personalAddress?.pinCode)) return false;
 
         // 6. Tags (Multi-Select - Match ANY tag)
         if (filters.tags && filters.tags.length > 0) {
