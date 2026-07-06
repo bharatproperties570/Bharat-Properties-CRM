@@ -304,13 +304,18 @@ export const getLeads = async (req, res, next) => {
         // 🛡️ [SENIOR FIX] Dynamically apply all un-extracted filter keys (e.g. locCity, locState)
         for (const [key, value] of Object.entries(dynamicFilters)) {
             if (value && value !== "" && value !== "undefined") {
-                if (Array.isArray(value)) {
-                    query[key] = { $in: value };
-                } else if (mongoose.Types.ObjectId.isValid(value)) {
-                    query[key] = value;
-                } else {
-                    query[key] = value;
-                }
+                let searchValues = Array.isArray(value) ? value : [value];
+                
+                // 🚀 [SENIOR DATA SYNC FIX] Mixed-Type Field Querying (String + ObjectId)
+                const mixedValues = [];
+                searchValues.forEach(val => {
+                    mixedValues.push(val); 
+                    if (mongoose.Types.ObjectId.isValid(val)) {
+                        mixedValues.push(new mongoose.Types.ObjectId(val));
+                    }
+                });
+
+                query[key] = { $in: mixedValues };
             }
         }
 

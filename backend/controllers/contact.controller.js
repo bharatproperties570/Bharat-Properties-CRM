@@ -79,13 +79,21 @@ export const getContacts = async (req, res, next) => {
         // 🛡️ [SENIOR FIX] Dynamically apply all filter keys (e.g. personalAddress.city, professionCategory)
         for (const [key, value] of Object.entries(filters)) {
             if (value && value !== "" && value !== "undefined") {
-                if (Array.isArray(value)) {
-                    query[key] = { $in: value };
-                } else if (mongoose.Types.ObjectId.isValid(value)) {
-                    query[key] = value;
-                } else {
-                    query[key] = value; // Apply string filters directly
-                }
+                let searchValues = Array.isArray(value) ? value : [value];
+                
+                // 🚀 [SENIOR DATA SYNC FIX] Mixed-Type Field Querying (String + ObjectId)
+                // Mongoose 'Mixed' fields (like personalAddress) don't auto-cast strings to ObjectId.
+                // Imported data saves as ObjectId, while UI manual entry often saves as String.
+                // Searching BOTH ensures imported & manual data both show up in filters.
+                const mixedValues = [];
+                searchValues.forEach(val => {
+                    mixedValues.push(val); 
+                    if (mongoose.Types.ObjectId.isValid(val)) {
+                        mixedValues.push(new mongoose.Types.ObjectId(val));
+                    }
+                });
+
+                query[key] = { $in: mixedValues };
             }
         }
 
