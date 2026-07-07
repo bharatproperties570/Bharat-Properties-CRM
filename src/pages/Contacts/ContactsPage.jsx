@@ -405,6 +405,16 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
         sortBy: sortConfig.by,
         sortOrder: sortConfig.order
       });
+
+      // Append backend filters
+      Object.entries(filters).forEach(([key, value]) => {
+        if (Array.isArray(value) && value.length > 0) {
+          value.forEach(v => queryParams.append(key, v));
+        } else if (value && !Array.isArray(value)) {
+          queryParams.append(key, value);
+        }
+      });
+
       console.log("[Contacts Audit] Fetching contacts with params:", queryParams.toString());
       const response = await api.get(`contacts?${queryParams.toString()}`);
       if (response.data && response.data.success) {
@@ -424,7 +434,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
     } finally {
       setLoading(false);
     }
-  }, [currentPage, recordsPerPage, debouncedSearchTerm, sortConfig, fetchStats]);
+  }, [currentPage, recordsPerPage, debouncedSearchTerm, sortConfig, fetchStats, filters]);
 
   useEffect(() => {
     const handleSync = () => fetchContacts();
@@ -537,7 +547,7 @@ function ContactsPage({ onEdit, onAddActivity, onNavigate }) {
 
   const getSelectedContacts = useCallback(() => contacts.filter((c) => selectedIds.includes(c._id)), [contacts, selectedIds]);
 
-  const filteredContacts = useMemo(() => applyContactFilters(contacts, filters), [contacts, filters]);
+  const filteredContacts = contacts;
   const totalPages = Math.ceil(totalRecords / recordsPerPage);
 
   const groups = useMemo(() => {

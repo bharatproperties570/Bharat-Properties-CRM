@@ -73,15 +73,15 @@ const InventoryMapList = ({ items = [], onItemClick, getLookupValue, activeItemI
                                 className="map-property-card"
                                 style={{ 
                                     padding: '8px 12px',
-                                    background: isSelected ? 'var(--contact-row-hover, #f1f5f9)' : '#fff',
+                                    background: isSelected ? (isDark ? 'var(--bg-hover, rgba(59, 130, 246, 0.15))' : 'var(--contact-row-hover, #f1f5f9)') : (isDark ? 'var(--bg-card)' : '#fff'),
                                     borderBottom: '1px solid var(--border-color)',
                                     borderLeft: isSelected ? '4px solid #3b82f6' : '4px solid transparent',
                                     cursor: 'pointer',
                                     transition: 'all 0.2s',
                                 }}
                                 onClick={() => onItemClick(item._id)}
-                                onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = '#f8fafc' }}
-                                onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = '#fff' }}
+                                onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = isDark ? 'var(--bg-hover, rgba(255,255,255,0.05))' : '#f8fafc' }}
+                                onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = isDark ? 'var(--bg-card)' : '#fff' }}
                             >
                                 <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                                     {/* Unit Number Badge (Colored by Intent) */}
@@ -112,7 +112,7 @@ const InventoryMapList = ({ items = [], onItemClick, getLookupValue, activeItemI
                                         </div>
 
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
-                                            <div style={{ fontSize: '0.68rem', fontWeight: 800, color: isDark ? 'var(--gold)' : '#2563eb', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                            <div style={{ fontSize: '0.68rem', fontWeight: 800, color: isDark ? '#60a5fa' : '#2563eb', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                 <i className="fas fa-expand-arrows-alt" style={{ fontSize: '0.6rem' }}></i>
                                                 {renderValue(getLookupValue('Size', item.sizeConfig)) || renderValue(item.sizeLabel) || `${renderValue(item.size)} ${renderValue(item.sizeUnit)}`}
                                             </div>
@@ -121,10 +121,10 @@ const InventoryMapList = ({ items = [], onItemClick, getLookupValue, activeItemI
                                                 <span style={{ 
                                                     width: '6px', height: '6px', 
                                                     borderRadius: '50%', 
-                                                    background: isActiveStatus ? '#22c55e' : '#94a3b8',
+                                                    background: isActiveStatus ? '#22c55e' : (isDark ? '#64748b' : '#94a3b8'),
                                                     boxShadow: isActiveStatus ? '0 0 8px rgba(34, 197, 94, 0.4)' : 'none'
                                                 }}></span>
-                                                <span style={{ fontSize: '0.62rem', fontWeight: 800, color: isActiveStatus ? '#16a34a' : isDark ? 'var(--text-muted)' : '#64748b', textTransform: 'uppercase' }}>
+                                                <span style={{ fontSize: '0.62rem', fontWeight: 800, color: isActiveStatus ? (isDark ? '#4ade80' : '#16a34a') : (isDark ? '#94a3b8' : '#64748b'), textTransform: 'uppercase' }}>
                                                     {renderValue(statusVal) || 'Inactive'}
                                                 </span>
                                             </div>

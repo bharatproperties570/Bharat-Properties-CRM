@@ -1061,8 +1061,8 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                                     {deal.subCategory ? ` - ${renderValue(resolveDealLookup(deal.subCategory, 'SubCategory'))}` : ''}
                                                 </div>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                    <i className="fas fa-expand-arrows-alt" style={{ fontSize: '0.65rem', color: isDark ? 'var(--gold)' : '#2563eb' }}></i>
-                                                    <span style={{ fontWeight: 700, color: isDark ? 'var(--gold)' : '#2563eb' }}>
+                                                    <i className="fas fa-expand-arrows-alt" style={{ fontSize: '0.65rem', color: isDark ? '#60a5fa' : '#2563eb' }}></i>
+                                                    <span style={{ fontWeight: 700, color: isDark ? '#60a5fa' : '#2563eb' }}>
                                                         {(() => {
                                                             const sizeFromLookup = resolveDealLookup(deal.sizeConfig, 'Size');
                                                             if (sizeFromLookup) return renderValue(sizeFromLookup);
@@ -1133,9 +1133,11 @@ function DealsPage({ onNavigate, onAddActivity }) {
                                     </button>
                                 </div>
                                 <div style={{ 
-                                    position: 'absolute', bottom: '20px', left: '20px', background: 'rgba(255, 255, 255, 0.95)',
-                                    padding: '12px', borderRadius: '8px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
-                                    border: '1px solid var(--border-color)', fontSize: '0.75rem', zIndex: 10
+                                    position: 'absolute', bottom: '20px', left: '20px', 
+                                    background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+                                    padding: '12px', borderRadius: '8px', boxShadow: '0 4px 6px rgba(0,0,0,0.3)',
+                                    border: '1px solid var(--border-color)', fontSize: '0.75rem', zIndex: 10,
+                                    color: 'var(--text-main)'
                                 }}>
                                     <div style={{ fontWeight: 700, marginBottom: '8px', color: 'var(--text-main)' }}>Map Legend</div>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>

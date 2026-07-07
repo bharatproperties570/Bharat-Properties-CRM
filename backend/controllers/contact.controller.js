@@ -63,7 +63,7 @@ const flattenPopulatedRefs = (obj) => {
 
 export const getContacts = async (req, res, next) => {
     try {
-        const { page = 1, limit = 10, search = "", phone, sortBy, sortOrder, ...filters } = req.query;
+        const { page = 1, limit = 10, search = "", phone, sortBy, sortOrder, contactType, ...filters } = req.query;
         const visibilityFilter = await getVisibilityFilter(req.user);
         
         // 🛠️ SENIOR DIAGNOSTIC LOG (Harden for potential undefined user)
@@ -76,24 +76,53 @@ export const getContacts = async (req, res, next) => {
 
         let query = { ...visibilityFilter };
 
+        // Handle Mobile CRM business vs individual filter
+        if (req.query.contactType === "business") {
+            query.company = { $exists: true, $ne: "" };
+        } else if (req.query.contactType === "individual") {
+            query.$or = [{ company: { $exists: false } }, { company: "" }, { company: null }];
+        }
+
         // 🛡️ [SENIOR FIX] Dynamically apply all filter keys (e.g. personalAddress.city, professionCategory)
         for (const [key, value] of Object.entries(filters)) {
+            let mappedKey = key;
+            const addressKeys = ['country', 'state', 'city', 'location', 'tehsil', 'postOffice', 'pincode'];
+            if (addressKeys.includes(key)) {
+                mappedKey = key === 'pincode' ? 'personalAddress.pinCode' : `personalAddress.${key}`;
+            }
+
             if (value && value !== "" && value !== "undefined") {
                 let searchValues = Array.isArray(value) ? value : [value];
                 
                 // 🚀 [SENIOR DATA SYNC FIX] Mixed-Type Field Querying (String + ObjectId)
-                // Mongoose 'Mixed' fields (like personalAddress) don't auto-cast strings to ObjectId.
-                // Imported data saves as ObjectId, while UI manual entry often saves as String.
-                // Searching BOTH ensures imported & manual data both show up in filters.
                 const mixedValues = [];
+                const validIds = [];
+                
                 searchValues.forEach(val => {
                     mixedValues.push(val); 
                     if (mongoose.Types.ObjectId.isValid(val)) {
                         mixedValues.push(new mongoose.Types.ObjectId(val));
+                        validIds.push(val);
                     }
                 });
 
-                query[key] = { $in: mixedValues };
+                // 🏗️ If any IDs are passed, fetch their string lookup_values to match imported legacy string data
+                if (validIds.length > 0) {
+                    try {
+                        const lookups = await mongoose.model('Lookup').find({ _id: { $in: validIds } }).lean();
+                        lookups.forEach(l => {
+                            if (l.lookup_value) {
+                                mixedValues.push(l.lookup_value);
+                                // Also handle cases where import script trimmed or upper/lowercased it differently
+                                // e.g. "Karnal" vs "KARNAL" - $regex is expensive, but exact match is what we can do safely
+                            }
+                        });
+                    } catch (err) {
+                        console.warn("[Contacts Filter] Failed to resolve lookups for string matching:", err.message);
+                    }
+                }
+
+                query[mappedKey] = { $in: mixedValues };
             }
         }
 

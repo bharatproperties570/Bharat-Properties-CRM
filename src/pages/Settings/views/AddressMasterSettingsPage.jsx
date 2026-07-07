@@ -35,6 +35,12 @@ const AddressMasterSettingsPage = () => {
     // Modals & Actions
     const [showMoveModal, setShowMoveModal] = useState(false);
     const [showMergeModal, setShowMergeModal] = useState(false);
+    
+    // Move/Merge logic state
+    const [moveTargetParentId, setMoveTargetParentId] = useState('');
+    const [moveTargetParentName, setMoveTargetParentName] = useState('');
+    const [moveTargetCandidates, setMoveTargetCandidates] = useState([]);
+    const [mergeTargetItemId, setMergeTargetItemId] = useState('');
     const [showActionChoiceModal, setShowActionChoiceModal] = useState(false);
     const [actionChoices, setActionChoices] = useState([]);
     const [dropTargetItem, setDropTargetItem] = useState(null);
@@ -46,13 +52,35 @@ const AddressMasterSettingsPage = () => {
             return [...prev, id];
         });
     };
-    const [moveTargetParentId, setMoveTargetParentId] = useState('');
-    const [moveTargetParentName, setMoveTargetParentName] = useState('');
-    const [mergeTargetItemId, setMergeTargetItemId] = useState('');
     const [actionLoading, setActionLoading] = useState(false);
     const [message, setMessage] = useState({ text: '', type: '' });
     const [streamProgress, setStreamProgress] = useState(0);
     const [streamMessage, setStreamMessage] = useState('');
+    const [streamLogs, setStreamLogs] = useState([]);
+
+    const targetParentMap = {
+        'State': 'Country',
+        'City': 'State',
+        'Location': 'City',
+        'Tehsil': 'City',
+        'PostOffice': 'City',
+        'Pincode': 'PostOffice'
+    };
+
+    React.useEffect(() => {
+        if (showMoveModal && selectedIds.length > 0) {
+            const item = getItemById(selectedIds[0]);
+            if (item) {
+                const targetType = targetParentMap[item.lookup_type];
+                if (targetType) {
+                    lookupsAPI.getByCategory(targetType).then(res => {
+                        setMoveTargetCandidates(res.data);
+                    }).catch(err => console.error("Failed to load move targets", err));
+                }
+            }
+        }
+    }, [showMoveModal, selectedIds]);
+
     const [streamEta, setStreamEta] = useState('');
     const [isStreaming, setIsStreaming] = useState(false);
 
@@ -1157,7 +1185,26 @@ const AddressMasterSettingsPage = () => {
                 <div className="master-modal-overlay">
                     <div className="master-modal">
                         <h3>Confirm Hierarchy Adjustment</h3>
-                        <p>You are moving {selectedIds.length} item(s) under parent <strong>"{moveTargetParentName || dropTargetItem?.lookup_value}"</strong>.</p>
+                        <p>You are moving {selectedIds.length} item(s).</p>
+                        
+                        <div className="form-group" style={{ marginBottom: '20px', textAlign: 'left' }}>
+                            <label>Select Target Parent</label>
+                            <select 
+                                className="form-control" 
+                                value={moveTargetParentId} 
+                                onChange={(e) => {
+                                    setMoveTargetParentId(e.target.value);
+                                    const t = moveTargetCandidates.find(c => c._id === e.target.value);
+                                    if(t) setMoveTargetParentName(t.lookup_value);
+                                }}
+                                style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid var(--border-color)', marginTop: '8px' }}
+                            >
+                                <option value="" disabled>-- Select Target Parent --</option>
+                                {moveTargetCandidates.map(item => (
+                                    <option key={item._id} value={item._id}>{item.lookup_value}</option>
+                                ))}
+                            </select>
+                        </div>
                         
                         <div className="modal-buttons">
                             <button 

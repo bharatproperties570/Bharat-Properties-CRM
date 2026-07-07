@@ -1,6 +1,47 @@
 import { useEffect, useRef, useState } from 'react';
 import { MAP_CENTER } from '../utils/mapUtils';
 import { MarkerClusterer } from '@googlemaps/markerclusterer';
+import { useTheme } from '../context/ThemeContext';
+
+const LIGHT_MAP_STYLES = [
+    { "featureType": "all", "elementType": "geometry.fill", "stylers": [{ "weight": "2.00" }] },
+    { "featureType": "all", "elementType": "geometry.stroke", "stylers": [{ "color": "#9c9c9c" }] },
+    { "featureType": "all", "elementType": "labels.text", "stylers": [{ "visibility": "on" }] },
+    { "featureType": "landscape", "elementType": "all", "stylers": [{ "color": "#f2f2f2" }] },
+    { "featureType": "landscape", "elementType": "geometry.fill", "stylers": [{ "color": "#ffffff" }] },
+    { "featureType": "landscape.man_made", "elementType": "geometry.fill", "stylers": [{ "color": "#ffffff" }] },
+    { "featureType": "poi", "elementType": "all", "stylers": [{ "visibility": "off" }] },
+    { "featureType": "road", "elementType": "all", "stylers": [{ "saturation": -100 }, { "lightness": 45 }] },
+    { "featureType": "road", "elementType": "geometry.fill", "stylers": [{ "color": "#eeeeee" }] },
+    { "featureType": "road", "elementType": "labels.text.fill", "stylers": [{ "color": "#7b7b7b" }] },
+    { "featureType": "road", "elementType": "labels.text.stroke", "stylers": [{ "color": "#ffffff" }] },
+    { "featureType": "road.highway", "elementType": "all", "stylers": [{ "visibility": "simplified" }] },
+    { "featureType": "road.arterial", "elementType": "labels.icon", "stylers": [{ "visibility": "off" }] },
+    { "featureType": "transit", "elementType": "all", "stylers": [{ "visibility": "off" }] },
+    { "featureType": "water", "elementType": "all", "stylers": [{ "color": "#46bcec" }, { "visibility": "on" }] },
+    { "featureType": "water", "elementType": "geometry.fill", "stylers": [{ "color": "#c8d7d4" }] },
+    { "featureType": "water", "elementType": "labels.text.fill", "stylers": [{ "color": "#070707" }] },
+    { "featureType": "water", "elementType": "labels.text.stroke", "stylers": [{ "color": "#ffffff" }] }
+];
+
+const DARK_MAP_STYLES = [
+    { elementType: "geometry", stylers: [{ color: "#242f3e" }] },
+    { elementType: "labels.text.stroke", stylers: [{ color: "#242f3e" }] },
+    { elementType: "labels.text.fill", stylers: [{ color: "#746855" }] },
+    { featureType: "administrative.locality", elementType: "labels.text.fill", stylers: [{ color: "#d59563" }] },
+    { featureType: "poi", elementType: "all", stylers: [{ visibility: "off" }] },
+    { featureType: "road", elementType: "geometry", stylers: [{ color: "#38414e" }] },
+    { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#212a37" }] },
+    { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#9ca5b3" }] },
+    { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#746855" }] },
+    { featureType: "road.highway", elementType: "geometry.stroke", stylers: [{ color: "#1f2835" }] },
+    { featureType: "road.highway", elementType: "labels.text.fill", stylers: [{ color: "#f3d19c" }] },
+    { featureType: "transit", elementType: "geometry", stylers: [{ color: "#2f3948" }] },
+    { featureType: "transit.station", elementType: "labels.text.fill", stylers: [{ color: "#d59563" }] },
+    { featureType: "water", elementType: "geometry", stylers: [{ color: "#17263c" }] },
+    { featureType: "water", elementType: "labels.text.fill", stylers: [{ color: "#515c6d" }] },
+    { featureType: "water", elementType: "labels.text.stroke", stylers: [{ color: "#17263c" }] }
+];
 
 const ProfessionalMap = ({
     items = [],
@@ -14,6 +55,7 @@ const ProfessionalMap = ({
     sizes = [],
     style = { width: '100%', height: '100%' }
 }) => {
+    const { isDark } = useTheme();
     const mapRef = useRef(null);
     const googleMapRef = useRef(null);
     const markersRef = useRef([]);
@@ -41,26 +83,7 @@ const ProfessionalMap = ({
             mapTypeControl: true,
             streetViewControl: false,
             fullscreenControl: true,
-            styles: [
-                { "featureType": "all", "elementType": "geometry.fill", "stylers": [{ "weight": "2.00" }] },
-                { "featureType": "all", "elementType": "geometry.stroke", "stylers": [{ "color": "#9c9c9c" }] },
-                { "featureType": "all", "elementType": "labels.text", "stylers": [{ "visibility": "on" }] },
-                { "featureType": "landscape", "elementType": "all", "stylers": [{ "color": "#f2f2f2" }] },
-                { "featureType": "landscape", "elementType": "geometry.fill", "stylers": [{ "color": "#ffffff" }] },
-                { "featureType": "landscape.man_made", "elementType": "geometry.fill", "stylers": [{ "color": "#ffffff" }] },
-                { "featureType": "poi", "elementType": "all", "stylers": [{ "visibility": "off" }] },
-                { "featureType": "road", "elementType": "all", "stylers": [{ "saturation": -100 }, { "lightness": 45 }] },
-                { "featureType": "road", "elementType": "geometry.fill", "stylers": [{ "color": "#eeeeee" }] },
-                { "featureType": "road", "elementType": "labels.text.fill", "stylers": [{ "color": "#7b7b7b" }] },
-                { "featureType": "road", "elementType": "labels.text.stroke", "stylers": [{ "color": "#ffffff" }] },
-                { "featureType": "road.highway", "elementType": "all", "stylers": [{ "visibility": "simplified" }] },
-                { "featureType": "road.arterial", "elementType": "labels.icon", "stylers": [{ "visibility": "off" }] },
-                { "featureType": "transit", "elementType": "all", "stylers": [{ "visibility": "off" }] },
-                { "featureType": "water", "elementType": "all", "stylers": [{ "color": "#46bcec" }, { "visibility": "on" }] },
-                { "featureType": "water", "elementType": "geometry.fill", "stylers": [{ "color": "#c8d7d4" }] },
-                { "featureType": "water", "elementType": "labels.text.fill", "stylers": [{ "color": "#070707" }] },
-                { "featureType": "water", "elementType": "labels.text.stroke", "stylers": [{ "color": "#ffffff" }] }
-            ]
+            styles: isDark ? DARK_MAP_STYLES : LIGHT_MAP_STYLES
         });
 
         infoWindowRef.current = new window.google.maps.InfoWindow();
@@ -169,6 +192,15 @@ const ProfessionalMap = ({
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [items, onVisibleItemsChange]);
+
+    // Handle dynamic theme changes
+    useEffect(() => {
+        if (googleMapRef.current) {
+            googleMapRef.current.setOptions({
+                styles: isDark ? DARK_MAP_STYLES : LIGHT_MAP_STYLES
+            });
+        }
+    }, [isDark]);
 
     useEffect(() => {
         if (!googleMapRef.current || !window.google) return;
@@ -562,25 +594,31 @@ const ProfessionalMap = ({
             <div ref={mapRef} style={style} className="professional-map-container" />
             
             {/* Map Control Panel */}
-            <div style={{ position: 'absolute', bottom: '60px', right: '20px', background: 'white', padding: '10px', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', display: 'flex', flexDirection: 'column', gap: '8px', zIndex: 10, minWidth: '130px' }}>
-                <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '2px', letterSpacing: '0.5px' }}>Map Controls</div>
+            <div style={{ 
+                position: 'absolute', bottom: '60px', right: '20px', 
+                background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)', 
+                padding: '10px', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.3)', 
+                display: 'flex', flexDirection: 'column', gap: '8px', zIndex: 10, minWidth: '130px',
+                border: '1px solid var(--border-color)', color: 'var(--text-main)'
+            }}>
+                <div style={{ fontSize: '0.65rem', fontWeight: 800, color: isDark ? '#94a3b8' : '#94a3b8', textTransform: 'uppercase', marginBottom: '2px', letterSpacing: '0.5px' }}>Map Controls</div>
                 
-                <button onClick={() => toggleLayer('transit')} style={{ background: layerStates.transit ? '#eff6ff' : '#f8fafc', color: layerStates.transit ? '#2563eb' : '#475569', border: `1px solid ${layerStates.transit ? '#bfdbfe' : '#e2e8f0'}`, padding: '8px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s' }}>
+                <button onClick={() => toggleLayer('transit')} style={{ background: layerStates.transit ? (isDark ? 'rgba(37, 99, 235, 0.2)' : '#eff6ff') : (isDark ? 'rgba(255,255,255,0.05)' : '#f8fafc'), color: layerStates.transit ? (isDark ? '#60a5fa' : '#2563eb') : 'var(--text-main)', border: `1px solid ${layerStates.transit ? (isDark ? '#3b82f6' : '#bfdbfe') : 'var(--border-color)'}`, padding: '8px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s' }}>
                     <i className="fas fa-subway" style={{ width: '16px', textAlign: 'center' }}></i> Transit
                 </button>
                 
-                <button onClick={() => toggleLayer('traffic')} style={{ background: layerStates.traffic ? '#fef2f2' : '#f8fafc', color: layerStates.traffic ? '#dc2626' : '#475569', border: `1px solid ${layerStates.traffic ? '#fecaca' : '#e2e8f0'}`, padding: '8px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s' }}>
+                <button onClick={() => toggleLayer('traffic')} style={{ background: layerStates.traffic ? (isDark ? 'rgba(220, 38, 38, 0.2)' : '#fef2f2') : (isDark ? 'rgba(255,255,255,0.05)' : '#f8fafc'), color: layerStates.traffic ? (isDark ? '#f87171' : '#dc2626') : 'var(--text-main)', border: `1px solid ${layerStates.traffic ? (isDark ? '#ef4444' : '#fecaca') : 'var(--border-color)'}`, padding: '8px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s' }}>
                     <i className="fas fa-car" style={{ width: '16px', textAlign: 'center' }}></i> Traffic
                 </button>
                 
-                <div style={{ borderTop: '1px dashed #cbd5e1', margin: '4px 0' }}></div>
+                <div style={{ borderTop: '1px dashed var(--border-color)', margin: '4px 0' }}></div>
                 
-                <button onClick={() => toggleLayer('drawing')} style={{ background: layerStates.drawing ? '#eef2ff' : '#f8fafc', color: layerStates.drawing ? '#4f46e5' : '#475569', border: `1px solid ${layerStates.drawing ? '#c7d2fe' : '#e2e8f0'}`, padding: '8px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s' }}>
+                <button onClick={() => toggleLayer('drawing')} style={{ background: layerStates.drawing ? (isDark ? 'rgba(79, 70, 229, 0.2)' : '#eef2ff') : (isDark ? 'rgba(255,255,255,0.05)' : '#f8fafc'), color: layerStates.drawing ? (isDark ? '#818cf8' : '#4f46e5') : 'var(--text-main)', border: `1px solid ${layerStates.drawing ? (isDark ? '#6366f1' : '#c7d2fe') : 'var(--border-color)'}`, padding: '8px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s' }}>
                     <i className="fas fa-draw-polygon" style={{ width: '16px', textAlign: 'center' }}></i> Draw Area
                 </button>
                 
                 {drawnPolygonRef.current && (
-                    <button onClick={clearPolygon} style={{ background: '#fef2f2', color: '#991b1b', border: '1px solid #fecaca', padding: '8px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s', marginTop: '4px' }}>
+                    <button onClick={clearPolygon} style={{ background: isDark ? 'rgba(220, 38, 38, 0.15)' : '#fef2f2', color: isDark ? '#fca5a5' : '#991b1b', border: `1px solid ${isDark ? '#ef4444' : '#fecaca'}`, padding: '8px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s', marginTop: '4px' }}>
                         <i className="fas fa-times" style={{ width: '16px', textAlign: 'center' }}></i> Clear Area
                     </button>
                 )}
