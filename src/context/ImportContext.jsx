@@ -40,7 +40,8 @@ export const ImportProvider = ({ children }) => {
             status: 'running', // running, completed, error
             errors: [],
             successLogs: [],
-            stats: { success: 0, failed: 0, newCount: 0, updatedCount: 0 }
+            stats: { success: 0, failed: 0, newCount: 0, updatedCount: 0 },
+            startTime: Date.now()
         }]);
 
         // Helper to update state
