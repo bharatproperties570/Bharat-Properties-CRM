@@ -1379,11 +1379,13 @@ const ImportDataPage = () => {
 
                         <p style={{ color: 'var(--text-muted)', marginBottom: '32px' }}>
                             Successfully processed <strong>{importStats.success}</strong> records.
-                            <div style={{ marginTop: '8px', fontSize: '0.9rem' }}>
+                            <div style={{ marginTop: '8px', fontSize: '0.9rem', display: 'flex', gap: '20px', flexWrap: 'wrap', justifyContent: 'center' }}>
                                 <span style={{ color: '#16a34a' }}>• New Added: {importStats.newCount}</span>
-                                <span style={{ marginLeft: '20px', color: '#2563eb' }}>• Updated: {importStats.updatedCount}</span>
+                                <span style={{ color: '#2563eb' }}>• Updated: {importStats.updatedCount}</span>
+                                {importStats.failed > 0 && (
+                                    <span style={{ color: '#dc2626', fontWeight: 600 }}>• Failed: {importStats.failed}</span>
+                                )}
                             </div>
-                            {importStats.failed > 0 && <span> <strong>{importStats.failed}</strong> records could not be imported.</span>}
                         </p>
 
                         <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', borderBottom: '1px solid var(--border-color)' }}>

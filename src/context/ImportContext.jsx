@@ -65,7 +65,7 @@ export const ImportProvider = ({ children }) => {
                     data: chunk
                 };
 
-                const response = await api.post(endpoint, payload);
+                const response = await api.post(endpoint, payload, { timeout: 60000 });
 
                 if (response.data.success) {
                     const { successCount, errorCount, newCount, updatedCount, errors, successLogs } = response.data;
