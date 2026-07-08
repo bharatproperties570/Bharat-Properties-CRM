@@ -71,11 +71,15 @@ const AddressMasterSettingsPage = () => {
         if (showMoveModal && selectedIds.length > 0) {
             const item = getItemById(selectedIds[0]);
             if (item) {
-                const targetType = targetParentMap[item.lookup_type];
+                const targetType = targetParentMap[activeTab];
                 if (targetType) {
                     lookupsAPI.getByCategory(targetType).then(res => {
-                        setMoveTargetCandidates(res.data);
-                    }).catch(err => console.error("Failed to load move targets", err));
+                        if (res.data && res.data.status === 'success') {
+                            setMoveTargetCandidates(res.data.data || []);
+                        }
+                    }).catch(err => {
+                        console.error('Error fetching target candidates', err);
+                    });
                 }
             }
         }

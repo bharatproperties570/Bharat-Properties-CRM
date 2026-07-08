@@ -462,8 +462,8 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
                                 
                                 {imp.status === 'completed' && (
                                     <div style={{ fontSize: '0.8rem', color: '#16a34a', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                        <i className="fas fa-check-circle"></i> Completed ({imp.stats.success} added/updated
-                                        {imp.stats.failed > 0 && (
+                                        <i className="fas fa-check-circle"></i> Completed ({imp.stats?.success || 0} added/updated
+                                        {imp.stats?.failed > 0 && (
                                             <span style={{ color: '#dc2626' }}>, {imp.stats.failed} failed</span>
                                         )})
                                     </div>
