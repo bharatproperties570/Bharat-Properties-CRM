@@ -430,21 +430,42 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
                                     </button>
                                 </div>
                                 
-                                {imp.status === 'running' && (
-                                    <>
-                                        <div style={{ height: '6px', background: '#e2e8f0', borderRadius: '3px', overflow: 'hidden', marginBottom: '8px' }}>
-                                            <div style={{ height: '100%', width: `${imp.progress}%`, background: '#3b82f6', transition: 'width 0.3s' }}></div>
-                                        </div>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>
-                                            <span>{imp.processedRecords} / {imp.totalRecords}</span>
-                                            <span>{imp.progress}%</span>
-                                        </div>
-                                    </>
-                                )}
+                                {imp.status === 'running' && (() => {
+                                    const elapsed = Date.now() - (imp.startTime || Date.now());
+                                    let etaText = 'Calculating...';
+                                    if (imp.progress > 0 && imp.progress < 100) {
+                                        const totalEstimatedTime = (elapsed / imp.progress) * 100;
+                                        const remainingTime = totalEstimatedTime - elapsed;
+                                        const remainingSecs = Math.max(0, Math.ceil(remainingTime / 1000));
+                                        if (remainingSecs > 60) {
+                                            etaText = `${Math.ceil(remainingSecs / 60)} min remaining`;
+                                        } else {
+                                            etaText = `${remainingSecs} sec remaining`;
+                                        }
+                                    }
+
+                                    return (
+                                        <>
+                                            <div style={{ height: '6px', background: '#e2e8f0', borderRadius: '3px', overflow: 'hidden', marginBottom: '8px' }}>
+                                                <div style={{ height: '100%', width: `${imp.progress}%`, background: '#3b82f6', transition: 'width 0.3s' }}></div>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>
+                                                <span>{imp.processedRecords} / {imp.totalRecords}</span>
+                                                <span style={{ color: '#3b82f6' }}>{imp.progress}%</span>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'flex-end', fontSize: '0.75rem', color: '#64748b', marginTop: '4px' }}>
+                                                <span><i className="fas fa-clock"></i> {etaText}</span>
+                                            </div>
+                                        </>
+                                    );
+                                })()}
                                 
                                 {imp.status === 'completed' && (
                                     <div style={{ fontSize: '0.8rem', color: '#16a34a', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                        <i className="fas fa-check-circle"></i> Completed ({imp.stats.success} added/updated)
+                                        <i className="fas fa-check-circle"></i> Completed ({imp.stats.success} added/updated
+                                        {imp.stats.failed > 0 && (
+                                            <span style={{ color: '#dc2626' }}>, {imp.stats.failed} failed</span>
+                                        )})
                                     </div>
                                 )}
 
