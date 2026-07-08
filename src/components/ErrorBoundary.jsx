@@ -12,6 +12,17 @@ class ErrorBoundary extends React.Component {
 
     componentDidCatch(error, errorInfo) {
         console.error("Uncaught error:", error, errorInfo);
+        
+        // Auto-recover from chunk load errors (Vercel deployments)
+        const errString = (error?.message || error?.name || '').toLowerCase();
+        if (errString.includes('chunkloaderror') || errString.includes('dynamically imported module') || errString.includes('importing a module script failed')) {
+            const hasReloaded = typeof sessionStorage !== 'undefined' && sessionStorage.getItem('chunk_reload');
+            if (!hasReloaded) {
+                if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('chunk_reload', 'true');
+                window.location.href = window.location.origin + window.location.pathname + '?v=' + new Date().getTime();
+                return;
+            }
+        }
     }
 
     render() {
@@ -34,7 +45,18 @@ class ErrorBoundary extends React.Component {
                     </p>
                     {isWeb && (
                         <button
-                            onClick={() => window.location.reload()}
+                            onClick={() => {
+                                // Clear corrupted local filters but keep auth
+                                if (typeof localStorage !== 'undefined') {
+                                    Object.keys(localStorage).forEach(key => {
+                                        if (key.includes('Filters') || key.includes('columns') || key.includes('sortConfig')) {
+                                            localStorage.removeItem(key);
+                                        }
+                                    });
+                                }
+                                // Force hard reload bypassing cache
+                                window.location.href = window.location.origin + window.location.pathname + '?v=' + new Date().getTime();
+                            }}
                             style={{
                                 background: '#ef4444',
                                 color: 'white',
@@ -45,7 +67,7 @@ class ErrorBoundary extends React.Component {
                                 cursor: 'pointer'
                             }}
                         >
-                            Refresh Page
+                            Hard Refresh (Clear Cache)
                         </button>
                     )}
                     {(() => {
