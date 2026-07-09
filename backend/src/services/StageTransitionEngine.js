@@ -793,7 +793,8 @@ export const resolveTransition = async (activityType, outcome, reason = '', purp
     const rules = await loadTransitionRules();
     const activeRules = rules
         .filter(r => (r.isActive !== false && r.active !== false))
-        .sort((a, b) => (b.priority || 0) - (a.priority || 0));
+        // 🚀 [FIX] Sort by priority ASCENDING. 1 is highest priority and should be evaluated first.
+        .sort((a, b) => (a.priority || 99) - (b.priority || 99));
 
     const normalize = str => (str || '').toString().toLowerCase().trim().replace(/[-_/]/g, ' ').replace(/\s+/g, ' ');
     const actNorm = normalize(activityType);
@@ -809,17 +810,17 @@ export const resolveTransition = async (activityType, outcome, reason = '', purp
         const ruleResNorm = normalize(rule.reason);
         const rulePurpGroup = getPurposeGroup(rulePurpNorm);
 
-        // 1. Activity type match: exact or wildcard
-        const actMatch = ruleActNorm === '*' || ruleActNorm === actNorm;
+        // 1. Activity type match: exact or wildcard (handle legacy empty string as wildcard)
+        const actMatch = ruleActNorm === '*' || ruleActNorm === '' || ruleActNorm === actNorm;
 
         // 2. Purpose match: wildcard OR same group (semantic alias) OR exact
         const purpMatch = !rule.purpose || rulePurpNorm === '*' || rulePurpNorm === '' ||
                           rulePurpNorm === purpNorm ||
                           (purpGroup && rulePurpGroup && purpGroup === rulePurpGroup);
 
-        // 3. Outcome match: wildcard OR exact OR safe alias table
+        // 3. Outcome match: wildcard OR exact OR safe alias table (handle legacy empty string as wildcard)
         //    ⚠️ NO .includes() — prevents "Not Interested".includes("Interested") false positives
-        const outMatch = matchOutcome(outNorm, ruleOutNorm);
+        const outMatch = matchOutcome(outNorm, ruleOutNorm) || ruleOutNorm === '';
 
         // 4. Reason match: wildcard OR exact OR safe partial (reason is a sub-label, partial ok)
         const resMatch = ruleResNorm === '*' || !rule.reason || ruleResNorm === '' ||

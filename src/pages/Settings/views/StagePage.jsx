@@ -218,7 +218,18 @@ const AddRuleModal = ({ activityMasterFields, onSave, onClose }) => {
                     <button onClick={onClose} style={{ padding: '10px 20px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-main)', fontWeight: 600, cursor: 'pointer' }}>
                         Cancel
                     </button>
-                    <button disabled={!canSave} onClick={() => { onSave({ activityType, purpose, outcome, reason: reason || '*', stage, priority: parseInt(priority) || 1, requiredForms }); onClose(); }}
+                    <button disabled={!canSave} onClick={() => { 
+                        onSave({ 
+                            activityType: activityType || '*', 
+                            purpose: purpose || '*', 
+                            outcome: outcome || '*', 
+                            reason: reason || '*', 
+                            stage, 
+                            priority: parseInt(priority) || 1, 
+                            requiredForms 
+                        }); 
+                        onClose(); 
+                    }}
                         style={{ padding: '10px 24px', background: canSave ? '#6366f1' : 'var(--border-color)', color: canSave ? 'var(--bg-card)' : 'var(--text-muted)', borderRadius: '8px', border: 'none', fontWeight: 700, cursor: canSave ? 'pointer' : 'not-allowed' }}>
                         <i className="fas fa-plus" style={{ marginRight: '8px' }} />
                         Add Rule
