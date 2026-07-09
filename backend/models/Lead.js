@@ -126,7 +126,7 @@ const LeadSchema = new mongoose.Schema({
     leadScore: { type: Number, default: 0, min: 0, max: 100 }, // Final authoritative score (backend-only)
     activityScore: { type: Number, default: 0, min: 0, max: 100 }, // Activity-driven component (no double-count with enrichment)
     decay_score: { type: Number, default: 0, min: 0, max: 50 }, // Accumulated inactivity penalty (cron-managed, NOT intent_index)
-    scoreBreakdown: { type: mongoose.Schema.Types.Mixed, default: null }, // Explainability: { staticBase, activityScore, sourceScore, fitScore, decayPenalty, stageMultiplier, temperature, intent }
+    scoreBreakdown: { type: Object, default: {} }, // Explainability: { staticBase, activityScore, sourceScore, fitScore, decayPenalty, stageMultiplier, temperature, intent }
     ai_intent_summary: { type: String },
     ai_closing_probability: { type: Number, min: 0, max: 100 },
 
