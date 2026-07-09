@@ -9,7 +9,7 @@ const StageTransitionLogSchema = new mongoose.Schema({
     reason: { type: String, default: '' },
     status: { 
         type: String, 
-        enum: ['matched', 'no_rule', 'missing_fields', 'already_in_stage', 'regression_blocked'], 
+        enum: ['pending', 'success', 'matched', 'no_rule', 'missing_fields', 'already_in_stage', 'regression_blocked'], 
         required: true 
     },
     matchedRuleId: { type: String, default: null },
