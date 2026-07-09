@@ -249,8 +249,15 @@ AuditLogSchema.statics.logDataTransfer = async function (fromUserId, toUserId, a
 };
 
 // Log generic entity update (tracking previous and new values)
+// ✅ [BUG FIX] Uses mongoose.model('User') to avoid undefined User reference (was causing silent ReferenceError)
 AuditLogSchema.statics.logEntityUpdate = async function (eventType, targetType, targetId, targetName, userId, changes, description) {
-    const user = userId ? await User.findById(userId).select('fullName email department') : null;
+    let user = null;
+    if (userId) {
+        try {
+            const UserModel = mongoose.model('User');
+            user = await UserModel.findById(userId).select('fullName email department').lean();
+        } catch (_) { /* User lookup non-critical */ }
+    }
     const department = user?.department;
 
     return this.create({

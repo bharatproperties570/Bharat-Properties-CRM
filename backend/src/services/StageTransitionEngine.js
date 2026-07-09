@@ -580,12 +580,13 @@ export const DEFAULT_STAGE_RULES = [
     // ══════════════════════════════════════════════════════════
 
     {
+        // 🚀 [BUG FIX] Was 'Negotiation' — corrected to 'Booked'
         id: 'any_booking_done',
         activityType: '*',
         purpose: '*',
         outcome: 'Booking Done',
         reason: '*',
-        newStage: 'Negotiation',
+        newStage: 'Booked',
         requiredForms: ['Quotation Form', 'Offer Form'],
         priority: 50,
         active: true,
@@ -616,6 +617,7 @@ export const DEFAULT_STAGE_RULES = [
         description: 'Any Activity → Lost to Competitor → Closed Lost'
     },
     {
+        // 🚀 [BUG FIX] Description corrected: moves to 'Closed' (was incorrectly saying 'Dormant')
         id: 'any_not_interested_global',
         activityType: '*',
         purpose: '*',
@@ -623,9 +625,9 @@ export const DEFAULT_STAGE_RULES = [
         reason: '*',
         newStage: 'Closed',
         requiredForms: [],
-        priority: 9, // Lowest among specific Not Interested rules, but acts as catch-all
+        priority: 9, // Lowest catch-all — specific Not Interested rules take precedence
         active: true,
-        description: 'System Rule: Any Activity with Not Interested outcome moves to Dormant'
+        description: 'System Rule: Any Activity with Not Interested outcome moves to Closed'
     },
     // ══════════════════════════════════════════════════════════
     //  REVIVAL RULES (Dormant → Prospect)
@@ -693,6 +695,63 @@ export const invalidateRulesCache = () => {
  * @param {string} [reason] - e.g. 'Shortlisted'
  * @returns {Promise<{ matched: boolean, rule: Object|null }>}
  */
+// ━━ PURPOSE ALIAS GROUPS — Semantic matching for flexible purpose names ━━━━━━━
+// Maps user-facing purpose strings to canonical group names.
+// Any purpose string containing any of the listed keywords maps to that group.
+const PURPOSE_ALIAS_GROUPS = {
+    SITE_VISIT:   ['site visit', 'property tour', 're visit', 'revisit', 're-visit',
+                   'second visit', 'family visit', 'site revisit', 'property revisit',
+                   'visit with', 'property visit'],
+    INTRO_CALL:   ['introduction', 'intro call', 'first contact', 'initial call',
+                   'cold call', 'first call'],
+    FOLLOW_UP:    ['follow up', 'followup', 'follow-up', 'callback',
+                   'call back', 'scheduled callback'],
+    NEGOTIATION:  ['price discussion', 'negotiation', 'offer discussion',
+                   'final offer', 'closing discussion', 'negotiation meeting'],
+    MEETING:      ['meeting', 'product presentation', 'demo', 'presentation',
+                   'walkthrough', 'webinar'],
+};
+
+const getPurposeGroup = (purposeStr) => {
+    const p = (purposeStr || '').toLowerCase().trim();
+    for (const [group, keywords] of Object.entries(PURPOSE_ALIAS_GROUPS)) {
+        if (keywords.some(k => p.includes(k) || k.includes(p))) return group;
+    }
+    return p; // fallback: use raw normalised string
+};
+
+// ━━ SAFE OUTCOME ALIASES — exact synonyms that should match the same rule ━━━━━
+// Prevents dangerous substring match ("Not Interested".includes("Interested") = true)
+const OUTCOME_EXACT_ALIASES = {
+    'not connected': ['no answer', 'no-answer', 'busy', 'missed', 'switched off',
+                      'not reachable', 'unreachable', 'failed'],
+    'connected':     ['picked up', 'answered'],
+    'very interested': ['highly interested', 'very keen', 'extremely interested'],
+    'shortlisted':   ['short listed', 'finalized', 'finalised'],
+    'booking done':  ['booked', 'token paid', 'advance paid', 'allotment done'],
+    'deal closed':   ['closed won', 'won'],
+    'not interested': ['rejected', 'declined', 'no interest'],
+};
+
+const matchOutcome = (outNorm, ruleOutNorm) => {
+    if (ruleOutNorm === '*') return true;
+    if (outNorm === '') return false;
+    // 1. Exact match (primary — safest)
+    if (ruleOutNorm === outNorm) return true;
+    // 2. Alias match (rule outcome → check if actual outcome is an alias)
+    const aliases = OUTCOME_EXACT_ALIASES[ruleOutNorm] || [];
+    if (aliases.includes(outNorm)) return true;
+    // 3. Reverse alias match (actual outcome → check if rule outcome is an alias)
+    for (const [canonical, aliasList] of Object.entries(OUTCOME_EXACT_ALIASES)) {
+        if (aliasList.includes(outNorm) && canonical === ruleOutNorm) return true;
+    }
+    return false;
+};
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const DEBUG_STAGE = process.env.STAGE_ENGINE_DEBUG === 'true';
+const debugLog = (...args) => { if (DEBUG_STAGE) console.log(...args); };
+
 export const resolveTransition = async (activityType, outcome, reason = '', purpose = '') => {
     const rules = await loadTransitionRules();
     const activeRules = rules
@@ -704,39 +763,44 @@ export const resolveTransition = async (activityType, outcome, reason = '', purp
     const outNorm = normalize(outcome);
     const resNorm = normalize(reason);
     const purpNorm = normalize(purpose);
+    const purpGroup = getPurposeGroup(purpNorm);
 
     for (const rule of activeRules) {
         const ruleActNorm = normalize(rule.activityType);
         const rulePurpNorm = normalize(rule.purpose);
         const ruleOutNorm = normalize(rule.outcome);
         const ruleResNorm = normalize(rule.reason);
+        const rulePurpGroup = getPurposeGroup(rulePurpNorm);
 
-        // Standard Match: Exact or wildcard
+        // 1. Activity type match: exact or wildcard
         const actMatch = ruleActNorm === '*' || ruleActNorm === actNorm;
-        
-        // Purpose match
+
+        // 2. Purpose match: wildcard OR same group (semantic alias) OR exact
         const purpMatch = !rule.purpose || rulePurpNorm === '*' || rulePurpNorm === '' ||
-                          rulePurpNorm === purpNorm || (purpNorm && purpNorm.includes(rulePurpNorm)) ||
-                          (purpNorm && rulePurpNorm.includes(purpNorm));
-        
-        // Outcome match
-        const outMatch = ruleOutNorm === '*' || 
-                         (outNorm !== '' && (ruleOutNorm === outNorm || outNorm.includes(ruleOutNorm) || ruleOutNorm.includes(outNorm))) ||
-                         (ruleOutNorm === 'not connected' && outNorm !== '' && (outNorm.includes('no answer') || outNorm.includes('busy') || outNorm.includes('missed') || outNorm.includes('no-answer')));
-        
-        // Reason match
+                          rulePurpNorm === purpNorm ||
+                          (purpGroup && rulePurpGroup && purpGroup === rulePurpGroup);
+
+        // 3. Outcome match: wildcard OR exact OR safe alias table
+        //    ⚠️ NO .includes() — prevents "Not Interested".includes("Interested") false positives
+        const outMatch = matchOutcome(outNorm, ruleOutNorm);
+
+        // 4. Reason match: wildcard OR exact OR safe partial (reason is a sub-label, partial ok)
         const resMatch = ruleResNorm === '*' || !rule.reason || ruleResNorm === '' ||
-                         resNorm === ruleResNorm || (resNorm && resNorm.includes(ruleResNorm));
-        
+                         resNorm === ruleResNorm ||
+                         (resNorm && resNorm.startsWith(ruleResNorm)) ||
+                         (ruleResNorm && ruleResNorm.startsWith(resNorm));
+
         const isMatch = actMatch && purpMatch && outMatch && resMatch;
-        console.log(`[StageEngine] Rule ${rule.id || 'unnamed'}: ${isMatch ? '✅ MATCH' : '❌ FAIL'} | Details: Act=${actMatch}, Purp=${purpMatch}, Out=${outMatch}, Res=${resMatch}`);
+        // Only log per-rule detail in debug mode (set STAGE_ENGINE_DEBUG=true in .env)
+        debugLog(`[StageEngine] Rule ${rule.id || 'unnamed'}: ${isMatch ? '✅ MATCH' : '❌ FAIL'} | Act=${actMatch} Purp=${purpMatch} Out=${outMatch} Res=${resMatch}`);
 
         if (isMatch) {
+            console.log(`[StageEngine] ✅ Matched Rule: ${rule.id} for Act=${actNorm}, Purp=${purpNorm}, Out=${outNorm}`);
             return { matched: true, rule };
         }
     }
 
-    console.log(`[StageEngine] ❌ Final: No match for Act=${actNorm}, Purp=${purpNorm}, Out=${outNorm}, Res=${resNorm}`);
+    console.log(`[StageEngine] ❌ No match for Act=${actNorm}, Purp=${purpNorm}, Out=${outNorm}, Res=${resNorm}`);
     return { matched: false, rule: null };
 };
 
@@ -931,8 +995,9 @@ export const executeTransition = async (leadId, newStageName, options = {}) => {
  * @returns {Promise<Object>} transition result
  */
 export const evaluateAndTransition = async (leadId, activityType, outcome, reason, stageFormData = {}, context = {}) => {
-    // 🚀 STABILITY FIX: Always invalidate in-memory cache for real-time rule accuracy
-    invalidateRulesCache();
+    // ✅ [BUG FIX] Removed invalidateRulesCache() — it was wiping cache before every evaluation,
+    // causing 2 extra MongoDB queries per activity (cache always missed).
+    // Cache is now invalidated only when admin saves rules via the settings page.
     
     let finalOutcome = outcome;
     const purpose = context.purpose || '';
