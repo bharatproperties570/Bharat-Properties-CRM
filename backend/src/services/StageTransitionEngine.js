@@ -400,6 +400,18 @@ export const DEFAULT_STAGE_RULES = [
         active: true
     },
     {
+        // 🚀 [FIX] Wildcard purpose — matches "Re Visit (with family)", etc.
+        id: 'sv_very_interested_any_purpose',
+        activityType: 'Site Visit',
+        purpose: '*',
+        outcome: 'Very Interested',
+        reason: '*',
+        newStage: 'Negotiation',
+        requiredForms: ['Requirement Form', 'Site Visit Form', 'Quotation Form'],
+        priority: 24,
+        active: true
+    },
+    {
         id: 'sv_shortlisted',
         activityType: 'Site Visit',
         purpose: '*',
@@ -411,9 +423,59 @@ export const DEFAULT_STAGE_RULES = [
         active: true
     },
     {
+        // 🚀 [FIX] "Somewhat Interested" outcome — move to Qualified stage
+        id: 'sv_somewhat_interested',
+        activityType: 'Site Visit',
+        purpose: '*',
+        outcome: 'Somewhat Interested',
+        reason: '*',
+        newStage: 'Qualified',
+        requiredForms: ['Requirement Form'],
+        priority: 25,
+        active: true
+    },
+    {
+        // 🚀 [FIX] "Conducted" outcome — Site Visit happened, move to Opportunity
+        // Covers: visit completed but no specific interest level marked
+        id: 'sv_conducted',
+        activityType: 'Site Visit',
+        purpose: '*',
+        outcome: 'Conducted',
+        reason: '*',
+        newStage: 'Opportunity',
+        requiredForms: ['Requirement Form'],
+        priority: 23,
+        active: true,
+        description: 'Site Visit Conducted (any purpose) → Opportunity — covers Re-Visit, Property Tour, etc.'
+    },
+    {
+        // 🚀 [FIX] "Will Think" outcome after site visit — stay engaged at Qualified
+        id: 'sv_will_think',
+        activityType: 'Site Visit',
+        purpose: '*',
+        outcome: 'Will Think',
+        reason: '*',
+        newStage: 'Qualified',
+        requiredForms: [],
+        priority: 23,
+        active: true
+    },
+    {
+        // 🚀 [FIX] "Second Visit Requested" / "Re-Visit" — move to Opportunity
+        id: 'sv_revisit_requested',
+        activityType: 'Site Visit',
+        purpose: '*',
+        outcome: 'Second Visit',
+        reason: '*',
+        newStage: 'Opportunity',
+        requiredForms: ['Site Visit Form'],
+        priority: 25,
+        active: true
+    },
+    {
         id: 'sv_not_interested_price',
         activityType: 'Site Visit',
-        purpose: 'Property Tour',
+        purpose: '*',
         outcome: 'Not Interested',
         reason: 'Price High',
         newStage: 'Closed',
@@ -424,7 +486,7 @@ export const DEFAULT_STAGE_RULES = [
     {
         id: 'sv_not_interested_location',
         activityType: 'Site Visit',
-        purpose: 'Property Tour',
+        purpose: '*',
         outcome: 'Not Interested',
         reason: 'Location Mismatch',
         newStage: 'Closed',
