@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react';
+import confetti from 'canvas-confetti';
 import { activitiesAPI, safeStorage } from '../utils/api';
 
 const ActivityContext = createContext();
@@ -89,6 +90,19 @@ export const ActivityProvider = ({ children }) => {
             if (response.success) {
                 // Fetch again to ensure consistency or local update
                 setActivities(prev => [response.data, ...prev]);
+                
+                // Real-time animation and data sync if stage changed
+                if (response.transition?.stageChanged) {
+                    confetti({
+                        particleCount: 150,
+                        spread: 70,
+                        origin: { y: 0.6 },
+                        colors: ['#10b981', '#3b82f6', '#f59e0b']
+                    });
+                    // Tell the app that a stage was updated so pages can auto-refresh
+                    window.dispatchEvent(new CustomEvent('STAGE_UPDATED', { detail: { newStage: response.transition.newStage } }));
+                }
+
                 return response.data;
             } else {
                 console.error('[ActivityContext] backend returned success: false', response);
@@ -106,6 +120,19 @@ export const ActivityProvider = ({ children }) => {
                 setActivities(prev => prev.map(activity =>
                     activity._id === id ? response.data : activity
                 ));
+
+                // Real-time animation and data sync if stage changed
+                if (response.transition?.stageChanged) {
+                    confetti({
+                        particleCount: 150,
+                        spread: 70,
+                        origin: { y: 0.6 },
+                        colors: ['#10b981', '#3b82f6', '#f59e0b']
+                    });
+                    // Tell the app that a stage was updated so pages can auto-refresh
+                    window.dispatchEvent(new CustomEvent('STAGE_UPDATED', { detail: { newStage: response.transition.newStage } }));
+                }
+
                 return response.data;
             }
         } catch (error) {

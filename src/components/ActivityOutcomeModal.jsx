@@ -4,6 +4,7 @@ import { useActivities } from '../context/ActivityContext';
 import { useTriggers } from '../context/TriggersContext';
 import StageTransitionModal from './StageTransitionModal';
 import { activitiesAPI } from '../utils/api';
+import confetti from 'canvas-confetti';
 
 
 /**
@@ -128,6 +129,14 @@ const ActivityOutcomeModal = ({ isOpen, onClose, activity }) => {
             // Stage changed (or no change needed) — show result
             if (data.stageChanged) {
                 showToast(`✅ Stage → ${data.newStage} | Score: ${data.score ?? '—'}`);
+                
+                confetti({
+                    particleCount: 150,
+                    spread: 70,
+                    origin: { y: 0.6 },
+                    colors: ['#10b981', '#3b82f6', '#f59e0b']
+                });
+                window.dispatchEvent(new CustomEvent('STAGE_UPDATED', { detail: { newStage: data.newStage } }));
 
                 // ── Enterprise: Fire Trigger Event with Source Stamp ──────────────────
                 // triggeredBy: 'stage_engine' tells TriggerEngine this is an AUTOMATED

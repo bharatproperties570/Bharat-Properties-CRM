@@ -533,7 +533,8 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
             'contact-updated', 
             'deal-updated', 
             'inventory-updated',
-            'note-added'
+            'note-added',
+            'STAGE_UPDATED'
         ];
 
         syncEvents.forEach(evt => window.addEventListener(evt, handleRefresh));

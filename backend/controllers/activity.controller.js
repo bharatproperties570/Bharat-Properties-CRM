@@ -299,8 +299,11 @@ const autoTriggerStageChange = async (activity, userId = null) => {
         if (transition.stageChanged) {
             console.log(`[StageAlignment] Lead ${leadId} moved: ${transition.prevStage} → ${transition.newStage}`);
         }
+        
+        return transition;
     } catch (err) {
         console.error('[ActivityController] autoTriggerStageChange failed:', err.message);
+        return null;
     }
 };
 
@@ -823,8 +826,9 @@ export const addActivity = async (req, res) => {
         }
 
         // Bug 6 Fix: Auto-trigger stage change based on activity outcome mapping
+        let transition = null;
         if (activity.entityType?.toLowerCase() === 'lead' && activity.status?.toLowerCase() === 'completed') {
-            await autoTriggerStageChange(activity, req.user?.id || req.user?._id || activity.assignedTo || null);
+            transition = await autoTriggerStageChange(activity, req.user?.id || req.user?._id || activity.assignedTo || null);
         }
 
         // Create Notification if assigned to a user
@@ -842,7 +846,7 @@ export const addActivity = async (req, res) => {
         // Sync to Google Calendar
         googleSyncQueue.add('syncEvent', { activityId: activity._id }).catch(() => { });
 
-        res.status(201).json({ success: true, data: activity });
+        res.status(201).json({ success: true, data: activity, transition });
     } catch (error) {
         res.status(400).json({ success: false, error: error.message });
     }
@@ -900,14 +904,15 @@ export const updateActivity = async (req, res) => {
         }
 
         // Bug 6 Fix: Auto-trigger stage change based on activity outcome mapping
+        let transition = null;
         if (activity.entityType?.toLowerCase() === 'lead' && activity.status?.toLowerCase() === 'completed') {
-            await autoTriggerStageChange(activity, req.user?.id || req.user?._id || activity.assignedTo || null);
+            transition = await autoTriggerStageChange(activity, req.user?.id || req.user?._id || activity.assignedTo || null);
         }
 
         // Sync to Google Calendar
         googleSyncQueue.add('syncEvent', { activityId: activity._id }).catch(() => { });
 
-        res.json({ success: true, data: activity });
+        res.json({ success: true, data: activity, transition });
     } catch (error) {
         res.status(400).json({ success: false, error: error.message });
     }
