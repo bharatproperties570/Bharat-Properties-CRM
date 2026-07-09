@@ -145,8 +145,12 @@ const ActivityOutcomeModal = ({ isOpen, onClose, activity }) => {
                     previousValue: data.prevStage,
                     currentValue: data.newStage
                 });
+            } else if (data.blocked) {
+                showToast(`🚫 Stage Blocked: ${data.reason}`, 'error');
             } else if (data.skippedStage) {
                 showToast(`ℹ️ Activity completed. No stage change needed.`);
+            } else if (data.reason === 'No matching transition rule found') {
+                showToast(`ℹ️ Activity completed. No rules configured for outcome '${outcome}'.`, 'info');
             }
 
             // Dispatch global event for list refresh

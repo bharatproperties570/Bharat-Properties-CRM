@@ -31,6 +31,7 @@ import Lookup from '../../models/Lookup.js';
 import SystemSetting from '../modules/systemSettings/system.model.js';
 import RevivalSyncService from './RevivalSyncService.js';
 import AuditLog from '../../models/AuditLog.js';
+import StageTransitionLog from '../../models/StageTransitionLog.js';
 
 const escapeRegExp = (string) => {
     if (!string) return '';
@@ -473,6 +474,42 @@ export const DEFAULT_STAGE_RULES = [
         active: true
     },
     {
+        id: 'sv_cancelled',
+        activityType: 'Site Visit',
+        purpose: '*',
+        outcome: 'Visit Cancelled',
+        reason: '*',
+        newStage: 'Prospect',
+        requiredForms: [],
+        priority: 15,
+        active: true,
+        description: 'Site Visit → Cancelled → Return to Prospect (Regression guard will protect Opportunity)'
+    },
+    {
+        id: 'sv_no_show',
+        activityType: 'Site Visit',
+        purpose: '*',
+        outcome: 'No Show',
+        reason: '*',
+        newStage: 'Prospect',
+        requiredForms: [],
+        priority: 15,
+        active: true,
+        description: 'Site Visit → No Show → Return to Prospect (Regression guard will protect Opportunity)'
+    },
+    {
+        id: 'sv_rescheduled',
+        activityType: 'Site Visit',
+        purpose: '*',
+        outcome: 'Rescheduled',
+        reason: '*',
+        newStage: 'Prospect',
+        requiredForms: [],
+        priority: 15,
+        active: true,
+        description: 'Site Visit → Rescheduled → Return to Prospect (Regression guard will protect Opportunity)'
+    },
+    {
         id: 'sv_not_interested_price',
         activityType: 'Site Visit',
         purpose: '*',
@@ -878,6 +915,21 @@ export const executeTransition = async (leadId, newStageName, options = {}) => {
         return { success: true, prevStage: prevStageName, newStage: newStageName, skipped: true };
     }
 
+    // 🚀 [FEATURE] Stage Regression Guard (Forward-only enforcement)
+    const STAGE_ORDER = {
+        'incoming': 0, 'prospect': 1, 'qualified': 2,
+        'opportunity': 3, 'negotiation': 4, 'booked': 5, 'closed': 6
+    };
+
+    const currentOrder = STAGE_ORDER[prevStageName.toLowerCase()] ?? -1;
+    const targetOrder = STAGE_ORDER[newStageName.toLowerCase()] ?? -1;
+
+    // Block if trying to move backward, unless triggered by manual_override
+    if (targetOrder > -1 && currentOrder > -1 && targetOrder < currentOrder && triggeredBy !== 'manual_override') {
+        console.warn(`[StageEngine] Regression blocked: ${prevStageName} → ${newStageName}`);
+        return { success: false, blocked: true, reason: 'Stage regression not allowed', prevStage: prevStageName, newStage: newStageName };
+    }
+
     // Handle terminal states properly for Mobile/Backend auto-triggers
     let targetStageName = newStageName;
     let targetStatusName = null;
@@ -938,6 +990,18 @@ export const executeTransition = async (leadId, newStageName, options = {}) => {
         $push: { stageHistory: historyEntry }
     };
     
+    // 🚀 [BUG FIX] Update previous stageHistory entry with exitedAt and daysInStage
+    if (lead.stageHistory && lead.stageHistory.length > 0) {
+        const lastIndex = lead.stageHistory.length - 1;
+        const lastEntry = lead.stageHistory[lastIndex];
+        if (!lastEntry.exitedAt) {
+            const enteredAt = lastEntry.enteredAt || lead.createdAt;
+            const daysInStage = Math.max(0, Math.floor((now - new Date(enteredAt)) / (1000 * 60 * 60 * 24)));
+            updatePayload[`stageHistory.${lastIndex}.exitedAt`] = now;
+            updatePayload[`stageHistory.${lastIndex}.daysInStage`] = daysInStage;
+        }
+    }
+
     if (newStatusId) {
         updatePayload.status = newStatusId;
     }
@@ -1032,6 +1096,22 @@ export const evaluateAndTransition = async (leadId, activityType, outcome, reaso
 
     if (!matched) {
         console.log(`[StageEngine] ℹ️ No matching rule for ${activityType}/${finalOutcome}`);
+        
+        // 🚀 [FEATURE] Log failure to StageTransitionLog
+        try {
+            await StageTransitionLog.create({
+                leadId,
+                activityId: context.activityId,
+                activityType,
+                purpose,
+                outcome: finalOutcome,
+                reason,
+                status: 'no_rule',
+                failureReason: `No matching rule for ${activityType}/${finalOutcome}`,
+                triggeredByUser: context.triggeredByUser
+            });
+        } catch (_) {}
+
         return {
             stageChanged: false,
             reason: 'No matching transition rule found',
@@ -1055,6 +1135,15 @@ export const evaluateAndTransition = async (leadId, activityType, outcome, reaso
         const lead = await Lead.findById(leadId).lean();
         const { valid, missingFields } = validateRequiredFields(lead, leadRequiredFields, stageFormData);
         if (!valid) {
+            // 🚀 [FEATURE] Log blocked attempt
+            try {
+                await StageTransitionLog.create({
+                    leadId, activityId: context.activityId, activityType, purpose, outcome: finalOutcome, reason,
+                    status: 'missing_fields', matchedRuleId: rule.id, newStage: rule.newStage,
+                    failureReason: `Missing required fields: ${missingFields.join(', ')}`, triggeredByUser: context.triggeredByUser
+                });
+            } catch (_) {}
+
             return {
                 stageChanged: false,
                 requiresForm: true,
@@ -1094,7 +1183,6 @@ export const evaluateAndTransition = async (leadId, activityType, outcome, reaso
                 }
             }
 
-            // Case 3: Check if it was just provided in this context
             const completedInContext = (context.completedForms || []).includes(formName);
             if (completedInContext) continue;
 
@@ -1128,6 +1216,15 @@ export const evaluateAndTransition = async (leadId, activityType, outcome, reaso
 
             // Deduplicate
             const uniqueMissingFields = [...new Set(derivedMissingFields)];
+
+            // 🚀 [FEATURE] Log blocked attempt due to forms
+            try {
+                await StageTransitionLog.create({
+                    leadId, activityId: context.activityId, activityType, purpose, outcome: finalOutcome, reason,
+                    status: 'missing_fields', matchedRuleId: rule.id, newStage: rule.newStage,
+                    failureReason: `Missing required forms: ${missingForms.join(', ')}`, triggeredByUser: context.triggeredByUser
+                });
+            } catch (_) {}
 
             return {
                 stageChanged: false,
