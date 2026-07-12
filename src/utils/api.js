@@ -521,6 +521,11 @@ export const projectsAPI = {
     delete: (id) => apiRequest(`/projects/${id}`, { method: 'DELETE' }),
 };
 
+// Analytics API
+export const analyticsAPI = {
+    getStageDensity: (timeframe = 'all') => apiRequest('/analytics/stage-density', { params: { timeframe } })
+};
+
 // Deals API
 export const dealsAPI = {
     getAll: (params) => apiRequest('/deals', { params }),
@@ -703,5 +708,6 @@ export default {
     aiSettings: aiSettingsAPI,
     conversations: conversationAPI,
     social: socialAPI,
-    stageEngine: stageEngineAPI
+    stageEngine: stageEngineAPI,
+    analytics: analyticsAPI
 };

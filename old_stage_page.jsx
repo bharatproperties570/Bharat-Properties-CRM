@@ -1,5 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import api from '../../../utils/api.js';
+import React, { useState, useMemo } from 'react';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import Toast from '../../../components/Toast';
 import {
@@ -45,58 +44,6 @@ const StagePill = ({ stage, size = 'md' }) => {
     );
 };
 
-const AVAILABLE_FORMS = [
-    'Requirement Form',
-    'Meetings Form',
-    'Quotation Form',
-    'Offer Form',
-    'Booking Form',
-    'KYC Form',
-    'Site Visit Form'
-];
-
-const formatStatus = (type, val) => {
-    if (type === 'Call' && val === 'Connected') return 'Answered';
-    return val;
-};
-
-const MultiSelectForms = ({ selectedForms, onChange }) => {
-    return (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-            {AVAILABLE_FORMS.map(form => {
-                const isSelected = selectedForms.includes(form);
-                return (
-                    <button
-                        key={form}
-                        onClick={(e) => {
-                            e.preventDefault();
-                            if (isSelected) {
-                                onChange(selectedForms.filter(f => f !== form));
-                            } else {
-                                onChange([...selectedForms, form]);
-                            }
-                        }}
-                        style={{
-                            padding: '4px 10px',
-                            borderRadius: '16px',
-                            border: `1px solid ${isSelected ? '#6366f1' : '#e5e7eb'}`,
-                            background: isSelected ? '#6366f115' : '#fff',
-                            color: isSelected ? '#6366f1' : '#475569',
-                            fontWeight: 600,
-                            fontSize: '11px',
-                            cursor: 'pointer',
-                            transition: 'all 0.2s'
-                        }}
-                    >
-                        {isSelected && <i className="fas fa-check" style={{ marginRight: '4px' }} />}
-                        {form}
-                    </button>
-                );
-            })}
-        </div>
-    );
-};
-
 // ─────────────────────────────────────────────
 // Add Override Rule Modal
 // ─────────────────────────────────────────────
@@ -104,38 +51,15 @@ const MultiSelectForms = ({ selectedForms, onChange }) => {
 const AddRuleModal = ({ activityMasterFields, onSave, onClose }) => {
     const [activityType, setActivityType] = useState('');
     const [purpose, setPurpose] = useState('');
-    const [status, setStatus] = useState('');
     const [outcome, setOutcome] = useState('');
     const [stage, setStage] = useState('Prospect');
     const [priority, setPriority] = useState('1');
-    const [requiredForms, setRequiredForms] = useState([]);
 
     const activities = activityMasterFields?.activities || [];
     const purposes = activities.find(a => a.name === activityType)?.purposes || [];
     const outcomes = purposes.find(p => p.name === purpose)?.outcomes || [];
 
-    const getStatusOptions = (type) => {
-        if (type === 'Call')       return [{label:'Answered', value:'Connected'}, {label:'No Answer', value:'No Answer'}, {label:'Busy', value:'Busy'}, {label:'Wrong Number', value:'Wrong Number'}, {label:'Left Voicemail', value:'Left Voicemail'}];
-        if (type === 'Meeting')    return [{label:'Conducted', value:'Conducted'}, {label:'Rescheduled', value:'Rescheduled'}, {label:'Cancelled', value:'Cancelled'}, {label:'No Show', value:'No Show'}];
-        if (type === 'Site Visit') return [{label:'Conducted', value:'Conducted'}, {label:'Rescheduled', value:'Rescheduled'}, {label:'Cancelled', value:'Cancelled'}, {label:'Did Not Visit', value:'Did Not Visit'}];
-        if (type === 'Email')      return [{label:'Sent', value:'Sent'}, {label:'Delivered', value:'Delivered'}, {label:'Read', value:'Read'}, {label:'Replied', value:'Replied'}, {label:'Bounced', value:'Bounced'}, {label:'Undelivered', value:'Undelivered'}];
-        if (type)                  return [{label:'Completed', value:'Completed'}, {label:'Cancelled', value:'Cancelled'}];
-        
-        return [
-            {label:'Completed', value:'Completed'}, {label:'Conducted', value:'Conducted'}, 
-            {label:'Cancelled', value:'Cancelled'}, {label:'Rescheduled', value:'Rescheduled'}, 
-            {label:'No Show', value:'No Show'}, {label:'Answered', value:'Connected'}, 
-            {label:'No Answer', value:'No Answer'}, {label:'Busy', value:'Busy'}, 
-            {label:'Wrong Number', value:'Wrong Number'}, {label:'Left Voicemail', value:'Left Voicemail'}, 
-            {label:'Did Not Visit', value:'Did Not Visit'}, {label:'Sent', value:'Sent'}, 
-            {label:'Delivered', value:'Delivered'}, {label:'Read', value:'Read'}, 
-            {label:'Replied', value:'Replied'}, {label:'Bounced', value:'Bounced'}, 
-            {label:'Undelivered', value:'Undelivered'}
-        ];
-    };
-
-
-    const canSave = stage && (activityType || purpose || status || outcome);
+    const canSave = stage && (activityType || purpose || outcome);
 
     return (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
@@ -173,19 +97,9 @@ const AddRuleModal = ({ activityMasterFields, onSave, onClose }) => {
                         </select>
                     </div>
 
-                    {/* Status */}
-                    <div>
-                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#374151', marginBottom: '6px', textTransform: 'uppercase' }}>Outcome Status</label>
-                        <select value={status} onChange={e => setStatus(e.target.value)} disabled={!activityType && !purpose}
-                            style={{ width: '100%', padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '14px', opacity: (!activityType && !purpose) ? 0.5 : 1 }}>
-                            <option value="">— Any Status —</option>
-                            {getStatusOptions(activityType).map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-                        </select>
-                    </div>
-
                     {/* Outcome */}
                     <div>
-                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#374151', marginBottom: '6px', textTransform: 'uppercase' }}>Outcome (Result)</label>
+                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#374151', marginBottom: '6px', textTransform: 'uppercase' }}>Outcome</label>
                         <select value={outcome} onChange={e => setOutcome(e.target.value)} disabled={!purpose}
                             style={{ width: '100%', padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '14px', opacity: !purpose ? 0.5 : 1 }}>
                             <option value="">— Any Outcome —</option>
@@ -196,7 +110,7 @@ const AddRuleModal = ({ activityMasterFields, onSave, onClose }) => {
                     {/* Arrow indicator */}
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', padding: '12px', background: '#f8fafc', borderRadius: '8px', border: '1px dashed #e2e8f0' }}>
                         <span style={{ fontSize: '13px', color: '#64748b', fontWeight: 600 }}>
-                            {activityType || 'Any Activity'}{purpose ? ` → ${purpose}` : ''}{status ? ` → [${status}]` : ''}{outcome ? ` → ${outcome}` : ''}
+                            {activityType || 'Any Activity'}{purpose ? ` → ${purpose}` : ''}{outcome ? ` → ${outcome}` : ''}
                         </span>
                         <i className="fas fa-arrow-right" style={{ color: '#6366f1' }} />
                         <StageChip stage={stage} />
@@ -218,38 +132,22 @@ const AddRuleModal = ({ activityMasterFields, onSave, onClose }) => {
                         </div>
                     </div>
 
-                    {/* Forms & Priority Row */}
-                    <div style={{ display: 'flex', gap: '16px' }}>
-                        <div style={{ flex: 2 }}>
-                            <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#374151', marginBottom: '6px', textTransform: 'uppercase' }}>Required Forms</label>
-                            <MultiSelectForms selectedForms={requiredForms} onChange={setRequiredForms} />
-                        </div>
-                        <div style={{ flex: 1 }}>
-                            <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#374151', marginBottom: '6px', textTransform: 'uppercase' }}>Priority</label>
-                            <input type="number" min="1" value={priority} onChange={e => setPriority(e.target.value)}
-                                style={{ width: '100%', padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '14px', fontWeight: 700 }} />
-                        </div>
+                    {/* Priority */}
+                    <div>
+                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#374151', marginBottom: '6px', textTransform: 'uppercase' }}>Priority (1 = highest)</label>
+                        <input type="number" min="1" value={priority} onChange={e => setPriority(e.target.value)}
+                            style={{ width: '80px', padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '14px', fontWeight: 700 }} />
                     </div>
                 </div>
 
-                <div style={{ display: 'flex', gap: '12px', marginTop: '32px', justifyContent: 'flex-end', paddingTop: '20px', borderTop: '1px solid #f1f5f9' }}>
+                <div style={{ display: 'flex', gap: '12px', marginTop: '24px', justifyContent: 'flex-end' }}>
                     <button onClick={onClose} style={{ padding: '10px 20px', borderRadius: '8px', border: '1px solid #e5e7eb', background: '#fff', color: '#374151', fontWeight: 600, cursor: 'pointer' }}>
                         Cancel
                     </button>
-                    <button disabled={!canSave} onClick={() => { onSave({
-                        id: `override_${Date.now()}`,
-                        activityType: activityType || '*',
-                        purpose: purpose || '*',
-                        status: status || '*',
-                        outcome: outcome || '*',
-                        stage,
-                        priority: parseInt(priority) || 1,
-                        requiredForms,
-                        isActive: true
-                    }); onClose(); }}
-                        style={{ padding: '10px 24px', background: canSave ? '#6366f1' : '#e2e8f0', color: canSave ? '#fff' : '#94a3b8', borderRadius: '8px', border: 'none', fontWeight: 700, cursor: canSave ? 'pointer' : 'not-allowed', boxShadow: canSave ? '0 4px 12px rgba(99,102,241,0.3)' : 'none' }}>
-                        <i className="fas fa-check" style={{ marginRight: '8px' }} />
-                        Save Override Rule
+                    <button disabled={!canSave} onClick={() => { onSave({ activityType, purpose, outcome, stage, priority: parseInt(priority) || 1 }); onClose(); }}
+                        style={{ padding: '10px 24px', background: canSave ? '#6366f1' : '#e2e8f0', color: canSave ? '#fff' : '#94a3b8', borderRadius: '8px', border: 'none', fontWeight: 700, cursor: canSave ? 'pointer' : 'not-allowed' }}>
+                        <i className="fas fa-plus" style={{ marginRight: '8px' }} />
+                        Add Rule
                     </button>
                 </div>
             </div>
@@ -263,7 +161,7 @@ const AddRuleModal = ({ activityMasterFields, onSave, onClose }) => {
 
 const StagePage = () => {
     const {
-        activityMasterFields, updateOutcomeRule,
+        activityMasterFields, updateOutcomeStage,
         stageMappingRules, addStageMappingRule, updateStageMappingRule, deleteStageMappingRule,
         syncRules, updateSyncRule, addSyncRule, deleteSyncRule,
         sequenceConfig, updateSequenceConfig,
@@ -280,9 +178,6 @@ const StagePage = () => {
     const [showAddModal, setShowAddModal] = useState(false);
     const [notification, setNotification] = useState({ show: false, message: '', type: 'success' });
     const [editingStageCell, setEditingStageCell] = useState(null);
-    const [expandedRows, setExpandedRows] = useState({});
-
-    const toggleRow = (stage) => setExpandedRows(prev => ({ ...prev, [stage]: !prev[stage] }));
 
     const showToast = (message, type = 'success') => {
         setNotification({ show: true, message, type });
@@ -389,14 +284,9 @@ const StagePage = () => {
                             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                                 <thead>
                                     <tr style={{ background: '#f8fafc' }}>
-                                        <th style={{ padding: '10px 16px', textAlign: 'left', fontWeight: 700, color: '#6b7280', fontSize: '11px', textTransform: 'uppercase' }}>Priority</th>
-                                        <th style={{ padding: '10px 16px', textAlign: 'left', fontWeight: 700, color: '#6b7280', fontSize: '11px', textTransform: 'uppercase' }}>Activity</th>
-                                        <th style={{ padding: '10px 16px', textAlign: 'left', fontWeight: 700, color: '#6b7280', fontSize: '11px', textTransform: 'uppercase' }}>Purpose</th>
-                                        <th style={{ padding: '10px 16px', textAlign: 'left', fontWeight: 700, color: '#6b7280', fontSize: '11px', textTransform: 'uppercase' }}>Outcome</th>
-                                        <th style={{ padding: '10px 16px', textAlign: 'left', fontWeight: 700, color: '#6b7280', fontSize: '11px', textTransform: 'uppercase' }}>Required Forms</th>
-                                        <th style={{ padding: '10px 16px', textAlign: 'left', fontWeight: 700, color: '#6b7280', fontSize: '11px', textTransform: 'uppercase' }}>→ Stage</th>
-                                        <th style={{ padding: '10px 16px', textAlign: 'left', fontWeight: 700, color: '#6b7280', fontSize: '11px', textTransform: 'uppercase' }}>Active</th>
-                                        <th style={{ padding: '10px 16px', textAlign: 'left', fontWeight: 700, color: '#6b7280', fontSize: '11px', textTransform: 'uppercase' }}>Actions</th>
+                                        {['Priority', 'Activity', 'Purpose', 'Outcome', '→ Stage', 'Active', 'Actions'].map(h => (
+                                            <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontWeight: 700, color: '#6b7280', fontSize: '11px', textTransform: 'uppercase' }}>{h}</th>
+                                        ))}
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -407,55 +297,8 @@ const StagePage = () => {
                                             </td>
                                             <td style={{ padding: '10px 16px', fontWeight: 600, color: '#374151' }}>{rule.activityType || <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Any</span>}</td>
                                             <td style={{ padding: '10px 16px', color: '#6b7280' }}>{rule.purpose || <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Any</span>}</td>
-                                            <td style={{ padding: '10px 16px', fontWeight: 600, color: '#111827' }}>
-                                                {rule.outcome || <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Any</span>}
-                                                {rule.status && rule.status !== '*' && (
-                                                    <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 400, marginTop: '4px', background: '#f1f5f9', display: 'inline-block', padding: '2px 6px', borderRadius: '4px' }}>
-                                                        <i className="fas fa-info-circle" style={{ marginRight: '4px' }} />{formatStatus(rule.activityType, rule.status)}
-                                                    </div>
-                                                )}
-                                            </td>
-                                            <td style={{ padding: '10px 16px' }}>
-                                                {editingStageCell === `override-${rule.id}-forms` ? (
-                                                    <div style={{ position: 'relative' }}>
-                                                        <MultiSelectForms 
-                                                            selectedForms={rule.requiredForms || []}
-                                                            onChange={forms => updateStageMappingRule(rule.id, { requiredForms: forms })} 
-                                                        />
-                                                        <button 
-                                                            onClick={() => setEditingStageCell(null)}
-                                                            style={{ marginTop: '8px', padding: '4px 8px', fontSize: '11px', background: '#e2e8f0', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, color: '#475569' }}
-                                                        >
-                                                            Done
-                                                        </button>
-                                                    </div>
-                                                ) : (
-                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', cursor: 'pointer', minHeight: '24px', alignItems: 'center' }} onClick={() => setEditingStageCell(`override-${rule.id}-forms`)}>
-                                                        {rule.requiredForms?.length > 0 ? rule.requiredForms.map((f, i) => (
-                                                            <span key={i} style={{ fontSize: '10px', background: '#f1f5f9', color: '#475569', padding: '2px 6px', borderRadius: '4px', border: '1px solid #e2e8f0', fontWeight: 600 }}>{f}</span>
-                                                        )) : <span style={{ color: '#cbd5e1', fontSize: '11px', fontStyle: 'italic' }}>None</span>}
-                                                        <i className="fas fa-pencil-alt" style={{ color: '#cbd5e1', fontSize: '10px', marginLeft: '4px' }} />
-                                                    </div>
-                                                )}
-                                            </td>
-                                            <td style={{ padding: '10px 16px' }}>
-                                                {editingStageCell === `override-${rule.id}-stage` ? (
-                                                    <select
-                                                        autoFocus
-                                                        defaultValue={rule.stage}
-                                                        onBlur={e => { updateStageMappingRule(rule.id, { stage: e.target.value }); setEditingStageCell(null); showToast(`Override Rule updated successfully`); }}
-                                                        onChange={e => { updateStageMappingRule(rule.id, { stage: e.target.value }); }}
-                                                        style={{ padding: '5px 8px', border: '2px solid #6366f1', borderRadius: '6px', fontSize: '12px', fontWeight: 700 }}
-                                                    >
-                                                        {STAGE_LABELS.map(s => <option key={s} value={s}>{s}</option>)}
-                                                    </select>
-                                                ) : (
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }} onClick={() => setEditingStageCell(`override-${rule.id}-stage`)} title="Click to edit">
-                                                        <StageChip stage={rule.stage} />
-                                                        <i className="fas fa-pencil-alt" style={{ color: '#cbd5e1', fontSize: '10px' }} />
-                                                    </div>
-                                                )}
-                                            </td>
+                                            <td style={{ padding: '10px 16px', color: '#6b7280' }}>{rule.outcome || <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Any</span>}</td>
+                                            <td style={{ padding: '10px 16px' }}><StageChip stage={rule.stage} /></td>
                                             <td style={{ padding: '10px 16px' }}>
                                                 <label style={{ position: 'relative', display: 'inline-block', width: '36px', height: '20px' }}>
                                                     <input type="checkbox" checked={rule.isActive} onChange={e => updateStageMappingRule(rule.id, { isActive: e.target.checked })} style={{ opacity: 0, width: 0, height: 0 }} />
@@ -507,7 +350,7 @@ const StagePage = () => {
                                     <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: '#6b7280', fontSize: '11px', textTransform: 'uppercase' }}>Activity</th>
                                     <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: '#6b7280', fontSize: '11px', textTransform: 'uppercase' }}>Purpose</th>
                                     <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: '#6b7280', fontSize: '11px', textTransform: 'uppercase' }}>Outcome</th>
-                                    <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: '#6b7280', fontSize: '11px', textTransform: 'uppercase' }}>Required Forms</th>
+                                    <th style={{ padding: '12px 16px', textAlign: 'center', fontWeight: 700, color: '#6b7280', fontSize: '11px', textTransform: 'uppercase' }}>Score</th>
                                     <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: '#6b7280', fontSize: '11px', textTransform: 'uppercase' }}>→ Stage</th>
                                 </tr>
                             </thead>
@@ -523,50 +366,25 @@ const StagePage = () => {
                                                 </span>
                                             </td>
                                             <td style={{ padding: '10px 16px', color: '#374151' }}>{row.purpose}</td>
-                                            <td style={{ padding: '10px 16px', fontWeight: 600, color: '#111827' }}>
-                                                {row.outcome}
-                                                {row.status && row.status !== '*' && (
-                                                    <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 400, marginTop: '4px', background: '#f1f5f9', display: 'inline-block', padding: '2px 6px', borderRadius: '4px' }}>
-                                                        <i className="fas fa-info-circle" style={{ marginRight: '4px' }} />{formatStatus(row.activityType, row.status)}
-                                                    </div>
-                                                )}
+                                            <td style={{ padding: '10px 16px', fontWeight: 600, color: '#111827' }}>{row.outcome}</td>
+                                            <td style={{ padding: '10px 16px', textAlign: 'center' }}>
+                                                <span style={{ color: row.score > 0 ? '#10b981' : row.score < 0 ? '#ef4444' : '#94a3b8', fontWeight: 700 }}>
+                                                    {row.score > 0 ? '+' : ''}{row.score}
+                                                </span>
                                             </td>
                                             <td style={{ padding: '10px 16px' }}>
-                                                {editingStageCell === `${key}-forms` ? (
-                                                    <div style={{ position: 'relative' }}>
-                                                        <MultiSelectForms 
-                                                            selectedForms={row.requiredForms || []} 
-                                                            onChange={forms => updateOutcomeRule(row.activityType, row.purpose, row.outcome, { requiredForms: forms })} 
-                                                        />
-                                                        <button 
-                                                            onClick={() => setEditingStageCell(null)}
-                                                            style={{ marginTop: '8px', padding: '4px 8px', fontSize: '11px', background: '#e2e8f0', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 600, color: '#475569' }}
-                                                        >
-                                                            Done
-                                                        </button>
-                                                    </div>
-                                                ) : (
-                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', cursor: 'pointer', minHeight: '24px', alignItems: 'center' }} onClick={() => setEditingStageCell(`${key}-forms`)}>
-                                                        {row.requiredForms?.length > 0 ? row.requiredForms.map((f, i) => (
-                                                            <span key={i} style={{ fontSize: '10px', background: '#f1f5f9', color: '#475569', padding: '2px 6px', borderRadius: '4px', border: '1px solid #e2e8f0', fontWeight: 600 }}>{f}</span>
-                                                        )) : <span style={{ color: '#cbd5e1', fontSize: '11px', fontStyle: 'italic' }}>None</span>}
-                                                        <i className="fas fa-pencil-alt" style={{ color: '#cbd5e1', fontSize: '10px', marginLeft: '4px' }} />
-                                                    </div>
-                                                )}
-                                            </td>
-                                            <td style={{ padding: '10px 16px' }}>
-                                                {editingStageCell === `${key}-stage` ? (
+                                                {isEditing ? (
                                                     <select
                                                         autoFocus
                                                         defaultValue={row.stage}
-                                                        onBlur={e => { updateOutcomeRule(row.activityType, row.purpose, row.outcome, { stage: e.target.value }); setEditingStageCell(null); showToast(`Rule updated successfully`); }}
-                                                        onChange={e => { updateOutcomeRule(row.activityType, row.purpose, row.outcome, { stage: e.target.value }); }}
+                                                        onBlur={e => { updateOutcomeStage(row.activityType, row.purpose, row.outcome, e.target.value); setEditingStageCell(null); showToast(`Stage updated to "${e.target.value}"`); }}
+                                                        onChange={e => { updateOutcomeStage(row.activityType, row.purpose, row.outcome, e.target.value); setEditingStageCell(null); showToast(`Stage updated`); }}
                                                         style={{ padding: '5px 8px', border: '2px solid #6366f1', borderRadius: '6px', fontSize: '12px', fontWeight: 700 }}
                                                     >
                                                         {STAGE_LABELS.map(s => <option key={s} value={s}>{s}</option>)}
                                                     </select>
                                                 ) : (
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }} onClick={() => setEditingStageCell(`${key}-stage`)} title="Click to edit">
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }} onClick={() => setEditingStageCell(key)} title="Click to edit">
                                                         <StageChip stage={row.stage} />
                                                         <i className="fas fa-pencil-alt" style={{ color: '#cbd5e1', fontSize: '10px' }} />
                                                     </div>
@@ -642,13 +460,13 @@ const StagePage = () => {
                                 </React.Fragment>
                             ))}
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                {STAGE_PIPELINE.slice(-2).filter(Boolean).map(stage => (
+                                {[STAGE_PIPELINE[6], STAGE_PIPELINE[7]].map(stage => (
                                     <div key={stage.id} style={{
-                                        padding: '8px 14px', borderRadius: '8px', background: (stage.color || '#94a3b8') + '15',
-                                        border: `1.5px solid ${stage.color || '#94a3b8'}40`, textAlign: 'center', minWidth: '100px'
+                                        padding: '8px 14px', borderRadius: '8px', background: stage.color + '15',
+                                        border: `1.5px solid ${stage.color}40`, textAlign: 'center', minWidth: '100px'
                                     }}>
-                                        <div style={{ fontSize: '11px', fontWeight: 800, color: stage.color || '#94a3b8' }}>{stage.label}</div>
-                                        <div style={{ fontSize: '10px', color: stage.color || '#94a3b8', opacity: 0.7 }}>{stageCounts[stage.label] || 0} outcomes</div>
+                                        <div style={{ fontSize: '11px', fontWeight: 800, color: stage.color }}>{stage.label}</div>
+                                        <div style={{ fontSize: '10px', color: stage.color, opacity: 0.7 }}>{stageCounts[stage.label] || 0} outcomes</div>
                                     </div>
                                 ))}
                             </div>
@@ -658,7 +476,16 @@ const StagePage = () => {
             )}
             {/* ─── TAB: Stage Density Dashboard ─── */}
             {activeTab === 'density' && (() => {
-                const densityData = computeStageDensity(analyticsData.leads, DEFAULT_STAGE_DENSITY_TARGETS);
+                // Mock leads data for density computation — in prod these come from API
+                const mockLeads = [
+                    ...Array(12).fill(null).map(() => ({ stage: 'New', createdAt: new Date(Date.now() - 86400000 * 1), stageChangedAt: null })),
+                    ...Array(8).fill(null).map(() => ({ stage: 'Prospect', createdAt: new Date(Date.now() - 86400000 * 8), stageChangedAt: new Date(Date.now() - 86400000 * 7) })),
+                    ...Array(5).fill(null).map(() => ({ stage: 'Qualified', createdAt: new Date(Date.now() - 86400000 * 15), stageChangedAt: new Date(Date.now() - 86400000 * 12) })),
+                    ...Array(4).fill(null).map(() => ({ stage: 'Opportunity', createdAt: new Date(Date.now() - 86400000 * 22), stageChangedAt: new Date(Date.now() - 86400000 * 20) })),
+                    ...Array(3).fill(null).map(() => ({ stage: 'Negotiation', createdAt: new Date(Date.now() - 86400000 * 35), stageChangedAt: new Date(Date.now() - 86400000 * 30) })),
+                    ...Array(1).fill(null).map(() => ({ stage: 'Booked', createdAt: new Date(Date.now() - 86400000 * 50), stageChangedAt: new Date(Date.now() - 86400000 * 45) })),
+                ];
+                const densityData = computeStageDensity(mockLeads, DEFAULT_STAGE_DENSITY_TARGETS);
                 const maxCount = Math.max(...densityData.map(d => d.count), 1);
 
                 return (
@@ -723,10 +550,7 @@ const StagePage = () => {
                                 const barWidth = Math.round((row.count / maxCount) * 100);
 
                                 return (
-                                    <React.Fragment key={row.stage}>
-                                    <div 
-                                        onClick={() => row.isBottleneck && toggleRow(row.stage)}
-                                        style={{ display: 'grid', gridTemplateColumns: '150px 80px 1fr 110px 110px 110px 100px', gap: '0', padding: '14px 20px', borderBottom: (idx < densityData.length - 1 && !expandedRows[row.stage]) ? '1px solid #f8fafc' : 'none', background: row.isBottleneck ? '#fef2f2' : 'transparent', transition: 'background 0.2s', cursor: row.isBottleneck ? 'pointer' : 'default' }}>
+                                    <div key={row.stage} style={{ display: 'grid', gridTemplateColumns: '150px 80px 1fr 110px 110px 110px 100px', gap: '0', padding: '14px 20px', borderBottom: idx < densityData.length - 1 ? '1px solid #f8fafc' : 'none', background: row.isBottleneck ? '#fef2f2' : 'transparent', transition: 'background 0.2s' }}>
                                         {/* Stage Name */}
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                             <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: stageInfo.color, flexShrink: 0 }} />
@@ -761,9 +585,8 @@ const StagePage = () => {
                                         {/* Status */}
                                         <div style={{ display: 'flex', alignItems: 'center' }}>
                                             {row.isBottleneck ? (
-                                                <span style={{ fontSize: '10px', fontWeight: 700, color: '#ef4444', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', padding: '3px 8px', display: 'flex', alignItems: 'center' }}>
+                                                <span style={{ fontSize: '10px', fontWeight: 700, color: '#ef4444', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', padding: '3px 8px' }}>
                                                     <i className="fas fa-exclamation-triangle" style={{ marginRight: '4px' }} />BOTTLENECK
-                                                    <i className={`fas fa-chevron-${expandedRows[row.stage] ? 'up' : 'down'}`} style={{ marginLeft: '6px' }} />
                                                 </span>
                                             ) : row.avgDays > row.targetDays ? (
                                                 <span style={{ fontSize: '10px', fontWeight: 700, color: '#f59e0b', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '6px', padding: '3px 8px' }}>
@@ -776,33 +599,6 @@ const StagePage = () => {
                                             )}
                                         </div>
                                     </div>
-                                    {expandedRows[row.stage] && row.agentBottlenecks && (
-                                        <div style={{ background: '#fef2f2', padding: '0 20px 16px 20px', borderBottom: idx < densityData.length - 1 ? '1px solid #f8fafc' : 'none' }}>
-                                            <div style={{ padding: '12px', background: '#fff', borderRadius: '8px', border: '1px solid #fecaca' }}>
-                                                <h4 style={{ margin: '0 0 12px 0', fontSize: '12px', color: '#991b1b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Agent Bottleneck Report</h4>
-                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                                    {row.agentBottlenecks.map(agent => (
-                                                        <div key={agent.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px', background: '#f9fafb', borderRadius: '6px' }}>
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                                                <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 700, color: '#475569' }}>
-                                                                    {agent.name.charAt(0)}
-                                                                </div>
-                                                                <span style={{ fontSize: '13px', fontWeight: 600, color: '#374151' }}>{agent.name}</span>
-                                                            </div>
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                                                                <span style={{ fontSize: '13px', fontWeight: 700, color: '#ef4444' }}>{agent.count} stalled</span>
-                                                                <button style={{ padding: '4px 12px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}>Nudge Agent</button>
-                                                            </div>
-                                                        </div>
-                                                    ))}
-                                                    {row.agentBottlenecks.length === 0 && (
-                                                        <div style={{ fontSize: '12px', color: '#6b7280' }}>No specific agents identified for this bottleneck.</div>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
-                                </React.Fragment>
                                 );
                             })}
                         </div>
@@ -840,17 +636,11 @@ const StagePage = () => {
 
                     {/* Stability Rules Table */}
                     <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '14px', overflow: 'hidden' }}>
-                        <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc' }}>
                             <span style={{ fontWeight: 700, fontSize: '14px', color: '#374151' }}>
                                 <i className="fas fa-lock" style={{ color: '#6366f1', marginRight: '8px' }} />
                                 Stability Rules per Stage
                             </span>
-                            <button 
-                                onClick={handleSaveStabilityConfig}
-                                style={{ padding: '8px 16px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 4px 6px -1px rgba(99,102,241,0.2)' }}
-                            >
-                                <i className="fas fa-save" /> Save Rules
-                            </button>
                         </div>
 
                         {/* Header Row */}
@@ -1137,25 +927,14 @@ const StagePage = () => {
                             ))}
                         </div>
                         <div style={{ background: 'linear-gradient(135deg, #1e293b, #0f172a)', borderRadius: '12px', padding: '24px', color: '#fff' }}>
-                            <div style={{ fontWeight: 700, fontSize: '15px', marginBottom: '20px', color: '#94a3b8' }}>Dashboard Preview (Live)</div>
-                            {(() => {
-                                const totalValue = analyticsData.deals.reduce((sum, d) => sum + (d.price || 0), 0);
-                                const weightedValue = analyticsData.deals.reduce((sum, d) => sum + ((d.price || 0) * (getStageProbability(d.stage) / 100)), 0);
-                                const expCommission = weightedValue * (forecastConfig.commissionRate.value / 100);
-                                const fmt = val => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(val || 0);
-                                
-                                return [
-                                    { label: 'Total Pipeline Value', value: fmt(totalValue), color: '#60a5fa' },
-                                    { label: 'Weighted Pipeline', value: fmt(weightedValue), color: '#34d399', sub: 'Deals × (Score/100)' },
-                                    { label: 'Expected Commission', value: fmt(expCommission), color: '#f59e0b', sub: `@ ${forecastConfig.commissionRate.value}%` }
-                                ].map(row => (
-                                    <div key={row.label} style={{ marginBottom: '18px' }}>
-                                        <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>{row.label}</div>
-                                        <div style={{ fontSize: '22px', fontWeight: 800, color: row.color }}>{row.value}</div>
-                                        {row.sub && <div style={{ fontSize: '11px', color: '#475569' }}>{row.sub}</div>}
-                                    </div>
-                                ));
-                            })()}
+                            <div style={{ fontWeight: 700, fontSize: '15px', marginBottom: '20px', color: '#94a3b8' }}>Dashboard Preview</div>
+                            {[{ label: 'Total Pipeline Value', value: '₹ 4,20,00,000', color: '#60a5fa' }, { label: 'Weighted Pipeline', value: '₹ 2,94,00,000', color: '#34d399', sub: 'Deals × (Score/100)' }, { label: 'Expected Commission', value: '₹ 58,80,000', color: '#f59e0b', sub: `@ ${forecastConfig.commissionRate.value}%` }].map(row => (
+                                <div key={row.label} style={{ marginBottom: '18px' }}>
+                                    <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>{row.label}</div>
+                                    <div style={{ fontSize: '22px', fontWeight: 800, color: row.color }}>{row.value}</div>
+                                    {row.sub && <div style={{ fontSize: '11px', color: '#475569' }}>{row.sub}</div>}
+                                </div>
+                            ))}
                         </div>
                     </div>
                     <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e5e7eb', padding: '20px' }}>
