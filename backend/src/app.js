@@ -37,6 +37,7 @@ import enrichmentRoutes from "./modules/prospectingEnrichment/enrichment.routes.
 import activityCompletionRoutes from "./modules/activity/activityCompletion.routes.js";
 import stageTransitionRoutes from "./modules/rules/stageTransition.routes.js";
 import googleSettingsRoutes from "../routes/googleSettings.routes.js";
+import analyticsRoutes from "../routes/analytics.routes.js";
 
 // Middleware
 import { errorHandler } from "./middlewares/error.middleware.js";
@@ -111,6 +112,7 @@ apiRouter.use("/companies", companyRoutes);
 apiRouter.use("/deals", dealRoutes);
 apiRouter.use("/bookings", bookingRoutes);
 apiRouter.use("/upload", uploadRoutes);
+apiRouter.use("/analytics", analyticsRoutes);
 
 // New settings API routes
 apiRouter.use("/users", userRoutes);

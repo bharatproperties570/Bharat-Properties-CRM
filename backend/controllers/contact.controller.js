@@ -922,6 +922,12 @@ export const importContacts = async (req, res, next) => {
                     street = '';
                 }
 
+                // Fallback: Check if 'area' or 'location' mistakenly contains the full address string
+                if (!fullAddress && !hNo && area && AddressParsingService.shouldParse(area)) {
+                    fullAddress = area;
+                    area = '';
+                }
+
                 if ((!hNo || !street) && fullAddress && String(fullAddress).trim()) {
                     try {
                         const parsed = await AddressParsingService.parseAddress(String(fullAddress).trim());

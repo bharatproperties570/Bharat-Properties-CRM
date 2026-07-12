@@ -3,7 +3,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 
 import PipelineDashboard from '../../components/PipelineDashboard';
 import Swal from 'sweetalert2';
-import { api, enrichmentAPI } from '../../utils/api';
+import { api, enrichmentAPI, leadsAPI } from '../../utils/api';
 import { getInitials } from '../../utils/helpers';
 import toast from 'react-hot-toast';
 import SendMessageModal from '../../components/SendMessageModal';
@@ -815,14 +815,20 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                                             title="Convert to Contact"
                                             onClick={async () => {
                                                 const selectedLeads = getSelectedLeads();
+                                                let successCount = 0;
                                                 for (const lead of selectedLeads) {
-                                                    const res = LeadConversionService.convertLead(lead, 'Manual - Bulk Action', scoringConfig);
-                                                    if (res.success) {
-                                                        showToast(res.message);
-                                                        await fireEvent('lead_converted', res.contact, { entityType: 'leads' });
-                                                    } else {
-                                                        showToast(res.message);
+                                                    try {
+                                                        const res = await leadsAPI.convertLead(lead._id);
+                                                        if (res.success) {
+                                                            successCount++;
+                                                            await fireEvent('lead_converted', res.contact, { entityType: 'leads' });
+                                                        }
+                                                    } catch (err) {
+                                                        showToast(err.message || 'Failed to convert lead', 'error');
                                                     }
+                                                }
+                                                if (successCount > 0) {
+                                                    showToast(`Converted ${successCount} Lead(s) to Contacts successfully!`);
                                                 }
                                                 setSelectedIds([]);
                                                 setRefreshTrigger(prev => prev + 1);
@@ -1605,6 +1611,27 @@ const LeadItem = React.memo(function LeadItem({
                                     {lead.roleType.toUpperCase()}
                                 </span>
                             )}
+                            {lead.isAtRisk && (
+                                <span 
+                                    className="at-risk-pulse"
+                                    title={lead.atRiskReason || "Lead is at risk due to consecutive failed contacts"}
+                                    style={{ 
+                                        background: '#fff1f2', 
+                                        color: '#e11d48', 
+                                        fontSize: '0.6rem', 
+                                        padding: '1px 6px', 
+                                        borderRadius: '4px', 
+                                        fontWeight: 900, 
+                                        border: '1px solid #fecdd3',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '3px',
+                                        animation: 'pulse 2s infinite'
+                                    }}
+                                >
+                                    <i className="fas fa-exclamation-triangle" style={{ fontSize: '0.55rem' }}></i> AT RISK
+                                </span>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -1721,11 +1748,7 @@ const LeadItem = React.memo(function LeadItem({
             <div className="col-interaction">
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                     {(() => {
-                        // Find latest activity regardless of status
-                        const sortedActs = [...(lead.activities || [])].sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
-                        const activity = sortedActs[0];
-                        
-                        if (activity) {
+                        if (lead.activity && lead.activity !== "None") {
                             return (
                                 <div style={{
                                     background: 'var(--bg-gray)',
@@ -1736,7 +1759,8 @@ const LeadItem = React.memo(function LeadItem({
                                     color: 'var(--text-muted)',
                                     fontWeight: 700
                                 }}>
-                                    LAST: {renderValue(activity.type).toUpperCase()}
+                                    LAST: {lead.activity.substring(0, 20).toUpperCase()}{lead.activity.length > 20 ? '...' : ''} 
+                                    <span style={{fontSize: '0.6rem', marginLeft: '4px', opacity: 0.8}}>{lead.lastAct}</span>
                                 </div>
                             );
                         }
@@ -1745,29 +1769,27 @@ const LeadItem = React.memo(function LeadItem({
                     
                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                         {[
-                            { icon: 'fa-phone-alt', type: 'Call', color: '#10b981' },
-                            { icon: 'fa-sms', type: 'SMS', color: '#3b82f6' },
-                            { icon: 'fa-whatsapp', type: 'WhatsApp', color: '#25d366' },
-                            { icon: 'fa-envelope', type: 'Email', color: '#ef4444' }
+                            { icon: 'fa-phone-alt', type: 'Call', color: '#10b981', key: 'call' },
+                            { icon: 'fa-sms', type: 'SMS', color: '#3b82f6', key: 'sms' },
+                            { icon: 'fa-whatsapp', type: 'WhatsApp', color: '#25d366', key: 'whatsapp' },
+                            { icon: 'fa-envelope', type: 'Email', color: '#ef4444', key: 'email' },
+                            { icon: 'fa-handshake', type: 'Meeting', color: '#8b5cf6', key: 'meeting' },
+                            { icon: 'fa-building', type: 'Site Visit', color: '#f59e0b', key: 'siteVisit' }
                         ].map(act => {
-                            const count = (lead.activities || []).filter(a => a.type === act.type).length;
+                            const count = lead.interactionCounts?.[act.key] || 0;
                             if (count === 0) return null;
+                            
                             return (
-                                <div key={act.type} style={{ display: 'flex', alignItems: 'center', gap: '3px', filter: 'drop-shadow(0 1px 1px rgba(0,0,0,0.05))' }}>
-                                    <div style={{ 
-                                        width: '18px', 
-                                        height: '18px', 
-                                        borderRadius: '50%', 
-                                        background: act.color + '15', 
-                                        color: act.color,
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        fontSize: '0.6rem'
-                                    }}>
-                                        <i className={`fas ${act.icon}`}></i>
-                                    </div>
-                                    <span style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--text-muted)' }}>{count}</span>
+                                <div key={act.type} style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    fontSize: '0.7rem',
+                                    color: act.color,
+                                    fontWeight: 700
+                                }}>
+                                    <i className={`fas ${act.icon}`}></i>
+                                    {count}
                                 </div>
                             );
                         })}

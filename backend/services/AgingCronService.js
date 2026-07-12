@@ -26,33 +26,45 @@ class AgingCronService {
      */
     async sweepPipeline() {
         try {
-            // 1. Fetch Status Lookups for Stalled and Dormant
-            const stalledLookup = await Lookup.findOne({ type: 'Status', lookup_value: { $regex: /^stalled$/i } }).lean();
-            const dormantLookup = await Lookup.findOne({ type: 'Status', lookup_value: { $regex: /^dormant$/i } }).lean();
+            // 1. Fetch Status Lookups
+            const stalledLookup = await Lookup.findOne({ lookup_type: { $regex: /^Status$/i }, lookup_value: { $regex: /^stalled$/i } }).lean();
+            const dormantLookup = await Lookup.findOne({ lookup_type: { $regex: /^Status$/i }, lookup_value: { $regex: /^dormant$/i } }).lean();
+            const atRiskLookup = await Lookup.findOne({ lookup_type: { $regex: /^Status$/i }, lookup_value: { $regex: /^at risk$/i } }).lean();
 
             if (!stalledLookup || !dormantLookup) {
                 console.warn('[AgingCronService] Stalled or Dormant status lookups not found. Exiting sweep.');
                 return;
             }
 
-            // 2. Fetch all leads that are NOT already closed, stalled, or dormant
+            // 2. Fetch all active leads
             const activeLeads = await Lead.find({
                 status: { $nin: [stalledLookup._id, dormantLookup._id] }
-            }).populate('stage', 'lookup_value').select('status stage stageChangedAt lastActivityAt createdAt').lean();
+            }).populate('stage', 'lookup_value').select('status stage stageChangedAt lastActivityAt createdAt consecutiveFailedContacts isAtRisk lastFailedContactAt').lean();
 
-            let updatedCount = 0;
+            let stalledCount = 0;
+            let atRiskCount = 0;
             const now = new Date();
 
-            // 3. Process each lead
+            // ── Stage-aware At-Risk thresholds (Enterprise Pipedrive style) ──────────
+            // Higher stages = shorter patience window (more expensive leads)
+            const AT_RISK_DAYS_BY_STAGE = {
+                'incoming': 21,
+                'prospect': 14,
+                'opportunity': 10,
+                'negotiation': 7,  // If a Negotiation lead goes dark for 7 days → CRITICAL
+                'default': 14
+            };
+
             for (const lead of activeLeads) {
-                // Ignore Closed stages
-                if (lead.stage && lead.stage.lookup_value && lead.stage.lookup_value.toLowerCase().includes('closed')) {
-                    continue;
-                }
+                const stageStr = (lead.stage?.lookup_value || '').toLowerCase();
+
+                // Skip terminal stages
+                if (stageStr.includes('closed') || stageStr.includes('booked')) continue;
 
                 const lastActive = lead.lastActivityAt || lead.stageChangedAt || lead.createdAt;
                 const daysSinceActivity = Math.floor((now - new Date(lastActive)) / (1000 * 60 * 60 * 24));
 
+                // ── 1. Standard Time-Based Stalled / Dormant ────────────────────────
                 let newStatusId = null;
                 let reason = '';
 
@@ -64,24 +76,41 @@ class AgingCronService {
                     reason = `System Auto-Aging: No activity for ${daysSinceActivity} days. Marked as Stalled.`;
                 }
 
-                // Apply update if threshold exceeded
                 if (newStatusId && lead.status?.toString() !== newStatusId.toString()) {
                     await Lead.findByIdAndUpdate(lead._id, { status: newStatusId });
-                    
-                    // Log the change
                     await AuditLog.create({
-                        entity: 'lead',
-                        entityId: lead._id,
-                        action: 'status_changed',
-                        performedBy: null, // System
-                        details: reason
-                    }).catch(() => {}); // ignore audit log errors
+                        entity: 'lead', entityId: lead._id,
+                        action: 'status_changed', performedBy: null, details: reason
+                    }).catch(() => {});
+                    stalledCount++;
+                }
 
-                    updatedCount++;
+                // ── 2. Stage-Aware At-Risk Sweep (NEW — HubSpot Deal Rotting) ──────
+                // Check leads in high-value stages that have gone silent beyond their threshold
+                if (['opportunity', 'negotiation'].some(s => stageStr.includes(s)) && atRiskLookup) {
+                    const atRiskDays = AT_RISK_DAYS_BY_STAGE[stageStr] || AT_RISK_DAYS_BY_STAGE['default'];
+
+                    if (daysSinceActivity >= atRiskDays && !lead.isAtRisk) {
+                        const atRiskReason = `Stage: ${lead.stage?.lookup_value} — No positive activity for ${daysSinceActivity} days (threshold: ${atRiskDays} days)`;
+                        await Lead.findByIdAndUpdate(lead._id, {
+                            $set: {
+                                isAtRisk: true,
+                                atRiskSince: new Date(),
+                                atRiskReason: atRiskReason,
+                                status: atRiskLookup._id
+                            }
+                        });
+                        await AuditLog.create({
+                            entity: 'lead', entityId: lead._id,
+                            action: 'at_risk_flagged', performedBy: null,
+                            details: `[AgingCron] ${atRiskReason}`
+                        }).catch(() => {});
+                        atRiskCount++;
+                    }
                 }
             }
 
-            console.log(`[AgingCronService] Sweep complete. Auto-updated status for ${updatedCount} leads.`);
+            console.log(`[AgingCronService] Sweep complete. Stalled/Dormant: ${stalledCount}, At Risk (stage-aware): ${atRiskCount}`);
 
         } catch (err) {
             console.error('[AgingCronService] Pipeline sweep failed:', err.message);

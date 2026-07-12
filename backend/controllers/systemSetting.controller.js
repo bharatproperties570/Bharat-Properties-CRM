@@ -95,6 +95,14 @@ export const upsertSystemSetting = async (req, res) => {
             return res.json({ status: "success", data: setting });
         }
 
+        // Rule Versioning for Stage Engine
+        if (key === 'stage_transition_rules' && value && value.rules) {
+            const existingSetting = await SystemSetting.findOne({ key }).lean();
+            const prevVersion = existingSetting?.value?.version || 1;
+            value.version = prevVersion + 1;
+            value.lastUpdated = new Date();
+        }
+
         const setting = await SystemSetting.findOneAndUpdate(
             { key },
             {

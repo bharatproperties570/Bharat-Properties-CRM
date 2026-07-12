@@ -21,7 +21,9 @@ export const STAGE_PIPELINE = [
         subStages: ['Incoming', 'New', 'Inbound'],
         isTerminal: false,
         bucket: 'fresh',
-        probability: 10
+        probability: 10,
+        color: '#8b5cf6',
+        icon: 'fa-inbox'
     },
     {
         id: 'prospect',
@@ -29,7 +31,9 @@ export const STAGE_PIPELINE = [
         subStages: ['Prospect', 'Qualified', 'Warm'],
         isTerminal: false,
         bucket: 'prospect',
-        probability: 20
+        probability: 20,
+        color: '#3b82f6',
+        icon: 'fa-user'
     },
     {
         id: 'opportunity',
@@ -37,7 +41,9 @@ export const STAGE_PIPELINE = [
         subStages: ['Opportunity', 'Hot', 'Quote'],
         isTerminal: false,
         bucket: 'opportunity',
-        probability: 40
+        probability: 40,
+        color: '#f59e0b',
+        icon: 'fa-star'
     },
     {
         id: 'negotiation',
@@ -45,15 +51,39 @@ export const STAGE_PIPELINE = [
         subStages: ['Negotiation', 'Booked', 'Under Review'],
         isTerminal: false,
         bucket: 'negotiation',
-        probability: 65
+        probability: 65,
+        color: '#eab308',
+        icon: 'fa-handshake'
     },
     {
-        id: 'closed',
-        label: 'Closed',
-        subStages: ['Closed Won', 'Closed Lost', 'Won', 'Lost'],
+        id: 'closed_won',
+        label: 'Closed (Won)',
+        subStages: [],
         isTerminal: true,
-        bucket: 'lost', // Base bucket, specialized by subStage
-        probability: 0
+        bucket: 'closed',
+        probability: 100,
+        color: '#10b981',
+        icon: 'fa-check-circle'
+    },
+    {
+        id: 'closed_lost',
+        label: 'Closed (Lost)',
+        subStages: [],
+        isTerminal: true,
+        bucket: 'closed',
+        probability: 0,
+        color: '#ef4444',
+        icon: 'fa-times-circle'
+    },
+    {
+        id: 'closed_unqualified',
+        label: 'Closed (Unqualified)',
+        subStages: [],
+        isTerminal: true,
+        bucket: 'closed',
+        probability: 0,
+        color: '#6b7280',
+        icon: 'fa-ban'
     }
 ];
 
@@ -78,7 +108,9 @@ export const getStageProbability = (stageName) => {
 export const STAGE_STABILITY_CONFIG = {
     Opportunity: { minActivities: 1, minDays: 0, label: 'Opportunity requires 1 activity before downgrade' },
     Negotiation: { minActivities: 1, minDays: 0, label: 'Negotiation requires 1 activity before downgrade' },
-    Closed: { minActivities: 999, minDays: 999, label: 'Closed deals cannot be downgraded automatically' },
+    'Closed (Won)': { minActivities: 999, minDays: 999, label: 'Closed deals cannot be downgraded automatically' },
+    'Closed (Lost)': { minActivities: 999, minDays: 999, label: 'Closed deals cannot be downgraded automatically' },
+    'Closed (Unqualified)': { minActivities: 999, minDays: 999, label: 'Closed deals cannot be downgraded automatically' }
 };
 
 // Stage priority order (higher index = more advanced stage)
@@ -87,7 +119,7 @@ export const STAGE_STABILITY_CONFIG = {
 
 /** Returns true for terminal/sideways states that cannot be further downgraded. */
 export const isTerminalStage = (stageName) =>
-    stageName === 'Closed';
+    stageName?.startsWith('Closed');
 
 const getStageRank = (stageName) => {
     const idx = STAGE_ORDER.indexOf(stageName?.toLowerCase());
@@ -215,14 +247,19 @@ export const flattenOutcomeMappings = (activityMasterFields = {}) => {
                 const requiredForms = Array.isArray(out.requiredForms)
                     ? out.requiredForms
                     : (out.requiredForm ? [out.requiredForm] : []);
+                // Fallback logic for legacy data that doesn't have an explicit status
+                const fallbackStatus = act.name === 'Call' ? 'Connected' : (act.name === 'Email' ? 'Sent' : 'Conducted');
                 rows.push({
                     activityType: act.name,
                     purpose: purp.name,
                     outcome: out.label,
+                    status: out.status || fallbackStatus,
                     stage: stageName,
                     score: out.score || 0,
                     probability: getStageProbability(stageName),
-                    requiredForms   // ← array
+                    requiredForms: requiredForms,
+                    scoreModifier: out.scoreModifier || 0,
+                    ruleId: out.ruleId || `${act.name}-${purp.name}-${out.label}`.toLowerCase().replace(/[^a-z0-9]+/g, '-')
                 });
             }
         }

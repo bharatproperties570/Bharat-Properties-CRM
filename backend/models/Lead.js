@@ -108,7 +108,7 @@ const LeadSchema = new mongoose.Schema({
     capture_form: { type: mongoose.Schema.Types.ObjectId, ref: 'LeadForm' },
 
     // Prospecting & Enrichment Intelligence Fields
-    intent_index: { type: Number, default: 0, min: 0, max: 100 },
+
     enrichment_formula_score: { type: Number, default: null }, // Step 1 formula-only score (no activities — prevents double-counting)
     lead_classification: { type: String }, // Serious Buyer, Qualified, Explorer, etc.
     role_type: { type: String }, // Buyer, Seller, Investor, etc.
@@ -122,10 +122,30 @@ const LeadSchema = new mongoose.Schema({
     stageChangedAt: { type: Date, index: true },             // When stage last changed
     lastActivityAt: { type: Date },             // When last activity logged (Indexed below)
 
+    // ━━ Pipeline Health Fields — HubSpot "Deal Rotting" Pattern ━━━━━━━━━━━━━━━
+    // Tracks consecutive failed contacts (No Answer, No Show, Rescheduled)
+    // Reset to 0 on any POSITIVE outcome (Connected, Conducted, Interested etc.)
+    consecutiveFailedContacts: { type: Number, default: 0, index: true },
+    lastFailedContactAt: { type: Date },         // When last failed contact happened
+    isAtRisk: { type: Boolean, default: false, index: true }, // true = needs urgent attention
+    atRiskSince: { type: Date },                 // When "At Risk" flag was set
+    atRiskReason: { type: String },              // Human-readable reason (e.g. "3 consecutive No Answer calls")
+
+    // ━━ Booking Strictness (KYC & Token) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    kycVerified: { type: Boolean, default: false },
+    kycDocumentUrl: { type: String }, // To hold the uploaded document path
+    bookingAmount: { type: Number },
+    bookingDate: { type: Date },
+    bookingRefNo: { type: String },
+
     // ━━ Unified Scoring Fields — written ONLY by LeadScoringService.js ━━━━━━━
     leadScore: { type: Number, default: 0, min: 0, max: 100 }, // Final authoritative score (backend-only)
     activityScore: { type: Number, default: 0, min: 0, max: 100 }, // Activity-driven component (no double-count with enrichment)
-    decay_score: { type: Number, default: 0, min: 0, max: 50 }, // Accumulated inactivity penalty (cron-managed, NOT intent_index)
+    ruleScoreBoost: { type: Number, default: 0 }, // Accumulated boosts from Weighted Transition Rules
+    intent_index: { type: Number, default: 0, min: 0, max: 100 }, // Static intent based on enrichment & keywords
+    decay_score: { type: Number, default: 0, min: 0, max: 50 }, // Accumulated inactivity penalty
+    dealHealthScore: { type: Number, default: 50, min: 0, max: 100 }, // AI Deal Health Metric (0-100)
+    dealHealthStatus: { type: String, enum: ['Healthy', 'Watch', 'At Risk', 'Unknown'], default: 'Unknown' }, // Computed status based on thresholds
     scoreBreakdown: { type: Object, default: {} }, // Explainability: { staticBase, activityScore, sourceScore, fitScore, decayPenalty, stageMultiplier, temperature, intent }
     ai_intent_summary: { type: String },
     ai_closing_probability: { type: Number, min: 0, max: 100 },

@@ -19,6 +19,7 @@ import Lead from '../../models/Lead.js';
 import Activity from '../../models/Activity.js';
 import SystemSetting from '../modules/systemSettings/system.model.js';
 import AuditLog from '../../models/AuditLog.js';
+import { computeIntentScore, computeDealHealth } from './LeadHealthIntentHelper.js';
 
 // ─── DEFAULT CONFIG (used if SystemSetting not found) ───────────────────────
 const DEFAULT_CONFIG = {
@@ -398,8 +399,15 @@ export const computeLeadScore = (lead, activities = [], config = DEFAULT_CONFIG)
     }
 
     // ── FINAL CALCULATION ───────────────────────────────────────────────────
-    const raw = staticBase + activityScore + sourceScore + fitScore + decayPenalty;
+    const ruleScoreBoost = lead.ruleScoreBoost || 0;
+    
+    // Calculate Intent Signals Boost
+    const intentSignalsBoost = computeIntentScore(lead, activities, config.intentSignalsConfig);
+    breakdown.intentSignalsBoost = intentSignalsBoost;
+
+    const raw = staticBase + activityScore + sourceScore + fitScore + decayPenalty + ruleScoreBoost + intentSignalsBoost;
     breakdown.rawBeforeMultiplier = raw;
+    breakdown.ruleScoreBoost = ruleScoreBoost;
 
     let finalScore = Math.round(raw * multiplier * aiMultiplier);
     finalScore = Math.max(0, Math.min(100, finalScore));
@@ -450,11 +458,19 @@ export const computeAndSave = async (leadId, options = {}) => {
         entityId: leadId
     }).lean();
 
-    // Load config (cached)
+    // Load configs
     const config = await loadScoringConfig();
+    const intentConfigDoc = await SystemSetting.findOne({ key: 'intentSignals' }).lean();
+    config.intentSignalsConfig = intentConfigDoc?.value || null;
+    
+    const dealHealthConfigDoc = await SystemSetting.findOne({ key: 'dealHealthConfig' }).lean();
+    const dealHealthConfig = dealHealthConfigDoc?.value || null;
 
     // Compute score (pure function, no DB side effects)
     const result = computeLeadScore(lead, activities, config);
+    
+    // Compute Deal Health
+    const dealHealth = computeDealHealth(lead, result.total, dealHealthConfig);
 
     const prevScore = lead.leadScore || 0;
 
@@ -462,7 +478,9 @@ export const computeAndSave = async (leadId, options = {}) => {
     await Lead.findByIdAndUpdate(leadId, {
         leadScore:      result.total,
         activityScore:  result.activityScore,
-        scoreBreakdown: result.breakdown
+        scoreBreakdown: result.breakdown,
+        dealHealthScore: dealHealth.score,
+        dealHealthStatus: dealHealth.status
     });
 
     // Audit if score changed significantly (±5 points)

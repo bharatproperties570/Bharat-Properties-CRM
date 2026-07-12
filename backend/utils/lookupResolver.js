@@ -105,6 +105,18 @@ export const resolveHierarchicalAddress = async (addr) => {
         backupAreaVal = (locationVal === addr.area) ? (addr.location || addr.locality || '') : (addr.area || '');
     }
 
+    // 🛡️ [DATA SANITIZATION] Prevent junk/full addresses from polluting the Address Master
+    if (locationVal) {
+        const isTooLong = locationVal.length > 35;
+        const hasAddressKeywords = /\b(house|h\.?no|plot|flat|room|floor|bldg|building|apt|apartment|street|gali|block)\b/i.test(locationVal);
+        
+        if (isTooLong || hasAddressKeywords) {
+            // Keep it in the text fallback but don't master it
+            backupAreaVal = backupAreaVal || locationVal;
+            locationVal = null;
+        }
+    }
+
     if (locationVal) {
         const locationId = await resolveLookup('Location', locationVal, cityId);
         if (locationId) {

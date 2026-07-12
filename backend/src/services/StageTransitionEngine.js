@@ -30,8 +30,11 @@ import Lookup from '../../models/Lookup.js';
 
 import SystemSetting from '../modules/systemSettings/system.model.js';
 import RevivalSyncService from './RevivalSyncService.js';
+import DealSyncEngine from './DealSyncEngine.js';
 import AuditLog from '../../models/AuditLog.js';
 import StageTransitionLog from '../../models/StageTransitionLog.js';
+import { safeRedisCall } from '../config/redis.js';
+
 
 const escapeRegExp = (string) => {
     if (!string) return '';
@@ -40,17 +43,17 @@ const escapeRegExp = (string) => {
 
 // ━━ ENTERPRISE FORM MAPPING ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 const FORM_FIELD_MAPPING = {
-    'Requirement Form': ['requirement', 'propertyType', 'budget', 'budgetMin', 'budgetMax', 'location', 'locCity', 'locArea', 'project'],
+    'Requirement Form': ['requirement', 'propertyType', 'subType', 'sizeType', 'budgetMin', 'budgetMax', 'locState', 'locCity', 'locArea', 'sector', 'projectName'],
     'Meetings Form': ['notes', 'description'],
     'Quotation Form': ['budget', 'budgetMax', 'notes'],
     'Offer Form': ['budget', 'budgetMax', 'notes'],
+    'Booking Form': ['bookingAmount', 'bookingDate', 'bookingRefNo'], // New Enterprise Gate
     'Site Visit Form': [] // Handled dynamically based on activity completion
 };
 
 const getNextActionSuggestion = (targetStage) => {
     const suggestions = {
-        'Prospect': 'Schedule an initial discovery call to understand detailed requirements.',
-        'Qualified': 'Share brochures and project details for the shortlisted properties.',
+        'Prospect': 'Schedule an initial discovery call to understand detailed requirements. Share brochures and project details for the shortlisted properties.',
         'Opportunity': 'Plan a detailed site visit or meeting to finalize preferences.',
         'Negotiation': 'Draft the final quotation and offer letter. Address any pricing concerns.',
         'Booked': 'Initiate document collection and verify payment status for initial booking.',
@@ -61,6 +64,131 @@ const getNextActionSuggestion = (targetStage) => {
 
 // ─── DEFAULT RULES (seed data — admin can override via settings page) ─────────
 export const DEFAULT_STAGE_RULES = [
+    // ══════════════════════════════════════════════════════════
+    //  NEW OUTCOMES (PHASE 3)
+    // ══════════════════════════════════════════════════════════
+    {
+        id: 'visit_cancelled',
+        activityType: 'Site Visit',
+        purpose: '*',
+        outcome: 'Visit Cancelled',
+        reason: '*',
+        newStage: 'Prospect',
+        requiredForms: [],
+        priority: 10,
+        active: true
+    },
+    {
+        id: 'visit_no_show',
+        activityType: 'Site Visit',
+        purpose: '*',
+        outcome: 'No Show',
+        reason: '*',
+        newStage: 'Prospect',
+        requiredForms: [],
+        priority: 10,
+        active: true
+    },
+    {
+        id: 'visit_rescheduled',
+        activityType: 'Site Visit',
+        purpose: '*',
+        outcome: 'Visit Rescheduled',
+        reason: '*',
+        newStage: 'Prospect',
+        requiredForms: [],
+        priority: 10,
+        active: true
+    },
+    {
+        id: 'call_voicemail_left',
+        activityType: 'Call',
+        purpose: '*',
+        outcome: 'Voicemail Left',
+        reason: '*',
+        newStage: 'Incoming',
+        requiredForms: [],
+        priority: 10,
+        active: true
+    },
+    {
+        id: 'call_qualifying_very_interested',
+        activityType: 'Call',
+        purpose: 'Qualifying',
+        outcome: 'Connected',
+        reason: 'Very Interested',
+        newStage: 'Prospect',
+        requiredForms: [],
+        priority: 15,
+        active: true
+    },
+    {
+        id: 'call_intro_very_interested',
+        activityType: 'Call',
+        purpose: 'Introduction / First Contact',
+        outcome: 'Connected',
+        reason: 'Very Interested',
+        newStage: 'Prospect',
+        requiredForms: [],
+        priority: 15,
+        active: true
+    },
+    {
+        id: 'meeting_cancelled',
+        activityType: 'Meeting',
+        purpose: '*',
+        outcome: 'Meeting Cancelled',
+        reason: '*',
+        newStage: 'Prospect',
+        requiredForms: [],
+        priority: 10,
+        active: true
+    },
+    {
+        id: 'meeting_demo_interested',
+        activityType: 'Meeting',
+        purpose: 'Demo Given',
+        outcome: 'Conducted',
+        reason: 'Interested',
+        newStage: 'Opportunity',
+        requiredForms: [],
+        priority: 20,
+        active: true
+    },
+    {
+        id: 'digital_replied_not_interested',
+        activityType: 'Email', // or WhatsApp, we'll use * 
+        purpose: '*',
+        outcome: 'Replied',
+        reason: 'Not Interested',
+        newStage: 'Closed',
+        requiredForms: [],
+        priority: 30,
+        active: true
+    },
+    {
+        id: 'digital_bounced',
+        activityType: 'Email',
+        purpose: '*',
+        outcome: 'Bounced',
+        reason: '*',
+        newStage: 'Incoming',
+        requiredForms: [],
+        priority: 30,
+        active: true
+    },
+    {
+        id: 'digital_whatsapp_blocked',
+        activityType: 'WhatsApp',
+        purpose: '*',
+        outcome: 'Blocked',
+        reason: '*',
+        newStage: 'Closed',
+        requiredForms: [],
+        priority: 30,
+        active: true
+    },
+
 
     // ══════════════════════════════════════════════════════════
     //  CALL RULES
@@ -430,7 +558,7 @@ export const DEFAULT_STAGE_RULES = [
         purpose: '*',
         outcome: 'Somewhat Interested',
         reason: '*',
-        newStage: 'Qualified',
+        newStage: 'Prospect',
         requiredForms: ['Requirement Form'],
         priority: 25,
         active: true
@@ -456,7 +584,7 @@ export const DEFAULT_STAGE_RULES = [
         purpose: '*',
         outcome: 'Will Think',
         reason: '*',
-        newStage: 'Qualified',
+        newStage: 'Prospect',
         requiredForms: [],
         priority: 23,
         active: true
@@ -613,6 +741,22 @@ export const DEFAULT_STAGE_RULES = [
     },
 
     // ══════════════════════════════════════════════════════════
+    //  INBOUND REVIVAL RULES
+    // ══════════════════════════════════════════════════════════
+    {
+        id: 'inbound_revival_whatsapp',
+        activityType: 'WhatsApp',
+        purpose: 'Inbound',
+        outcome: 'Inbound Message',
+        reason: '*',
+        newStage: 'Prospect',   // Pipeline Re-entry Point
+        requiredForms: [],
+        priority: 60,           // High priority (overrides standard rules)
+        active: true,
+        description: 'Auto-revive Closed/Dormant lead upon receiving inbound WhatsApp message'
+    },
+
+    // ══════════════════════════════════════════════════════════
     //  CLOSURE RULES (any activity type)
     // ══════════════════════════════════════════════════════════
 
@@ -624,7 +768,7 @@ export const DEFAULT_STAGE_RULES = [
         outcome: 'Booking Done',
         reason: '*',
         newStage: 'Booked',
-        requiredForms: ['Quotation Form', 'Offer Form'],
+        requiredForms: ['Quotation Form', 'Offer Form', 'Booking Form'],
         priority: 50,
         active: true,
         description: 'Any Activity → Booking Done → Booked'
@@ -683,44 +827,83 @@ export const DEFAULT_STAGE_RULES = [
 ];
 
 // ────────────────────────────────────────────────────────────────────────────
-let _rulesCache = null;
-let _rulesCacheAt = 0;
-const RULES_TTL_MS = 5 * 1000; // 5 seconds for rapid updates
+let _localRulesCache = null;
+
+const flattenMasterFields = (activityMasterFields) => {
+    const defaultRules = [];
+    if (!activityMasterFields || !activityMasterFields.activities) return defaultRules;
+    for (const act of activityMasterFields.activities) {
+        for (const purp of (act.purposes || [])) {
+            for (const out of (purp.outcomes || [])) {
+                if (out.stage) {
+                    defaultRules.push({
+                        id: `default_${act.name}_${purp.name}_${out.label}`.replace(/\s+/g, '_').toLowerCase(),
+                        activityType: act.name,
+                        purpose: purp.name,
+                        outcome: out.label,
+                        status: out.status || '*',
+                        reason: '*',
+                        newStage: out.stage,
+                        requiredForms: Array.isArray(out.requiredForms) ? out.requiredForms : (out.requiredForm ? [out.requiredForm] : []),
+                        priority: 100, // lower priority than overrides (which default to 1-99)
+                        active: true,
+                        description: `Default Mapping: ${act.name} -> ${out.stage}`
+                    });
+                }
+            }
+        }
+    }
+    return defaultRules;
+};
 
 export const loadTransitionRules = async () => {
-    const now = Date.now();
-    if (_rulesCache && (now - _rulesCacheAt) < RULES_TTL_MS) return _rulesCache;
-
     try {
-        const [transitionSetting, mappingSetting] = await Promise.all([
+        // 1. Try Redis First
+        const redisCache = await safeRedisCall('get', 'stage_rules_cache');
+        if (redisCache) {
+            const parsed = JSON.parse(redisCache);
+            _localRulesCache = parsed;
+            return parsed;
+        }
+        
+        // 2. Fallback to DB
+        const [transitionSetting, mappingSetting, activityMasterFieldsSetting] = await Promise.all([
             SystemSetting.findOne({ key: 'stage_transition_rules' }).lean(),
-            SystemSetting.findOne({ key: 'stageMappingRules' }).lean()
+            SystemSetting.findOne({ key: 'stageMappingRules' }).lean(),
+            SystemSetting.findOne({ key: 'activityMasterFields' }).lean()
         ]);
 
         let rules = transitionSetting?.value?.rules || [];
         
-        // Merge in mapping rules (old/revival rules) after normalizing them
+        if (activityMasterFieldsSetting?.value) {
+            const defaults = flattenMasterFields(activityMasterFieldsSetting.value);
+            rules = [...rules, ...defaults];
+        }
+
         if (mappingSetting?.value && Array.isArray(mappingSetting.value)) {
             const mapped = mappingSetting.value.map(r => ({
                 ...r,
-                newStage: r.newStage || r.stage, // Normalize 'stage' -> 'newStage'
+                newStage: r.newStage || r.stage, 
                 active: r.isActive !== undefined ? r.isActive : (r.active !== undefined ? r.active : true)
             }));
             rules = [...rules, ...mapped];
         }
 
-        _rulesCache = rules.length > 0 ? rules : DEFAULT_STAGE_RULES;
+        const finalRules = rules.length > 0 ? rules : DEFAULT_STAGE_RULES;
+        
+        // 3. Save to Redis (TTL 1 hour, invalidated manually on save)
+        await safeRedisCall('setex', 'stage_rules_cache', 3600, JSON.stringify(finalRules));
+        _localRulesCache = finalRules;
+        return finalRules;
     } catch (err) {
         console.error('[StageTransitionEngine] Load rules error:', err.message);
-        _rulesCache = DEFAULT_STAGE_RULES;
+        return _localRulesCache || DEFAULT_STAGE_RULES;
     }
-    _rulesCacheAt = now;
-    return _rulesCache;
 };
 
-export const invalidateRulesCache = () => {
-    _rulesCache = null;
-    _rulesCacheAt = 0;
+export const invalidateRulesCache = async () => {
+    _localRulesCache = null;
+    await safeRedisCall('del', 'stage_rules_cache');
 };
 
 // ─── RESOLVE: Find matching rule ─────────────────────────────────────────────
@@ -789,7 +972,7 @@ const matchOutcome = (outNorm, ruleOutNorm) => {
 const DEBUG_STAGE = process.env.STAGE_ENGINE_DEBUG === 'true';
 const debugLog = (...args) => { if (DEBUG_STAGE) console.log(...args); };
 
-export const resolveTransition = async (activityType, outcome, reason = '', purpose = '') => {
+export const resolveTransition = async (activityType, outcome, reason = '', purpose = '', status = '') => {
     const rules = await loadTransitionRules();
     const activeRules = rules
         .filter(r => (r.isActive !== false && r.active !== false))
@@ -801,6 +984,7 @@ export const resolveTransition = async (activityType, outcome, reason = '', purp
     const outNorm = normalize(outcome);
     const resNorm = normalize(reason);
     const purpNorm = normalize(purpose);
+    const statNorm = normalize(status);
     const purpGroup = getPurposeGroup(purpNorm);
 
     for (const rule of activeRules) {
@@ -808,6 +992,7 @@ export const resolveTransition = async (activityType, outcome, reason = '', purp
         const rulePurpNorm = normalize(rule.purpose);
         const ruleOutNorm = normalize(rule.outcome);
         const ruleResNorm = normalize(rule.reason);
+        const ruleStatNorm = normalize(rule.status);
         const rulePurpGroup = getPurposeGroup(rulePurpNorm);
 
         // 1. Activity type match: exact or wildcard (handle legacy empty string as wildcard)
@@ -828,12 +1013,15 @@ export const resolveTransition = async (activityType, outcome, reason = '', purp
                          (resNorm && resNorm.startsWith(ruleResNorm)) ||
                          (ruleResNorm && ruleResNorm.startsWith(resNorm));
 
-        const isMatch = actMatch && purpMatch && outMatch && resMatch;
+        // 5. Status match: wildcard OR exact. (If missing in rule, treat as wildcard to not break old rules)
+        const statMatch = ruleStatNorm === '*' || !rule.status || ruleStatNorm === '' || ruleStatNorm === statNorm;
+
+        const isMatch = actMatch && purpMatch && outMatch && resMatch && statMatch;
         // Only log per-rule detail in debug mode (set STAGE_ENGINE_DEBUG=true in .env)
-        debugLog(`[StageEngine] Rule ${rule.id || 'unnamed'}: ${isMatch ? '✅ MATCH' : '❌ FAIL'} | Act=${actMatch} Purp=${purpMatch} Out=${outMatch} Res=${resMatch}`);
+        debugLog(`[StageEngine] Rule ${rule.id || 'unnamed'}: ${isMatch ? '✅ MATCH' : '❌ FAIL'} | Act=${actMatch} Purp=${purpMatch} Stat=${statMatch} Out=${outMatch} Res=${resMatch}`);
 
         if (isMatch) {
-            console.log(`[StageEngine] ✅ Matched Rule: ${rule.id} for Act=${actNorm}, Purp=${purpNorm}, Out=${outNorm}`);
+            console.log(`[StageEngine] ✅ Matched Rule: ${rule.id} for Act=${actNorm}, Purp=${purpNorm}, Stat=${statNorm}, Out=${outNorm}`);
             return { matched: true, rule };
         }
     }
@@ -900,7 +1088,8 @@ export const executeTransition = async (leadId, newStageName, options = {}) => {
         outcome = '',
         reason = '',
         triggeredByUser = null,
-        stageFormData = {}
+        stageFormData = {},
+        scoreModifier = 0
     } = options;
 
     const lead = await Lead.findById(leadId)
@@ -918,7 +1107,7 @@ export const executeTransition = async (leadId, newStageName, options = {}) => {
 
     // 🚀 [FEATURE] Stage Regression Guard (Forward-only enforcement)
     const STAGE_ORDER = {
-        'incoming': 0, 'prospect': 1, 'qualified': 2,
+        'incoming': 0, 'prospect': 1,
         'opportunity': 3, 'negotiation': 4, 'booked': 5, 'closed': 6
     };
 
@@ -990,7 +1179,7 @@ export const executeTransition = async (leadId, newStageName, options = {}) => {
         stageChangedAt: now,
         $push: { stageHistory: historyEntry }
     };
-    
+
     // 🚀 [BUG FIX] Update previous stageHistory entry with exitedAt and daysInStage
     if (lead.stageHistory && lead.stageHistory.length > 0) {
         const lastIndex = lead.stageHistory.length - 1;
@@ -1010,7 +1199,8 @@ export const executeTransition = async (leadId, newStageName, options = {}) => {
     // Apply any stageFormData fields (e.g., budget, location, timeline filled in form)
     const ALLOWED_STAGE_FORM_FIELDS = [
         'budget', 'budgetMin', 'budgetMax', 'location', 'locCity', 'locArea',
-        'timeline', 'propertyType', 'requirement', 'subRequirement', 'notes', 'description'
+        'timeline', 'propertyType', 'requirement', 'subRequirement', 'notes', 'description',
+        'bookingAmount', 'bookingDate', 'bookingRefNo', 'kycVerified', 'kycDocumentUrl'
     ];
     for (const [k, v] of Object.entries(stageFormData)) {
         if (ALLOWED_STAGE_FORM_FIELDS.includes(k) && v !== undefined && v !== null && v !== '') {
@@ -1040,6 +1230,11 @@ export const executeTransition = async (leadId, newStageName, options = {}) => {
             console.error('[StageTransitionEngine] Revival automation trigger failed:', err.message);
         });
     }
+    
+    // 🚀 DEAL SYNC ENGINE (Phase 4)
+    DealSyncEngine.syncLeadToDeal(leadId, newStageName, triggeredByUser).catch(err => {
+        console.error('[StageTransitionEngine] Deal sync trigger failed:', err.message);
+    });
 
     return { success: true, prevStage: prevStageName, newStage: newStageName };
 };
@@ -1059,13 +1254,17 @@ export const executeTransition = async (leadId, newStageName, options = {}) => {
  * @param {Object} context - { activityId, triggeredByUser }
  * @returns {Promise<Object>} transition result
  */
-export const evaluateAndTransition = async (leadId, activityType, outcome, reason, stageFormData = {}, context = {}) => {
+export const evaluateAndTransition = async (leadId, activityType, outcome, reason = '', stageFormData = {}, context = {}) => {
+    // Check if the engine should run for this specific activity type based on admin settings
+    const shouldRun = await shouldEngineRunForActivity(activityType);
+    
     // ✅ [BUG FIX] Removed invalidateRulesCache() — it was wiping cache before every evaluation,
     // causing 2 extra MongoDB queries per activity (cache always missed).
     // Cache is now invalidated only when admin saves rules via the settings page.
     
     let finalOutcome = outcome;
     const purpose = context.purpose || '';
+    const status = context.status || '';
 
     // 🌟 SITE VISIT INTELLIGENCE: Extract outcome from visitedProperties if top-level is missing
     if (!finalOutcome && activityType?.toLowerCase() === 'site visit' && context.activityId) {
@@ -1168,7 +1367,31 @@ export const evaluateAndTransition = async (leadId, activityType, outcome, reaso
                 continue;
             }
 
-            // Case 2: Check mapping if fields exist on lead or were just submitted
+            // Case 2: Custom Strict Validation for Requirement Form
+            if (formName === 'Requirement Form') {
+                const getVal = (f) => {
+                    const val = stageFormData[f] !== undefined ? stageFormData[f] : lead[f];
+                    return (val !== undefined && val !== null && val !== '' && !(Array.isArray(val) && val.length === 0)) ? val : null;
+                };
+
+                // Details Page validation
+                const detailsValid = getVal('requirement') && getVal('propertyType') && getVal('subType') && getVal('sizeType') && getVal('budgetMin') && getVal('budgetMax');
+
+                // Location Page validation
+                const isProjectLocation = getVal('projectName') && getVal('projectName').length > 0;
+                const locationValid = isProjectLocation 
+                    ? (getVal('locCity') && getVal('projectName')) 
+                    : (getVal('locState') && getVal('locCity') && (getVal('locArea') || getVal('sector')));
+
+                if (detailsValid && locationValid) {
+                    continue; // Form is strictly filled
+                } else {
+                    missingForms.push(formName);
+                    continue; // Skip generic fallback mapping check below
+                }
+            }
+
+            // Case 3: Check mapping if fields exist on lead or were just submitted
             const mappedFields = FORM_FIELD_MAPPING[formName];
             if (mappedFields && mappedFields.length > 0) {
                 const hasData = mappedFields.some(field => {
@@ -1239,6 +1462,137 @@ export const evaluateAndTransition = async (leadId, activityType, outcome, reaso
                 notification: `Please fill ${missingForms.join(', ')} to move to ${rule.newStage}`
             };
         }
+    }
+
+    // 🛡️ LAYER 3: ENTERPRISE KYC HARD GATE (Booking Strictness)
+    if (rule.newStage.toLowerCase() === 'booked') {
+        const leadCheck = await Lead.findById(leadId).select('kycVerified kycDocumentUrl documents').lean();
+        
+        // 1. Check Traditional fields
+        const hasTraditionalKyc = leadCheck?.kycVerified === true || (leadCheck?.kycDocumentUrl && leadCheck.kycDocumentUrl.trim() !== '') || (stageFormData && (stageFormData.kycVerified === true || stageFormData.kycVerified === 'true'));
+        
+        // 2. Deep scan the documents array for an 'ID Proof'
+        let hasIdProofDoc = false;
+        if (leadCheck?.documents && Array.isArray(leadCheck.documents)) {
+            hasIdProofDoc = leadCheck.documents.some(doc => {
+                const cat = doc.documentCategory;
+                if (!cat) return false;
+                // Extract category name if it's an object/Lookup, otherwise use the string directly
+                const catName = (typeof cat === 'object' && cat.name) ? cat.name : String(cat);
+                return catName.toLowerCase() === 'id proof';
+            });
+        }
+
+        const hasKyc = hasTraditionalKyc || hasIdProofDoc;
+        
+        if (!hasKyc) {
+            try {
+                await StageTransitionLog.create({
+                    leadId, activityId: context.activityId, activityType, purpose, outcome: finalOutcome, reason,
+                    status: 'missing_kyc', matchedRuleId: rule.id, newStage: rule.newStage,
+                    failureReason: `Strict KYC Gate: Missing KYC Document or Verification`, triggeredByUser: context.triggeredByUser
+                });
+            } catch (_) {}
+
+            return {
+                stageChanged: false,
+                requiresForm: true,
+                newStage: rule.newStage,
+                requiredForms: [...requiredForms, 'KYC Document Verification'],
+                missingForms: ['KYC Document Verification'],
+                missingFields: ['kycVerified', 'kycDocumentUrl'],
+                requiredFields: ['kycVerified', 'kycDocumentUrl'], 
+                ruleId: rule.id,
+                notification: `KYC Document Verification is strictly required before moving to Booked stage.`
+            };
+        }
+    }
+
+    // 🛡️ LAYER 3.5: ENTERPRISE SEQUENCE GUARD & STABILITY LOCK
+    try {
+        const sequenceConfigDoc = await SystemSetting.findOne({ key: 'sequenceConfig' }).lean();
+        const sequenceConfig = sequenceConfigDoc?.value || null;
+        
+        const currentLead = await Lead.findById(leadId).select('stage stageChangedAt createdAt').lean();
+        const currentStage = currentLead?.stage || 'New';
+        
+        if (sequenceConfig && sequenceConfig.enforcementMode !== 'off' && sequenceConfig.sequence) {
+            const seq = sequenceConfig.sequence;
+            const currentIdx = seq.findIndex(s => s.stage.toLowerCase() === currentStage.toLowerCase());
+            const targetIdx = seq.findIndex(s => s.stage.toLowerCase() === rule.newStage.toLowerCase());
+            
+            // 1. SEQUENCE GUARD (Preventing forward skips)
+            if (currentIdx !== -1 && targetIdx !== -1 && targetIdx > currentIdx + 1) {
+                const missingStages = seq.slice(currentIdx + 1, targetIdx).map(s => s.stage);
+                if (sequenceConfig.enforcementMode === 'block') {
+                    try {
+                        await StageTransitionLog.create({
+                            leadId, activityId: context.activityId, activityType, purpose, outcome: finalOutcome, reason,
+                            status: 'sequence_violation', matchedRuleId: rule.id, newStage: rule.newStage,
+                            failureReason: `Strict Sequence Gate: Cannot skip stages. Missing: ${missingStages.join(', ')}`, triggeredByUser: context.triggeredByUser
+                        });
+                    } catch (_) {}
+
+                    return {
+                        stageChanged: false,
+                        newStage: rule.newStage,
+                        requiresForm: false,
+                        ruleId: rule.id,
+                        notification: `Sequence Error: You must pass through ${missingStages.join(', ')} first.`
+                    };
+                } else if (sequenceConfig.enforcementMode === 'warn') {
+                    try {
+                        await StageTransitionLog.create({
+                            leadId, activityId: context.activityId, activityType, purpose, outcome: finalOutcome, reason,
+                            status: 'sequence_warning', matchedRuleId: rule.id, newStage: rule.newStage,
+                            failureReason: `Warning: Skipped stages ${missingStages.join(', ')}`, triggeredByUser: context.triggeredByUser
+                        });
+                    } catch (_) {}
+                }
+            }
+            
+            // 2. STABILITY LOCK (Preventing false regressions)
+            if (currentIdx !== -1 && targetIdx !== -1 && targetIdx < currentIdx) {
+                const stabilityConfigDoc = await SystemSetting.findOne({ key: 'stabilityLockConfig' }).lean();
+                const STABILITY_CONFIG = stabilityConfigDoc?.value || {
+                    Opportunity: { minActivities: 1, minDays: 0, label: 'Opportunity requires 1 activity before downgrade' },
+                    Negotiation: { minActivities: 1, minDays: 0, label: 'Negotiation requires 1 activity before downgrade' },
+                    Closed: { minActivities: 999, minDays: 999, label: 'Closed deals cannot be downgraded automatically' }
+                };
+                
+                const lock = STABILITY_CONFIG[currentStage];
+                if (lock) {
+                    const Activity = (await import('../../models/Activity.js')).default || (await import('../../models/Activity.js'));
+                    const sinceDate = currentLead.stageChangedAt || currentLead.createdAt || new Date();
+                    const activitiesInStage = await Activity.countDocuments({ 
+                        entityType: 'Lead', 
+                        entityId: leadId, 
+                        createdAt: { $gte: sinceDate } 
+                    });
+                    
+                    const daysInStage = Math.floor((Date.now() - new Date(sinceDate).getTime()) / (1000 * 60 * 60 * 24));
+                    
+                    if (activitiesInStage < lock.minActivities || daysInStage < lock.minDays) {
+                        try {
+                            await StageTransitionLog.create({
+                                leadId, activityId: context.activityId, activityType, purpose, outcome: finalOutcome, reason,
+                                status: 'stability_lock', matchedRuleId: rule.id, newStage: rule.newStage,
+                                failureReason: `Stability Lock: Cannot downgrade. Requires ${lock.minActivities} activities, has ${activitiesInStage}.`, triggeredByUser: context.triggeredByUser
+                            });
+                        } catch (_) {}
+
+                        return {
+                            stageChanged: false,
+                            newStage: rule.newStage,
+                            ruleId: rule.id,
+                            notification: `Stability Lock: Cannot downgrade to ${rule.newStage}. Required activities in ${currentStage}: ${lock.minActivities} (You have ${activitiesInStage}).`
+                        };
+                    }
+                }
+            }
+        }
+    } catch (error) {
+        console.error('[StageEngine] Sequence/Stability Gate error:', error);
     }
 
     // Step 4: Execute transition

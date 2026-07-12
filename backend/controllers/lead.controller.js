@@ -579,7 +579,7 @@ export const getLeads = async (req, res, next) => {
         // 🚀 SENIOR OPTIMIZATION: Conditionally apply projection for compact views (Mobile List)
         let projection = null;
         if (view === 'compact') {
-            projection = '_id firstName lastName mobile email stage status source owner assignment projectName locArea locCity budgetMax budgetMin budget requirement subType sizeType project createdAt updatedAt intent_index leadScore location';
+            projection = '_id firstName lastName mobile email stage status source owner assignment projectName locArea locCity budgetMax budgetMin budget requirement subType sizeType project createdAt updatedAt intent_index leadScore location isAtRisk atRiskReason consecutiveFailedContacts';
         }
 
         // Enable population for key fields (Use lean population for list view)
@@ -1129,6 +1129,19 @@ export const updateLead = async (req, res, next) => {
 
         // Standard update (stage already resolved to ObjectId by resolveAllReferenceFields)
         const finalLead = await Lead.findByIdAndUpdate(req.params.id, updateData, { new: true }).populate(leadPopulateFields);
+
+        // 🧠 DATA COMPLETENESS AUTO-QUALIFICATION
+        if (finalLead && checkLeadQualifiedStatus(finalLead)) {
+            const qualifiedStatusLookup = await Lookup.findOne({ type: 'Status', value: { $regex: /^Qualified$/i } });
+            if (qualifiedStatusLookup) {
+                const isCurrentlyQualified = finalLead.status && finalLead.status._id && finalLead.status._id.toString() === qualifiedStatusLookup._id.toString();
+                if (!isCurrentlyQualified) {
+                    finalLead.status = qualifiedStatusLookup._id;
+                    await Lead.findByIdAndUpdate(finalLead._id, { status: qualifiedStatusLookup._id });
+                }
+            }
+        }
+
 
         if (finalLead) {
             // Bidirectional Sync: Lead -> Inventory
@@ -2376,5 +2389,90 @@ export const getExactMatchLeadsForDeal = async (deal, user = null) => {
     } catch (e) {
         console.error("[getExactMatchLeadsForDeal] Error:", e);
         return [];
+    }
+};
+
+export const convertLeadToContact = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const lead = await Lead.findById(id).lean();
+
+        if (!lead) {
+            return res.status(404).json({ success: false, message: 'Lead not found' });
+        }
+
+        if (lead.isConverted || lead.contactDetails) {
+            return res.status(400).json({ success: false, message: 'Lead is already converted' });
+        }
+
+        // 1. Create Contact
+        const newContact = new Contact({
+            name: lead.fullName || `${lead.firstName || ''} ${lead.lastName || ''}`.trim() || 'Unknown',
+            title: lead.salutation,
+            phones: [{ number: lead.mobile, type: 'Personal' }],
+            emails: lead.email ? [{ address: lead.email, type: 'Personal' }] : [],
+            tags: [...(lead.tags || []), 'Converted Lead'],
+            description: `Converted from Lead on ${new Date().toLocaleDateString('en-GB')}. Original Score: ${lead.leadScore}`,
+            source: lead.source,
+            subSource: lead.subSource,
+            campaign: lead.campaign,
+            assignedTo: lead.assignment?.assignedTo || lead.owner,
+            owner: lead.owner,
+            teams: lead.teams || [],
+            department: lead.department,
+            requirement: lead.requirement,
+            budget: lead.budget,
+            location: lead.location,
+            personalAddress: {
+                location: lead.searchLocation || lead.locArea,
+                city: lead.locCity,
+                state: lead.locState,
+                country: lead.locCountry,
+                area: lead.locArea
+            }
+        });
+
+        await newContact.save();
+
+        // 2. Transfer Activities
+        await Activity.updateMany(
+            { entityId: lead._id, entityType: 'Lead' },
+            { $set: { entityId: newContact._id, entityType: 'Contact' } }
+        );
+
+        // Also update relatedTo arrays if they contain the Lead
+        await Activity.updateMany(
+            { "relatedTo.id": lead._id.toString() },
+            { 
+                $set: { 
+                    "relatedTo.$[elem].id": newContact._id.toString(),
+                    "relatedTo.$[elem].model": "Contact",
+                    "relatedTo.$[elem].type": "Contact"
+                } 
+            },
+            { arrayFilters: [{ "elem.id": lead._id.toString() }] }
+        );
+
+        // 3. Mark Lead as Converted
+        const ConvertedLookup = await Lookup.findOne({ lookup_type: 'stage', lookup_value: 'Converted' });
+        
+        await Lead.findByIdAndUpdate(id, {
+            $set: {
+                isConverted: true,
+                contactDetails: newContact._id,
+                stage: ConvertedLookup ? ConvertedLookup._id : lead.stage,
+                stageChangedAt: new Date(),
+                "customFields.convertedAt": new Date()
+            }
+        });
+
+        res.status(200).json({
+            success: true,
+            contact: newContact,
+            message: 'Lead successfully converted to Contact!'
+        });
+    } catch (error) {
+        console.error('[ConvertLeadToContact] Error:', error);
+        next(error);
     }
 };

@@ -13,6 +13,11 @@ import { normalizePhone }   from '../utils/normalization.js';
 import DealVerificationService from '../services/DealVerificationService.js';
 import { receiveWebhook as legacyHandler } from '../controllers/social.controller.js';
 
+import Lead from '../models/Lead.js';
+import Activity from '../models/Activity.js';
+import { autoTriggerStageChange } from '../controllers/activity.controller.js';
+import { createNotification } from '../controllers/notification.controller.js';
+
 const router = express.Router();
 
 // ── Config ─────────────────────────────────────────────────────
@@ -124,6 +129,48 @@ async function processMessage(traceId, message, value, req) {
     if (handled) {
         log.info(traceId, 'Message handled by DealVerificationService', { mobile });
         return;
+    }
+
+    // 🚀 ROUTE 1.5: Inbound Revival (Check if Lead is Dormant/Closed)
+    try {
+        const lead = await Lead.findOne({ mobile }).populate('stage').lean();
+        if (lead && lead.stage) {
+            const stageName = lead.stage.lookup_value || '';
+            const terminalStages = ['closed', 'closed lost', 'closed won', 'dormant', 'stalled'];
+            
+            if (terminalStages.some(s => stageName.toLowerCase().includes(s))) {
+                log.info(traceId, `Lead ${lead._id} is in terminal stage (${stageName}), attempting auto-revival`);
+                
+                // 1. Log the Inbound Activity
+                const activity = await Activity.create({
+                    entityType: 'Lead',
+                    entityId: lead._id,
+                    type: 'WhatsApp',
+                    purpose: 'Inbound',
+                    outcome: 'Inbound Message',
+                    notes: `Inbound WhatsApp message received: "${userText}"`,
+                    status: 'Completed',
+                    dueDate: new Date(),
+                    createdBy: lead.owner || null
+                });
+
+                // 2. Trigger Stage Change Engine (This will use our new 'inbound_revival_whatsapp' rule)
+                await autoTriggerStageChange(activity._id, lead.owner);
+                
+                // 3. Notify the owner
+                if (lead.owner) {
+                    await createNotification(
+                        lead.owner,
+                        'leads',
+                        '🔥 Lead Auto-Revived!',
+                        `Lead ${lead.firstName || ''} was revived from ${stageName} due to an inbound WhatsApp message.`,
+                        `/leads/${lead._id}`
+                    );
+                }
+            }
+        }
+    } catch (err) {
+        log.error(traceId, 'Failed to process inbound revival', { err: err.message });
     }
 
     // ROUTE 2: Fallback to General AI Bot (Legacy Logic)

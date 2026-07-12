@@ -182,8 +182,8 @@ export const triggerTestNotification = () => api.post('/notifications/test').the
 
 // Create and export axios instance
 export const api = axios.create({
-    // Use the stable tunnel URL to avoid localhost/network issues in development and production
-    baseURL: STABLE_TUNNEL_URL.endsWith('/') ? STABLE_TUNNEL_URL : `${STABLE_TUNNEL_URL}/`,
+    // Use the dynamically resolved API_BASE_URL based on environment
+    baseURL: API_BASE_URL.endsWith('/') ? API_BASE_URL : `${API_BASE_URL}/`,
     headers: {
         "Content-Type": "application/json",
         "Bypass-Tunnel-Reminder": "true",
@@ -538,6 +538,7 @@ export const leadsAPI = {
     update: (id, data) => apiRequest(`/leads/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id) => apiRequest(`/leads/${id}`, { method: 'DELETE' }),
     recalculateScore: (leadId) => apiRequest(`/activities/leads/${leadId}/recalculate-score`, { method: 'POST' }),
+    convertLead: (id) => apiRequest(`/leads/${id}/convert`, { method: 'POST' }),
 };
 
 // Contacts API
@@ -575,6 +576,13 @@ export const stageTransitionRulesAPI = {
     update: (ruleId, data) => apiRequest(`/rules/stage-transitions/${ruleId}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (ruleId) => apiRequest(`/rules/stage-transitions/${ruleId}`, { method: 'DELETE' }),
     seedDefaults: () => apiRequest('/rules/stage-transitions/seed', { method: 'POST' }),
+};
+
+// Stage Engine Observability API
+export const stageEngineAPI = {
+    getHealth: () => apiRequest('/stage-engine/health'),
+    getFailedTransitions: (days = 7) => apiRequest(`/stage-engine/failed?days=${days}`),
+    testTransition: (payload) => apiRequest('/stage-engine/test', { method: 'POST', body: JSON.stringify(payload) })
 };
 
 // Email API
@@ -694,5 +702,6 @@ export default {
     googleSettings: googleSettingsAPI,
     aiSettings: aiSettingsAPI,
     conversations: conversationAPI,
-    social: socialAPI
+    social: socialAPI,
+    stageEngine: stageEngineAPI
 };

@@ -49,12 +49,11 @@ export const DEFAULT_INTENT_SIGNALS = {
 // ─── IMPROVEMENT 6: STAGE DENSITY CONFIG ─────────────────────────────────────
 /** Target avg days per stage for density dashboard benchmarking */
 export const DEFAULT_STAGE_DENSITY_TARGETS = {
-    New: { targetDays: 1, label: 'New' },
+    Incoming: { targetDays: 2, label: 'Incoming' },
     Prospect: { targetDays: 7, label: 'Prospect' },
-    Qualified: { targetDays: 7, label: 'Qualified' },
     Opportunity: { targetDays: 14, label: 'Opportunity' },
     Negotiation: { targetDays: 21, label: 'Negotiation' },
-    Booked: { targetDays: 30, label: 'Booked' },
+    'Closed': { targetDays: 0, label: 'Closed' }
 };
 
 // ─── CORE: AGING ──────────────────────────────────────────────────────────────
@@ -270,7 +269,7 @@ export const computeDealHealth = (
 ) => {
     const STAGE_SCORES = {
         'New': 5, 'Prospect': 15, 'Qualified': 30, 'Opportunity': 50,
-        'Negotiation': 65, 'Booked': 80, 'Closed Won': 100, 'Closed Lost': 0,
+        'Negotiation': 65, 'Booked': 80, 'Closed': 100,
         'Open': 10, 'Stalled': 20, 'Quote': 25,
     };
 
@@ -349,16 +348,18 @@ export const detectCommissionLeakage = (dealHealth, commission, threshold = 5000
  *
  * Returns: conversion %, drop-off %, avg days per stage, bottleneck detection.
  */
-export const computeStageDensity = (leads = [], targets = DEFAULT_STAGE_DENSITY_TARGETS) => {
-    const ORDERED_STAGES = ['New', 'Prospect', 'Qualified', 'Opportunity', 'Negotiation', 'Booked', 'Closed Won'];
+export const computeStageDensity = (data = [], targets = DEFAULT_STAGE_DENSITY_TARGETS, entityType = 'leads') => {
+    const ORDERED_STAGES = entityType === 'deals'
+        ? ['Open', 'Quote', 'Negotiation', 'Closed']
+        : ['Incoming', 'Prospect', 'Opportunity', 'Negotiation', 'Closed'];
 
     const stageGroups = {};
     ORDERED_STAGES.forEach(s => { stageGroups[s] = []; });
-    leads.forEach(lead => {
-        if (stageGroups[lead.stage]) stageGroups[lead.stage].push(lead);
+    data.forEach(item => {
+        if (stageGroups[item.stage]) stageGroups[item.stage].push(item);
     });
 
-    const total = leads.length || 1;
+    const total = data.length || 1;
     const result = [];
 
     ORDERED_STAGES.forEach((stage, idx) => {
@@ -383,15 +384,29 @@ export const computeStageDensity = (leads = [], targets = DEFAULT_STAGE_DENSITY_
         const target = targets[stage]?.targetDays ?? 14;
         const isBottleneck = avgDays > target * 1.5 && count > 0;
 
+        // Agent breakdown for stalled items
+        const agentBottlenecks = {};
+        if (isBottleneck) {
+            group.forEach(item => {
+                const agent = item.agentName || 'Unassigned';
+                const age = Math.floor((new Date() - new Date(item.stageChangedAt || item.createdAt)) / 86400000);
+                if (age > target) {
+                    if (!agentBottlenecks[agent]) agentBottlenecks[agent] = 0;
+                    agentBottlenecks[agent]++;
+                }
+            });
+        }
+
         result.push({
             stage,
             count,
-            conversionPct,           // % of all leads currently in this stage
+            conversionPct,           // % of all items currently in this stage
             conversionRate,           // % that progress to next stage
             dropOffRate,              // % that don't progress (stall or lost)
             avgDays,
             targetDays: target,
             isBottleneck,
+            agentBottlenecks: Object.entries(agentBottlenecks).map(([name, stalledCount]) => ({ name, count: stalledCount })).sort((a, b) => b.count - a.count),
             color: isBottleneck ? '#ef4444' : avgDays > target ? '#f59e0b' : '#10b981',
         });
     });

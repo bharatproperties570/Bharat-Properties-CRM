@@ -241,7 +241,98 @@ const populateParticipantsAndRelatedData = async (activities) => {
  * Professionals Fix: Auto-trigger stage change and recalculate score.
  * Delegates to StageTransitionEngine for stage logic and LeadScoringService for scoring.
  */
-const autoTriggerStageChange = async (activity, userId = null) => {
+
+// ━━ PIPELINE HEALTH: Outcome Classification ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// HubSpot/Pipedrive style — classify each outcome as POSITIVE, NEGATIVE, or NEUTRAL
+const NEGATIVE_OUTCOMES = new Set([
+    'no answer', 'no-answer', 'busy', 'not connected', 'missed', 'switched off',
+    'not reachable', 'unreachable', 'voicemail left', 'failed',
+    'no show', 'visit cancelled', 'meeting cancelled', 'rescheduled', 'visit rescheduled',
+    'no reply', 'bounced', 'blocked'
+]);
+
+const POSITIVE_OUTCOMES = new Set([
+    'connected', 'interested', 'very interested', 'somewhat interested', 'shortlisted',
+    'conducted', 'meeting done', 'deal likely', 'deal agreed', 'booking done',
+    'replied - interested', 'replied', 'picked up', 'answered',
+    'second visit', 'second visit requested', 'will think', 'callback requested'
+]);
+
+// AT-RISK THRESHOLD: N consecutive failures trigger the "At Risk" flag
+const AT_RISK_THRESHOLD = 3;
+
+/**
+ * Track consecutive failed contacts — enterprise pipeline health tracker
+ * Mirrors HubSpot "Deal Rotting" + Pipedrive inactivity pattern detection
+ */
+const updatePipelineHealth = async (leadId, resolvedOutcome, actType) => {
+    try {
+        const outcomeNorm = (resolvedOutcome || '').toLowerCase().trim();
+        const isNegative = NEGATIVE_OUTCOMES.has(outcomeNorm) ||
+            [...NEGATIVE_OUTCOMES].some(n => outcomeNorm.includes(n));
+        const isPositive = POSITIVE_OUTCOMES.has(outcomeNorm) ||
+            [...POSITIVE_OUTCOMES].some(p => outcomeNorm.includes(p));
+
+        if (isNegative) {
+            // Increment consecutive fail counter
+            const lead = await Lead.findByIdAndUpdate(
+                leadId,
+                {
+                    $inc: { consecutiveFailedContacts: 1 },
+                    $set: { lastFailedContactAt: new Date() }
+                },
+                { new: true }
+            ).select('consecutiveFailedContacts isAtRisk stage').populate('stage', 'lookup_value');
+
+            const count = lead?.consecutiveFailedContacts || 0;
+            const stageName = (lead?.stage?.lookup_value || '').toLowerCase();
+            // Skip At-Risk flagging for already Closed/Booked leads
+            const isTerminal = ['closed', 'booked'].some(s => stageName.includes(s));
+
+            if (count >= AT_RISK_THRESHOLD && !lead?.isAtRisk && !isTerminal) {
+                const reason = `${count} consecutive failed contacts (${actType}: ${resolvedOutcome}). Last failed: ${new Date().toLocaleDateString('en-IN')}`;
+                await Lead.findByIdAndUpdate(leadId, {
+                    $set: {
+                        isAtRisk: true,
+                        atRiskSince: new Date(),
+                        atRiskReason: reason
+                    }
+                });
+
+                // 🔔 Notify agent
+                try {
+                    const { createNotification } = await import('./notification.controller.js');
+                    const fullLead = await Lead.findById(leadId).populate('assignment.assignedTo', '_id').lean();
+                    if (fullLead?.assignment?.assignedTo?._id) {
+                        await createNotification({
+                            userId: fullLead.assignment.assignedTo._id,
+                            title: '⚠️ Lead At Risk',
+                            message: reason,
+                            type: 'warning',
+                            link: `/leads/${leadId}`
+                        });
+                    }
+                } catch (_) {}
+
+                console.log(`[PipelineHealth] 🔴 Lead ${leadId} flagged AT RISK: ${reason}`);
+            }
+        } else if (isPositive) {
+            // Reset on any positive signal — Pipedrive style automatic recovery
+            await Lead.findByIdAndUpdate(leadId, {
+                $set: {
+                    consecutiveFailedContacts: 0,
+                    isAtRisk: false,
+                    atRiskSince: null,
+                    atRiskReason: null
+                }
+            });
+        }
+    } catch (err) {
+        console.error('[PipelineHealth] updatePipelineHealth error:', err.message);
+    }
+};
+
+export const autoTriggerStageChange = async (activity, userId = null) => {
     try {
         if (activity.entityType?.toLowerCase() !== 'lead') return;
         if (activity.status?.toLowerCase() !== 'completed') return;
@@ -267,6 +358,9 @@ const autoTriggerStageChange = async (activity, userId = null) => {
                 .sort((a, b) => (priorityMap[a] || 99) - (priorityMap[b] || 99))[0] || '';
         }
 
+        // 🏥 PIPELINE HEALTH: Track consecutive failures (runs in parallel, non-blocking)
+        updatePipelineHealth(leadId, resolvedOutcome, actType).catch(() => {});
+
         // 1. Evaluate Stage Transition (backend rule engine)
         const transition = await StageTransitionEngine.evaluateAndTransition(
             leadId,
@@ -277,7 +371,8 @@ const autoTriggerStageChange = async (activity, userId = null) => {
             {
                 activityId: activity._id,
                 triggeredByUser: userId,
-                purpose
+                purpose,
+                status: activity.status
             }
         );
 
@@ -308,6 +403,7 @@ const autoTriggerStageChange = async (activity, userId = null) => {
 };
 
 // @desc    Get all activities with filtering and pagination
+
 // @route   GET /api/activities
 export const getActivities = async (req, res) => {
     try {

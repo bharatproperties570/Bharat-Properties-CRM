@@ -16,6 +16,7 @@ import {
     getLeadScores,
     getDealScores
 } from '../controllers/stage.controller.js';
+import { getHealth, getFailedTransitions, dryRunTest } from '../controllers/stageEngine.controller.js';
 import { authenticate } from "../src/middlewares/auth.middleware.js";
 
 const router = express.Router();
@@ -66,5 +67,16 @@ router.get('/health/:dealId', getDealHealth);
 // POST /api/stage-engine/bulk-recalc
 // Bulk recalculate lastActivityAt for all leads (admin/migration use)
 router.post('/bulk-recalc', bulkRecalcStages);
+
+
+// ── Observability ────────────────────────────────────────────────────────────
+// GET /api/stage-engine/health
+router.get('/health', getHealth);
+
+// GET /api/stage-engine/failed
+router.get('/failed', getFailedTransitions);
+
+// POST /api/stage-engine/test
+router.post('/test', dryRunTest);
 
 export default router;

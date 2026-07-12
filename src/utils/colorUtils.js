@@ -4,6 +4,7 @@ export const getBadgeColor = (str) => {
     if (s.includes('new') || s.includes('incoming')) return { bg: '#eff6ff', text: '#3b82f6', border: '#bfdbfe' };
     if (s.includes('hot') || s.includes('won') || s.includes('book')) return { bg: '#ecfdf5', text: '#10b981', border: '#a7f3d0' };
     if (s.includes('warm') || s.includes('nego') || s.includes('prospect')) return { bg: '#fffbeb', text: '#f59e0b', border: '#fde68a' };
+    if (s.includes('at risk') || s.includes('stalled')) return { bg: '#fff1f2', text: '#e11d48', border: '#fecdd3' };
     if (s.includes('cold') || s.includes('lost') || s.includes('cancel')) return { bg: '#fef2f2', text: '#ef4444', border: '#fecaca' };
     if (s.includes('opp') || s.includes('quote')) return { bg: '#f5f3ff', text: '#8b5cf6', border: '#ddd6fe' };
     

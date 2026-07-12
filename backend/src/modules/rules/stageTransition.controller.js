@@ -61,7 +61,7 @@ export const saveStageTransitionRules = async (req, res, next) => {
             { upsert: true, new: true }
         );
 
-        invalidateRulesCache();
+        await invalidateRulesCache();
 
         res.status(200).json({
             success: true,
@@ -100,7 +100,7 @@ export const addStageTransitionRule = async (req, res, next) => {
             { upsert: true, new: true }
         );
 
-        invalidateRulesCache();
+        await invalidateRulesCache();
         res.status(201).json({ success: true, data: newRule });
     } catch (error) {
         next(error);
@@ -125,7 +125,7 @@ export const updateStageTransitionRule = async (req, res, next) => {
             { upsert: true }
         );
 
-        invalidateRulesCache();
+        await invalidateRulesCache();
         res.status(200).json({ success: true, data: rules[idx] });
     } catch (error) {
         next(error);
@@ -145,7 +145,7 @@ export const deleteStageTransitionRule = async (req, res, next) => {
             { upsert: true }
         );
 
-        invalidateRulesCache();
+        await invalidateRulesCache();
         res.status(200).json({ success: true, message: 'Rule deleted', count: rules.length });
     } catch (error) {
         next(error);
@@ -168,7 +168,7 @@ export const seedDefaultRules = async (req, res, next) => {
             { upsert: true, new: true }
         );
 
-        invalidateRulesCache();
+        await invalidateRulesCache();
         res.status(200).json({
             success: true,
             message: 'Default rules seeded',

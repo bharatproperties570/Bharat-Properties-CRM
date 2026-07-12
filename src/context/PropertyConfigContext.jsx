@@ -631,7 +631,7 @@ export const PropertyConfigProvider = ({ children }) => {
                     {
                         name: 'Welcome / Thank You Email',
                         outcomes: [
-                            { label: 'Replied Positively', score: 10, stage: 'Closed Won' },
+                            { label: 'Replied Positively', score: 10, stage: 'Closed' },
                             { label: 'Referred New Lead', score: 25, stage: 'New' },
                             { label: 'Raised Post-Booking Concern', score: -5, stage: 'Booked' },
                         ]
@@ -798,7 +798,7 @@ export const PropertyConfigProvider = ({ children }) => {
                     {
                         name: 'Price Negotiation',
                         outcomes: [
-                            { label: 'Deal Closed', score: 100, stage: 'Closed Won' },
+                            { label: 'Deal Closed', score: 100, stage: 'Closed' },
                             { label: 'Stalemate', score: 0, stage: 'Negotiation' },
                             { label: 'Discount Approved', score: 10, stage: 'Negotiation' },
                             { label: 'Walk-away', score: -50, stage: 'Closed Lost' },
@@ -816,7 +816,7 @@ export const PropertyConfigProvider = ({ children }) => {
                     {
                         name: 'Final Closing',
                         outcomes: [
-                            { label: 'Signed', score: 100, stage: 'Closed Won' },
+                            { label: 'Signed', score: 100, stage: 'Closed' },
                             { label: 'Reviewing Draft', score: 10, stage: 'Negotiation' },
                             { label: 'Postponed', score: -5, stage: 'Negotiation' },
                             { label: 'Cancelled', score: -50, stage: 'Closed Lost' },
@@ -836,7 +836,7 @@ export const PropertyConfigProvider = ({ children }) => {
                     {
                         name: 'Agreement Signing Meeting',
                         outcomes: [
-                            { label: 'Agreement Signed', score: 100, stage: 'Closed Won' },
+                            { label: 'Agreement Signed', score: 100, stage: 'Closed' },
                             { label: 'Co-Applicant Signature Pending', score: 30, stage: 'Booked' },
                             { label: 'Legal Clause Dispute', score: -10, stage: 'Booked' },
                             { label: 'Refused to Sign', score: -50, stage: 'Negotiation' },
@@ -965,7 +965,7 @@ export const PropertyConfigProvider = ({ children }) => {
                             { label: 'Awaiting State Limit Slots', score: 2, stage: 'Booked' },
                             { label: 'Stamp Duty Paid', score: 15, stage: 'Booked' },
                             { label: 'Client Postponing Registry', score: -10, stage: 'Booked' },
-                            { label: 'Registration Completed', score: 100, stage: 'Closed Won' },
+                            { label: 'Registration Completed', score: 100, stage: 'Closed' },
                         ]
                     },
                     {
@@ -989,7 +989,7 @@ export const PropertyConfigProvider = ({ children }) => {
                             { label: 'Snag List Cleared', score: 20, stage: 'Booked' },
                             { label: '8+ Issues – Developer Working', score: 5, stage: 'Booked' },
                             { label: 'Major Civil Defects', score: -10, stage: 'Booked' },
-                            { label: 'Possession Given', score: 50, stage: 'Closed Won' },
+                            { label: 'Possession Given', score: 50, stage: 'Closed' },
                         ]
                     },
                 ]
@@ -1020,7 +1020,7 @@ export const PropertyConfigProvider = ({ children }) => {
     }, [setStageMappingRules]);
 
     // Update a single outcome's stage and requiredForm in activityMasterFields
-    const updateOutcomeStage = useCallback((activityName, purposeName, outcomeLabel, newStage) => {
+    const updateOutcomeRule = useCallback((activityName, purposeName, outcomeLabel, updates) => {
         setActivityMasterFields(prev => {
             const activities = prev.activities.map(act => {
                 if (act.name !== activityName) return act;
@@ -1033,9 +1033,7 @@ export const PropertyConfigProvider = ({ children }) => {
                             outcomes: purp.outcomes.map(out => {
                                 if (out.label !== outcomeLabel) return out;
                                 // Core Fix: Only update fields that are provided, preserve others
-                                const updatedOutcome = { ...out };
-                                if (newStage !== undefined) updatedOutcome.stage = newStage;
-                                return updatedOutcome;
+                                return { ...out, ...updates };
                             })
                         };
                     })
@@ -1046,9 +1044,23 @@ export const PropertyConfigProvider = ({ children }) => {
     }, [setActivityMasterFields]);
 
     // ─── STEP 7: Lead ↔ Deal Sync Rules ───
+    const [stageDensityTargets, setStageDensityTargets] = useSystemSetting('stageDensityTargets', {
+        Incoming: { targetDays: 2, label: 'Incoming' },
+        Prospect: { targetDays: 7, label: 'Prospect' },
+        Opportunity: { targetDays: 14, label: 'Opportunity' },
+        Negotiation: { targetDays: 21, label: 'Negotiation' },
+        'Closed': { targetDays: 0, label: 'Closed' }
+    });
+    
+    const [stabilityLockConfig, setStabilityLockConfig] = useSystemSetting('stabilityLockConfig', {
+        Opportunity: { minActivities: 1, minDays: 0, label: 'Opportunity requires 1 activity before downgrade' },
+        Negotiation: { minActivities: 1, minDays: 0, label: 'Negotiation requires 1 activity before downgrade' },
+        Closed: { minActivities: 999, minDays: 999, label: 'Closed deals cannot be downgraded automatically' },
+    });
+
     const [syncRules, setSyncRules] = useSystemSetting('syncRules', [
         { id: 'rule_booked', priority: 1, label: 'Any lead Booked → Deal Booked', condition: 'ANY_LEAD', conditionStage: 'Booked', dealStage: 'Booked', isActive: true, isLocked: true },
-        { id: 'rule_closed_won', priority: 2, label: 'Any lead Closed Won → Deal Closed Won', condition: 'ANY_LEAD', conditionStage: 'Closed Won', dealStage: 'Closed Won', isActive: true, isLocked: true },
+        { id: 'rule_closed_won', priority: 2, label: 'Any lead Closed → Deal Closed', condition: 'ANY_LEAD', conditionStage: 'Closed', dealStage: 'Closed', isActive: true, isLocked: true },
         { id: 'rule_all_lost', priority: 3, label: 'All leads Closed Lost → Deal Open', condition: 'ALL_LEADS', conditionStage: 'Closed Lost', dealStage: 'Open', isActive: true, isLocked: true },
         { id: 'rule_owner_withdrawal', priority: 4, label: 'Owner Withdrawal → Deal Closed Lost', condition: 'ACTIVITY', conditionActivity: 'Owner Withdrawal', dealStage: 'Closed Lost', dealReason: 'Owner Withdrawn', isActive: true, isLocked: false },
     ]);
@@ -1060,13 +1072,11 @@ export const PropertyConfigProvider = ({ children }) => {
     const [sequenceConfig, setSequenceConfig] = useSystemSetting('sequenceConfig', {
         enforcementMode: 'warn', // 'off' | 'warn' | 'block'
         sequence: [
-            { stage: 'New', order: 0, requiredActivity: null, icon: 'fa-star' },
+            { stage: 'Incoming', order: 0, requiredActivity: null, icon: 'fa-star' },
             { stage: 'Prospect', order: 1, requiredActivity: 'Introduction / Call', icon: 'fa-user' },
-            { stage: 'Qualified', order: 2, requiredActivity: 'Requirement Gathering', icon: 'fa-check-circle' },
-            { stage: 'Opportunity', order: 3, requiredActivity: 'Follow-up / Site Visit', icon: 'fa-fire' },
-            { stage: 'Negotiation', order: 4, requiredActivity: 'Negotiation Call', icon: 'fa-comments-dollar' },
-            { stage: 'Booked', order: 5, requiredActivity: 'Token / Booking', icon: 'fa-calendar-check' },
-            { stage: 'Closed Won', order: 6, requiredActivity: 'Agreement Signed', icon: 'fa-trophy' },
+            { stage: 'Opportunity', order: 2, requiredActivity: 'Requirement Gathering / Site Visit', icon: 'fa-fire' },
+            { stage: 'Negotiation', order: 3, requiredActivity: 'Negotiation Call', icon: 'fa-comments-dollar' },
+            { stage: 'Closed', order: 4, requiredActivity: 'Agreement Signed / Booking', icon: 'fa-trophy' },
         ]
     });
     const updateSequenceConfig = useCallback((changes) => setSequenceConfig(prev => ({ ...prev, ...changes })), [setSequenceConfig]);
@@ -1629,6 +1639,8 @@ export const PropertyConfigProvider = ({ children }) => {
                             case 'scoreBands': setScoreBands(setting.value, true); break;
                             case 'activityMasterFields': setActivityMasterFields(setting.value, true); break;
                             case 'stageMappingRules': setStageMappingRules(setting.value, true); break;
+                            case 'stageDensityTargets': setStageDensityTargets(setting.value, true); break;
+                            case 'stabilityLockConfig': setStabilityLockConfig(setting.value, true); break;
                             case 'syncRules': setSyncRules(setting.value, true); break;
                             case 'sequenceConfig': setSequenceConfig(setting.value, true); break;
                             case 'agingRules': setAgingRules(setting.value, true); break;
@@ -1738,6 +1750,8 @@ export const PropertyConfigProvider = ({ children }) => {
         setScoreBands, 
         setActivityMasterFields, 
         setStageMappingRules, 
+        setStageDensityTargets,
+        setStabilityLockConfig,
         setSyncRules, 
         setSequenceConfig, 
         setAgingRules, 
@@ -2421,8 +2435,10 @@ export const PropertyConfigProvider = ({ children }) => {
         addStageMappingRule,
         updateStageMappingRule,
         deleteStageMappingRule,
-        updateOutcomeStage,
+        updateOutcomeRule,
         // Step 7 — Sync Engine
+        stageDensityTargets, setStageDensityTargets,
+        stabilityLockConfig, setStabilityLockConfig,
         syncRules, updateSyncRule, addSyncRule, deleteSyncRule,
         // Step 8 — Sequence Guard
         sequenceConfig, updateSequenceConfig,

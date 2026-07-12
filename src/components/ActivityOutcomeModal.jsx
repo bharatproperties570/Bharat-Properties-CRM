@@ -52,7 +52,7 @@ const ActivityOutcomeModal = ({ isOpen, onClose, activity }) => {
     useEffect(() => {
         if (isOpen && activity) {
             let defaultStatus = '';
-            if (activity.type === 'Call')                              defaultStatus = 'Answered / Connected';
+            if (activity.type === 'Call')                              defaultStatus = 'Connected';
             else if (['Meeting', 'Site Visit'].includes(activity.type)) defaultStatus = 'Conducted';
 
             setFormData({
@@ -68,10 +68,10 @@ const ActivityOutcomeModal = ({ isOpen, onClose, activity }) => {
     if (!isOpen || !activity) return null;
 
     const getStatusOptions = () => {
-        if (activity.type === 'Call')       return ['Answered / Connected', 'No Answer', 'Busy', 'Wrong Number', 'Left Voicemail'];
-        if (activity.type === 'Meeting')    return ['Conducted', 'Rescheduled', 'Cancelled', 'No Show'];
-        if (activity.type === 'Site Visit') return ['Conducted', 'Rescheduled', 'Cancelled', 'Did Not Visit'];
-        return ['Completed', 'Cancelled'];
+        if (activity.type === 'Call')       return [{label:'Answered', value:'Connected'}, {label:'No Answer', value:'No Answer'}, {label:'Busy', value:'Busy'}, {label:'Wrong Number', value:'Wrong Number'}, {label:'Left Voicemail', value:'Left Voicemail'}];
+        if (activity.type === 'Meeting')    return [{label:'Conducted', value:'Conducted'}, {label:'Rescheduled', value:'Rescheduled'}, {label:'Cancelled', value:'Cancelled'}, {label:'No Show', value:'No Show'}];
+        if (activity.type === 'Site Visit') return [{label:'Conducted', value:'Conducted'}, {label:'Rescheduled', value:'Rescheduled'}, {label:'Cancelled', value:'Cancelled'}, {label:'Did Not Visit', value:'Did Not Visit'}];
+        return [{label:'Completed', value:'Completed'}, {label:'Cancelled', value:'Cancelled'}];
     };
 
     const getDynamicResults = () => {
@@ -113,13 +113,13 @@ const ActivityOutcomeModal = ({ isOpen, onClose, activity }) => {
             });
 
             // If backend needs required fields → open StageTransitionModal
-            if (data.requiresForm) {
+            if (data.transition?.requiresForm) {
                 setSaving(false);
                 setStageModal({
                     isOpen: true,
-                    newStage: data.newStage,
-                    requiredFields: data.requiredFields,
-                    missingFields: data.missingFields,
+                    newStage: data.transition.newStage,
+                    requiredFields: data.transition.requiredFields,
+                    missingFields: data.transition.missingFields,
                     outcome,
                     outcomeReason: formData.clientFeedback || ''
                 });
@@ -127,8 +127,8 @@ const ActivityOutcomeModal = ({ isOpen, onClose, activity }) => {
             }
 
             // Stage changed (or no change needed) — show result
-            if (data.stageChanged) {
-                showToast(`✅ Stage → ${data.newStage} | Score: ${data.score ?? '—'}`);
+            if (data.transition?.stageChanged) {
+                showToast(`✅ Stage → ${data.transition.newStage}`);
                 
                 confetti({
                     particleCount: 150,
@@ -136,7 +136,7 @@ const ActivityOutcomeModal = ({ isOpen, onClose, activity }) => {
                     origin: { y: 0.6 },
                     colors: ['#10b981', '#3b82f6', '#f59e0b']
                 });
-                window.dispatchEvent(new CustomEvent('STAGE_UPDATED', { detail: { newStage: data.newStage } }));
+                window.dispatchEvent(new CustomEvent('STAGE_UPDATED', { detail: { newStage: data.transition.newStage } }));
 
                 // ── Enterprise: Fire Trigger Event with Source Stamp ──────────────────
                 // triggeredBy: 'stage_engine' tells TriggerEngine this is an AUTOMATED
@@ -146,19 +146,18 @@ const ActivityOutcomeModal = ({ isOpen, onClose, activity }) => {
                 fireEvent('lead_stage_changed', {
                     id: activity?.entityId,
                     _id: activity?.entityId,
-                    stage: data.newStage,
-                    leadScore: data.score
+                    stage: data.transition.newStage
                 }, {
                     entityType: 'leads',
                     triggeredBy: 'stage_engine',
-                    previousValue: data.prevStage,
-                    currentValue: data.newStage
+                    previousValue: data.transition.prevStage,
+                    currentValue: data.transition.newStage
                 });
-            } else if (data.blocked) {
-                showToast(`🚫 Stage Blocked: ${data.reason}`, 'error');
-            } else if (data.skippedStage) {
+            } else if (data.transition?.blocked) {
+                showToast(`🚫 Stage Blocked: ${data.transition.reason}`, 'error');
+            } else if (data.transition?.skippedStage) {
                 showToast(`ℹ️ Activity completed. No stage change needed.`);
-            } else if (data.reason === 'No matching transition rule found') {
+            } else if (data.transition?.reason === 'No matching transition rule found') {
                 showToast(`ℹ️ Activity completed. No rules configured for outcome '${outcome}'.`, 'info');
             }
 
@@ -167,9 +166,8 @@ const ActivityOutcomeModal = ({ isOpen, onClose, activity }) => {
                 detail: {
                     activityType: activity.type,
                     entityId: activity.entityId,
-                    stageChanged: data.stageChanged,
-                    newStage: data.newStage,
-                    score: data.score
+                    stageChanged: data.transition?.stageChanged,
+                    newStage: data.transition?.newStage
                 }
             }));
 
@@ -201,7 +199,15 @@ const ActivityOutcomeModal = ({ isOpen, onClose, activity }) => {
 
     const handleStageTransitionSuccess = (result) => {
         if (result.stageChanged) {
-            showToast(`✅ Stage → ${result.newStage} | Score: ${result.score ?? '—'}`);
+            showToast(`✅ Stage → ${result.newStage}`);
+            
+            confetti({
+                particleCount: 150,
+                spread: 70,
+                origin: { y: 0.6 },
+                colors: ['#10b981', '#3b82f6', '#f59e0b']
+            });
+            window.dispatchEvent(new CustomEvent('STAGE_UPDATED', { detail: { newStage: result.newStage } }));
         }
         window.dispatchEvent(new CustomEvent('activity-completed', {
             detail: { activityType: activity.type, entityId: activity.entityId, stageChanged: result.stageChanged, newStage: result.newStage }
@@ -260,7 +266,7 @@ const ActivityOutcomeModal = ({ isOpen, onClose, activity }) => {
                             <label style={labelStyle}>Outcome Status</label>
                             <select name='outcomeStatus' value={formData.outcomeStatus} onChange={handleChange} style={inputStyle}>
                                 <option value=''>Select Status</option>
-                                {getStatusOptions().map(s => <option key={s} value={s}>{s}</option>)}
+                                {getStatusOptions().map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
                             </select>
                         </div>
 
@@ -269,7 +275,7 @@ const ActivityOutcomeModal = ({ isOpen, onClose, activity }) => {
                                 <label style={labelStyle}>Result / Detail</label>
                                 <select name='completionResult' value={formData.completionResult} onChange={handleChange} style={inputStyle}>
                                     <option value=''>Select Result</option>
-                                    {results.map(r => <option key={r.label} value={r.label}>{r.label}{r.score ? ` (+${r.score} pts)` : ''}</option>)}
+                                    {results.map(r => <option key={r.label} value={r.label}>{r.label}</option>)}
                                 </select>
                             </div>
                         )}
