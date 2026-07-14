@@ -4,39 +4,22 @@ import Lookup from '../../models/Lookup.js';
 import SystemSetting from '../modules/systemSettings/system.model.js';
 import AuditLog from '../../models/AuditLog.js';
 import { createNotification } from '../../controllers/notification.controller.js';
+import StageTransitionEngine from './StageTransitionEngine.js';
 
 class DealSyncEngine {
-    async syncLeadToDeal(leadId, newStageName, triggeredByUserId = null) {
+    async syncLeadToDeal(leadId, newStageName, triggeredByUserId = null, visitedProperties = []) {
         try {
             console.log(`[DealSyncEngine] Evaluating sync for Lead: ${leadId} -> ${newStageName}`);
             
-            // 1. Fetch Sync Rules
-            let syncRules = [];
-            const configDoc = await SystemSetting.findOne({ key: 'syncRules' }).lean();
-            if (configDoc && configDoc.value) {
-                syncRules = configDoc.value.filter(r => r.isActive);
+            if (!visitedProperties || visitedProperties.length === 0) {
+                console.log(`[DealSyncEngine] No specific visited properties. Deal sync skipped to preserve specific unit logic.`);
+                return;
             }
 
-            if (syncRules.length === 0) return; // No active rules
-
-            // 2. Find Matching Rule
-            // Example rule: { conditionStage: 'Booked', dealStage: 'Booked', condition: 'ANY_LEAD' }
-            const normalizedNewStage = (newStageName || '').toLowerCase().trim();
-            
-            const matchedRules = syncRules.filter(r => {
-                const ruleStage = (r.conditionStage || '').toLowerCase().trim();
-                return ruleStage === normalizedNewStage;
-            });
-
-            if (matchedRules.length === 0) return;
-
-            // 3. Find Lead & Associated Deals
             const lead = await Lead.findById(leadId).lean();
             if (!lead) return;
 
-            // We find deals directly linked via leadId, OR fallback to contact linkage if leadId isn't populated yet
             let deals = await Deal.find({ leadId: leadId });
-            
             if (deals.length === 0 && lead.contactDetails) {
                 deals = await Deal.find({
                     $or: [
@@ -44,14 +27,6 @@ class DealSyncEngine {
                         { associatedContact: lead.contactDetails }
                     ]
                 });
-                
-                // Retroactively fix the linkage
-                if (deals.length > 0) {
-                    await Deal.updateMany(
-                        { _id: { $in: deals.map(d => d._id) } },
-                        { $set: { leadId: leadId } }
-                    );
-                }
             }
 
             if (deals.length === 0) {
@@ -59,39 +34,60 @@ class DealSyncEngine {
                 return;
             }
 
-            // 4. Apply Updates
-            for (const rule of matchedRules) {
-                const targetDealStageStr = rule.dealStage; // e.g. "Booked", "Closed Won", "Closed Lost"
+            // Iterate over each visited property to apply unit-specific outcome logic
+            for (const vp of visitedProperties) {
+                if (!vp.project) continue;
 
-                // We may need to resolve the stage ID if deals store stage as string or ObjectID.
-                // In Deal.js: `stage: { type: mongoose.Schema.Types.Mixed }`
-                // Let's resolve the lookup ID just in case.
+                // Find matching deal
+                // We attempt to match by project name or ID, and if property (unit) is given, match that too.
+                const matchingDeals = deals.filter(d => {
+                    const projectMatches = (d.projectName && d.projectName.toLowerCase() === vp.project.toLowerCase()) || 
+                                           (d.project && String(d.project) === String(vp.project));
+                    if (!projectMatches) return false;
+                    
+                    if (vp.property) {
+                        return (d.unitNumber && String(d.unitNumber).toLowerCase() === String(vp.property).toLowerCase()) ||
+                               (d.unitNo && String(d.unitNo).toLowerCase() === String(vp.property).toLowerCase());
+                    }
+                    return true; // Match if project matches and no specific unit is provided in visit
+                });
+
+                if (matchingDeals.length === 0) {
+                    console.log(`[DealSyncEngine] No Deal found matching project: ${vp.project}, unit: ${vp.property}`);
+                    continue;
+                }
+
+                // Resolve the stage based on the specific result of this unit
+                // We use 'Site Visit' as a generic activity type here to force the rule engine, 
+                // since both Meeting and Site Visit outcome rules map similarly in the rule engine.
+                const transitionEvaluation = await StageTransitionEngine.resolveTransition('Site Visit', vp.result || '', '', '');
+                
+                if (!transitionEvaluation || !transitionEvaluation.rule) {
+                    console.log(`[DealSyncEngine] No transition rule found for result: ${vp.result}`);
+                    continue;
+                }
+
+                const targetDealStageStr = transitionEvaluation.rule.newStage;
+
+                // Resolve Lookup
                 let targetStageVal = targetDealStageStr;
                 const lookup = await Lookup.findOne({ lookup_type: { $regex: /^stage$/i }, lookup_value: { $regex: new RegExp(`^${targetDealStageStr}$`, 'i') } });
                 if (lookup) {
-                    targetStageVal = lookup.lookup_value; // Store as string (or lookup._id depending on Deal logic)
-                    // Wait, Deal schema usually stores string or ObjectId. We will just save the string because Deal.js handles both.
+                    targetStageVal = lookup.lookup_value;
                 }
 
-                console.log(`[DealSyncEngine] Rule matched (${rule.id}). Syncing ${deals.length} deal(s) to stage: ${targetStageVal}`);
-
-                for (const deal of deals) {
+                for (const deal of matchingDeals) {
                     const oldStage = deal.stage;
-                    
-                    // Prevent redundant updates
                     const currentStageStr = (typeof oldStage === 'object' && oldStage ? oldStage.lookup_value : oldStage) || '';
+                    
                     if (currentStageStr.toString().toLowerCase() === targetStageVal.toLowerCase()) {
                         continue; 
                     }
 
                     deal.stage = targetStageVal;
                     deal.stageChangedAt = new Date();
-                    deal.stageSyncReason = `Auto-synced from Lead (Rule: ${rule.label})`;
+                    deal.stageSyncReason = `Auto-synced from specific unit outcome: ${vp.result}`;
                     
-                    if (rule.dealReason) {
-                        deal.status = rule.dealReason; // e.g. "Owner Withdrawn"
-                    }
-
                     await deal.save();
 
                     // Audit Log for Deal
@@ -102,7 +98,7 @@ class DealSyncEngine {
                         deal.projectName || 'Deal',
                         triggeredByUserId,
                         { fromStage: currentStageStr, toStage: targetStageVal, reason: deal.stageSyncReason },
-                        `Deal stage auto-synced to ${targetStageVal} due to Lead transitioning to ${newStageName}.`
+                        `Deal stage auto-synced to ${targetStageVal} due to unit outcome "${vp.result}".`
                     );
                     
                     // Notify Deal Owner
@@ -113,7 +109,7 @@ class DealSyncEngine {
                                 ownerId,
                                 'system',
                                 '🔄 Deal Auto-Synced',
-                                `Deal for ${deal.projectName || 'client'} synced to ${targetStageVal} based on Lead stage change.`,
+                                `Deal for ${deal.projectName || 'client'} synced to ${targetStageVal} based on unit-specific outcome.`,
                                 `/deals/${deal._id}`,
                                 { dealId: deal._id }
                             );

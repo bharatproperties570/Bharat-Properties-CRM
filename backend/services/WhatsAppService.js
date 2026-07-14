@@ -426,6 +426,90 @@ class WhatsAppService {
         console.warn('[WhatsApp] Webhook Verification Failed: Invalid Token');
         return null;
     }
+
+    // ── ENTERPRISE UPGRADE: Meta Cloud API Two-Way Sync ──
+
+    /**
+     * Fetch approved templates directly from Meta WhatsApp Manager
+     */
+    async syncTemplatesFromMeta() {
+        const metaConfig = await this._getMetaConfig();
+        if (!metaConfig || !metaConfig.businessId) {
+            throw new Error('Meta API credentials (WABA ID) incomplete. Please configure in Integrations.');
+        }
+
+        try {
+            // URL format: https://graph.facebook.com/v19.0/{waba_id}/message_templates
+            const url = `${META_GRAPH_BASE}/${metaConfig.businessId}/message_templates`;
+            const response = await axios.get(url, {
+                headers: {
+                    'Authorization': `Bearer ${metaConfig.token}`
+                }
+            });
+
+            // Map Meta's structure to our CRM's structure
+            const metaTemplates = response.data.data.map(tpl => ({
+                id: tpl.id,
+                name: tpl.name,
+                language: tpl.language,
+                category: tpl.category,
+                status: tpl.status, // e.g. APPROVED, REJECTED, PENDING
+                body: tpl.components?.find(c => c.type === 'BODY')?.text || '',
+                rawComponents: tpl.components, // Store raw for variable inference
+                variableMapping: {}, // Empty by default
+                systemContext: [] // Empty by default
+            }));
+
+            return { success: true, data: metaTemplates };
+        } catch (err) {
+            const detail = err.response?.data?.error?.message || err.message;
+            console.error('[WhatsApp/Meta] ❌ SYNC TEMPLATES ERROR:', detail);
+            return { success: false, error: detail };
+        }
+    }
+
+    /**
+     * Submit a template for review/approval to Meta
+     */
+    async submitTemplateToMeta(templateData) {
+        const metaConfig = await this._getMetaConfig();
+        if (!metaConfig || !metaConfig.businessId) {
+            throw new Error('Meta API credentials (WABA ID) incomplete. Please configure in Integrations.');
+        }
+
+        try {
+            const url = `${META_GRAPH_BASE}/${metaConfig.businessId}/message_templates`;
+            
+            // Build Cloud API payload. Note: We only construct the basic BODY for now.
+            // Full enterprise payload requires HEADER, FOOTER, BUTTONS mappings.
+            const payload = {
+                name: templateData.name.toLowerCase().replace(/[^a-z0-9_]/g, '_'), // Meta requires lower_case_snake
+                language: templateData.language || 'en_US',
+                category: templateData.category || 'MARKETING',
+                components: []
+            };
+
+            if (templateData.body) {
+                payload.components.push({
+                    type: 'BODY',
+                    text: templateData.body
+                });
+            }
+
+            const response = await axios.post(url, payload, {
+                headers: {
+                    'Authorization': `Bearer ${metaConfig.token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            return { success: true, data: response.data };
+        } catch (err) {
+            const detail = err.response?.data?.error?.message || err.message;
+            console.error('[WhatsApp/Meta] ❌ SUBMIT TEMPLATE ERROR:', detail);
+            return { success: false, error: detail };
+        }
+    }
 }
 
 export default new WhatsAppService();

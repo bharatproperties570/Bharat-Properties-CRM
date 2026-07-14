@@ -14,6 +14,7 @@ import { renderValue } from '../../../utils/renderUtils';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import QuickFillModal from '../components/QuickFillModal';
 import whatsappService from '../../../services/whatsappService';
+import smsService from '../../../services/smsService';
 import { systemSettingsAPI } from '../../../utils/api';
 import { useUserContext } from '../../../context/UserContext';
 import { generateDealsPDF } from '../../../utils/pdfUtils';
@@ -28,6 +29,74 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
 
     // Selection State
     const [selectedItems, setSelectedItems] = useState([]);
+    
+    // Omnichannel Blast State
+    const [portfolioDetailLevel, setPortfolioDetailLevel] = useState('full_details');
+    const [blastChannels, setBlastChannels] = useState({ whatsapp: false, whatsapp_app: false, email: false, sms: false, rcs: false });
+    const [channelAvailability, setChannelAvailability] = useState({
+        whatsapp: false, email: false, sms: false, rcs: false, whatsapp_app: true // App relies on user device
+    });
+    const [isBlasting, setIsBlasting] = useState(false);
+
+    // Check Integrations on mount
+    useEffect(() => {
+        const checkIntegrations = async () => {
+            const avail = { whatsapp: false, email: false, sms: false, rcs: false, whatsapp_app: true };
+            try {
+                const [waRes, emailRes, googleRes, smsRes] = await Promise.allSettled([
+                    systemSettingsAPI.getByKey('meta_wa_config'),
+                    systemSettingsAPI.getByKey('email_config'),
+                    systemSettingsAPI.getByKey('google_integration'),
+                    smsService.getStatus().catch(() => null) // Fallback if endpoint fails
+                ]);
+
+                if (waRes.status === 'fulfilled') {
+                    const waData = waRes.value?.data?.value;
+                    if (waData && (waData.token || waData.apiKey || waData.phoneId || waData.active)) {
+                        avail.whatsapp = true;
+                    }
+                }
+                
+                if (emailRes.status === 'fulfilled') {
+                    const emData = emailRes.value?.data?.value;
+                    if (emData && (emData.provider || emData.host || emData.user)) {
+                        avail.email = true;
+                    }
+                }
+                if (googleRes.status === 'fulfilled' && googleRes.value?.data?.value?.isConnected) {
+                    avail.email = true;
+                }
+
+                if (smsRes.status === 'fulfilled' && smsRes.value?.success) {
+                    // SMS service returns { success: true, data: [...] } where data is the list of providers
+                    const providers = smsRes.value?.data;
+                    if (Array.isArray(providers) && providers.some(p => p.isActive || p.status === 'connected' || p.active)) {
+                        avail.sms = true;
+                    } else if (smsRes.value.data && !Array.isArray(smsRes.value.data)) {
+                        avail.sms = true; // Fallback if data is a direct object
+                    }
+                }
+
+                // RCS is mocked as inactive for now unless explicitly found
+                const rcsRes = await systemSettingsAPI.getByKey('rcs_config').catch(() => null);
+                if (rcsRes?.data?.value && (rcsRes.data.value.active || rcsRes.data.value.token)) avail.rcs = true;
+
+                setChannelAvailability(avail);
+                
+                // Pre-select WA if available, else try others
+                setBlastChannels(prev => ({
+                    ...prev,
+                    whatsapp: avail.whatsapp,
+                    email: avail.whatsapp ? false : avail.email,
+                    sms: avail.whatsapp ? false : avail.sms
+                }));
+
+            } catch (err) {
+                console.warn('Failed to verify omnichannel integrations:', err);
+            }
+        };
+        checkIntegrations();
+    }, []);
 
     // Phase 3 Intelligence State
     const [suggestions, setSuggestions] = useState([]);
@@ -564,7 +633,97 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
         );
     }
 
-    const handleSendPortfolio = async () => {
+    const handleSendBlast = async () => {
+        const selectedDeals = matchedItems.filter(item => selectedItems.includes(item.id || item.unitNo));
+        if (selectedDeals.length === 0) {
+            toast.error('Please select at least one property to blast.');
+            return;
+        }
+
+        const activeChannels = Object.keys(blastChannels).filter(k => blastChannels[k]);
+        if (activeChannels.length === 0) {
+            toast.error('Please select at least one channel (WhatsApp, Email, or SMS).');
+            return;
+        }
+
+        setIsBlasting(true);
+        const loadToast = toast.loading(`Blasting portfolio to ${activeChannels.length} channel(s)...`);
+
+        try {
+            // 1. WhatsApp API
+            if (blastChannels.whatsapp) {
+                // Call existing robust handler silently (pass true to avoid native fallback)
+                const originalToast = toast.success;
+                toast.success = () => {}; // suppress child success toast temporarily
+                try {
+                    await handleSendPortfolio(true); 
+                } catch(e) {}
+                toast.success = originalToast;
+            }
+
+            // 2. Email (Silent)
+            if (blastChannels.email) {
+                const { subject, body } = generateEmailContent(selectedDeals);
+                try {
+                    await api.post('/leads/communicate', {
+                        leadId: lead._id,
+                        type: 'Email',
+                        subject: subject,
+                        body: body
+                    });
+                } catch(e) { console.error('Silent Email Error', e); }
+            }
+
+            // 3. SMS (Silent)
+            if (blastChannels.sms) {
+                let textPayload = `Hi ${lead?.firstName || 'there'}! Your matched properties:\n`;
+                selectedDeals.forEach((d, i) => {
+                    let line = `${i+1}. ${d.projectName}`;
+                    if (portfolioDetailLevel.includes('extended') && d.unitNo) line += ` (Unit: ${d.unitNo})`;
+                    line += ` - ${d.price && !hidePrice ? 'Rs.'+d.price : 'Price on request'}`;
+                    textPayload += line + '\n';
+                });
+                try {
+                    await smsService.sendMessage({
+                        mobile: lead.mobile || lead.phone,
+                        message: textPayload,
+                        type: 'Transactional' // Assuming required field
+                    });
+                } catch(e) { console.error('Silent SMS Error', e); }
+            }
+
+            // 4. WhatsApp Native App (Open Tab)
+            if (blastChannels.whatsapp_app) {
+                let textPayload = `Hi ${lead?.firstName || lead?.name || 'there'}! I've curated a list of properties for you:\n\n`;
+                selectedDeals.forEach((d, i) => {
+                    let line = `${i+1}. ${d.projectName}`;
+                    if (portfolioDetailLevel.includes('extended') && d.unitNo) line += ` (Unit: ${d.unitNo})`;
+                    if (portfolioDetailLevel.includes('full')) {
+                        if (d.location) line += ` in ${d.location}`;
+                        if (d.size) line += ` | Size: ${d.size}`;
+                    }
+                    line += ` - ${d.price && !hidePrice ? '₹'+d.price : 'Price on request'}`;
+                    textPayload += line + '\n';
+                });
+                const phone = (lead?.mobile || lead?.phone || '').replace(/\D/g, '');
+                const formattedPhone = phone.length === 10 ? `91${phone}` : phone;
+                window.open(`whatsapp://send?phone=${formattedPhone}&text=${encodeURIComponent(textPayload)}`, '_blank');
+            }
+
+            // 5. RCS (Silent mock fallback)
+            if (blastChannels.rcs) {
+                console.log('RCS blast simulated (not fully integrated yet).');
+            }
+
+            toast.success(`Omnichannel Blast completed!`, { id: loadToast });
+        } catch (error) {
+            toast.error('Blast encountered an issue.', { id: loadToast });
+        } finally {
+            setIsBlasting(false);
+        }
+    };
+
+    const handleSendPortfolio = async (isBlast = false) => {
         const selectedDeals = matchedItems.filter(item => selectedItems.includes(item.id || item.unitNo));
         if (selectedDeals.length === 0) {
             toast.error('Please select at least one property to send.');
@@ -586,17 +745,18 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                 console.warn('Could not read DB templates, utilizing default fallback.');
             }
 
-            // Identify Target Template based on Visit Status
-            // Rule: If lead has completed a Site Visit with 'interested' outcome, use Portfolio template.
-            // Otherwise, ALWAYS use Details template (regardless of single vs multiple deals selected).
-            const activitiesArray = Array.isArray(lead.timeline) ? lead.timeline : (Array.isArray(lead.activities) ? lead.activities : []);
-            const isVisited = activitiesArray.some(t => 
-                (t.activityType === 'Site Visit' || t.type === 'Site Visit') && 
-                (t.outcome || t.result || t.status || '').toLowerCase().includes('interested')
-            );
+            // ENTERPRISE UPGRADE: Route to exact Meta template based on System Trigger Context
+            const requiredContext = portfolioDetailLevel.includes('short') ? 'lead_match_short' : 'lead_match_full';
             
-            const templateKey = isVisited ? 'Requirement Match (Portfolio)' : 'Requirement Match (Details)';
-            const template = templates.find(t => t.name === templateKey) || templates.find(t => t.name === 'Requirement Match (Single)') || templates[1];
+            // Try to find by context first
+            let template = templates.find(t => t.systemContext?.includes(requiredContext));
+            let templateKey = template?.name;
+            
+            // Fallback to hardcoded legacy names if contexts aren't mapped yet
+            if (!template) {
+                templateKey = portfolioDetailLevel.includes('short') ? 'property_match_default' : 'property_presentation';
+                template = templates.find(t => t.name === templateKey) || templates.find(t => t.name === 'Property Portfolio') || templates[1];
+            }
 
             if (!template) {
                 throw new Error('Target portfolio template could not be resolved.');
@@ -711,8 +871,15 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                 const szVal = typeof szRaw === 'object' ? (szRaw.value ? `${szRaw.value} ${szRaw.unit || 'Sq.Yd.'}` : '') : (safeLookup(szRaw, 'Size') || szRaw);
                 const rawPrc = getPropVal('price', p);
                 const prcVal = hidePrice ? 'Price on Call' : (rawPrc ? `₹${rawPrc}` : 'Price on Call');
-                return `${i + 1}️⃣ 📍 ${safeLookup(loc, 'Locality') || safeLookup(loc, 'Location') || loc}\n📏 Size: ${szVal}\n💰 Price: ${prcVal}`;
-            }).join('\n');
+                
+                let details = `${i + 1}️⃣ *${getPropVal('projectName', p) || 'Premium Property'}*\n`;
+                if (getPropVal('unitNo', p)) details += `🔹 Unit: ${getPropVal('unitNo', p)}\n`;
+                details += `📍 Loc: ${safeLookup(loc, 'Locality') || safeLookup(loc, 'Location') || loc}\n`;
+                if (szVal) details += `📏 Size: ${szVal}\n`;
+                details += `💰 Price: ${prcVal}`;
+                
+                return details;
+            }).join('\n\n-------------------------\n\n');
 
             const rawOwner = lead.owner;
             const ownerName = typeof rawOwner === 'object' && rawOwner !== null ? (rawOwner.fullName || rawOwner.name) : rawOwner;
@@ -778,23 +945,11 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                 }
             });
 
-            // Handle repeating the property block for multiple deals in Details template
-            let finalRawBody = rawBody;
-            if (templateKey === 'Requirement Match (Details)' && selectedDeals.length > 1) {
-                const blockStart = finalRawBody.indexOf('📍');
-                const sepIndex = finalRawBody.indexOf('-------------------------');
-                const blockEnd = sepIndex !== -1 ? sepIndex : finalRawBody.indexOf('💰 *Price:* ₹{{price}}') + '💰 *Price:* ₹{{price}}'.length;
-                
-                if (blockStart !== -1 && blockEnd !== -1) {
-                    const blockTemplate = finalRawBody.substring(blockStart, blockEnd).trim();
-                    let combinedBlocks = selectedDeals.map((deal, idx) => {
-                        return blockTemplate.replace(/{{([^}]+)}}/g, `{{$1_${idx}}}`);
-                    }).join('\n\n-------------------------\n\n');
-                    
-                    const tailStart = sepIndex !== -1 ? sepIndex + 25 : blockEnd;
-                    finalRawBody = finalRawBody.substring(0, blockStart) + combinedBlocks + '\n\n-------------------------\n' + finalRawBody.substring(tailStart).trimStart();
-                }
-            }
+            // ENTERPRISE UPGRADE: Option A (The "Big Variable" Pattern)
+            // We do NOT attempt to manipulate the raw template string structure because WhatsApp Cloud API 
+            // strictly uses predefined templates. Instead, we rely on the `property_list_detailed` variable 
+            // to inject the fully formatted array of properties into a single Meta variable (e.g. {{2}}).
+            const finalRawBody = rawBody;
 
             // 3. Resolve variables in template and collect parameters for WhatsApp API
             const templateComponents = [];
@@ -802,23 +957,40 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
 
                 const cleanKey = vIdx.trim();
                 
-                // Index-based mapping fallback
+                // Dynamic Meta Template Mapping Registry
                 if (/^\d+$/.test(cleanKey)) {
-                    const defaultRegistry = {
-                        '1': 'customer_name',
-                        '2': 'property_list_default',
-                        '3': 'assignedTo'
-                    };
-                    const mappedField = defaultRegistry[String(cleanKey)];
+                    let registry = {};
+                    
+                    // 1. Enterprise Priority: Use Admin's Variable Mapping Override if exists on the template
+                    if (template.variableMapping && Object.keys(template.variableMapping).length > 0) {
+                        registry = template.variableMapping;
+                    } 
+                    // 2. Legacy Fallback: Hardcoded mappings based on old template names
+                    else if (templateKey === 'property_presentation') {
+                        registry = { '1': 'projectName', '2': 'location', '3': 'size', '4': 'price', '5': 'assignedTo' };
+                    } else if (templateKey === 'property_match_default') {
+                        registry = { '1': 'unitNo', '2': 'projectName', '3': 'price' };
+                    } else {
+                        registry = { '1': 'customer_name', '2': 'property_list_default', '3': 'assignedTo' };
+                    }
+                    
+                    const mappedField = registry[String(cleanKey)];
                     const val = unifiedContext[mappedField] !== undefined ? unifiedContext[mappedField] : match;
                     templateComponents.push(String(val));
                     return String(val);
                 }
 
-                if (unifiedContext[cleanKey] !== undefined) {
-                    templateComponents.push(String(unifiedContext[cleanKey]));
-                    return String(unifiedContext[cleanKey]);
+                // Case-insensitive lookup for named variables like {{firstname}} or {{propertiesCount}}
+                const normalizedKey = cleanKey.toLowerCase();
+                const matchedKey = Object.keys(unifiedContext).find(k => k.toLowerCase() === normalizedKey);
+
+                if (matchedKey && unifiedContext[matchedKey] !== undefined) {
+                    templateComponents.push(String(unifiedContext[matchedKey]));
+                    return String(unifiedContext[matchedKey]);
                 }
+                
+                // If it's a completely unknown variable, push empty string so we don't break Meta positional API
+                templateComponents.push("");
                 return match;
 
             });
@@ -846,6 +1018,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                     message: resolvedBody,
                     templateId: template.name,
                     templateComponents: templateComponents,
+                    language: template.language || 'en_US',
                     type: 'text'
                 });
                 if (response && response.success) {
@@ -855,8 +1028,8 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                 console.warn('API send failed, falling back to WhatsApp App Redirect:', apiErr.message);
             }
 
-            if (apiSuccess) {
-                toast.success(`Portfolio shared successfully via WhatsApp API to ${lead.name}!`, { id: loadToast });
+            if (apiSuccess || isBlast) {
+                if (apiSuccess) toast.success(`Portfolio shared successfully via WhatsApp API to ${lead.name}!`, { id: loadToast });
             } else {
                 // ━━ ENTERPRISE FALLBACK: Smart Multi-Layer WhatsApp Dispatch ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                 // Problem: WhatsApp Desktop App does NOT support pre-filled text via URL redirect.
@@ -1025,31 +1198,9 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                         <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981' }}></div>
                         <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#166534' }}>Strict AI Engine Active</span>
                     </div>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', color: isDark ? 'var(--text-main)' : '#475569', cursor: 'pointer', fontWeight: 600 }}>
-                        <input type="checkbox" checked={hidePrice} onChange={(e) => setHidePrice(e.target.checked)} style={{ accentColor: '#6366f1', width: '16px', height: '16px', cursor: 'pointer' }} />
-                        Hide Price
+                    <label style={{ display: 'none' }}>
+                        {/* Hidden to preserve React state references if any */}
                     </label>
-                    <button 
-                        onClick={handleSendPortfolio}
-                        className="btn-secondary"
-                        disabled={isSendingPortfolio}
-                        style={{ 
-                            display: 'flex', alignItems: 'center', gap: '8px',
-                            padding: '8px 16px', borderRadius: '10px', background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', 
-                            color: isDark ? 'var(--text-main)' : isDark ? 'var(--text-main)' : isDark ? 'var(--text-main)' : '#0f172a', border: '1px solid #e2e8f0', fontWeight: 700,
-                            opacity: isSendingPortfolio ? 0.6 : 1, cursor: isSendingPortfolio ? 'not-allowed' : 'pointer'
-                        }}
-                    >
-                        {isSendingPortfolio ? (
-                            <>
-                                <i className="fas fa-circle-notch fa-spin" style={{ color: '#6366f1' }}></i> Sharing...
-                            </>
-                        ) : (
-                            <>
-                                <i className="fas fa-share-alt" style={{ color: '#6366f1' }}></i> Share Portfolio
-                            </>
-                        )}
-                    </button>
                     <button
                         className="btn-primary"
                         style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
@@ -1744,39 +1895,113 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             </div>
 
             {selectedItems.length > 0 && (
-                <div style={{ position: 'fixed', bottom: '24px', left: '50%', transform: 'translateX(-50%)', background: isDark ? 'var(--text-main)' : isDark ? 'var(--text-main)' : '#0f172a', padding: '12px 24px', borderRadius: '20px', display: 'flex', alignItems: 'center', gap: '20px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.3)', zIndex: 1000 }}>
-                    <span style={{ color: '#fff', fontWeight: 600 }}>{selectedItems.length} selected</span>
-                    <button 
-                        className="btn-primary" 
-                        onClick={() => {
-                            const selectedDeals = matchedItems.filter(item => selectedItems.includes(item.id || item.unitNo));
-                            generateDealsPDF(selectedDeals, lead?.name, hidePrice);
-                            toast.success(`Portfolio PDF generated with ${selectedDeals.length} properties.`);
-                        }}
-                        style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#ec4899', borderColor: '#ec4899' }}
-                    >
-                        <i className="fas fa-file-pdf"></i> Download PDF
-                    </button>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', color: '#fff', cursor: 'pointer', fontWeight: 600 }}>
-                        <input type="checkbox" checked={hidePrice} onChange={(e) => setHidePrice(e.target.checked)} style={{ accentColor: '#6366f1', width: '16px', height: '16px', cursor: 'pointer' }} />
-                        Hide Price
-                    </label>
-                    <button 
-                        className="btn-primary" 
-                        onClick={handleSendPortfolio} 
-                        disabled={isSendingPortfolio}
-                        style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-                    >
-                        {isSendingPortfolio ? (
-                            <>
-                                <i className="fas fa-circle-notch fa-spin"></i> Sending Portfolio...
-                            </>
-                        ) : (
-                            <>
-                                Send Portfolio
-                            </>
-                        )}
-                    </button>
+                <div style={{ position: 'fixed', bottom: '24px', left: '50%', transform: 'translateX(-50%)', background: isDark ? 'var(--text-main)' : '#0f172a', padding: '12px 24px', borderRadius: '40px', display: 'flex', alignItems: 'center', gap: '24px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.3)', zIndex: 1000 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <div style={{ background: '#334155', color: '#fff', padding: '4px 12px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 700 }}>
+                            {selectedItems.length} Selected
+                        </div>
+                        <select 
+                            value={portfolioDetailLevel}
+                            onChange={(e) => setPortfolioDetailLevel(e.target.value)}
+                            style={{
+                                background: '#1e293b', color: '#fff', border: '1px solid #475569', 
+                                padding: '4px 12px', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 600,
+                                outline: 'none', cursor: 'pointer'
+                            }}
+                        >
+                            <option value="full_details">Full Details</option>
+                            <option value="short_details">Short Details</option>
+                            <option value="full_extended">Full Details (with Loc & Unit)</option>
+                            <option value="short_extended">Short Details (with Unit)</option>
+                        </select>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', color: '#cbd5e1', cursor: 'pointer', fontWeight: 600 }}>
+                            <input type="checkbox" checked={hidePrice} onChange={(e) => setHidePrice(e.target.checked)} style={{ accentColor: '#6366f1', width: '16px', height: '16px', cursor: 'pointer' }} />
+                            Hide Price
+                        </label>
+                    </div>
+
+                    <div style={{ width: '1px', height: '24px', background: '#475569' }}></div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {/* Channel Select Toggles */}
+                        <button 
+                            disabled={!channelAvailability.whatsapp}
+                            onClick={() => setBlastChannels(prev => ({...prev, whatsapp: !prev.whatsapp}))}
+                            style={{ 
+                                padding: '6px 12px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 600, transition: 'all 0.2s', border: 'none',
+                                background: blastChannels.whatsapp ? '#10b981' : '#334155', color: blastChannels.whatsapp ? '#fff' : '#94a3b8', 
+                                opacity: channelAvailability.whatsapp ? 1 : 0.4, cursor: channelAvailability.whatsapp ? 'pointer' : 'not-allowed',
+                                display: 'flex', alignItems: 'center', gap: '6px', outline: blastChannels.whatsapp ? '2px solid #059669' : 'none'
+                            }}>
+                            <i className="fab fa-whatsapp"></i> WA API
+                        </button>
+                        
+                        <button 
+                            disabled={!channelAvailability.email}
+                            onClick={() => setBlastChannels(prev => ({...prev, email: !prev.email}))}
+                            style={{ 
+                                padding: '6px 12px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 600, transition: 'all 0.2s', border: 'none',
+                                background: blastChannels.email ? '#3b82f6' : '#334155', color: blastChannels.email ? '#fff' : '#94a3b8',
+                                opacity: channelAvailability.email ? 1 : 0.4, cursor: channelAvailability.email ? 'pointer' : 'not-allowed',
+                                display: 'flex', alignItems: 'center', gap: '6px', outline: blastChannels.email ? '2px solid #2563eb' : 'none'
+                            }}>
+                            <i className="fas fa-envelope"></i> Email
+                        </button>
+                        
+                        <button 
+                            disabled={!channelAvailability.sms}
+                            onClick={() => setBlastChannels(prev => ({...prev, sms: !prev.sms}))}
+                            style={{ 
+                                padding: '6px 12px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 600, transition: 'all 0.2s', border: 'none',
+                                background: blastChannels.sms ? '#8b5cf6' : '#334155', color: blastChannels.sms ? '#fff' : '#94a3b8',
+                                opacity: channelAvailability.sms ? 1 : 0.4, cursor: channelAvailability.sms ? 'pointer' : 'not-allowed',
+                                display: 'flex', alignItems: 'center', gap: '6px', outline: blastChannels.sms ? '2px solid #7c3aed' : 'none'
+                            }}>
+                            <i className="fas fa-comment-dots"></i> SMS
+                        </button>
+
+                        <button 
+                            disabled={!channelAvailability.rcs}
+                            onClick={() => setBlastChannels(prev => ({...prev, rcs: !prev.rcs}))}
+                            style={{ 
+                                padding: '6px 12px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 600, transition: 'all 0.2s', border: 'none',
+                                background: blastChannels.rcs ? '#0ea5e9' : '#334155', color: blastChannels.rcs ? '#fff' : '#94a3b8', 
+                                opacity: channelAvailability.rcs ? (blastChannels.rcs ? 1 : 0.6) : 0.4, cursor: channelAvailability.rcs ? 'pointer' : 'not-allowed',
+                                display: 'flex', alignItems: 'center', gap: '6px', outline: blastChannels.rcs ? '2px solid #0284c7' : 'none'
+                            }}>
+                            <i className="fas fa-mobile-alt"></i> RCS
+                        </button>
+                        
+                        <button 
+                            disabled={!channelAvailability.whatsapp_app}
+                            onClick={() => setBlastChannels(prev => ({...prev, whatsapp_app: !prev.whatsapp_app}))}
+                            style={{ 
+                                padding: '6px 12px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 600, transition: 'all 0.2s', border: 'none',
+                                background: blastChannels.whatsapp_app ? '#059669' : '#334155', color: blastChannels.whatsapp_app ? '#fff' : '#94a3b8', 
+                                opacity: channelAvailability.whatsapp_app ? (blastChannels.whatsapp_app ? 1 : 0.6) : 0.4, cursor: channelAvailability.whatsapp_app ? 'pointer' : 'not-allowed',
+                                display: 'flex', alignItems: 'center', gap: '6px', outline: blastChannels.whatsapp_app ? '2px solid #047857' : 'none'
+                            }}>
+                            <i className="fas fa-comment"></i> WA App
+                        </button>
+
+                        <div style={{ width: '1px', height: '24px', background: '#475569', margin: '0 8px' }}></div>
+
+                        <button 
+                            className="btn-primary"
+                            onClick={handleSendBlast}
+                            disabled={isBlasting || isSendingPortfolio || (!blastChannels.whatsapp && !blastChannels.email && !blastChannels.sms)}
+                            style={{ 
+                                padding: '8px 24px', borderRadius: '20px', background: 'linear-gradient(135deg, #ec4899 0%, #f43f5e 100%)', 
+                                color: '#fff', border: 'none', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer',
+                                opacity: (isBlasting || isSendingPortfolio) ? 0.7 : 1, transition: 'all 0.2s', boxShadow: '0 4px 15px rgba(236, 72, 153, 0.4)'
+                            }}
+                            onMouseOver={(e) => { if(!isBlasting) e.currentTarget.style.transform = 'translateY(-2px)'; }}
+                            onMouseOut={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                        >
+                            {isBlasting ? <i className="fas fa-circle-notch fa-spin"></i> : <i className="fas fa-paper-plane"></i>}
+                            SEND
+                        </button>
+                    </div>
                 </div>
             )}
 

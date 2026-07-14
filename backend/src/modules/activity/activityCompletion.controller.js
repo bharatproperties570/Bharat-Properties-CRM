@@ -21,6 +21,7 @@ import Activity from '../../../models/Activity.js';
 import Lead from '../../../models/Lead.js';
 import { evaluateAndTransition } from '../../services/StageTransitionEngine.js';
 import { computeAndSave as computeScore } from '../../services/LeadScoringService.js';
+import { evaluateSequenceGuard } from '../../services/SequenceGuardService.js';
 import { AppError } from '../../middlewares/error.middleware.js';
 
 /**
@@ -145,6 +146,31 @@ export const completeActivity = async (req, res, next) => {
             });
         }
 
+        // 3b. ── SEQUENCE GUARD CHECK ──────────────────────────────────────────
+        // Runs after stage computation so we know the computed target stage.
+        // If guard is in 'block' mode AND a hard-block condition fires (e.g. terminal re-entry),
+        // we return the guard result and let the frontend confirm before retrying.
+        let sequenceGuard = { passed: true, mode: 'off', warnings: [], blocked: false };
+        if (transitionResult.newStage && leadId) {
+            sequenceGuard = await evaluateSequenceGuard(
+                leadId,
+                activity.type,
+                transitionResult.newStage
+            );
+        }
+
+        if (sequenceGuard.blocked) {
+            return res.status(200).json({
+                success: true,
+                data: activity,
+                requiresForm: false,
+                stageChanged: false,
+                sequenceGuardBlocked: true,
+                sequenceGuard,
+                message: sequenceGuard.warnings[0]?.message || 'Activity blocked by Sequence Guard. Confirm to proceed.'
+            });
+        }
+
         // 4. Update lastActivityAt on lead (only if not a missed call)
         const isMissed = ['no-answer', 'no answer', 'busy', 'failed', 'not connected', 'missed'].some(s => outcome.toLowerCase().includes(s));
         if (!isMissed) {
@@ -174,7 +200,8 @@ export const completeActivity = async (req, res, next) => {
             score: scoreResult?.score,
             scoreBreakdown: scoreResult?.breakdown,
             temperature: scoreResult?.temperature,
-            intent: scoreResult?.intent
+            intent: scoreResult?.intent,
+            sequenceGuard: sequenceGuard.warnings.length > 0 ? sequenceGuard : undefined
         });
     } catch (error) {
         next(error);

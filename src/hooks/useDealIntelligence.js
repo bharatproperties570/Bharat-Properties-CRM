@@ -6,13 +6,23 @@ import {
     detectCommissionLeakage, 
     computeDealHealth, 
     computeOwnerResponseRate, 
+    computeRiskFlags,
     DEFAULT_FORECAST_CONFIG, 
-    DEFAULT_HEALTH_CONFIG 
+    DEFAULT_HEALTH_CONFIG,
+    DEFAULT_AGING_RULES
 } from '../utils/agingEngine';
+import { usePropertyConfig } from '../context/PropertyConfigContext';
 
 export const useDealIntelligence = (deal, currentStage) => {
+    // Consume live configs from context
+    const { agingRules, forecastConfig, dealHealthConfig } = usePropertyConfig() || {};
+
+    const liveAgingRules = agingRules || DEFAULT_AGING_RULES;
+    const liveForecastConfig = forecastConfig || DEFAULT_FORECAST_CONFIG;
+    const liveHealthConfig = dealHealthConfig || DEFAULT_HEALTH_CONFIG;
+
     return useMemo(() => {
-        if (!deal) return { dealDeath: null, leakage: null, stageInfo: null, health: null, aging: null, ownerResponseRate: null };
+        if (!deal) return { dealDeath: null, leakage: null, stageInfo: null, health: null, aging: null, ownerResponseRate: null, riskFlags: [] };
 
         // Aging
         const aging = computeAging(
@@ -21,16 +31,30 @@ export const useDealIntelligence = (deal, currentStage) => {
             deal.lastActivityAt
         );
 
+        // Risk Flags
+        const riskFlags = computeRiskFlags(currentStage, aging, liveAgingRules);
+
+        // Extract Real Estate specifics
+        let funding = 'Unknown';
+        if (deal.leadId?.funding) {
+            funding = deal.leadId.funding;
+        } else if (deal.leads && deal.leads.length > 0 && deal.leads[0]?.funding) {
+            funding = deal.leads[0].funding;
+        }
+
+        const inventoryStatus = deal.inventoryId?.status || 'Available';
+        const dealValue = deal.price || 0;
+
         // Deal Death Detection
         const lastOfferDate = deal.negotiationRounds?.length > 0
             ? deal.negotiationRounds[deal.negotiationRounds.length - 1].date
             : null;
-        const dealDeath = computeDealDeath(currentStage, aging.stageDays, lastOfferDate, aging.activityGapDays);
+        const dealDeath = computeDealDeath(currentStage, aging.stageDays, lastOfferDate, aging.activityGapDays, liveAgingRules, dealValue);
 
         // Commission leakage
-        const commissionRate = DEFAULT_FORECAST_CONFIG.commissionRate.value;
+        const commissionRate = liveForecastConfig.commissionRate?.value ?? DEFAULT_FORECAST_CONFIG.commissionRate.value;
         const commission = (deal.price || 0) * (commissionRate / 100);
-        const leakageThreshold = DEFAULT_FORECAST_CONFIG.commissionLeakageThreshold.value;
+        const leakageThreshold = liveForecastConfig.commissionLeakageThreshold?.value ?? DEFAULT_FORECAST_CONFIG.commissionLeakageThreshold.value;
         const stageHealth = getStageProbability(currentStage);
         const leakage = detectCommissionLeakage(stageHealth, commission, leakageThreshold);
 
@@ -42,21 +66,24 @@ export const useDealIntelligence = (deal, currentStage) => {
         const health = computeDealHealth(
             leadScore,
             currentStage,
-            [], // riskFlags
-            DEFAULT_HEALTH_CONFIG,
+            riskFlags,
+            liveHealthConfig,
             ownerResponseRate,
-            dealActivities
+            dealActivities,
+            {}, // activityMasterFields
+            funding,
+            inventoryStatus
         );
 
         // STAGE_PIPELINE info
         const STAGE_MAP = {
             'Open': 'New', 'Quote': 'Opportunity', 'Negotiation': 'Negotiation',
-            'Booked': 'Booked', 'Closed': 'Closed Won', 'Closed Won': 'Closed Won',
-            'Closed Lost': 'Closed Lost', 'Stalled': 'Stalled'
+            'Booked': 'Booked', 'Closed': 'Closed (Won)', 'Closed Won': 'Closed (Won)',
+            'Closed Lost': 'Closed (Lost)', 'Stalled': 'Stalled'
         };
         const mapped = STAGE_MAP[currentStage] || currentStage;
         const stageInfo = STAGE_PIPELINE.find(s => s.label === mapped) || STAGE_PIPELINE[0];
 
-        return { dealDeath, leakage, stageInfo, aging, health, ownerResponseRate };
-    }, [deal, currentStage]);
+        return { dealDeath, leakage, stageInfo, aging, health, ownerResponseRate, riskFlags };
+    }, [deal, currentStage, liveAgingRules, liveForecastConfig, liveHealthConfig]);
 };

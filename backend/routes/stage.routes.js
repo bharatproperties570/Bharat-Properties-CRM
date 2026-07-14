@@ -7,6 +7,7 @@ import express from 'express';
 import {
     updateLeadStage,
     syncDealStage,
+    bulkSyncDeals,
     getLeadStageHistory,
     getDealStageHistory,
     getStageDensity,
@@ -67,6 +68,10 @@ router.get('/health/:dealId', getDealHealth);
 // POST /api/stage-engine/bulk-recalc
 // Bulk recalculate lastActivityAt for all leads (admin/migration use)
 router.post('/bulk-recalc', bulkRecalcStages);
+
+// POST /api/stage-engine/deals/bulk-sync
+// Enterprise: Nightly CRON self-heal — scan all deals and auto-correct stages from linked leads
+router.post('/deals/bulk-sync', bulkSyncDeals);
 
 
 // ── Observability ────────────────────────────────────────────────────────────

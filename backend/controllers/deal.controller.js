@@ -1140,6 +1140,7 @@ export const getDeals = async (req, res) => {
 
         if (projectId) query.projectId = projectId;
         if (inventoryId) query.inventoryId = inventoryId;
+        if (req.query.leadId) query.leads = req.query.leadId;
 
         if (contactPhone) {
             const cleanPhone = contactPhone.replace(/[^0-9]/g, "").slice(-10);
@@ -1558,7 +1559,15 @@ export const getDealById = async (req, res) => {
             { path: 'partyStructure.channelPartner', model: 'Contact' },
             { path: 'partyStructure.internalRM' },
             { path: 'team' },
-            { path: 'teams' }
+            { path: 'teams' },
+            { 
+                path: 'leads', 
+                select: 'firstName lastName mobile email stage status createdAt',
+                populate: [
+                    { path: 'stage', select: 'lookup_value' },
+                    { path: 'status', select: 'lookup_value' }
+                ]
+            }
         ];
 
         const visibilityFilter = await getVisibilityFilter(req.user);

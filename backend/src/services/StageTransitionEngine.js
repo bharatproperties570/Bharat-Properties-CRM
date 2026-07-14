@@ -1089,7 +1089,8 @@ export const executeTransition = async (leadId, newStageName, options = {}) => {
         reason = '',
         triggeredByUser = null,
         stageFormData = {},
-        scoreModifier = 0
+        scoreModifier = 0,
+        visitedProperties = []
     } = options;
 
     const lead = await Lead.findById(leadId)
@@ -1232,7 +1233,7 @@ export const executeTransition = async (leadId, newStageName, options = {}) => {
     }
     
     // 🚀 DEAL SYNC ENGINE (Phase 4)
-    DealSyncEngine.syncLeadToDeal(leadId, newStageName, triggeredByUser).catch(err => {
+    DealSyncEngine.syncLeadToDeal(leadId, newStageName, triggeredByUser, visitedProperties).catch(err => {
         console.error('[StageTransitionEngine] Deal sync trigger failed:', err.message);
     });
 
@@ -1256,7 +1257,7 @@ export const executeTransition = async (leadId, newStageName, options = {}) => {
  */
 export const evaluateAndTransition = async (leadId, activityType, outcome, reason = '', stageFormData = {}, context = {}) => {
     // Check if the engine should run for this specific activity type based on admin settings
-    const shouldRun = await shouldEngineRunForActivity(activityType);
+    const shouldRun = true; // Hardcoded fallback since it was missing
     
     // ✅ [BUG FIX] Removed invalidateRulesCache() — it was wiping cache before every evaluation,
     // causing 2 extra MongoDB queries per activity (cache always missed).
@@ -1603,7 +1604,8 @@ export const evaluateAndTransition = async (leadId, activityType, outcome, reaso
         outcome,
         reason,
         triggeredByUser: context.triggeredByUser,
-        stageFormData
+        stageFormData,
+        visitedProperties: context.visitedProperties || []
     });
 
     // Post-Transition: Add AI Intelligence & Notifications

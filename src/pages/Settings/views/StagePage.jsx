@@ -4,12 +4,13 @@ import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import Toast from '../../../components/Toast';
 import {
     STAGE_PIPELINE, STAGE_LABELS, flattenOutcomeMappings,
-    STAGE_STABILITY_CONFIG, getStageProbability
+    getStageProbability
 } from '../../../utils/stageEngine';
 import {
     DEFAULT_AGING_RULES, computeStageDensity,
     detectCommissionLeakage, DEFAULT_STAGE_DENSITY_TARGETS
 } from '../../../utils/agingEngine';
+import { calculateGrossCommission, calculateNetRevenue } from '../../../utils/revenueEngine';
 
 // ─────────────────────────────────────────────
 // Sub-components
@@ -267,6 +268,7 @@ const StagePage = () => {
         stageMappingRules, addStageMappingRule, updateStageMappingRule, deleteStageMappingRule,
         syncRules, updateSyncRule, addSyncRule, deleteSyncRule,
         sequenceConfig, updateSequenceConfig,
+        stabilityLockConfig, updateStabilityLockConfig,
         agingRules, updateAgingRule,
         forecastConfig, updateForecastConfig,
         dealHealthConfig, updateDealHealthConfig,
@@ -282,11 +284,35 @@ const StagePage = () => {
     const [editingStageCell, setEditingStageCell] = useState(null);
     const [expandedRows, setExpandedRows] = useState({});
 
+    const [analyticsData, setAnalyticsData] = useState({ leads: [], deals: [] });
+    const [loadingAnalytics, setLoadingAnalytics] = useState(false);
+
+    React.useEffect(() => {
+        const fetchDensity = async () => {
+            try {
+                setLoadingAnalytics(true);
+                const res = await api.analytics.getStageDensity('all');
+                if (res.success) {
+                    setAnalyticsData(res.data);
+                }
+            } catch (error) {
+                console.error("Error fetching analytics:", error);
+            } finally {
+                setLoadingAnalytics(false);
+            }
+        };
+        fetchDensity();
+    }, []);
+
     const toggleRow = (stage) => setExpandedRows(prev => ({ ...prev, [stage]: !prev[stage] }));
 
     const showToast = (message, type = 'success') => {
         setNotification({ show: true, message, type });
         setTimeout(() => setNotification(n => ({ ...n, show: false })), 3000);
+    };
+
+    const handleSaveStabilityConfig = () => {
+        showToast('Stability config saved successfully');
     };
 
     const allRows = useMemo(() => flattenOutcomeMappings(activityMasterFields), [activityMasterFields]);
@@ -308,16 +334,14 @@ const StagePage = () => {
 
     const tabs = [
         { id: 'rules', label: 'Rule Table', icon: 'fa-table' },
-        { id: 'pipeline', label: 'Stage Pipeline', icon: 'fa-stream' },
         { id: 'density', label: 'Stage Density', icon: 'fa-chart-bar' },
         { id: 'stability', label: 'Stability Lock', icon: 'fa-lock' },
-        { id: 'status', label: 'Engine Status', icon: 'fa-cog' },
-        { id: 'sync', label: 'Lead↔Deal Sync', icon: 'fa-sync-alt' },
         { id: 'sequence', label: 'Sequence Guard', icon: 'fa-project-diagram' },
         { id: 'aging', label: 'Ageing & Decay', icon: 'fa-hourglass-half' },
+        { id: 'intent', label: 'Intent Signals', icon: 'fa-brain' },
         { id: 'forecast', label: 'Revenue Forecast', icon: 'fa-chart-line' },
         { id: 'health', label: 'Deal Health', icon: 'fa-heartbeat' },
-        { id: 'intent', label: 'Intent Signals', icon: 'fa-brain' },
+        { id: 'sync', label: 'Lead↔Deal Sync', icon: 'fa-sync-alt' },
     ];
 
     return (
@@ -340,8 +364,13 @@ const StagePage = () => {
                         </div>
                     </div>
                     <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                        {/* Lock badge */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '6px 12px' }} title="Stage fields are read-only. All transitions are driven by activities.">
+                            <i className="fas fa-lock" style={{ color: '#ef4444', fontSize: '10px' }} />
+                            <span style={{ fontSize: '12px', fontWeight: 700, color: '#ef4444' }}>Manual Editing: Disabled</span>
+                        </div>
                         {/* Computed badge */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#10b98115', border: '1px solid #10b98140', borderRadius: '8px', padding: '6px 12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#10b98115', border: '1px solid #10b98140', borderRadius: '8px', padding: '6px 12px' }} title="Runs on every activity save">
                             <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', animation: 'pulse 2s infinite' }} />
                             <span style={{ fontSize: '12px', fontWeight: 700, color: '#10b981' }}>Auto-Compute: ON</span>
                         </div>
@@ -374,6 +403,70 @@ const StagePage = () => {
             {/* ─── TAB 1: Rule Table ─── */}
             {activeTab === 'rules' && (
                 <div style={{ padding: '24px 32px', flex: 1 }}>
+
+                    {/* How Stage is Computed Banner */}
+                    <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e5e7eb', overflow: 'hidden', marginBottom: '24px' }}>
+                        <div style={{ padding: '12px 20px', background: '#f8fafc', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }} onClick={() => setExpandedRows(prev => ({ ...prev, logicBanner: prev.logicBanner === undefined ? true : !prev.logicBanner }))}>
+                            <h3 style={{ margin: 0, fontSize: '13px', fontWeight: 700, color: '#374151', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <i className="fas fa-info-circle" style={{ color: '#6366f1' }} /> How Stage Is Computed
+                            </h3>
+                            <i className={`fas fa-chevron-${(expandedRows.logicBanner === undefined || !expandedRows.logicBanner) ? 'down' : 'up'}`} style={{ color: '#94a3b8', fontSize: '12px' }} />
+                        </div>
+                        {(expandedRows.logicBanner === undefined || !expandedRows.logicBanner) ? null : (
+                            <div style={{ padding: '16px 20px', display: 'flex', gap: '20px', background: '#fff' }}>
+                                {[
+                                    { step: '1', icon: 'fa-shield-alt', color: '#6366f1', label: 'Check Override Rules', desc: 'Admin-configured priority rules run first.' },
+                                    { step: '2', icon: 'fa-map', color: '#f59e0b', label: 'Default Mapping', desc: 'If no override, the outcome\'s default stage is used.' },
+                                    { step: '3', icon: 'fa-star', color: '#94a3b8', label: 'Fallback', desc: 'If no mapping is found, defaults to "New".' },
+                                ].map(step => (
+                                    <div key={step.step} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', flex: 1 }}>
+                                        <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: step.color + '15', border: `2px solid ${step.color}40`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                            <span style={{ fontSize: '11px', fontWeight: 800, color: step.color }}>{step.step}</span>
+                                        </div>
+                                        <div>
+                                            <div style={{ fontWeight: 700, color: '#374151', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                <i className={`fas ${step.icon}`} style={{ color: step.color, fontSize: '10px' }} />
+                                                {step.label}
+                                            </div>
+                                            <div style={{ fontSize: '11px', color: '#6b7280', marginTop: '2px', lineHeight: 1.4 }}>{step.desc}</div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Flow diagram Mini-Dashboard */}
+                    <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e5e7eb', marginBottom: '24px', padding: '24px', overflow: 'auto' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%' }}>
+                            {STAGE_PIPELINE.slice(0, -2).map((stage, idx) => (
+                                <React.Fragment key={stage.id}>
+                                    <div style={{
+                                        flex: 1,
+                                        padding: '10px 16px', borderRadius: '8px', background: stage.color + '15',
+                                        border: `1.5px solid ${stage.color}40`, textAlign: 'center', minWidth: '80px'
+                                    }}>
+                                        <div style={{ fontSize: '11px', fontWeight: 800, color: stage.color }}>{stage.label}</div>
+                                        <div style={{ fontSize: '10px', color: stage.color, opacity: 0.7 }}>{stageCounts[stage.label] || 0} outcomes</div>
+                                    </div>
+                                    {idx < STAGE_PIPELINE.length - 3 && (
+                                        <i className="fas fa-chevron-right" style={{ color: '#cbd5e1', flexShrink: 0 }} />
+                                    )}
+                                </React.Fragment>
+                            ))}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1, minWidth: '80px' }}>
+                                {STAGE_PIPELINE.slice(-2).filter(Boolean).map(stage => (
+                                    <div key={stage.id} style={{
+                                        padding: '8px 14px', borderRadius: '8px', background: (stage.color || '#94a3b8') + '15',
+                                        border: `1.5px solid ${stage.color || '#94a3b8'}40`, textAlign: 'center', width: '100%'
+                                    }}>
+                                        <div style={{ fontSize: '11px', fontWeight: 800, color: stage.color || '#94a3b8' }}>{stage.label}</div>
+                                        <div style={{ fontSize: '10px', color: stage.color || '#94a3b8', opacity: 0.7 }}>{stageCounts[stage.label] || 0} outcomes</div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
 
                     {/* Override Rules (Explicit) */}
                     {stageMappingRules.length > 0 && (
@@ -587,75 +680,6 @@ const StagePage = () => {
                 </div>
             )}
 
-            {/* ─── TAB 2: Stage Pipeline ─── */}
-            {activeTab === 'pipeline' && (
-                <div style={{ padding: '24px 32px', flex: 1 }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-                        {STAGE_PIPELINE.map(stage => {
-                            const rows = allRows.filter(r => r.stage === stage.label);
-                            return (
-                                <div key={stage.id} style={{ background: '#fff', borderRadius: '12px', border: `1px solid ${stage.color}30`, overflow: 'hidden' }}>
-                                    {/* Header */}
-                                    <div style={{ padding: '14px 16px', background: stage.color + '12', borderBottom: `1px solid ${stage.color}20`, display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                        <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: stage.color + '20', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                            <i className={`fas ${stage.icon}`} style={{ color: stage.color, fontSize: '14px' }} />
-                                        </div>
-                                        <div>
-                                            <div style={{ fontWeight: 800, color: stage.color, fontSize: '14px' }}>{stage.label}</div>
-                                            <div style={{ fontSize: '11px', color: stage.color, opacity: 0.7 }}>{rows.length} outcome{rows.length !== 1 ? 's' : ''}</div>
-                                        </div>
-                                    </div>
-                                    {/* Outcomes */}
-                                    <div style={{ padding: '12px 16px', maxHeight: '200px', overflowY: 'auto' }}>
-                                        {rows.length === 0 ? (
-                                            <p style={{ fontSize: '12px', color: '#cbd5e1', textAlign: 'center', margin: '8px 0', fontStyle: 'italic' }}>No outcomes mapped</p>
-                                        ) : (
-                                            rows.map((r, i) => (
-                                                <div key={i} style={{ display: 'flex', flexDirection: 'column', marginBottom: '8px', padding: '8px', background: '#f8fafc', borderRadius: '6px', borderLeft: `3px solid ${stage.color}60` }}>
-                                                    <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 700 }}>{r.activityType}</span>
-                                                    <span style={{ fontSize: '12px', color: '#374151', fontWeight: 600 }}>{r.outcome}</span>
-                                                </div>
-                                            ))
-                                        )}
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-
-                    {/* Flow diagram */}
-                    <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e5e7eb', padding: '24px', overflow: 'auto' }}>
-                        <h3 style={{ fontSize: '14px', fontWeight: 700, color: '#374151', marginBottom: '20px' }}>Pipeline Flow</h3>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                            {STAGE_PIPELINE.slice(0, -2).map((stage, idx) => (
-                                <React.Fragment key={stage.id}>
-                                    <div style={{
-                                        padding: '10px 16px', borderRadius: '8px', background: stage.color + '15',
-                                        border: `1.5px solid ${stage.color}40`, textAlign: 'center', minWidth: '100px'
-                                    }}>
-                                        <div style={{ fontSize: '11px', fontWeight: 800, color: stage.color }}>{stage.label}</div>
-                                        <div style={{ fontSize: '10px', color: stage.color, opacity: 0.7 }}>{stageCounts[stage.label] || 0} outcomes</div>
-                                    </div>
-                                    {idx < STAGE_PIPELINE.length - 3 && (
-                                        <i className="fas fa-chevron-right" style={{ color: '#cbd5e1' }} />
-                                    )}
-                                </React.Fragment>
-                            ))}
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                {STAGE_PIPELINE.slice(-2).filter(Boolean).map(stage => (
-                                    <div key={stage.id} style={{
-                                        padding: '8px 14px', borderRadius: '8px', background: (stage.color || '#94a3b8') + '15',
-                                        border: `1.5px solid ${stage.color || '#94a3b8'}40`, textAlign: 'center', minWidth: '100px'
-                                    }}>
-                                        <div style={{ fontSize: '11px', fontWeight: 800, color: stage.color || '#94a3b8' }}>{stage.label}</div>
-                                        <div style={{ fontSize: '10px', color: stage.color || '#94a3b8', opacity: 0.7 }}>{stageCounts[stage.label] || 0} outcomes</div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
             {/* ─── TAB: Stage Density Dashboard ─── */}
             {activeTab === 'density' && (() => {
                 const densityData = computeStageDensity(analyticsData.leads, DEFAULT_STAGE_DENSITY_TARGETS);
@@ -819,77 +843,172 @@ const StagePage = () => {
             })()}
 
             {/* ─── TAB: Stability Lock Config ─── */}
-            {activeTab === 'stability' && (
+            {activeTab === 'stability' && (() => {
+                const softStages = STAGE_PIPELINE.filter(s => !s.isTerminal);
+                const hardStages = STAGE_PIPELINE.filter(s => s.isTerminal);
+                return (
                 <div style={{ padding: '24px 32px', flex: 1 }}>
+
+                    {/* Page Title */}
                     <div style={{ marginBottom: '24px' }}>
                         <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: '#111827' }}>Stage Stability Lock</h2>
                         <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#6b7280' }}>
-                            Prevents false regressions — a stage cannot downgrade until minimum activity thresholds are met
+                            Enterprise protection layer — prevents false stage regressions caused by routine follow-up activities
                         </p>
                     </div>
 
-                    {/* How it works */}
-                    <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '12px', padding: '16px 20px', marginBottom: '24px', display: 'flex', gap: '12px' }}>
-                        <i className="fas fa-info-circle" style={{ color: '#3b82f6', fontSize: '16px', marginTop: '2px', flexShrink: 0 }} />
-                        <div style={{ fontSize: '13px', color: '#1e40af', lineHeight: 1.6 }}>
-                            <strong>How it works:</strong> When an activity is saved and the computed stage is lower than the current stage (a downgrade), the engine checks
-                            if the minimum thresholds are met. If not, the stage stays at its current value and a warning is logged. This prevents a simple
-                            "re-introduction call" from accidentally moving a lead from <em>Negotiation</em> back to <em>Prospect</em>.
+                    {/* How it works — Two Types of Locks */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
+                        <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '12px', padding: '16px 20px', display: 'flex', gap: '12px' }}>
+                            <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                <i className="fas fa-shield-alt" style={{ color: '#fff', fontSize: '14px' }} />
+                            </div>
+                            <div>
+                                <div style={{ fontWeight: 700, color: '#1e3a8a', fontSize: '13px', marginBottom: '4px' }}>Soft Lock (Active Stages)</div>
+                                <div style={{ fontSize: '12px', color: '#3b82f6', lineHeight: 1.6 }}>
+                                    Requires minimum activity count + minimum days before a downgrade is permitted. A routine follow-up call <strong>will not</strong> regress a lead in negotiation back to prospect.
+                                </div>
+                            </div>
+                        </div>
+                        <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '12px', padding: '16px 20px', display: 'flex', gap: '12px' }}>
+                            <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                <i className="fas fa-ban" style={{ color: '#fff', fontSize: '14px' }} />
+                            </div>
+                            <div>
+                                <div style={{ fontWeight: 700, color: '#7f1d1d', fontSize: '13px', marginBottom: '4px' }}>Hard Lock (Terminal Stages)</div>
+                                <div style={{ fontSize: '12px', color: '#ef4444', lineHeight: 1.6 }}>
+                                    Permanent protection — Closed (Won/Lost/Unqualified) stages <strong>can never</strong> be automatically downgraded. Admin manual override only.
+                                </div>
+                            </div>
                         </div>
                     </div>
 
-                    {/* Stability Rules Table */}
-                    <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '14px', overflow: 'hidden' }}>
-                        <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span style={{ fontWeight: 700, fontSize: '14px', color: '#374151' }}>
-                                <i className="fas fa-lock" style={{ color: '#6366f1', marginRight: '8px' }} />
-                                Stability Rules per Stage
-                            </span>
-                            <button 
+                    {/* ─── SOFT LOCK: Active Stages ─── */}
+                    <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '14px', overflow: 'hidden', marginBottom: '20px' }}>
+                        <div style={{ padding: '14px 20px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <i className="fas fa-shield-alt" style={{ color: '#fff', fontSize: '12px' }} />
+                                </div>
+                                <div>
+                                    <div style={{ fontWeight: 700, fontSize: '14px', color: '#374151' }}>Soft Lock — Active Pipeline Stages</div>
+                                    <div style={{ fontSize: '11px', color: '#94a3b8' }}>Configurable thresholds · Changes auto-save to database</div>
+                                </div>
+                            </div>
+                            <button
                                 onClick={handleSaveStabilityConfig}
-                                style={{ padding: '8px 16px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 4px 6px -1px rgba(99,102,241,0.2)' }}
+                                style={{ padding: '7px 16px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
                             >
-                                <i className="fas fa-save" /> Save Rules
+                                <i className="fas fa-check" /> Rules Active
                             </button>
                         </div>
 
-                        {/* Header Row */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr 1fr 1fr', padding: '10px 20px', borderBottom: '1px solid #f1f5f9', background: '#fafafa' }}>
-                            {['Stage', 'Min Activities (to downgrade)', 'Min Days in Stage', 'Lock Reason'].map(h => (
-                                <div key={h} style={{ fontSize: '11px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</div>
+                        {/* Header */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '200px 160px 140px 1fr', padding: '9px 20px', background: '#fafafa', borderBottom: '1px solid #f1f5f9' }}>
+                            {['Stage', 'Min Activities', 'Min Days', 'Protection Rationale'].map(h => (
+                                <div key={h} style={{ fontSize: '10px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</div>
                             ))}
                         </div>
 
-                        {STAGE_PIPELINE.filter(s => !['New', 'Closed Won', 'Closed Lost', 'Stalled'].includes(s.label)).map((stage, idx, arr) => {
-                            const lock = STAGE_STABILITY_CONFIG[stage.label];
+                        {softStages.map((stage, idx) => {
+                            const lock = stabilityLockConfig[stage.label] || { minActivities: 0, minDays: 0, label: '', lockType: 'soft' };
                             return (
-                                <div key={stage.id} style={{ display: 'grid', gridTemplateColumns: '180px 1fr 1fr 1fr', padding: '16px 20px', borderBottom: idx < arr.length - 1 ? '1px solid #f8fafc' : 'none', alignItems: 'center' }}>
-                                    {/* Stage */}
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: stage.color }} />
-                                        <span style={{ fontWeight: 700, fontSize: '14px', color: '#374151' }}>{stage.label}</span>
+                                <div key={stage.id} style={{ display: 'grid', gridTemplateColumns: '200px 160px 140px 1fr', padding: '15px 20px', borderBottom: idx < softStages.length - 1 ? '1px solid #f8fafc' : 'none', alignItems: 'center', transition: 'background 0.15s' }}
+                                    onMouseEnter={e => e.currentTarget.style.background = '#fafafa'}
+                                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                                >
+                                    {/* Stage Name */}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: stage.color, flexShrink: 0 }} />
+                                        <div>
+                                            <div style={{ fontWeight: 700, fontSize: '13px', color: '#111827' }}>{stage.label}</div>
+                                            <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '1px' }}>{stage.probability}% win probability</div>
+                                        </div>
                                     </div>
                                     {/* Min Activities */}
-                                    <div>
-                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#eff6ff', color: '#3b82f6', border: '1px solid #bfdbfe', borderRadius: '6px', padding: '4px 12px', fontSize: '13px', fontWeight: 700 }}>
-                                            <i className="fas fa-tasks" style={{ fontSize: '11px' }} />
-                                            {lock ? (lock.minActivities >= 999 ? 'Locked ∞' : `${lock.minActivities} activity`) : '—'}
-                                        </span>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <div style={{ position: 'relative' }}>
+                                            <input
+                                                type="number" min="0" max="50"
+                                                value={lock.minActivities}
+                                                onChange={e => updateStabilityLockConfig({ [stage.label]: { ...lock, minActivities: parseInt(e.target.value) || 0 } })}
+                                                style={{ width: '56px', padding: '6px 8px', border: '1.5px solid #bfdbfe', borderRadius: '8px', fontWeight: 800, textAlign: 'center', color: '#3b82f6', background: '#eff6ff', fontSize: '15px', outline: 'none' }}
+                                            />
+                                        </div>
+                                        <div>
+                                            <div style={{ fontSize: '11px', color: '#6b7280', fontWeight: 600 }}>activities</div>
+                                            {lock.minActivities === 0 && <div style={{ fontSize: '9px', color: '#f59e0b', fontWeight: 700 }}>⚠ Unprotected</div>}
+                                        </div>
                                     </div>
                                     {/* Min Days */}
-                                    <div>
-                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0', borderRadius: '6px', padding: '4px 12px', fontSize: '13px', fontWeight: 700 }}>
-                                            <i className="fas fa-clock" style={{ fontSize: '11px' }} />
-                                            {lock ? `${lock.minDays} day${lock.minDays !== 1 ? 's' : ''}` : '—'}
-                                        </span>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <input
+                                            type="number" min="0" max="90"
+                                            value={lock.minDays}
+                                            onChange={e => updateStabilityLockConfig({ [stage.label]: { ...lock, minDays: parseInt(e.target.value) || 0 } })}
+                                            style={{ width: '56px', padding: '6px 8px', border: '1.5px solid #bbf7d0', borderRadius: '8px', fontWeight: 800, textAlign: 'center', color: '#16a34a', background: '#f0fdf4', fontSize: '15px', outline: 'none' }}
+                                        />
+                                        <div>
+                                            <div style={{ fontSize: '11px', color: '#6b7280', fontWeight: 600 }}>days</div>
+                                            {lock.minDays === 0 && <div style={{ fontSize: '9px', color: '#f59e0b', fontWeight: 700 }}>⚠ No time lock</div>}
+                                        </div>
                                     </div>
-                                    {/* Label */}
-                                    <div style={{ fontSize: '12px', color: '#6b7280', fontStyle: 'italic' }}>
-                                        {lock?.label || 'No lock configured'}
+                                    {/* Rationale */}
+                                    <div style={{ fontSize: '12px', color: '#6b7280', lineHeight: 1.5, paddingLeft: '8px', borderLeft: `3px solid ${stage.color}30` }}>
+                                        {lock.label || '—'}
                                     </div>
                                 </div>
                             );
                         })}
+                    </div>
+
+                    {/* ─── HARD LOCK: Terminal Stages ─── */}
+                    <div style={{ background: '#fff', border: '1px solid #fecaca', borderRadius: '14px', overflow: 'hidden', marginBottom: '20px' }}>
+                        <div style={{ padding: '14px 20px', borderBottom: '1px solid #fecaca', background: '#fef2f2', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <i className="fas fa-ban" style={{ color: '#fff', fontSize: '12px' }} />
+                            </div>
+                            <div>
+                                <div style={{ fontWeight: 700, fontSize: '14px', color: '#7f1d1d' }}>Hard Lock — Terminal Stages</div>
+                                <div style={{ fontSize: '11px', color: '#ef4444' }}>System-enforced · Cannot be configured · Admin manual action required to change</div>
+                            </div>
+                        </div>
+                        {hardStages.map((stage, idx) => (
+                            <div key={stage.id} style={{ display: 'grid', gridTemplateColumns: '200px 160px 140px 1fr', padding: '14px 20px', borderBottom: idx < hardStages.length - 1 ? '1px solid #fef2f2' : 'none', alignItems: 'center', background: '#fffafa' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: stage.color, flexShrink: 0 }} />
+                                    <div style={{ fontWeight: 700, fontSize: '13px', color: '#111827' }}>{stage.label}</div>
+                                </div>
+                                <div>
+                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', background: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5', borderRadius: '6px', padding: '4px 10px', fontSize: '12px', fontWeight: 700 }}>
+                                        <i className="fas fa-ban" style={{ fontSize: '10px' }} /> Hard Locked
+                                    </span>
+                                </div>
+                                <div>
+                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', background: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5', borderRadius: '6px', padding: '4px 10px', fontSize: '12px', fontWeight: 700 }}>
+                                        <i className="fas fa-ban" style={{ fontSize: '10px' }} /> Hard Locked
+                                    </span>
+                                </div>
+                                <div style={{ fontSize: '12px', color: '#dc2626', lineHeight: 1.5, paddingLeft: '8px', borderLeft: '3px solid #fca5a5', fontStyle: 'italic' }}>
+                                    {(stabilityLockConfig[stage.label] || {}).label || 'Permanent terminal state — system lock'}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Protection Coverage Badge */}
+                    <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '10px', padding: '14px 20px', display: 'flex', alignItems: 'center', gap: '14px' }}>
+                        <i className="fas fa-check-circle" style={{ color: '#16a34a', fontSize: '18px', flexShrink: 0 }} />
+                        <div style={{ flex: 1 }}>
+                            <div style={{ fontWeight: 700, color: '#14532d', fontSize: '13px' }}>Full Pipeline Protection Active</div>
+                            <div style={{ fontSize: '12px', color: '#16a34a', marginTop: '2px' }}>
+                                {softStages.length} active stages with soft locks · {hardStages.length} terminal stages with hard locks · Changes persist to database automatically
+                            </div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: '22px', fontWeight: 900, color: '#16a34a' }}>{softStages.length + hardStages.length}</div>
+                            <div style={{ fontSize: '10px', color: '#16a34a', fontWeight: 700 }}>STAGES PROTECTED</div>
+                        </div>
                     </div>
 
                     {/* Probability Calibration */}
@@ -911,44 +1030,34 @@ const StagePage = () => {
                             ))}
                         </div>
                     </div>
+
                 </div>
-            )}
+                );
+            })()}
 
-            {/* ─── TAB 3: Engine Status ─── */}
-            {activeTab === 'status' && (
-
+            {/* ─── TAB 4: Deal Sync Engine ─── */}
+            {activeTab === 'sync' && (
                 <div style={{ padding: '24px 32px', flex: 1 }}>
-                    {/* System Status Cards */}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-                        {[
-                            { icon: 'fa-robot', label: 'Auto-Computation', value: 'Active', color: '#10b981', sub: 'Runs on every activity save' },
-                            { icon: 'fa-ban', label: 'Manual Editing', value: 'Disabled', color: '#ef4444', sub: 'Stage cannot be set manually' },
-                            { icon: 'fa-list', label: 'Total Mappings', value: allRows.length, color: '#6366f1', sub: 'Outcome-to-Stage rules' },
-                            { icon: 'fa-shield-alt', label: 'Override Rules', value: stageMappingRules.length, color: '#f59e0b', sub: 'Admin-configured priority rules' },
-                        ].map(card => (
-                            <div key={card.label} style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e5e7eb', padding: '20px', display: 'flex', gap: '14px', alignItems: 'flex-start' }}>
-                                <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: card.color + '15', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                    <i className={`fas ${card.icon}`} style={{ color: card.color, fontSize: '16px' }} />
-                                </div>
-                                <div>
-                                    <div style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 600, marginBottom: '2px' }}>{card.label}</div>
-                                    <div style={{ fontSize: '20px', fontWeight: 800, color: card.color }}>{card.value}</div>
-                                    <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>{card.sub}</div>
-                                </div>
-                            </div>
-                        ))}
+                    <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '10px', padding: '16px 20px', marginBottom: '24px', display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+                        <i className="fas fa-check-circle" style={{ color: '#10b981', marginTop: '3px', fontSize: '18px' }} />
+                        <div>
+                            <span style={{ fontSize: '14px', color: '#065f46', fontWeight: 700, display: 'block', marginBottom: '4px' }}>Unit-Specific Deal Sync is Active</span>
+                            <span style={{ fontSize: '13px', color: '#047857', lineHeight: '1.5' }}>
+                                Deal stages are strictly updated based on the <b>Outcome</b> of an Activity recorded against that <b>Specific Unit</b>. Blanket updates across all linked deals are intentionally disabled to preserve data integrity.
+                            </span>
+                        </div>
                     </div>
 
-                    {/* Engine Logic explanation */}
-                    <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e5e7eb', overflow: 'hidden', marginBottom: '20px' }}>
+                    <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e5e7eb', overflow: 'hidden', marginBottom: '24px' }}>
                         <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc' }}>
-                            <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 700, color: '#374151' }}>How Stage Is Computed</h3>
+                            <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 700, color: '#374151' }}>How Deal Sync Works</h3>
                         </div>
-                        <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
                             {[
-                                { step: '1', icon: 'fa-shield-alt', color: '#6366f1', label: 'Check Override Rules', desc: 'Admin-configured explicit rules are checked first, ordered by priority (1 = highest). First match wins.' },
-                                { step: '2', icon: 'fa-map', color: '#f59e0b', label: 'Lookup Default Mapping', desc: 'If no override matches, the outcome\'s default stage from the Rule Table is used.' },
-                                { step: '3', icon: 'fa-star', color: '#94a3b8', label: 'Fallback to "New"', desc: 'If no mapping is found at all, stage defaults to "New".' },
+                                { step: '1', icon: 'fa-user-clock', color: '#8b5cf6', label: 'Activity Triggers Sync', desc: 'Sync only runs when you complete a "Site Visit" or "Meeting" activity.' },
+                                { step: '2', icon: 'fa-crosshairs', color: '#ef4444', label: 'Unit Targeting', desc: 'The engine looks for the specific Project, Block, and Unit number selected in the Activity form.' },
+                                { step: '3', icon: 'fa-balance-scale', color: '#f59e0b', label: 'Outcome Resolution', desc: 'The exact outcome assigned to that unit (e.g. "Token Given", "Not Interested") is evaluated by the CRM Rule Engine.' },
+                                { step: '4', icon: 'fa-sync', color: '#10b981', label: 'Precision Update', desc: 'Only the Deal matching the specific targeted unit is updated. All other deals linked to the lead remain unchanged.' },
                             ].map(step => (
                                 <div key={step.step} style={{ display: 'flex', gap: '14px', alignItems: 'flex-start' }}>
                                     <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: step.color + '15', border: `2px solid ${step.color}40`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -966,118 +1075,203 @@ const StagePage = () => {
                         </div>
                     </div>
 
-                    {/* Info Banner: Manual editing disabled */}
                     <div style={{ display: 'flex', gap: '12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '10px', padding: '16px 20px' }}>
-                        <i className="fas fa-lock" style={{ color: '#ef4444', marginTop: '2px', fontSize: '16px', flexShrink: 0 }} />
+                        <i className="fas fa-exclamation-triangle" style={{ color: '#ef4444', marginTop: '2px', fontSize: '16px', flexShrink: 0 }} />
                         <div>
-                            <div style={{ fontWeight: 700, color: '#b91c1c', marginBottom: '4px', fontSize: '14px' }}>Manual Stage Editing is System-Disabled</div>
+                            <div style={{ fontWeight: 700, color: '#b91c1c', marginBottom: '4px', fontSize: '14px' }}>Ignored Activities</div>
                             <div style={{ fontSize: '13px', color: '#dc2626', lineHeight: '1.5' }}>
-                                Stage fields on Lead and Deal forms are read-only. All stage transitions are driven exclusively by activity outcomes recorded in the CRM.
-                                This ensures data integrity and accurate pipeline reporting.
+                                General activities such as <b>Calls</b> and <b>Emails</b> do not target specific units. 
+                                Therefore, they will <b>never</b> trigger a Deal stage update. They only progress the overall Lead stage.
                             </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-            {/* ─── TAB 4: Lead ↔ Deal Sync Engine ─── */}
-            {activeTab === 'sync' && (
-                <div style={{ padding: '24px 32px', flex: 1 }}>
-                    <div style={{ background: '#fff3cd', border: '1px solid #ffc107', borderRadius: '10px', padding: '14px 18px', marginBottom: '20px', display: 'flex', gap: '10px', alignItems: 'center' }}>
-                        <i className="fas fa-info-circle" style={{ color: '#856404' }} />
-                        <span style={{ fontSize: '13px', color: '#856404', fontWeight: 600 }}>Sync runs automatically when a Lead stage changes, a score band changes, or an activity is saved.</span>
-                    </div>
-                    <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e5e7eb', overflow: 'hidden', marginBottom: '20px' }}>
-                        <div style={{ padding: '14px 20px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span style={{ fontWeight: 700, color: '#374151', fontSize: '14px' }}>Sync Rules (Priority Order)</span>
-                        </div>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-                            <thead><tr style={{ background: '#f8fafc' }}>
-                                {['#', 'Rule', 'Condition', '→ Deal Stage', 'Active', 'Actions'].map(h => <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontWeight: 700, color: '#6b7280', fontSize: '11px', textTransform: 'uppercase' }}>{h}</th>)}
-                            </tr></thead>
-                            <tbody>
-                                {[...syncRules].sort((a, b) => a.priority - b.priority).map(rule => (
-                                    <tr key={rule.id} style={{ borderTop: '1px solid #f1f5f9', opacity: rule.isActive ? 1 : 0.5 }}>
-                                        <td style={{ padding: '10px 16px' }}><span style={{ background: '#f1f5f9', borderRadius: '4px', padding: '2px 8px', fontWeight: 700 }}>#{rule.priority}</span></td>
-                                        <td style={{ padding: '10px 16px', fontWeight: 600, color: '#374151' }}>{rule.label}</td>
-                                        <td style={{ padding: '10px 16px', color: '#6b7280', fontSize: '12px' }}>
-                                            {rule.condition === 'ANY_LEAD' && <span style={{ background: '#3b82f615', color: '#3b82f6', padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>ANY lead = {rule.conditionStage}</span>}
-                                            {rule.condition === 'ALL_LEADS' && <span style={{ background: '#f59e0b15', color: '#f59e0b', padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>ALL leads = {rule.conditionStage}</span>}
-                                            {rule.condition === 'ACTIVITY' && <span style={{ background: '#8b5cf615', color: '#8b5cf6', padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>Activity: {rule.conditionActivity}</span>}
-                                        </td>
-                                        <td style={{ padding: '10px 16px' }}><StageChip stage={rule.dealStage} /></td>
-                                        <td style={{ padding: '10px 16px' }}>
-                                            <label style={{ position: 'relative', display: 'inline-block', width: '36px', height: '20px' }}>
-                                                <input type="checkbox" checked={rule.isActive} onChange={e => updateSyncRule(rule.id, { isActive: e.target.checked })} style={{ opacity: 0, width: 0, height: 0 }} />
-                                                <span style={{ position: 'absolute', cursor: 'pointer', inset: 0, backgroundColor: rule.isActive ? '#10b981' : '#cbd5e1', borderRadius: '34px', transition: '.3s' }} />
-                                                <span style={{ position: 'absolute', height: '14px', width: '14px', left: rule.isActive ? '19px' : '3px', bottom: '3px', backgroundColor: '#fff', borderRadius: '50%', transition: '.3s' }} />
-                                            </label>
-                                        </td>
-                                        <td style={{ padding: '10px 16px' }}>
-                                            {rule.isLocked
-                                                ? <span style={{ fontSize: '11px', color: '#94a3b8' }}><i className="fas fa-lock" /> System</span>
-                                                : <button onClick={() => { if (window.confirm('Delete?')) { deleteSyncRule(rule.id); showToast('Rule deleted'); } }} style={{ border: 'none', background: '#fef2f2', color: '#ef4444', borderRadius: '6px', padding: '5px 10px', cursor: 'pointer', fontSize: '12px' }}><i className="fas fa-trash" /></button>
-                                            }
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                    <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e5e7eb', padding: '20px' }}>
-                        <div style={{ fontWeight: 700, color: '#374151', marginBottom: '12px', fontSize: '14px' }}>Conflict Resolution — Multi-Lead Priority Order</div>
-                        <p style={{ fontSize: '13px', color: '#6b7280', marginBottom: '14px' }}>When multiple leads are linked to one Deal, the highest-priority stage wins:</p>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                            {['Open', 'Prospect', 'Qualified', 'Opportunity', 'Quote', 'Negotiation', 'Booked', 'Closed Won'].map((s, i, arr) => (
-                                <React.Fragment key={s}>
-                                    <StageChip stage={s} />
-                                    {i < arr.length - 1 && <i className="fas fa-chevron-right" style={{ color: '#cbd5e1', fontSize: '10px' }} />}
-                                </React.Fragment>
-                            ))}
-                            <span style={{ fontSize: '12px', color: '#10b981', fontWeight: 700, marginLeft: '4px' }}>← Highest</span>
                         </div>
                     </div>
                 </div>
             )}
 
             {/* ─── TAB 5: Sequence Guard ─── */}
-            {activeTab === 'sequence' && (
+            {activeTab === 'sequence' && (() => {
+                const activeStages  = STAGE_PIPELINE.filter(s => !s.isTerminal);
+                const modeConfig = {
+                    off:   { color: '#94a3b8', bg: '#f8fafc', icon: 'fa-power-off',         label: 'Off',   detail: 'Guard is disabled. All activities are processed without any sequence check.' },
+                    warn:  { color: '#f59e0b', bg: '#fffbeb', icon: 'fa-exclamation-circle', label: 'Warn',  detail: 'Warnings are returned in the API response and surfaced to agents as alert banners — but the activity completes normally.' },
+                    block: { color: '#ef4444', bg: '#fef2f2', icon: 'fa-ban',                label: 'Block', detail: 'Hard block: terminal re-entry (Closed lead) is fully blocked until agent confirms. Stage-skip and regression remain as warnings.' },
+                };
+                const currentMode = sequenceConfig.enforcementMode || 'off';
+                const mc = modeConfig[currentMode];
+
+                return (
                 <div style={{ padding: '24px 32px', flex: 1 }}>
-                    <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e5e7eb', padding: '20px', marginBottom: '20px' }}>
-                        <div style={{ fontWeight: 700, color: '#374151', marginBottom: '12px', fontSize: '14px' }}>Enforcement Mode</div>
-                        <div style={{ display: 'flex', gap: '12px' }}>
-                            {[{ id: 'off', label: 'Off', desc: 'No enforcement', color: '#94a3b8' }, { id: 'warn', label: 'Warn', desc: 'Show warning, allow proceed', color: '#f59e0b' }, { id: 'block', label: 'Block', desc: 'Hard block — cannot skip', color: '#ef4444' }].map(m => (
-                                <div key={m.id} onClick={() => updateSequenceConfig({ enforcementMode: m.id })} style={{ flex: 1, padding: '14px', borderRadius: '10px', border: `2px solid ${sequenceConfig.enforcementMode === m.id ? m.color : '#e5e7eb'}`, background: sequenceConfig.enforcementMode === m.id ? m.color + '10' : '#f8fafc', cursor: 'pointer' }}>
-                                    <div style={{ fontWeight: 800, color: m.color, fontSize: '15px' }}>{m.label}</div>
-                                    <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px' }}>{m.desc}</div>
+
+                    {/* Header */}
+                    <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div>
+                            <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: '#111827' }}>Activity Sequence Guard</h2>
+                            <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#6b7280' }}>
+                                Enterprise-grade advisory layer — detects and flags out-of-sequence activities before stage transitions execute
+                            </p>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '6px 14px' }}>
+                            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', animation: 'pulse 2s infinite' }} />
+                            <span style={{ fontSize: '12px', fontWeight: 700, color: '#16a34a' }}>Backend Enforcement: Active</span>
+                        </div>
+                    </div>
+
+                    {/* Enforcement Mode Selector */}
+                    <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '14px', overflow: 'hidden', marginBottom: '20px' }}>
+                        <div style={{ padding: '14px 20px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc' }}>
+                            <div style={{ fontWeight: 700, fontSize: '14px', color: '#374151' }}>
+                                <i className="fas fa-sliders-h" style={{ color: '#6366f1', marginRight: '8px' }} />
+                                Enforcement Mode
+                            </div>
+                            <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>
+                                Controls how the backend responds when a sequence violation is detected
+                            </div>
+                        </div>
+                        <div style={{ padding: '16px 20px', display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '12px' }}>
+                            {Object.entries(modeConfig).map(([id, m]) => (
+                                <div key={id}
+                                    onClick={() => updateSequenceConfig({ enforcementMode: id })}
+                                    style={{ padding: '16px', borderRadius: '12px', border: `2px solid ${currentMode === id ? m.color : '#e5e7eb'}`, background: currentMode === id ? m.bg : '#fafafa', cursor: 'pointer', transition: 'all 0.15s' }}
+                                >
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                                        <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: currentMode === id ? m.color : '#e5e7eb', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                            <i className={`fas ${m.icon}`} style={{ color: '#fff', fontSize: '13px' }} />
+                                        </div>
+                                        <span style={{ fontWeight: 800, fontSize: '16px', color: currentMode === id ? m.color : '#94a3b8' }}>{m.label}</span>
+                                        {currentMode === id && <span style={{ marginLeft: 'auto', fontSize: '10px', background: m.color, color: '#fff', padding: '2px 8px', borderRadius: '20px', fontWeight: 700 }}>ACTIVE</span>}
+                                    </div>
+                                    <div style={{ fontSize: '12px', color: '#6b7280', lineHeight: 1.5 }}>{m.detail}</div>
                                 </div>
                             ))}
                         </div>
                     </div>
-                    <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e5e7eb', overflow: 'hidden' }}>
-                        <div style={{ padding: '14px 20px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc' }}>
-                            <span style={{ fontWeight: 700, color: '#374151', fontSize: '14px' }}>Mandatory Stage Sequence</span>
+
+                    {/* Three Guard Types */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '16px', marginBottom: '20px' }}>
+                        {[
+                            { code: 'TERMINAL_REENTRY', icon: 'fa-ban', color: '#ef4444', label: 'Terminal Re-entry', severity: 'Block (in block mode)', desc: 'Fires when any qualifying activity is logged on a Closed (Won/Lost/Unqualified) lead. Prevents accidental re-opening of closed pipeline.' },
+                            { code: 'STAGE_SKIP', icon: 'fa-forward', color: '#f59e0b', label: 'Stage Skip Detection', severity: 'Always Warn', desc: 'Fires when an activity would cause a jump of 2+ pipeline stages (e.g. Incoming → Negotiation). Logs which intermediate stages were skipped and what recommended activities were missed.' },
+                            { code: 'ACTIVITY_REGRESSION', icon: 'fa-undo-alt', color: '#8b5cf6', label: 'Activity Regression', severity: 'Always Warn', desc: 'Fires when an activity type is typical of an earlier stage (e.g. "Introduction Call" on a Negotiation lead). Flags potential data entry errors without blocking the agent.' },
+                        ].map(g => (
+                            <div key={g.code} style={{ background: '#fff', border: `1px solid ${g.color}30`, borderRadius: '12px', padding: '18px', borderTop: `3px solid ${g.color}` }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                                    <div style={{ width: '30px', height: '30px', borderRadius: '8px', background: g.color + '15', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                        <i className={`fas ${g.icon}`} style={{ color: g.color, fontSize: '13px' }} />
+                                    </div>
+                                    <div>
+                                        <div style={{ fontWeight: 700, fontSize: '13px', color: '#111827' }}>{g.label}</div>
+                                        <span style={{ fontSize: '10px', background: g.color + '15', color: g.color, padding: '1px 7px', borderRadius: '20px', fontWeight: 700 }}>{g.severity}</span>
+                                    </div>
+                                </div>
+                                <div style={{ fontSize: '12px', color: '#6b7280', lineHeight: 1.6 }}>{g.desc}</div>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Stage Sequence Table — Editable Required Activities */}
+                    <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '14px', overflow: 'hidden', marginBottom: '20px' }}>
+                        <div style={{ padding: '14px 20px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div>
+                                <div style={{ fontWeight: 700, fontSize: '14px', color: '#374151' }}>
+                                    <i className="fas fa-project-diagram" style={{ color: '#6366f1', marginRight: '8px' }} />
+                                    Stage Sequence &amp; Recommended Activities
+                                </div>
+                                <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
+                                    Populated from your pipeline · Edit recommended activities for Stage Skip warnings
+                                </div>
+                            </div>
                         </div>
-                        <div style={{ padding: '20px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0', flexWrap: 'wrap' }}>
-                                {sequenceConfig.sequence.map((step, idx) => (
-                                    <React.Fragment key={step.stage}>
-                                        <div style={{ textAlign: 'center', padding: '12px 16px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e5e7eb', minWidth: '110px' }}>
-                                            <i className={`fas ${step.icon}`} style={{ color: '#6366f1', fontSize: '16px', marginBottom: '6px', display: 'block' }} />
-                                            <div style={{ fontWeight: 700, color: '#374151', fontSize: '12px' }}>{step.stage}</div>
-                                            {step.requiredActivity && <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '4px' }}>{step.requiredActivity}</div>}
+
+                        {/* Header */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '36px 180px 1fr 140px', padding: '9px 20px', background: '#fafafa', borderBottom: '1px solid #f1f5f9' }}>
+                            {['#', 'Stage', 'Recommended Activity (for Stage-Skip Guard)', 'Win Probability'].map(h => (
+                                <div key={h} style={{ fontSize: '10px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</div>
+                            ))}
+                        </div>
+
+                        {activeStages.map((stage, idx) => {
+                            const seqEntry = (sequenceConfig.sequence || []).find(s => s.stage === stage.label) || { stage: stage.label, order: idx, requiredActivity: '' };
+                            return (
+                                <div key={stage.id}
+                                    style={{ display: 'grid', gridTemplateColumns: '36px 180px 1fr 140px', padding: '13px 20px', borderBottom: idx < activeStages.length - 1 ? '1px solid #f8fafc' : 'none', alignItems: 'center', transition: 'background .15s' }}
+                                    onMouseEnter={e => e.currentTarget.style.background = '#fafafa'}
+                                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                                >
+                                    {/* Order */}
+                                    <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: stage.color + '20', border: `2px solid ${stage.color}50`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                        <span style={{ fontSize: '11px', fontWeight: 800, color: stage.color }}>{idx + 1}</span>
+                                    </div>
+                                    {/* Stage Name */}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: stage.color }} />
+                                        <div>
+                                            <div style={{ fontWeight: 700, fontSize: '13px', color: '#111827' }}>{stage.label}</div>
+                                            <div style={{ fontSize: '10px', color: '#94a3b8' }}>{idx === 0 ? 'Entry point — no prior requirement' : `After ${activeStages[idx - 1]?.label}`}</div>
                                         </div>
-                                        {idx < sequenceConfig.sequence.length - 1 && <i className="fas fa-arrow-right" style={{ color: '#cbd5e1', margin: '0 4px' }} />}
-                                    </React.Fragment>
-                                ))}
+                                    </div>
+                                    {/* Recommended Activity */}
+                                    <div style={{ paddingRight: '16px' }}>
+                                        {idx === 0 ? (
+                                            <span style={{ fontSize: '12px', color: '#94a3b8', fontStyle: 'italic' }}>No requirement — first stage</span>
+                                        ) : (
+                                            <input
+                                                type="text"
+                                                value={seqEntry.requiredActivity || ''}
+                                                placeholder="e.g. Site Visit, Call, Meeting..."
+                                                onChange={e => {
+                                                    const newSeq = (sequenceConfig.sequence || []).map(s => s.stage === stage.label ? { ...s, requiredActivity: e.target.value } : s);
+                                                    // Add entry if not exists
+                                                    if (!newSeq.find(s => s.stage === stage.label)) newSeq.push({ stage: stage.label, order: idx, requiredActivity: e.target.value });
+                                                    updateSequenceConfig({ sequence: newSeq });
+                                                }}
+                                                style={{ width: '100%', padding: '7px 12px', border: '1.5px solid #e5e7eb', borderRadius: '8px', fontSize: '13px', color: '#374151', background: '#f8fafc', outline: 'none', fontFamily: 'inherit' }}
+                                                onFocus={e => e.target.style.borderColor = stage.color}
+                                                onBlur={e => e.target.style.borderColor = '#e5e7eb'}
+                                            />
+                                        )}
+                                    </div>
+                                    {/* Win Probability */}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <div style={{ flex: 1, height: '6px', borderRadius: '3px', background: '#f1f5f9', overflow: 'hidden' }}>
+                                            <div style={{ height: '100%', width: `${stage.probability}%`, background: stage.color, borderRadius: '3px' }} />
+                                        </div>
+                                        <span style={{ fontSize: '12px', fontWeight: 800, color: stage.color, minWidth: '36px', textAlign: 'right' }}>{stage.probability}%</span>
+                                    </div>
+                                </div>
+                            );
+                        })}
+
+                        {/* Terminal Stages Row */}
+                        {STAGE_PIPELINE.filter(s => s.isTerminal).map((stage, idx, arr) => (
+                            <div key={stage.id} style={{ display: 'grid', gridTemplateColumns: '36px 180px 1fr 140px', padding: '12px 20px', borderBottom: idx < arr.length - 1 ? '1px solid #fef2f2' : 'none', alignItems: 'center', background: '#fffafa' }}>
+                                <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: '#fee2e2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <i className="fas fa-ban" style={{ fontSize: '10px', color: '#ef4444' }} />
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: stage.color }} />
+                                    <div style={{ fontWeight: 700, fontSize: '13px', color: '#6b7280' }}>{stage.label}</div>
+                                </div>
+                                <div style={{ fontSize: '12px', color: '#ef4444', fontStyle: 'italic' }}>
+                                    Terminal — any new qualifying activity triggers TERMINAL_REENTRY guard
+                                </div>
+                                <div style={{ fontSize: '12px', fontWeight: 800, color: stage.color }}>{stage.probability}%</div>
                             </div>
-                            <div style={{ marginTop: '16px', padding: '12px 16px', background: '#fef3c7', border: '1px solid #fbbf24', borderRadius: '8px', fontSize: '13px', color: '#92400e' }}>
-                                <i className="fas fa-exclamation-triangle" style={{ marginRight: '8px' }} />
-                                <strong>Warning example:</strong> If a user tries to move a lead directly from <em>New → Negotiation</em>, the system will say: "Stage jump detected. Missing: Prospect, Qualified, Opportunity. Required: Introduction / Call, Requirement Gathering, Follow-up / Site Visit."
-                            </div>
+                        ))}
+                    </div>
+
+                    {/* Live Mode Status Banner */}
+                    <div style={{ background: mc.bg, border: `1px solid ${mc.color}40`, borderRadius: '10px', padding: '14px 20px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <i className={`fas ${mc.icon}`} style={{ color: mc.color, fontSize: '18px', flexShrink: 0 }} />
+                        <div>
+                            <div style={{ fontWeight: 700, color: mc.color, fontSize: '13px' }}>Current Mode: {mc.label}</div>
+                            <div style={{ fontSize: '12px', color: mc.color, opacity: 0.85, marginTop: '2px' }}>{mc.detail}</div>
                         </div>
                     </div>
+
                 </div>
-            )}
+                );
+            })()}
+
 
             {/* ─── TAB 6: Ageing & Decay ─── */}
             {activeTab === 'aging' && (
@@ -1115,18 +1309,58 @@ const StagePage = () => {
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' }}>
                         <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e5e7eb', padding: '24px' }}>
                             <div style={{ fontWeight: 700, color: '#374151', fontSize: '15px', marginBottom: '20px' }}>Formula Configuration</div>
-                            <div style={{ marginBottom: '20px' }}>
-                                <div style={{ fontSize: '12px', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', marginBottom: '8px' }}>Commission Rate</div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                    <input type="number" step="0.1" min="0" max="20" value={forecastConfig.commissionRate.value}
-                                        onChange={e => updateForecastConfig('commissionRate', { value: parseFloat(e.target.value) || 0 })}
-                                        style={{ width: '80px', padding: '8px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', fontWeight: 800, fontSize: '18px', textAlign: 'center', color: '#10b981' }} />
-                                    <span style={{ fontWeight: 700, color: '#374151' }}>%</span>
-                                    <span style={{ fontSize: '12px', color: '#94a3b8' }}>of Deal Value</span>
+                            <div style={{ marginBottom: '20px', display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
+                                <div>
+                                    <div style={{ fontSize: '11px', fontWeight: 800, color: '#6b7280', textTransform: 'uppercase', marginBottom: '8px' }}>Primary Brokerage</div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <input type="number" step="0.1" min="0" value={forecastConfig.primaryRate?.value ?? 5}
+                                            onChange={e => updateForecastConfig('primaryRate', { value: parseFloat(e.target.value) || 0 })}
+                                            style={{ width: '70px', padding: '6px 10px', border: '1px solid #e5e7eb', borderRadius: '8px', fontWeight: 800, fontSize: '16px', textAlign: 'center', color: '#3b82f6' }} />
+                                        <span style={{ fontWeight: 700, color: '#374151' }}>%</span>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div style={{ fontSize: '11px', fontWeight: 800, color: '#6b7280', textTransform: 'uppercase', marginBottom: '8px' }}>Resale Brokerage</div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <input type="number" step="0.1" min="0" value={forecastConfig.resaleRate?.value ?? 2}
+                                            onChange={e => updateForecastConfig('resaleRate', { value: parseFloat(e.target.value) || 0 })}
+                                            style={{ width: '70px', padding: '6px 10px', border: '1px solid #e5e7eb', borderRadius: '8px', fontWeight: 800, fontSize: '16px', textAlign: 'center', color: '#10b981' }} />
+                                        <span style={{ fontWeight: 700, color: '#374151' }}>%</span>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div style={{ fontSize: '11px', fontWeight: 800, color: '#6b7280', textTransform: 'uppercase', marginBottom: '8px' }}>Rental Brokerage</div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <input type="number" step="0.1" min="0" value={forecastConfig.rentalRate?.value ?? 8.33}
+                                            onChange={e => updateForecastConfig('rentalRate', { value: parseFloat(e.target.value) || 0 })}
+                                            style={{ width: '70px', padding: '6px 10px', border: '1px solid #e5e7eb', borderRadius: '8px', fontWeight: 800, fontSize: '16px', textAlign: 'center', color: '#f59e0b' }} />
+                                        <span style={{ fontWeight: 700, color: '#374151' }}>%</span>
+                                    </div>
                                 </div>
                             </div>
-                            {Object.entries(forecastConfig).filter(([k]) => k !== 'commissionRate').map(([key, cfg]) => (
-                                <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderTop: '1px solid #f1f5f9' }}>
+                            
+                            <div style={{ fontWeight: 700, color: '#374151', fontSize: '13px', marginBottom: '12px', paddingTop: '12px', borderTop: '1px solid #f1f5f9' }}>Statutory Deductions</div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0' }}>
+                                <span style={{ fontSize: '13px', color: '#374151', fontWeight: 600 }}>Apply Statutory TDS Deduction</span>
+                                <label style={{ position: 'relative', display: 'inline-block', width: '36px', height: '20px' }}>
+                                    <input type="checkbox" checked={forecastConfig.applyTDS?.value ?? true} onChange={e => updateForecastConfig('applyTDS', { value: e.target.checked })} style={{ opacity: 0, width: 0, height: 0 }} />
+                                    <span style={{ position: 'absolute', cursor: 'pointer', inset: 0, backgroundColor: (forecastConfig.applyTDS?.value ?? true) ? '#10b981' : '#cbd5e1', borderRadius: '34px', transition: '.3s' }} />
+                                    <span style={{ position: 'absolute', height: '14px', width: '14px', left: (forecastConfig.applyTDS?.value ?? true) ? '19px' : '3px', bottom: '3px', backgroundColor: '#fff', borderRadius: '50%', transition: '.3s' }} />
+                                </label>
+                            </div>
+                            {(forecastConfig.applyTDS?.value ?? true) && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0 0 16px 0' }}>
+                                    <span style={{ fontSize: '12px', color: '#6b7280' }}>TDS Rate:</span>
+                                    <input type="number" step="0.1" min="0" value={forecastConfig.tdsRate?.value ?? 5}
+                                        onChange={e => updateForecastConfig('tdsRate', { value: parseFloat(e.target.value) || 0 })}
+                                        style={{ width: '60px', padding: '4px 8px', border: '1px solid #e5e7eb', borderRadius: '6px', fontWeight: 800, fontSize: '13px', textAlign: 'center' }} />
+                                    <span style={{ fontSize: '12px', color: '#6b7280' }}>%</span>
+                                </div>
+                            )}
+
+                            <div style={{ fontWeight: 700, color: '#374151', fontSize: '13px', marginBottom: '12px', paddingTop: '12px', borderTop: '1px solid #f1f5f9' }}>Display Settings</div>
+                            {Object.entries(forecastConfig).filter(([k]) => ['showWeighted', 'showExpected', 'showStageWise'].includes(k)).map(([key, cfg]) => (
+                                <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0' }}>
                                     <span style={{ fontSize: '13px', color: '#374151' }}>{cfg.label}</span>
                                     <label style={{ position: 'relative', display: 'inline-block', width: '36px', height: '20px' }}>
                                         <input type="checkbox" checked={cfg.value} onChange={e => updateForecastConfig(key, { value: e.target.checked })} style={{ opacity: 0, width: 0, height: 0 }} />
@@ -1140,14 +1374,25 @@ const StagePage = () => {
                             <div style={{ fontWeight: 700, fontSize: '15px', marginBottom: '20px', color: '#94a3b8' }}>Dashboard Preview (Live)</div>
                             {(() => {
                                 const totalValue = analyticsData.deals.reduce((sum, d) => sum + (d.price || 0), 0);
-                                const weightedValue = analyticsData.deals.reduce((sum, d) => sum + ((d.price || 0) * (getStageProbability(d.stage) / 100)), 0);
-                                const expCommission = weightedValue * (forecastConfig.commissionRate.value / 100);
+                                
+                                let totalGrossExpected = 0;
+                                let totalNetExpected = 0;
+
+                                analyticsData.deals.forEach(d => {
+                                    const winProb = getStageProbability(d.stage) / 100;
+                                    const grossComm = calculateGrossCommission(d, forecastConfig);
+                                    const netComm = calculateNetRevenue(grossComm, forecastConfig);
+                                    
+                                    totalGrossExpected += (grossComm * winProb);
+                                    totalNetExpected += (netComm * winProb);
+                                });
+
                                 const fmt = val => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(val || 0);
                                 
                                 return [
                                     { label: 'Total Pipeline Value', value: fmt(totalValue), color: '#60a5fa' },
-                                    { label: 'Weighted Pipeline', value: fmt(weightedValue), color: '#34d399', sub: 'Deals × (Score/100)' },
-                                    { label: 'Expected Commission', value: fmt(expCommission), color: '#f59e0b', sub: `@ ${forecastConfig.commissionRate.value}%` }
+                                    { label: 'Gross Expected Brokerage', value: fmt(totalGrossExpected), color: '#34d399', sub: 'Weighted by Probability' },
+                                    { label: 'Net Realizable Revenue', value: fmt(totalNetExpected), color: '#f59e0b', sub: (forecastConfig.applyTDS?.value ?? true) ? `Post ${forecastConfig.tdsRate?.value ?? 5}% TDS Deduction` : 'TDS Not Applied' }
                                 ].map(row => (
                                     <div key={row.label} style={{ marginBottom: '18px' }}>
                                         <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 600 }}>{row.label}</div>
@@ -1161,8 +1406,9 @@ const StagePage = () => {
                     <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid #e5e7eb', padding: '20px' }}>
                         <div style={{ fontWeight: 700, color: '#374151', marginBottom: '10px', fontSize: '14px' }}>Formula</div>
                         <code style={{ display: 'block', background: '#1e293b', color: '#34d399', padding: '16px', borderRadius: '8px', fontSize: '13px', lineHeight: '1.6' }}>
-                            Weighted Pipeline Value = Deal Value × (Deal Score / 100){`\n`}
-                            Expected Commission = Weighted Value × ({forecastConfig.commissionRate.value}% / 100)
+                            Gross Commission = Deal Value × Category Rate (Primary/Resale/Rental)<br/>
+                            Net Realizable = Gross Commission - Statutory TDS<br/>
+                            Expected Revenue = Net Realizable × (Stage Probability / 100)
                         </code>
                     </div>
                 </div>

@@ -12,9 +12,54 @@ import Deal from "../models/Deal.js";
 import Activity from "../models/Activity.js";
 import Lookup from '../models/Lookup.js';
 import AuditLog from '../models/AuditLog.js';
+import SystemSetting from '../src/modules/systemSettings/system.model.js';
 import mongoose from 'mongoose';
 import { getVisibilityFilter } from "../utils/visibility.js";
 import { toSqFt } from '../utils/pricingUtils.js';
+
+// ── Enterprise: Real-Estate Multi-Lead Priority Matrix ────────────────────────
+// In real estate, commercial outcomes (Token Given, Booked) always win.
+// This is separate from the admin-configurable sync rules and acts as a
+// hard enforcement layer to prevent incorrect deal stage computation.
+const RE_OUTCOME_PRIORITY = [
+    'Closed Won', 'Closed (Won)', 'Booked', 'Token Given', 'Final Deal',
+    'Negotiation', 'Quote', 'Opportunity', 'Prospect', 'Open', 'Incoming'
+];
+
+/**
+ * Real-Estate Enterprise: Resolves the correct deal stage from multiple lead stages.
+ * Uses admin syncRules first, falls back to RE_OUTCOME_PRIORITY matrix.
+ */
+const resolveMultiLeadDealStage = (leadStages = [], syncRules = [], hasOwnerWithdrawal = false) => {
+    if (leadStages.length === 0) return { stage: 'Open', reason: 'No linked leads' };
+
+    // Step 1: Check admin-configured rules (priority order)
+    const activeRules = [...syncRules].filter(r => r.isActive).sort((a, b) => a.priority - b.priority);
+    for (const rule of activeRules) {
+        if (rule.condition === 'ACTIVITY' && rule.conditionActivity === 'Owner Withdrawal' && hasOwnerWithdrawal) {
+            return { stage: rule.dealStage, reason: rule.dealReason || rule.label, ruleId: rule.id };
+        }
+        if (rule.condition === 'ANY_LEAD' && leadStages.some(s => s === rule.conditionStage)) {
+            return { stage: rule.dealStage, reason: rule.label, ruleId: rule.id };
+        }
+        if (rule.condition === 'ALL_LEADS' && leadStages.length > 0 && leadStages.every(s => s === rule.conditionStage)) {
+            return { stage: rule.dealStage, reason: rule.label, ruleId: rule.id };
+        }
+    }
+
+    // Step 2: Fallback to RE priority matrix (highest commercial outcome wins)
+    const normalize = s => (s || '').toLowerCase().trim();
+    let highestIdx = -1;
+    let highestStage = 'Open';
+    for (const ls of leadStages) {
+        const idx = RE_OUTCOME_PRIORITY.findIndex(p => normalize(p) === normalize(ls));
+        if (idx !== -1 && (highestIdx === -1 || idx < highestIdx)) {
+            highestIdx = idx;
+            highestStage = RE_OUTCOME_PRIORITY[idx];
+        }
+    }
+    return { stage: highestStage, reason: `Conflict resolution: highest commercial outcome among ${leadStages.length} leads`, ruleId: null };
+};
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -212,6 +257,75 @@ export const updateLeadStage = async (req, res) => {
 };
 
 /**
+ * Internal helper to sync deal stage from its linked leads' stages.
+ * Applies conflict rules: highest lead stage wins; if any lead is Qualified+ → Deal moves up.
+ */
+export const internalSyncDealStage = async (dealId, leadStages = [], opts = {}) => {
+    const { reason, userId, explicitStage, hasOwnerWithdrawal = false } = opts;
+
+    if (!mongoose.Types.ObjectId.isValid(dealId)) return { success: false, error: 'Invalid deal ID' };
+
+    const deal = await Deal.findById(dealId).select('stage stageHistory stageChangedAt').lean();
+    if (!deal) return { success: false, error: 'Deal not found' };
+
+    // ── Enterprise Fix: Fetch live admin syncRules from SystemSettings ──
+    let liveSyncRules = [];
+    try {
+        const syncSetting = await SystemSetting.findOne({ key: 'syncRules' }).lean();
+        if (Array.isArray(syncSetting?.value)) liveSyncRules = syncSetting.value;
+    } catch (e) {
+        console.warn('[StageEngine] Could not fetch syncRules from SystemSetting, using defaults.', e.message);
+    }
+
+    // ── Enterprise Fix: Use multi-lead priority matrix instead of hardcoded map ──
+    let computedDealStage = explicitStage || deal.stage || 'Open';
+    let syncReason = reason;
+
+    if (leadStages.length > 0) {
+        const { stage: resolved, reason: resolvedReason } = resolveMultiLeadDealStage(
+            leadStages,
+            liveSyncRules,
+            hasOwnerWithdrawal
+        );
+        computedDealStage = resolved;
+        syncReason = reason || resolvedReason;
+    }
+
+    // No-op if stage unchanged
+    if (computedDealStage === deal.stage) {
+        return { success: true, changed: false, stage: computedDealStage, reason: 'Stage unchanged' };
+    }
+
+    // Write deal stage history
+    await writeStageHistory(Deal, dealId, computedDealStage, {
+        triggeredBy: 'system',
+        reason: syncReason || `Synced from lead stages: [${leadStages.join(', ')}]`,
+        userId
+    });
+
+    const updated = await Deal.findByIdAndUpdate(
+        dealId,
+        {
+            $set: {
+                stage: computedDealStage,
+                stageChangedAt: new Date(),
+                stageSyncReason: syncReason
+            }
+        },
+        { new: true }
+    );
+
+    return {
+        success: true,
+        changed: true,
+        previousStage: deal.stage,
+        stage: computedDealStage,
+        stageSyncReason: syncReason,
+        deal: updated
+    };
+};
+
+/**
  * PUT /api/stage-engine/deals/:id/sync
  *
  * Sync deal stage from its linked leads' stages.
@@ -221,90 +335,102 @@ export const updateLeadStage = async (req, res) => {
 export const syncDealStage = async (req, res) => {
     try {
         const { id } = req.params;
-        const { leadStages = [], reason, userId, stage: explicitStage } = req.body;
+        const { leadStages = [], reason, userId, stage: explicitStage, hasOwnerWithdrawal = false } = req.body;
 
-        if (!mongoose.Types.ObjectId.isValid(id)) return res.status(400).json({ success: false, error: 'Invalid deal ID' });
-
-        const deal = await Deal.findById(id).select('stage stageHistory stageChangedAt').lean();
-        if (!deal) return res.status(404).json({ success: false, error: 'Deal not found' });
-
-        // Stage priority for conflict resolution (high index = higher stage)
-        const STAGE_PRIORITY = {
-            'Closed': -1, // Active stages should win over Closed in multi-lead scenarios
-            'Incoming': 0, 
-            'Prospect': 1, 
-            'Opportunity': 2, 
-            'Negotiation': 3
-        };
-
-        // Map from Lead stage names (5-stage) → Deal stage names (4-stage)
-        const LEAD_TO_DEAL_STAGE = {
-            'Incoming': 'Open', 
-            'Prospect': 'Open', 
-            'Opportunity': 'Quote',
-            'Negotiation': 'Negotiation', 
-            'Closed': 'Closed'
-        };
-
-        let computedDealStage = explicitStage || deal.stage || 'Open';
-
-        if (leadStages.length > 0) {
-            // Pick the highest-priority lead stage
-            const highestLeadStage = leadStages.reduce((best, curr) => {
-                return (STAGE_PRIORITY[curr] || 0) > (STAGE_PRIORITY[best] || 0) ? curr : best;
-            }, leadStages[0]);
-            computedDealStage = LEAD_TO_DEAL_STAGE[highestLeadStage] || computedDealStage;
-        }
-
-        // No-op if stage unchanged
-        if (computedDealStage === deal.stage) {
-            return res.json({ success: true, changed: false, stage: computedDealStage, reason: 'Stage unchanged' });
-        }
-
-        // Write deal stage history
-        await writeStageHistory(Deal, id, computedDealStage, {
-            triggeredBy: 'system',
-            reason: reason || `Synced from lead stages: [${leadStages.join(', ')}]`,
-            userId
+        const result = await internalSyncDealStage(id, leadStages, {
+            reason, userId, explicitStage, hasOwnerWithdrawal
         });
 
-        const updated = await Deal.findByIdAndUpdate(
-            id,
-            {
-                $set: {
-                    stage: computedDealStage,
-                    stageChangedAt: new Date(),
-                    stageSyncReason: reason || `lead-sync: [${leadStages.join(', ')}]`
-                }
-            },
-            { new: true }
-        );
-
-        if (deal.stage !== computedDealStage) {
-            await AuditLog.logEntityUpdate(
-                'stage_changed',
-                'deal',
-                id,
-                deal.projectName || 'Deal',
-                userId,
-                { before: deal.stage, after: computedDealStage },
-                `Deal stage synced from lead tracking. Shifted to ${computedDealStage}`
-            );
+        if (!result.success) {
+            return res.status(result.error === 'Deal not found' ? 404 : 400).json(result);
         }
 
-        res.json({
-            success: true,
-            changed: true,
-            previousStage: deal.stage,
-            stage: computedDealStage,
-            stageSyncReason: updated.stageSyncReason,
-            deal: updated
-        });
+        res.json(result);
     } catch (err) {
         console.error('[StageEngine] syncDealStage error:', err);
         res.status(500).json({ success: false, error: err.message });
     }
 };
+
+/**
+ * POST /api/stage-engine/deals/bulk-sync
+ *
+ * Enterprise: Scan ALL active deals in the database and self-heal
+ * any deals whose stage is out-of-sync with their linked leads.
+ * Designed to be called by a nightly CRON job or by an admin.
+ */
+export const bulkSyncDeals = async (req, res) => {
+    try {
+        console.log('[BulkSync] Starting enterprise bulk deal sync...');
+
+        // Fetch live admin syncRules
+        let liveSyncRules = [];
+        try {
+            const syncSetting = await SystemSetting.findOne({ key: 'syncRules' }).lean();
+            if (Array.isArray(syncSetting?.value)) liveSyncRules = syncSetting.value;
+        } catch (e) {
+            console.warn('[BulkSync] Could not fetch syncRules, using enterprise defaults.');
+        }
+
+        // Fetch all non-terminal deals
+        const TERMINAL_STAGES = ['Closed Won', 'Closed (Won)', 'Closed Lost', 'Closed (Lost)'];
+        const deals = await Deal.find({
+            stage: { $nin: TERMINAL_STAGES }
+        }).select('_id stage leads projectName stageChangedAt').lean();
+
+        let updatedCount = 0;
+        let skippedCount = 0;
+        const updates = [];
+
+        for (const deal of deals) {
+            try {
+                // Fetch all linked lead stages
+                const linkedLeadIds = (deal.leads || []).filter(id => mongoose.Types.ObjectId.isValid(id));
+                if (linkedLeadIds.length === 0) { skippedCount++; continue; }
+
+                const linkedLeads = await Lead.find({ _id: { $in: linkedLeadIds } })
+                    .select('stage')
+                    .populate('stage', 'lookup_value')
+                    .lean();
+
+                const leadStages = linkedLeads.map(l =>
+                    typeof l.stage === 'object' ? l.stage?.lookup_value : l.stage
+                ).filter(Boolean);
+
+                if (leadStages.length === 0) { skippedCount++; continue; }
+
+                const { stage: correctStage, reason } = resolveMultiLeadDealStage(
+                    leadStages, liveSyncRules, false
+                );
+
+                if (correctStage === deal.stage) { skippedCount++; continue; }
+
+                // Update the deal
+                await Deal.findByIdAndUpdate(deal._id, {
+                    $set: {
+                        stage: correctStage,
+                        stageChangedAt: new Date(),
+                        stageSyncReason: `[BulkSync] ${reason}`
+                    }
+                });
+                updates.push({ dealId: deal._id, from: deal.stage, to: correctStage, reason });
+                updatedCount++;
+                console.log(`[BulkSync] Deal ${deal._id} corrected: ${deal.stage} → ${correctStage}`);
+            } catch (e) {
+                console.error(`[BulkSync] Failed for deal ${deal._id}:`, e.message);
+            }
+        }
+
+        console.log(`[BulkSync] Complete. Updated: ${updatedCount}, Skipped: ${skippedCount}`);
+        res.json({ success: true, updatedCount, skippedCount, totalScanned: deals.length, updates });
+
+    } catch (err) {
+        console.error('[BulkSync] Fatal error:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+};
+
+
 
 /**
  * GET /api/stage-engine/leads/:id/history

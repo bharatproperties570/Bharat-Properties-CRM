@@ -348,10 +348,11 @@ export const autoTriggerStageChange = async (activity, userId = null) => {
         const reason = activity.details?.outcomeReason || activity.details?.reason || '';
         const purpose = activity.details?.purpose || activity.details?.meetingPurpose || activity.details?.callPurpose || activity.purpose || '';
 
-        // Site Visit special outcome resolution
+        // Site Visit & Meeting special outcome resolution
         let resolvedOutcome = outcome;
-        if (!resolvedOutcome && actType?.toLowerCase() === 'site visit' && Array.isArray(activity.details?.visitedProperties)) {
-            const priorityMap = { 'very interested': 1, 'shortlisted': 2, 'somewhat interested': 3 };
+        const actTypeLower = actType?.toLowerCase();
+        if (!resolvedOutcome && (actTypeLower === 'site visit' || actTypeLower === 'meeting') && Array.isArray(activity.details?.visitedProperties)) {
+            const priorityMap = { 'token given': 1, 'final deal': 1, 'negotiation': 2, 'very interested': 3, 'shortlisted': 4, 'somewhat interested': 5 };
             resolvedOutcome = activity.details.visitedProperties
                 .map(p => (p.result || '').toLowerCase())
                 .filter(Boolean)
@@ -372,7 +373,8 @@ export const autoTriggerStageChange = async (activity, userId = null) => {
                 activityId: activity._id,
                 triggeredByUser: userId,
                 purpose,
-                status: activity.status
+                status: activity.status,
+                visitedProperties: activity.details?.visitedProperties || []
             }
         );
 
@@ -395,6 +397,55 @@ export const autoTriggerStageChange = async (activity, userId = null) => {
             console.log(`[StageAlignment] Lead ${leadId} moved: ${transition.prevStage} → ${transition.newStage}`);
         }
         
+        // 🏢 ENTERPRISE: Deal Auto-Sync Cascade
+        try {
+            // Find if this activity relates to any Deals
+            const dealRelations = (activity.relatedTo || []).filter(r => r.model === 'Deal' && r.id);
+            const dealIds = dealRelations.map(r => r.id);
+            
+            // Also if entityType is Deal (unlikely for Lead activity, but safety fallback)
+            if (activity.entityType?.toLowerCase() === 'deal' && activity.entityId) {
+                dealIds.push(activity.entityId);
+            }
+
+            if (dealIds.length > 0) {
+                const uniqueDealIds = [...new Set(dealIds)];
+                
+                // For each linked Deal:
+                // 1. Add this Lead to the Deal's leads array
+                // 2. Trigger a sync using all leads connected to that deal
+                const { internalSyncDealStage } = await import('./stage.controller.js');
+                
+                for (const dId of uniqueDealIds) {
+                    // Link lead to deal (idempotent addToSet)
+                    await Deal.findByIdAndUpdate(dId, {
+                        $addToSet: { leads: leadId }
+                    }).catch(() => {});
+                    
+                    // Fetch all leads now linked to this deal to resolve multi-lead stage
+                    const deal = await Deal.findById(dId).select('leads').lean();
+                    if (deal && deal.leads && deal.leads.length > 0) {
+                        const linkedLeads = await Lead.find({ _id: { $in: deal.leads } })
+                            .select('stage')
+                            .populate('stage', 'lookup_value')
+                            .lean();
+                            
+                        const leadStages = linkedLeads.map(l => typeof l.stage === 'object' ? l.stage?.lookup_value : l.stage).filter(Boolean);
+                        
+                        if (leadStages.length > 0) {
+                            await internalSyncDealStage(dId, leadStages, {
+                                reason: `Auto-cascade from Lead activity: ${actType}`,
+                                user: userId
+                            });
+                            console.log(`[DealSyncCascade] Deal ${dId} synchronized based on ${leadStages.length} linked leads.`);
+                        }
+                    }
+                }
+            }
+        } catch (cascadeErr) {
+            console.error('[DealSyncCascade] Failed during auto-cascade:', cascadeErr.message);
+        }
+
         return transition;
     } catch (err) {
         console.error('[ActivityController] autoTriggerStageChange failed:', err.message);

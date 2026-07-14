@@ -26,6 +26,7 @@ const resolveLookup = async (type, value) => {
 
 const DealSchema = new mongoose.Schema({
     leadId: { type: mongoose.Schema.Types.ObjectId, ref: 'Lead', index: true }, // Source Lead linkage
+    leads: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Lead', index: true }], // Enterprise: All linked leads (multi-lead syncing)
     projectName: String,
     projectId: { type: mongoose.Schema.Types.ObjectId, ref: 'Project' },
     block: String,

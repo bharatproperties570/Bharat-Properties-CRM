@@ -5,6 +5,7 @@ import Swal from 'sweetalert2';
 import { toast } from 'react-hot-toast';
 import { Sparkles, ShieldCheck, MessageSquare, Clock, Globe, Settings, Database, History, Ban } from 'lucide-react';
 import smsService from '../../../services/smsService';
+import whatsappService from '../../../services/whatsappService';
 import VariableTextarea from '../../../components/VariableTextarea';
 
 
@@ -23,7 +24,8 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
         tags: [],
         shared: true,
         dltTemplateId: '',
-        dltHeaderId: ''
+        dltHeaderId: '',
+        systemContext: initialData?.systemContext || []
     });
     const [tagInput, setTagInput] = useState('');
 
@@ -103,6 +105,46 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
                         <option value="hi">Hindi</option>
                         <option value="gu">Gujarati</option>
                     </select>
+                </div>
+            </div>
+
+            {/* ENTERPRISE UPGRADE: System Trigger Intent Context */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block' }}>
+                    <i className="fas fa-plug" style={{ color: 'var(--primary-color)', marginRight: '6px' }}></i>
+                    System Trigger Context (Where should this template be used?)
+                </label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '12px', background: 'rgba(99, 102, 241, 0.05)', border: '1px solid rgba(99, 102, 241, 0.2)', borderRadius: '8px' }}>
+                    {[
+                        { value: 'lead_match_full', label: 'Lead Match (Full Details)' },
+                        { value: 'lead_match_short', label: 'Lead Match (Short Details)' },
+                        { value: 'marketing_blast', label: 'Marketing Blast' },
+                        { value: 'welcome', label: 'Welcome/Auto-Reply' }
+                    ].map(ctx => {
+                        const isSelected = templateData.systemContext?.includes(ctx.value);
+                        return (
+                            <div 
+                                key={ctx.value}
+                                onClick={() => {
+                                    let newContext = [...(templateData.systemContext || [])];
+                                    if (isSelected) {
+                                        newContext = newContext.filter(c => c !== ctx.value);
+                                    } else {
+                                        newContext.push(ctx.value);
+                                    }
+                                    setTemplateData({ ...templateData, systemContext: newContext });
+                                }}
+                                style={{ 
+                                    padding: '6px 12px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s',
+                                    background: isSelected ? 'var(--primary-color)' : 'var(--bg-card)', 
+                                    color: isSelected ? '#fff' : 'var(--text-muted)', 
+                                    border: `1px solid ${isSelected ? 'var(--primary-color)' : 'var(--border-color)'}`
+                                }}>
+                                {isSelected ? <i className="fas fa-check" style={{ marginRight: '4px' }}></i> : ''}
+                                {ctx.label}
+                            </div>
+                        );
+                    })}
                 </div>
             </div>
 
@@ -207,21 +249,20 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
         if (channelType !== 'whatsapp') return null;
 
         const fieldOptions = [
+            { id: 'firstname', label: 'First Name' },
             { id: 'customer_name', label: 'Full Name' },
-            { id: 'customer_first_name', label: 'First Name' },
-            { id: 'customer_mobile', label: 'Mobile Number' },
-            { id: 'customer_email', label: 'Email Address' },
-            { id: 'unit_number', label: 'Unit/Plot Number' },
-            { id: 'floor_level', label: 'Floor Level' },
-            { id: 'property_facing', label: 'Facing' },
-            { id: 'property_size', label: 'Size (3 BHK/Marla)' },
-            { id: 'property_price', label: 'Basic Price' },
-            { id: 'project_name', label: 'Project Name' },
-            { id: 'developer_name', label: 'Developer Name' },
+            { id: 'mobile', label: 'Mobile Number' },
+            { id: 'email', label: 'Email Address' },
+            { id: 'unitno', label: 'Unit/Plot Number' },
+            { id: 'size', label: 'Size (3 BHK/Marla)' },
+            { id: 'price', label: 'Basic Price' },
+            { id: 'projectname', label: 'Project Name' },
+            { id: 'location', label: 'Location' },
             { id: 'property_list_default', label: 'Property List (Default)' },
             { id: 'property_list_detailed', label: 'Property List (Detailed)' },
-            { id: 'site_visit_link', label: 'Site Visit Link' },
-            { id: 'feedback_link', label: 'Feedback Link' },
+            { id: 'assignedto', label: 'Assigned Agent' },
+            { id: 'ownermobile', label: 'Agent Mobile' },
+            { id: 'propertiescount', label: 'Properties Count' },
             { id: 'agent_name', label: 'Agent Name' },
             { id: 'agent_mobile', label: 'Agent Mobile' },
             { id: 'ai_intent_summary', label: 'AI Intent Summary' }
@@ -721,6 +762,7 @@ const MessagingSettingsPage = () => {
     const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
     const [editingTemplate, setEditingTemplate] = useState(null);
     const [isSyncing, setIsSyncing] = useState(false);
+    const [isSyncingMeta, setIsSyncingMeta] = useState(false); // Enterprise Sync State
 
     // Initialize from hardcoded defaults; DB overrides on mount
     const [allTemplates, setAllTemplates] = useState({
@@ -816,7 +858,19 @@ const MessagingSettingsPage = () => {
                 await smsService.saveTemplate(data.id ? { ...data, _id: data.id } : data);
                 loadSmsTemplates();
             } else {
-                // Keep body + content in sync for compatibility
+                // ENTERPRISE UPGRADE: Sync Up to Meta Cloud API (WhatsApp only)
+                if (templateType === 'whatsapp') {
+                    try {
+                        const toastId = toast.loading('Submitting template to Meta for review...');
+                        await whatsappService.submitTemplateToMeta(data);
+                        toast.success('Successfully submitted to Meta!', { id: toastId });
+                    } catch (err) {
+                        console.warn('Backend Meta Submission Endpoint missing, falling back to local CRM store:', err);
+                        toast.error('Meta API integration incomplete. Saved locally only.');
+                    }
+                }
+
+                // Keep body + content in sync for compatibility locally
                 const savedData = {
                     ...data,
                     body:    data.body    || data.content || '',
@@ -843,6 +897,30 @@ const MessagingSettingsPage = () => {
             toast.error('Failed to save template: ' + err.message);
         } finally {
             setIsSyncing(false);
+        }
+    };
+
+    // ENTERPRISE UPGRADE: Sync Down from Meta
+    const handleSyncFromMeta = async () => {
+        if (templateType !== 'whatsapp') return;
+        setIsSyncingMeta(true);
+        const toastId = toast.loading('Syncing approved templates from Meta WhatsApp Manager...');
+        
+        try {
+            const res = await whatsappService.syncTemplatesFromMeta();
+            if (res?.success && res.data) {
+                setAllTemplates(prev => ({ ...prev, whatsapp: res.data }));
+                await persistTemplates('whatsapp', res.data);
+                toast.success(`Successfully synced ${res.data.length} templates from Meta!`, { id: toastId });
+            } else {
+                throw new Error('Invalid response format');
+            }
+        } catch (err) {
+            console.error('Meta Sync failed:', err);
+            // Fallback mock success if backend isn't ready
+            toast.error('Meta API endpoint not connected yet. Check backend logs.', { id: toastId });
+        } finally {
+            setIsSyncingMeta(false);
         }
     };
 
@@ -912,9 +990,20 @@ const MessagingSettingsPage = () => {
                         </div>
                         <button className="btn-outline" style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-card)' }}>Filter tags <i className="fas fa-chevron-down"></i></button>
                     </div>
-                    <button className="btn-primary" onClick={() => { setEditingTemplate(null); setIsTemplateModalOpen(true); }}>
-                        <i className="fas fa-plus" style={{ marginRight: '6px' }}></i>Add template
-                    </button>
+                    <div style={{ display: 'flex', gap: '12px' }}>
+                        {templateType === 'whatsapp' && (
+                            <button 
+                                className="btn-outline" 
+                                onClick={handleSyncFromMeta}
+                                disabled={isSyncingMeta}
+                                style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-card)', color: '#059669', borderColor: '#10b981' }}>
+                                <i className={`fas fa-sync ${isSyncingMeta ? 'fa-spin' : ''}`}></i> Sync from Meta
+                            </button>
+                        )}
+                        <button className="btn-primary" onClick={() => { setEditingTemplate(null); setIsTemplateModalOpen(true); }}>
+                            <i className="fas fa-plus" style={{ marginRight: '6px' }}></i>Add template
+                        </button>
+                    </div>
                     {isSyncing && (
                         <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', color: '#6366f1', fontWeight: 600 }}>
                             <i className="fas fa-circle-notch fa-spin"></i> Saving…

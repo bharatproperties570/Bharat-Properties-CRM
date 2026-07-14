@@ -1,5 +1,5 @@
 import express from 'express';
-import { saveWhatsAppConfig, getWhatsAppTemplates } from '../controllers/social.controller.js';
+import { saveWhatsAppConfig, getWhatsAppTemplates, syncMetaTemplates, submitMetaTemplate } from '../controllers/social.controller.js';
 import { authenticate } from '../src/middlewares/auth.middleware.js';
 
 const router = express.Router();
@@ -8,6 +8,8 @@ const router = express.Router();
 // We will restore authenticate once the user confirms connection
 router.post('/save', saveWhatsAppConfig);
 router.get('/templates', getWhatsAppTemplates);
+router.get('/sync-meta', syncMetaTemplates);
+router.post('/submit-template', submitMetaTemplate);
 router.post('/send', authenticate, async (req, res, next) => {
     // We import dynamically to avoid circular dependencies if any
     const { sendWhatsAppMessage } = await import('../controllers/social.controller.js');

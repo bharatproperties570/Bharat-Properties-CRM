@@ -47,10 +47,55 @@ export const saveSocialConfig = async (req, res) => {
 };
 
 /**
- * POST /api/social/whatsapp/send
- * Enterprise message dispatch with Activity logging
+ * GET /api/whatsapp-config/sync-meta
+ * Sync templates down from Meta Cloud API
  */
-export const sendWhatsAppMessage = async (req, res) => {
+export const syncMetaTemplates = async (req, res) => {
+    try {
+        const whatsAppService = (await import('../services/WhatsAppService.js')).default;
+        const result = await whatsAppService.syncTemplatesFromMeta();
+        
+        if (!result.success) {
+            return res.status(400).json(result);
+        }
+
+        res.json({ success: true, data: result.data });
+    } catch (err) {
+        console.error('[SocialController] syncMetaTemplates Error:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+};
+
+/**
+ * POST /api/whatsapp-config/submit-template
+ * Submit a template up to Meta Cloud API for review
+ */
+export const submitMetaTemplate = async (req, res) => {
+    try {
+        const templateData = req.body;
+        if (!templateData || !templateData.name) {
+            return res.status(400).json({ success: false, error: 'Template name is required' });
+        }
+
+        const whatsAppService = (await import('../services/WhatsAppService.js')).default;
+        const result = await whatsAppService.submitTemplateToMeta(templateData);
+
+        if (!result.success) {
+            return res.status(400).json(result);
+        }
+
+        res.json({ success: true, data: result.data });
+    } catch (err) {
+        console.error('[SocialController] submitMetaTemplate Error:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+};
+
+/**
+ * POST /api/social/wa/send
+ * Enterprise WhatsApp Dispatcher
+ */
+export const sendWhatsAppMessage = async (req, res, next) => {
     try {
         console.log('[SocialController] RAW PAYLOAD:', JSON.stringify(req.body, null, 2));
         const { mobile, message, type = 'text', mediaUrl, filename, caption, templateId, templateComponents, language } = req.body;

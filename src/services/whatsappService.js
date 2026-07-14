@@ -27,7 +27,31 @@ const whatsappService = {
             throw error;
         }
     },
+    /**
+     * Fetch WhatsApp templates directly from Meta API (Sync Down)
+     */
+    async syncTemplatesFromMeta() {
+        try {
+            const response = await api.get('whatsapp-config/sync-meta');
+            return response.data;
+        } catch (error) {
+            console.error('Error syncing templates from Meta:', error);
+            throw error;
+        }
+    },
 
+    /**
+     * Submit a new template to Meta for review/approval (Sync Up)
+     */
+    async submitTemplateToMeta(templateData) {
+        try {
+            const response = await api.post('whatsapp-config/submit-template', templateData);
+            return response.data;
+        } catch (error) {
+            console.error('Error submitting template to Meta:', error);
+            throw error;
+        }
+    },
     /**
      * Save/Update WhatsApp configuration
      */

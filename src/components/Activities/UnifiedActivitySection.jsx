@@ -592,6 +592,12 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                                     handleChange={handleComposerChange} 
                                     errors={errors} 
                                     activityMasterFields={activityMasterFields} 
+                                    projects={projects}
+                                    rowUnits={rowUnits}
+                                    fetchUnits={fetchUnits}
+                                    updatePropertyRow={updatePropertyRow}
+                                    addPropertyRow={addPropertyRow}
+                                    removePropertyRow={removePropertyRow}
                                 />
                             </div>
                         )}

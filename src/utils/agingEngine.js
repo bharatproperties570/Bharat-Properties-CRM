@@ -148,6 +148,7 @@ export const computeActivityScore = (activities = []) => {
     const now = new Date();
     let rawScore = 0;
     let scoredCount = 0;
+    let siteVisitCountLast14Days = 0;
 
     activities.forEach(act => {
         if (act.status !== 'Completed') return; // Only completed activities count
@@ -173,16 +174,26 @@ export const computeActivityScore = (activities = []) => {
         else if (NEGATIVE_KEYWORDS.some(k => outcome.includes(k))) points = -5;
 
         // Activity type bonus: Site Visit > Meeting > Call > Task
-        const typeBonus = act.type === 'Site Visit' ? 5
-            : act.type === 'Meeting' ? 3
-                : act.type === 'Call' ? 1
-                    : 0;
+        let typeBonus = 0;
+        if (act.type === 'Site Visit') {
+            typeBonus = 5;
+            if (daysAgo <= 14) siteVisitCountLast14Days++;
+        } else if (act.type === 'Meeting') {
+            typeBonus = 3;
+        } else if (act.type === 'Call') {
+            typeBonus = 1;
+        }
 
         rawScore += (points + typeBonus) * multiplier;
         scoredCount++;
     });
 
     if (scoredCount === 0) return 0;
+
+    // Real Estate Site Visit Velocity
+    if (siteVisitCountLast14Days >= 2) {
+        rawScore *= 1.5;
+    }
 
     // Normalize: cap at 25 (this maps to the 25% weight in computeDealHealth)
     return Math.max(0, Math.min(25, Math.round(rawScore)));
@@ -200,10 +211,18 @@ export const computeActivityScore = (activities = []) => {
  * @param {Date|null} lastOfferChangedAt
  * @param {number}  activityGapDays
  * @param {Object}  agingRules
+ * @param {number}  dealValue
  * @returns {{ stalled: boolean, reason: string, severity: 'critical'|'warning'|null }}
  */
-export const computeDealDeath = (stage, stageDays, lastOfferChangedAt, activityGapDays = 0, agingRules = DEFAULT_AGING_RULES) => {
-    const stalledDays = agingRules.negotiationStalledDays?.value ?? 21;
+export const computeDealDeath = (stage, stageDays, lastOfferChangedAt, activityGapDays = 0, agingRules = DEFAULT_AGING_RULES, dealValue = 0) => {
+    let stalledDays = agingRules.negotiationStalledDays?.value ?? 21;
+
+    // Dynamic Deal Aging based on Ticket Size (Real Estate)
+    if (dealValue >= 20000000) { // > ₹2 Cr (High Ticket)
+        stalledDays = 45;
+    } else if (dealValue < 5000000 && dealValue > 0) { // < ₹50L (Low Ticket / Rentals)
+        stalledDays = 14;
+    }
 
     if (stage === 'Negotiation') {
         const offerDaysAgo = lastOfferChangedAt
@@ -229,7 +248,7 @@ export const computeDealDeath = (stage, stageDays, lastOfferChangedAt, activityG
         }
     }
 
-    if (stage === 'Opportunity' && stageDays > 30 && activityGapDays > 14) {
+    if (stage === 'Opportunity' && stageDays > (stalledDays * 1.5) && activityGapDays > 14) {
         return {
             stalled: true,
             reason: `Opportunity stalled: ${stageDays} days in stage, no activity for ${activityGapDays} days`,
@@ -256,6 +275,8 @@ export const computeDealDeath = (stage, stageDays, lastOfferChangedAt, activityG
  * @param {number} ownerResponseRate  0–100 (use computeOwnerResponseRate(); NOT hardcoded 80)
  * @param {Array}  activities[]       deal/lead activities for activity score computation
  * @param {Object} activityMasterFields
+ * @param {string} funding            Self-Funded, Pre-Approved Loan, Unknown
+ * @param {string} inventoryStatus    Hold, Sold, Disputed, Available
  * @returns {{ score, label, color, icon, ownerRisk, activityScore }}
  */
 export const computeDealHealth = (
@@ -265,7 +286,9 @@ export const computeDealHealth = (
     healthConfig = DEFAULT_HEALTH_CONFIG,
     ownerResponseRate = 80,
     activities = [],
-    activityMasterFields = {}
+    activityMasterFields = {},
+    funding = 'Unknown',
+    inventoryStatus = 'Available'
 ) => {
     const STAGE_SCORES = {
         'New': 5, 'Prospect': 15, 'Qualified': 30, 'Opportunity': 50,
@@ -274,7 +297,7 @@ export const computeDealHealth = (
     };
 
     const stageScore = STAGE_SCORES[stage] || 10;
-    const riskPenalty = riskFlags.filter(f => f.severity === 'high').length * 10 +
+    let riskPenalty = riskFlags.filter(f => f.severity === 'high').length * 10 +
         riskFlags.filter(f => f.severity === 'medium').length * 5;
 
     // Owner risk: response rate < 40 → penalty (max 15 pts)
@@ -283,17 +306,32 @@ export const computeDealHealth = (
         : 0;
     const ownerLabel = ownerResponseRate >= 70 ? 'Responsive' : ownerResponseRate >= 40 ? 'Slow' : 'Non-Responsive';
 
-    // Activity score (0–25) — outcome quality + recency
+    // Activity score (0–25) — outcome quality + recency + site visit velocity
     const actScore = computeActivityScore(activities, activityMasterFields);
 
-    // BUG D6 FIX: Use configurable weights instead of hardcoded 0.25
-    // Fallback securely to 0.25 (25%) if config is missing
+    // Financial Health (Real Estate)
+    let financePoints = 0;
+    const fundingNormalized = String(funding).toLowerCase();
+    if (fundingNormalized.includes('self-funded') || fundingNormalized.includes('pre-approved')) {
+        financePoints = 20;
+    } else if (fundingNormalized.includes('unknown') || !funding) {
+        financePoints = -10;
+    }
+
+    // Inventory Risk Penalty (Real Estate)
+    let inventoryPenalty = 0;
+    const invStatNormalized = String(inventoryStatus).toLowerCase();
+    if (invStatNormalized.includes('hold') || invStatNormalized.includes('sold') || invStatNormalized.includes('disputed')) {
+        inventoryPenalty = 30;
+    }
+
+    // Use configurable weights
     const stageW = (healthConfig.stageWeight?.weight || 25) / 100;
     const scoreW = (healthConfig.scoreWeight?.weight || 25) / 100;
     const actW = (healthConfig.activityWeight?.weight || 25) / 100;
 
     const health = Math.max(0, Math.min(100,
-        (stageScore * stageW) + (leadScore * scoreW) + (actScore * 4 * actW) - riskPenalty - ownerRisk
+        (stageScore * stageW) + (leadScore * scoreW) + (actScore * 4 * actW) + financePoints - riskPenalty - ownerRisk - inventoryPenalty
     ));
 
     const { green, yellow, red } = healthConfig.thresholds;
@@ -364,13 +402,36 @@ export const computeStageDensity = (data = [], targets = DEFAULT_STAGE_DENSITY_T
 
     ORDERED_STAGES.forEach((stage, idx) => {
         const group = stageGroups[stage] || [];
-        const count = group.length;
+        const count = group.length; // Current active count (Live Snapshot)
         const conversionPct = Math.round((count / total) * 100);
 
-        const nextStage = ORDERED_STAGES[idx + 1];
-        const nextCount = nextStage ? (stageGroups[nextStage] || []).length : 0;
-        const conversionRate = count > 0 ? Math.round((nextCount / count) * 100) : 0;
-        const dropOffRate = count > 0 ? 100 - conversionRate : 0;
+        // -- TRUE COHORT CONVERSION MATH --
+        let totalEntered = 0;
+        let totalProgressed = 0;
+        
+        data.forEach(item => {
+            // Did this item ever enter the current stage?
+            const hasEntered = item.stage === stage || (item.stageHistory || []).some(h => h.stage === stage);
+            
+            if (hasEntered) {
+                totalEntered++;
+                
+                // Did it progress to a stage further down the funnel?
+                const hasProgressed = (item.stageHistory || []).some(h => {
+                    const hIdx = ORDERED_STAGES.indexOf(h.stage);
+                    return hIdx > idx;
+                }) || ORDERED_STAGES.indexOf(item.stage) > idx;
+                
+                if (hasProgressed) {
+                    totalProgressed++;
+                }
+            }
+        });
+
+        // For the final stage (e.g. Closed), conversion is technically NA, but we can set it to 100% or 0%.
+        // We'll set it to 0% progression to next stage.
+        const conversionRate = totalEntered > 0 && idx < ORDERED_STAGES.length - 1 ? Math.round((totalProgressed / totalEntered) * 100) : 0;
+        const dropOffRate = totalEntered > 0 && idx < ORDERED_STAGES.length - 1 ? 100 - conversionRate : 0;
 
         // Avg days in stage (from stageChangedAt if available, else createdAt)
         const daysInStage = group.map(l => {

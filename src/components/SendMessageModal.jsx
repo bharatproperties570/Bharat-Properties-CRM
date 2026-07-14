@@ -526,6 +526,9 @@ const SendMessageModal = ({
                 setWhatsappComponents(components);
                 setMessageBody(resolvedBody);
                 setIsTemplateModified(false);
+                if (template.language) {
+                    setTemplateLanguage(template.language);
+                }
             }
         } else if (channel === 'RCS') {
             const template = rcsTemplatesConst.find(t => String(t.id) === String(templateId));
@@ -602,6 +605,10 @@ const SendMessageModal = ({
             }
 
             if (res && res.success) {
+                if (res.mock || res.provider === 'mock') {
+                    alert('⚠️ Message Simulated in Mock Mode.\nYour WhatsApp/SMS API keys are not configured in Settings. The system faked a success to prevent crashing.');
+                }
+                
                 // If the parent provided an onSend callback, tell it we succeeded
                 if (onSend) onSend(data, res);
 

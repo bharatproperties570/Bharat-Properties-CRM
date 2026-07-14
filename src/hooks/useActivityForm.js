@@ -5,6 +5,7 @@ import { useSequences } from '../context/SequenceContext';
 import { useTriggers } from '../context/TriggersContext';
 import { useStageEngine } from '../hooks/useStageEngine';
 import { triggerRequiredForm } from '../utils/FormTriggerService';
+import { REQUIRED_FORMS_MAP } from '../utils/stageEngine';
 
 export const useActivityForm = (isOpen, onClose, onSave, initialData) => {
 
@@ -16,6 +17,12 @@ export const useActivityForm = (isOpen, onClose, onSave, initialData) => {
     const [projects, setProjects] = useState([]);
     const [rowUnits, setRowUnits] = useState({});
     const [errors, setErrors] = useState({});
+
+    // ── Multi-step Required Forms Flow ──────────────────────────────────────
+    const [step, setStep] = useState('activity'); // 'activity' | 'forms'
+    const [pendingForms, setPendingForms] = useState([]);
+    const [formsData, setFormsData] = useState({});
+    const [pendingBackendData, setPendingBackendData] = useState(null);
     
     const showStageToast = (msg) => {
         setStageToast(msg);
@@ -278,106 +285,147 @@ export const useActivityForm = (isOpen, onClose, onSave, initialData) => {
         return Object.keys(newErrors).length === 0;
     };
 
-    const handleSubmit = async () => {
-        if (validate()) {
-            const backendData = {
-                type: formData.activityType,
-                subject: formData.subject,
-                dueDate: formData.dueDate,
-                dueTime: formData.dueTime,
-                priority: formData.priority,
-                status: formData.status === 'Not Started' ? 'Pending' : formData.status,
-                description: formData.description,
-                relatedTo: formData.relatedTo.map(r => ({
-                    id: r.id || r._id,
-                    name: r.name,
-                    model: r.model || 'Contact'
-                })),
-                participants: formData.participants,
-                tasks: (formData.tasks || []).map(t => ({
-                    subject: t.subject,
-                    reminder: t.reminder,
-                    reminderTime: t.reminderTime
-                })),
-                details: {
-                    purpose: formData.purpose,
-                    duration: formData.duration,
-                    callOutcome: formData.callOutcome,
-                    meetingType: formData.meetingType,
-                    meetingLocation: formData.meetingLocation,
-                    clientFeedback: formData.clientFeedback,
-                    visitConfirmation: formData.visitConfirmation,
-                    direction: formData.direction,
-                    completionResult: formData.completionResult,
-                    meetingOutcomeStatus: formData.meetingOutcomeStatus,
-                    visitedProperties: formData.visitedProperties,
-                    cancellationReason: formData.cancellationReason,
-                    mailStatus: formData.mailStatus
-                }
-            };
+    // ── Core save logic (used by both direct save and after forms step) ────
+    const executeSave = useCallback(async (backendData) => {
+        if (onSave) onSave(backendData);
+        fireEvent('activity_created', backendData, { entityType: 'activities' });
 
-            if (formData.relatedTo.length > 0) {
-                backendData.entityId = formData.relatedTo[0].id || formData.relatedTo[0]._id;
-                backendData.entityType = formData.relatedTo[0].model || 'Contact';
-            } else {
-                backendData.entityType = 'Global';
-                backendData.entityId = null;
-            }
-
-            if (onSave) onSave(backendData);
-            fireEvent('activity_created', backendData, { entityType: 'activities' });
-
-            if (formData.relatedTo && formData.relatedTo.length > 0) {
-                formData.relatedTo.forEach(related => {
-                    updateEnrollmentStatus(related.id || related._id, 'paused');
-                });
-            }
-
-            if (formData.status === 'Completed') {
-                fireEvent('activity_completed', backendData, { entityType: 'activities' });
-                
-                // Unified Live Sync
-                window.dispatchEvent(new CustomEvent('activity-completed', { 
-                    detail: { entityId: backendData.entityId, entityType: backendData.entityType } 
-                }));
-
-                const entityId = backendData.entityId;
-                const entityType = (backendData.entityType || '').toLowerCase();
-                if (entityId && (entityType === 'lead' || entityType === 'leads')) {
-                    const outcome = extractOutcome(backendData.type, backendData.details || {});
-                    const purpose = backendData.details?.purpose || '';
-                    try {
-                        const result = await triggerStageUpdate(entityId, backendData.type, purpose, outcome);
-                        if (result.stage) {
-                            showStageToast(`✅ Stage auto-updated → ${result.stage}`);
-                            
-                            // Trigger Lead Sync since stage changed
-                            window.dispatchEvent(new CustomEvent('lead-updated', { detail: { leadId: entityId } }));
-
-                            if (result.requiredForm && result.requiredForm !== 'None') {
-                                setTimeout(() => {
-                                    triggerRequiredForm(result.requiredForm, entityId, {
-                                        type: entityType,
-                                        leadId: entityId,
-                                        activityType: backendData.type
-                                    });
-                                }, 500);
-                            }
-                        }
-                    } catch (err) {
-                        console.warn('[StageEngine] update after activity save failed:', err);
-                    }
-                }
-            } else {
-                // If not completed but still created, dispatch creation event for lists
-                window.dispatchEvent(new CustomEvent('activity-created', { 
-                    detail: { entityId: backendData.entityId, entityType: backendData.entityType } 
-                }));
-            }
-
-            onClose();
+        if (formData.relatedTo && formData.relatedTo.length > 0) {
+            formData.relatedTo.forEach(related => {
+                updateEnrollmentStatus(related.id || related._id, 'paused');
+            });
         }
+
+        if (formData.status === 'Completed') {
+            fireEvent('activity_completed', backendData, { entityType: 'activities' });
+            window.dispatchEvent(new CustomEvent('activity-completed', {
+                detail: { entityId: backendData.entityId, entityType: backendData.entityType }
+            }));
+
+            const entityId = backendData.entityId;
+            const entityType = (backendData.entityType || '').toLowerCase();
+            if (entityId && (entityType === 'lead' || entityType === 'leads')) {
+                const outcome = extractOutcome(backendData.type, backendData.details || {});
+                const purpose = backendData.details?.purpose || '';
+                try {
+                    const result = await triggerStageUpdate(entityId, backendData.type, purpose, outcome);
+                    if (result.stage) {
+                        showStageToast(`✅ Stage auto-updated → ${result.stage}`);
+                        window.dispatchEvent(new CustomEvent('lead-updated', { detail: { leadId: entityId } }));
+                        if (result.requiredForm && result.requiredForm !== 'None') {
+                            setTimeout(() => {
+                                triggerRequiredForm(result.requiredForm, entityId, {
+                                    type: entityType, leadId: entityId, activityType: backendData.type
+                                });
+                            }, 500);
+                        }
+                    }
+                } catch (err) {
+                    console.warn('[StageEngine] update after activity save failed:', err);
+                }
+            }
+        } else {
+            window.dispatchEvent(new CustomEvent('activity-created', {
+                detail: { entityId: backendData.entityId, entityType: backendData.entityType }
+            }));
+        }
+
+        // Reset step state on close
+        setStep('activity');
+        setPendingForms([]);
+        setFormsData({});
+        setPendingBackendData(null);
+        onClose();
+    }, [onSave, fireEvent, formData, updateEnrollmentStatus, extractOutcome, triggerStageUpdate, onClose]);
+
+    // ── Step 1: Intercept submit — check if forms required ───────────────────
+    const handleSubmit = async () => {
+        if (!validate()) return;
+
+        const backendData = {
+            type: formData.activityType,
+            subject: formData.subject,
+            dueDate: formData.dueDate,
+            dueTime: formData.dueTime,
+            priority: formData.priority,
+            status: formData.status === 'Not Started' ? 'Pending' : formData.status,
+            description: formData.description,
+            relatedTo: formData.relatedTo.map(r => ({
+                id: r.id || r._id,
+                name: r.name,
+                model: r.model || 'Contact'
+            })),
+            participants: formData.participants,
+            tasks: (formData.tasks || []).map(t => ({
+                subject: t.subject,
+                reminder: t.reminder,
+                reminderTime: t.reminderTime
+            })),
+            details: {
+                purpose: formData.purpose,
+                duration: formData.duration,
+                callOutcome: formData.callOutcome,
+                meetingType: formData.meetingType,
+                meetingLocation: formData.meetingLocation,
+                clientFeedback: formData.clientFeedback,
+                visitConfirmation: formData.visitConfirmation,
+                direction: formData.direction,
+                completionResult: formData.completionResult,
+                meetingOutcomeStatus: formData.meetingOutcomeStatus,
+                visitedProperties: formData.visitedProperties,
+                cancellationReason: formData.cancellationReason,
+                mailStatus: formData.mailStatus
+            }
+        };
+
+        if (formData.relatedTo.length > 0) {
+            backendData.entityId = formData.relatedTo[0].id || formData.relatedTo[0]._id;
+            backendData.entityType = formData.relatedTo[0].model || 'Contact';
+        } else {
+            backendData.entityType = 'Global';
+            backendData.entityId = null;
+        }
+
+        // ── Check if required forms apply ──────────────────────────────────
+        const isCompleted = formData.status === 'Completed';
+        const isLinkedToLead = backendData.entityType?.toLowerCase() === 'lead';
+
+        if (isCompleted && isLinkedToLead) {
+            const outcome = extractOutcome(formData.activityType, backendData.details);
+            const purpose = formData.purpose || '';
+            const mapKey = `${formData.activityType}|${purpose}|${outcome}`;
+            const forms = REQUIRED_FORMS_MAP[mapKey] || [];
+
+            if (forms.length > 0) {
+                // Intercept: go to Step 2
+                setPendingForms(forms);
+                setPendingBackendData(backendData);
+                setFormsData({});
+                setStep('forms');
+                return; // Do NOT save yet
+            }
+        }
+
+        // No forms needed — save directly
+        await executeSave(backendData);
     };
+
+    // ── Step 2: Called when user completes or skips forms step ───────────────
+    const handleFormsComplete = useCallback(async (collectedFormsData, skipped = false) => {
+        if (!pendingBackendData) return;
+        const enrichedData = {
+            ...pendingBackendData,
+            requiredFormsData: collectedFormsData,
+            formsSkipped: skipped,
+        };
+        await executeSave(enrichedData);
+    }, [pendingBackendData, executeSave]);
+
+    const handleBackToActivity = useCallback(() => {
+        setStep('activity');
+        setPendingForms([]);
+        setPendingBackendData(null);
+    }, []);
 
     return {
         formData,
@@ -393,6 +441,13 @@ export const useActivityForm = (isOpen, onClose, onSave, initialData) => {
         addPropertyRow,
         removePropertyRow,
         handleSubmit,
-        validate
+        validate,
+        // Multi-step forms flow
+        step,
+        pendingForms,
+        formsData,
+        setFormsData,
+        handleFormsComplete,
+        handleBackToActivity,
     };
 };

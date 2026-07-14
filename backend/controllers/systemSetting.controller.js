@@ -2,6 +2,9 @@ import SystemSetting from "../src/modules/systemSettings/system.model.js";
 import geminiService from "../services/GeminiService.js";
 import openaiService from "../services/OpenAIService.js";
 import claudeService from "../services/ClaudeService.js";
+import { invalidateSequenceGuardCache } from "../src/services/SequenceGuardService.js";
+import { invalidateRulesCache } from "../src/services/StageTransitionEngine.js";
+
 
 // Mock storage for when DB is unavailable
 let mockSettingsStore = {};
@@ -116,6 +119,16 @@ export const upsertSystemSetting = async (req, res) => {
             },
             { new: true, upsert: true, setDefaultsOnInsert: true }
         );
+
+        // Invalidate SequenceGuardService cache when sequenceConfig changes
+        if (key === 'sequenceConfig') {
+            invalidateSequenceGuardCache();
+        }
+
+        // Invalidate StageTransitionEngine rules cache when stage mappings change
+        if (['stage_transition_rules', 'stageMappingRules', 'activityMasterFields'].includes(key)) {
+            invalidateRulesCache();
+        }
 
         res.json({ success: true, status: "success", data: setting });
     } catch (error) {

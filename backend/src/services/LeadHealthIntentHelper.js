@@ -1,45 +1,100 @@
 export const computeIntentScore = (lead, activities, config) => {
     if (!config) return 0;
     let score = 0;
+    const now = Date.now();
+
+    // Helper: Time Decay Factor (0 to 1)
+    // Activities within 7 days = 1.0 weight
+    // Activities up to 30 days scale down to 0 weight
+    const getDecayFactor = (dateStr) => {
+        if (!dateStr) return 0;
+        const daysOld = (now - new Date(dateStr).getTime()) / 86400000;
+        if (daysOld <= 7) return 1;
+        if (daysOld >= 30) return 0;
+        return 1 - ((daysOld - 7) / 23); // Linear decay between day 7 and 30
+    };
+
+    // Helper: Structured Activity Match
+    const isActivityType = (a, typeOrKeywords) => {
+        // Assume 'a' could have a populated Lookup type or a string
+        const typeName = (typeof a.type === 'object' && a.type ? a.type.lookup_value || a.type.name || a.type.label : a.type || '').toLowerCase();
+        const subject = (a.subject || '').toLowerCase();
+        
+        if (Array.isArray(typeOrKeywords)) {
+            return typeOrKeywords.some(k => typeName.includes(k) || subject.includes(k));
+        }
+        return typeName.includes(typeOrKeywords) || subject.includes(typeOrKeywords);
+    };
 
     // 1. Repeat Site Visit
     if (config.visitRepeat?.isActive) {
-        const visitCount = activities.filter(a => (a.type || '').toLowerCase() === 'site visit').length;
-        if (visitCount > 1) {
-            score += Number(config.visitRepeat.weight || 0);
+        const visits = activities.filter(a => isActivityType(a, ['site visit', 'property visit', 'inspection']));
+        if (visits.length > 1) {
+            // Apply decay based on the most recent visit
+            const latestVisit = visits.sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+            score += Number(config.visitRepeat.weight || 0) * getDecayFactor(latestVisit.date);
         }
     }
 
     // 2. Offer Revisions Count
     if (config.offerRevisions?.isActive) {
-        const offerCount = activities.filter(a => {
-            const name = (a.type || '').toLowerCase();
-            const purp = (a.subject || '').toLowerCase();
-            return name.includes('offer') || purp.includes('offer') || name.includes('quotation');
-        }).length;
-        if (offerCount > 1) {
-            score += Number(config.offerRevisions.weight || 0) * (offerCount - 1);
+        const offers = activities.filter(a => isActivityType(a, ['offer', 'quotation', 'proposal']));
+        if (offers.length > 1) {
+            const latestOffer = offers.sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+            score += (Number(config.offerRevisions.weight || 0) * (offers.length - 1)) * getDecayFactor(latestOffer.date);
         }
     }
 
-    // 3. Legal Doc Requested
+    // 3. Legal Doc / Financial Readiness
     if (config.legalDocRequest?.isActive) {
-        const hasLegal = activities.some(a => {
+        const legalActs = activities.filter(a => {
             const text = `${a.type} ${a.subject} ${a.completionResult} ${JSON.stringify(a.details || {})}`.toLowerCase();
-            return text.includes('legal') || text.includes('contract') || text.includes('agreement');
+            return text.includes('legal') || text.includes('contract') || text.includes('agreement') || text.includes('mortgage') || text.includes('loan') || text.includes('pre-approved');
         });
-        if (hasLegal) {
-            score += Number(config.legalDocRequest.weight || 0);
+        if (legalActs.length > 0) {
+            const latestLegal = legalActs.sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+            score += Number(config.legalDocRequest.weight || 0) * getDecayFactor(latestLegal.date);
         }
     }
 
     // 4. Family Brought for Visit
     if (config.familyVisit?.isActive) {
-        const hasFamily = activities.some(a => {
-            return (a.type || '').toLowerCase() === 'site visit' && a.details?.withFamily === true;
-        });
-        if (hasFamily) {
-            score += Number(config.familyVisit.weight || 0);
+        const familyVisits = activities.filter(a => isActivityType(a, ['site visit', 'property visit']) && a.details?.withFamily === true);
+        if (familyVisits.length > 0) {
+            const latestFam = familyVisits.sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+            score += Number(config.familyVisit.weight || 0) * getDecayFactor(latestFam.date);
+        }
+    }
+
+    // 5. Budget Gap % (Enterprise Feature)
+    if (config.budgetGapPct?.isActive && lead.budget_max && lead.deals && lead.deals.length > 0) {
+        const dealValues = lead.deals.map(d => d.price || d.expectedValue || 0).filter(v => v > 0);
+        if (dealValues.length > 0) {
+            const maxDealVal = Math.max(...dealValues);
+            const budgetGap = ((maxDealVal - lead.budget_max) / lead.budget_max) * 100;
+            // If property is more than 15% above max budget, penalize intent
+            if (budgetGap > 15) {
+                score += Number(config.budgetGapPct.weight || -10); // Note: weight should be negative
+            }
+        }
+    }
+
+    // 6. WhatsApp Response Rate (Enterprise Feature)
+    if (config.whatsappResponse?.isActive) {
+        const waActivities = activities.filter(a => isActivityType(a, 'whatsapp'));
+        const inbound = waActivities.filter(a => a.direction === 'inbound').length;
+        const outbound = waActivities.filter(a => a.direction === 'outbound').length;
+        
+        if (outbound > 3) {
+            const responseRate = inbound / outbound;
+            // If they replied to less than 20% of our messages, apply penalty (ghosting)
+            if (responseRate < 0.2) {
+                // Subtract the positive weight from the score (acting as a penalty)
+                score -= Number(config.whatsappResponse.weight || 5) * 2;
+            } else if (responseRate > 0.6) {
+                // Strong responsiveness
+                score += Number(config.whatsappResponse.weight || 5);
+            }
         }
     }
 

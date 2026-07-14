@@ -27,6 +27,7 @@ import CreateActivityModal from '../../components/CreateActivityModal';
 
 import EnterprisePipeline from '../../components/EnterprisePipeline';
 import UnifiedActivitySection from '../../components/Activities/UnifiedActivitySection';
+import EngagedDealsCard from '../../components/EngagedDealsCard';
 import { useContactIntelligence } from '../../hooks/useContactIntelligence';
 import ContactDetailHeader from '../../components/ContactDetail/ContactDetailHeader';
 import ContactCoreInfo from '../../components/ContactDetail/ContactCoreInfo';
@@ -696,20 +697,27 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                                 onNavigate={onNavigate}
                             />
                         ) : isMobile && activeTab === 'deals' ? (
-                            <ContactRelatedDeals
-                                contact={contact}
-                                recordType={recordType}
-                                expandedSections={expandedSections}
-                                toggleSection={toggleSection}
-                                matchedDeals={matchedDeals}
-                                loadingMatches={loadingMatches}
-                                renderValue={renderValue}
-                                showNotification={showNotification}
-                                activeDeals={activeDeals}
-                                setIsAddDealModalOpen={setIsAddDealModalOpen}
-                                renderLookup={renderLookup}
-                                onNavigate={onNavigate}
-                            />
+                            <>
+                                <ContactRelatedDeals
+                                    contact={contact}
+                                    recordType={recordType}
+                                    expandedSections={expandedSections}
+                                    toggleSection={toggleSection}
+                                    matchedDeals={matchedDeals}
+                                    loadingMatches={loadingMatches}
+                                    renderValue={renderValue}
+                                    showNotification={showNotification}
+                                    activeDeals={activeDeals}
+                                    setIsAddDealModalOpen={setIsAddDealModalOpen}
+                                    renderLookup={renderLookup}
+                                    onNavigate={onNavigate}
+                                />
+                                <EngagedDealsCard 
+                                    leadId={contact?._id} 
+                                    activities={unifiedTimeline}
+                                    onNavigate={onNavigate} 
+                                />
+                            </>
                         ) : (
                             <>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
@@ -741,6 +749,11 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                                         setIsAddDealModalOpen={setIsAddDealModalOpen}
                                         renderLookup={renderLookup}
                                         onNavigate={onNavigate}
+                                    />
+                                    <EngagedDealsCard 
+                                        leadId={contact?._id} 
+                                        activities={unifiedTimeline}
+                                        onNavigate={onNavigate} 
                                     />
                                 </div>
 

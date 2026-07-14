@@ -39,6 +39,7 @@ import DealBuiltupDetails from '../../components/DealDetail/DealBuiltupDetails';
 import DealFinancialSection from '../../components/DealDetail/DealFinancialSection';
 // Shared Components
 import MatchedLeadsCard from '../../components/MatchedLeadsCard';
+import EngagedLeadsCard from '../../components/EngagedLeadsCard';
 import DealAnalysis from '../../components/DealDetail/DealAnalysis';
 import LandedCostSheet from '../../components/DealDetail/DealCostSheet';
 import { MediaViewerModal } from '../../components/DealDetail/DealCommon';
@@ -803,6 +804,12 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                             onNavigate={onNavigate} 
                             entityId={dealId}
                             entityType="deal"
+                        />
+
+                        <EngagedLeadsCard 
+                            leads={deal?.leads} 
+                            activities={activities}
+                            onNavigate={onNavigate} 
                         />
 
                         <PropertyOwnerSection 

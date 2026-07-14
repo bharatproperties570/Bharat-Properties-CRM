@@ -15,18 +15,28 @@ export const getStageDensity = async (req, res) => {
             }
         }
 
+        const lookups = await Lookup.find({ lookup_type: { $in: ['Stage', 'Status'] } }).lean();
+        const lookupMap = {};
+        lookups.forEach(l => lookupMap[l._id.toString()] = l.lookup_value);
+
         const leadQuery = { isLost: { $ne: true }, ...dateFilter };
         // We will fetch all active leads
         const leads = await Lead.find(leadQuery)
-            .select('stage stageChangedAt createdAt status owner')
-            .populate('stage', 'lookup_value')
-            .populate('status', 'lookup_value')
+            .select('stage stageChangedAt createdAt status owner stageHistory')
             .populate('owner', 'fullName name')
             .lean();
 
         const formattedLeads = leads.map(l => {
-            const stageName = l.stage?.lookup_value || l.stage || 'Incoming';
-            const statusName = l.status?.lookup_value || l.status || '';
+            let stageName = l.stage;
+            if (stageName && typeof stageName === 'object' && stageName.toString) stageName = lookupMap[stageName.toString()] || stageName;
+            else if (stageName && lookupMap[stageName]) stageName = lookupMap[stageName];
+
+            let statusName = l.status;
+            if (statusName && typeof statusName === 'object' && statusName.toString) statusName = lookupMap[statusName.toString()] || statusName;
+            else if (statusName && lookupMap[statusName]) statusName = lookupMap[statusName];
+
+            stageName = stageName || 'Incoming';
+            statusName = statusName || '';
             const agentName = l.owner?.fullName || l.owner?.name || 'Unassigned';
             
             // Fix legacy data
@@ -40,28 +50,33 @@ export const getStageDensity = async (req, res) => {
                 status: statusName,
                 createdAt: l.createdAt,
                 stageChangedAt: l.stageChangedAt,
-                agentName
+                agentName,
+                stageHistory: l.stageHistory || []
             };
         });
 
         const dealQuery = { isVisible: true, ...dateFilter };
         // Also fetch active Deals for revenue forecast
         const deals = await Deal.find(dealQuery)
-            .select('stage price expectedCommission stageChangedAt createdAt assignedTo')
-            .populate('stage', 'lookup_value')
+            .select('stage price expectedCommission stageChangedAt createdAt assignedTo stageHistory')
             .populate('assignedTo', 'fullName name')
             .lean();
             
         const formattedDeals = deals.map(d => {
-            const stageName = d.stage?.lookup_value || d.stage || 'Open';
+            let stageName = d.stage;
+            if (stageName && typeof stageName === 'object' && stageName.toString) stageName = lookupMap[stageName.toString()] || stageName;
+            else if (stageName && lookupMap[stageName]) stageName = lookupMap[stageName];
+            stageName = stageName || 'Open';
+
             const agentName = d.assignedTo?.fullName || d.assignedTo?.name || 'Unassigned';
             return {
                 stage: stageName === 'Closed Won' ? 'Closed' : stageName, // Fix legacy data
                 price: d.price || 0,
-                commission: d.expectedCommission || 0,
+                expectedCommission: d.expectedCommission || 0,
                 createdAt: d.createdAt,
                 stageChangedAt: d.stageChangedAt,
-                agentName
+                agentName,
+                stageHistory: d.stageHistory || []
             };
         });
 
