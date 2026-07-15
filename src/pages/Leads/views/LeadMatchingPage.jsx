@@ -33,6 +33,12 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
     // Omnichannel Blast State
     const [portfolioDetailLevel, setPortfolioDetailLevel] = useState('full_details');
     const [blastChannels, setBlastChannels] = useState({ whatsapp: false, whatsapp_app: false, email: false, sms: false, rcs: false });
+    const [channelSchedules, setChannelSchedules] = useState({
+        whatsapp: '',
+        email: '',
+        sms: '',
+        rcs: ''
+    });
     const [channelAvailability, setChannelAvailability] = useState({
         whatsapp: false, email: false, sms: false, rcs: false, whatsapp_app: true // App relies on user device
     });
@@ -220,7 +226,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
     const [initialTemplateId, setInitialTemplateId] = useState('');
     const [initialChannel, setInitialChannel] = useState('SMS');
     const [selectedProperties, setSelectedProperties] = useState([]);
-    const [isSendingPortfolio, setIsSendingPortfolio] = useState(false);
+    
     const [hidePrice, setHidePrice] = useState(false);
     const { currentUser } = useUserContext();
 
@@ -647,53 +653,14 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
         }
 
         setIsBlasting(true);
-        const loadToast = toast.loading(`Blasting portfolio to ${activeChannels.length} channel(s)...`);
+        const loadToast = toast.loading(`Dispatching to ${activeChannels.length} channel(s)...`);
 
         try {
-            // 1. WhatsApp API
-            if (blastChannels.whatsapp) {
-                // Call existing robust handler silently (pass true to avoid native fallback)
-                const originalToast = toast.success;
-                toast.success = () => {}; // suppress child success toast temporarily
-                try {
-                    await handleSendPortfolio(true); 
-                } catch(e) {}
-                toast.success = originalToast;
-            }
-
-            // 2. Email (Silent)
-            if (blastChannels.email) {
-                const { subject, body } = generateEmailContent(selectedDeals);
-                try {
-                    await api.post('/leads/communicate', {
-                        leadId: lead._id,
-                        type: 'Email',
-                        subject: subject,
-                        body: body
-                    });
-                } catch(e) { console.error('Silent Email Error', e); }
-            }
-
-            // 3. SMS (Silent)
-            if (blastChannels.sms) {
-                let textPayload = `Hi ${lead?.firstName || 'there'}! Your matched properties:\n`;
-                selectedDeals.forEach((d, i) => {
-                    let line = `${i+1}. ${d.projectName}`;
-                    if (portfolioDetailLevel.includes('extended') && d.unitNo) line += ` (Unit: ${d.unitNo})`;
-                    line += ` - ${d.price && !hidePrice ? 'Rs.'+d.price : 'Price on request'}`;
-                    textPayload += line + '\n';
-                });
-                try {
-                    await smsService.sendMessage({
-                        mobile: lead.mobile || lead.phone,
-                        message: textPayload,
-                        type: 'Transactional' // Assuming required field
-                    });
-                } catch(e) { console.error('Silent SMS Error', e); }
-            }
-
-            // 4. WhatsApp Native App (Open Tab)
+            const dealIds = selectedDeals.map(d => d._id || d.id);
+            
+            // Native WhatsApp App fallback (runs locally)
             if (blastChannels.whatsapp_app) {
+                // Generate simple text fallback for local app
                 let textPayload = `Hi ${lead?.firstName || lead?.name || 'there'}! I've curated a list of properties for you:\n\n`;
                 selectedDeals.forEach((d, i) => {
                     let line = `${i+1}. ${d.projectName}`;
@@ -710,404 +677,37 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                 window.open(`whatsapp://send?phone=${formattedPhone}&text=${encodeURIComponent(textPayload)}`, '_blank');
             }
 
-            // 5. RCS (Silent mock fallback)
-            if (blastChannels.rcs) {
-                console.log('RCS blast simulated (not fully integrated yet).');
+            // Enterprise Unified API Calls for scheduled/now sending
+            // We'll iterate through all channels EXCEPT whatsapp_app to invoke the manual sender
+            const dispatchPromises = [];
+            
+            ['whatsapp', 'email', 'sms', 'rcs'].forEach(ch => {
+                if (blastChannels[ch]) {
+                    dispatchPromises.push(
+                        api.post('marketing/send-manual', {
+                            leadId: lead._id,
+                            dealIds,
+                            toggles: { [ch]: true },
+                            scheduledAt: channelSchedules?.[ch] || undefined,
+                            hidePrice,
+                            matchContext: portfolioDetailLevel.includes('short') ? 'top' : 'perfect'
+                        }).catch(e => console.error(`[Dispatch] Error on ${ch}:`, e))
+                    );
+                }
+            });
+
+            if (dispatchPromises.length > 0) {
+                await Promise.all(dispatchPromises);
             }
 
-            toast.success(`Omnichannel Blast completed!`, { id: loadToast });
+            toast.success(`Omnichannel dispatch processed via Enterprise Queue!`, { id: loadToast });
         } catch (error) {
-            toast.error('Blast encountered an issue.', { id: loadToast });
+            toast.error('Dispatch encountered an issue.', { id: loadToast });
         } finally {
             setIsBlasting(false);
         }
     };
 
-    const handleSendPortfolio = async (isBlast = false) => {
-        const selectedDeals = matchedItems.filter(item => selectedItems.includes(item.id || item.unitNo));
-        if (selectedDeals.length === 0) {
-            toast.error('Please select at least one property to send.');
-            return;
-        }
-
-        setIsSendingPortfolio(true);
-        const loadToast = toast.loading('Resolving template and preparing dispatch...');
-
-        try {
-            // 1. Fetch template from DB or fallback
-            let templates = whatsappTemplates;
-            try {
-                const dbRes = await systemSettingsAPI.getByKey('crm_whatsapp_templates');
-                if (dbRes?.data?.value?.length) {
-                    templates = dbRes.data.value;
-                }
-            } catch (err) {
-                console.warn('Could not read DB templates, utilizing default fallback.');
-            }
-
-            // ENTERPRISE UPGRADE: Route to exact Meta template based on System Trigger Context
-            const requiredContext = portfolioDetailLevel.includes('short') ? 'lead_match_short' : 'lead_match_full';
-            
-            // Try to find by context first
-            let template = templates.find(t => t.systemContext?.includes(requiredContext));
-            let templateKey = template?.name;
-            
-            // Fallback to hardcoded legacy names if contexts aren't mapped yet
-            if (!template) {
-                templateKey = portfolioDetailLevel.includes('short') ? 'property_match_default' : 'property_presentation';
-                template = templates.find(t => t.name === templateKey) || templates.find(t => t.name === 'Property Portfolio') || templates[1];
-            }
-
-            if (!template) {
-                throw new Error('Target portfolio template could not be resolved.');
-            }
-
-            const bodyComp = template.components?.find(c => c.type === 'BODY');
-            const rawBody = bodyComp?.text || template.body || template.content || template.text || '';
-
-            // 2. Set Up Unified Dynamic Context
-            const pFirst = selectedDeals.length > 0 ? selectedDeals[0] : {};
-            const inv = pFirst.inventoryId || {};
-
-            // ━━ ENTERPRISE: Live Lookup Resolution Cache ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            // Scans inventory for any remaining unresolved ObjectIds and fetches their
-            // lookup_value directly from the backend API in a single batched request.
-            // This guarantees resolution regardless of PropertyConfigContext load state.
-            const liveResolutionCache = new Map();
-            try {
-                const objectIdPattern = /^[0-9a-fA-F]{24}$/;
-                const lookupFields = ['facing', 'direction', 'roadWidth', 'builtupType', 'orientation', 'sizeConfig', 'sizeType', 'category', 'subCategory', 'unitType'];
-                const unresolvedIds = new Set();
-
-                for (const field of lookupFields) {
-                    const val = inv[field];
-                    if (val && typeof val === 'string' && objectIdPattern.test(val)) {
-                        unresolvedIds.add(val);
-                    } else if (val && typeof val === 'object') {
-                        const idStr = String(val._id || val);
-                        if (objectIdPattern.test(idStr)) unresolvedIds.add(idStr);
-                    }
-                    // Also check the top-level deal for same fields
-                    const dealVal = pFirst[field];
-                    if (dealVal && typeof dealVal === 'string' && objectIdPattern.test(dealVal)) {
-                        unresolvedIds.add(dealVal);
-                    }
-                }
-
-                if (unresolvedIds.size > 0) {
-                    console.log('[LiveResolver] Fetching', unresolvedIds.size, 'unresolved lookup IDs from backend...');
-                    const idArray = Array.from(unresolvedIds);
-                    // Batch-fetch from backend by IDs
-                    const res = await api.get(`/lookups?ids=${idArray.join(',')}`);
-                    const data = res?.data;
-                    const fetchedLookups = Array.isArray(data) ? data : (data?.data || []);
-                    fetchedLookups.forEach(l => {
-                        if (l._id && l.lookup_value) {
-                            liveResolutionCache.set(String(l._id), l.lookup_value);
-                            console.log(`[LiveResolver] Resolved: ${l._id} → "${l.lookup_value}" (${l.lookup_type})`);
-                        }
-                    });
-                }
-            } catch (liveErr) {
-                console.warn('[LiveResolver] Live resolution fetch failed (non-critical):', liveErr.message);
-            }
-
-            // Enhanced resolveLookup that also checks liveResolutionCache first
-            const resolveLive = (val) => {
-                if (!val) return null;
-                let idStr = typeof val === 'object' ? String(val._id || val) : String(val).trim();
-                // Already human-readable string
-                if (!/^[0-9a-fA-F]{24}$/.test(idStr)) return idStr;
-                // Check live cache first (most authoritative)
-                if (liveResolutionCache.has(idStr)) return liveResolutionCache.get(idStr);
-                // Fallback to PropertyConfigContext lookupMap
-                return resolveLookup(val, null);
-            };
-
-            // Helper to retrieve flat or nested inventory fields with strict fallback handling
-            // Checks backend-enriched _label fields first (avoids ObjectId leakage in WhatsApp vars)
-            // Helper to retrieve flat or nested inventory fields with strict fallback handling
-            // Checks backend-enriched _label fields first (avoids ObjectId leakage in WhatsApp vars)
-            const getPropVal = (key, p) => {
-                if (!p) p = selectedDeals[0];
-                if (!p) return '';
-                // First priority: backend-enriched label field (e.g. facing_label, roadWidth_label)
-                const labelKey = `${key}_label`;
-                if (p.inventoryId && typeof p.inventoryId === 'object' && p.inventoryId[labelKey] !== undefined && p.inventoryId[labelKey] !== null && p.inventoryId[labelKey] !== '') {
-                    return p.inventoryId[labelKey];
-                }
-                let val = p[key];
-                if (val === null || val === undefined || val === '') {
-                    if (p.unitSpecification && typeof p.unitSpecification === 'object') {
-                        val = p.unitSpecification[key];
-                    }
-                }
-                if (val === null || val === undefined || val === '') {
-                    if (p.inventoryId && typeof p.inventoryId === 'object') {
-                        val = p.inventoryId[key];
-                        if ((val === null || val === undefined || val === '') && p.inventoryId.unitSpecification && typeof p.inventoryId.unitSpecification === 'object') {
-                            val = p.inventoryId.unitSpecification[key];
-                        }
-                    }
-                }
-                return val !== undefined && val !== null ? val : '';
-            };
-
-            // Helper to resolve lookup values with fallback to original string
-            const safeLookup = (val, type) => {
-                if (!val) return '';
-                const resolved = resolveLookup(val, type);
-                return resolved || val.lookup_value || val.name || val;
-            };
-
-            const propertyListDefault = selectedDeals.map((p, i) => {
-                const loc = getPropVal('location', p) || getPropVal('city', p) || getPropVal('sector', p);
-                return `${i + 1}️⃣ ${getPropVal('unitNo', p) || 'Unit'} - ${safeLookup(loc, 'Locality') || safeLookup(loc, 'Location') || loc}`;
-            }).join('\n');
-
-            const propertyListDetailed = selectedDeals.map((p, i) => {
-                const loc = getPropVal('location', p) || getPropVal('city', p) || getPropVal('sector', p);
-                const szRaw = getPropVal('sizeLabel', p) || getPropVal('sizeConfig', p) || getPropVal('size', p);
-                const szVal = typeof szRaw === 'object' ? (szRaw.value ? `${szRaw.value} ${szRaw.unit || 'Sq.Yd.'}` : '') : (safeLookup(szRaw, 'Size') || szRaw);
-                const rawPrc = getPropVal('price', p);
-                const prcVal = hidePrice ? 'Price on Call' : (rawPrc ? `₹${rawPrc}` : 'Price on Call');
-                
-                let details = `${i + 1}️⃣ *${getPropVal('projectName', p) || 'Premium Property'}*\n`;
-                if (getPropVal('unitNo', p)) details += `🔹 Unit: ${getPropVal('unitNo', p)}\n`;
-                details += `📍 Loc: ${safeLookup(loc, 'Locality') || safeLookup(loc, 'Location') || loc}\n`;
-                if (szVal) details += `📏 Size: ${szVal}\n`;
-                details += `💰 Price: ${prcVal}`;
-                
-                return details;
-            }).join('\n\n-------------------------\n\n');
-
-            const rawOwner = lead.owner;
-            const ownerName = typeof rawOwner === 'object' && rawOwner !== null ? (rawOwner.fullName || rawOwner.name) : rawOwner;
-            const agentName = lead.assignment?.assignedTo?.fullName || lead.assignment?.assignedTo?.name || lead.assignedTo?.fullName || lead.assignedTo?.name || ownerName || lead.agentName || currentUser?.fullName || currentUser?.name || 'Our Representative';
-            const agentMobile = lead.assignment?.assignedTo?.mobile || lead.assignedTo?.mobile || lead.ownerMobile || lead.agentMobile || currentUser?.mobile || currentUser?.phone || '';
-            const agentDetails = agentName;
-
-            const unifiedContext = {
-                'name': lead.name,
-                'firstName': lead.firstName || lead.name?.split(' ')[0] || 'customer',
-                'surname': lead.surname || '',
-                'mobile': lead.phone || lead.mobile || '',
-                'email': lead.email || '',
-                'source': lead.source || '',
-                'status': lead.status || lead.stage || '',
-                'requirement': lead.requirement || lead.requirementType || 'property',
-                'budgetMin': lead.budgetMin || lead.budget || '',
-                'budgetMax': lead.budgetMax || '',
-                'areaMin': lead.areaMin || '',
-                'areaMax': lead.areaMax || '',
-                'locCity': lead.locCity || lead.location || '',
-                'locArea': lead.locArea || '',
-                'assignedTo': agentDetails,
-                'ownerMobile': agentMobile,
-                'ownerEmail': lead.assignedTo?.email || currentUser?.email || '',
-                'propertyList': propertyListDefault,
-                'property_list_default': propertyListDefault,
-                'property_list_detailed': propertyListDetailed,
-                'propertiesCount': selectedDeals.length || 0,
-                'customer_name': lead.firstName || lead.name?.split(' ')[0] || 'customer'
-            };
-
-            selectedDeals.forEach((p, idx) => {
-                const rawPropLoc = getPropVal('location', p) || getPropVal('city', p) || getPropVal('sector', p);
-                const safePropLoc = safeLookup(rawPropLoc, 'Location') || safeLookup(rawPropLoc, 'City') || safeLookup(rawPropLoc, 'Locality') || rawPropLoc;
-                const safePropProj = getPropVal('projectName', p) || getPropVal('unitNo', p) || 'Premium Listing';
-                
-                const szRaw = getPropVal('sizeLabel', p) || getPropVal('sizeConfig', p) || getPropVal('size', p);
-                const finalSize = typeof szRaw === 'object' ? (szRaw.value ? `${szRaw.value} ${szRaw.unit || 'Sq.Yd.'}` : 'N/A') : (safeLookup(szRaw, 'Size') || szRaw || 'N/A');
-
-                const dealCtx = {
-                    'projectName': safePropProj,
-                    'unitNo': getPropVal('unitNo', p),
-                    'block': getPropVal('block', p),
-                    'unitType': resolveLive(getPropVal('unitType', p)) || safeLookup(getPropVal('unitType', p), 'UnitType'),
-                    'category': resolveLive(getPropVal('category', p) || getPropVal('propertyType', p)) || safeLookup(getPropVal('category', p) || getPropVal('propertyType', p), 'Category'),
-                    'subCategory': resolveLive(getPropVal('subCategory', p)) || safeLookup(getPropVal('subCategory', p), 'SubCategory'),
-                    'price': hidePrice ? 'Price on Call' : (getPropVal('price', p) ? `₹${getPropVal('price', p)}` : 'Price on Call'),
-                    'size': finalSize,
-                    'location': safePropLoc,
-                    'builtupType': resolveLive(getPropVal('builtupType', p)) || safeLookup(getPropVal('builtupType', p), 'BuiltupType'),
-                    'sizeType': resolveLive(safeLookup(getPropVal('sizeLabel', p) || getPropVal('sizeConfig', p), 'Size') || getPropVal('sizeType', p)) || safeLookup(getPropVal('sizeLabel', p) || getPropVal('sizeConfig', p), 'Size'),
-                    'direction': resolveLive(getPropVal('direction', p)) || safeLookup(getPropVal('direction', p), 'Direction'),
-                    'facing': resolveLive(getPropVal('facing', p)) || safeLookup(getPropVal('facing', p), 'Facing'),
-                    'roadWidth': resolveLive(getPropVal('roadWidth', p)) || safeLookup(getPropVal('roadWidth', p), 'RoadWidth')
-                };
-
-                if (idx === 0) {
-                    Object.assign(unifiedContext, dealCtx);
-                }
-                for (const [k, v] of Object.entries(dealCtx)) {
-                    unifiedContext[`${k}_${idx}`] = v;
-                }
-            });
-
-            // ENTERPRISE UPGRADE: Option A (The "Big Variable" Pattern)
-            // We do NOT attempt to manipulate the raw template string structure because WhatsApp Cloud API 
-            // strictly uses predefined templates. Instead, we rely on the `property_list_detailed` variable 
-            // to inject the fully formatted array of properties into a single Meta variable (e.g. {{2}}).
-            const finalRawBody = rawBody;
-
-            // 3. Resolve variables in template and collect parameters for WhatsApp API
-            const templateComponents = [];
-            let resolvedBody = finalRawBody.replace(/{{([^}]+)}}/g, (match, vIdx) => {
-
-                const cleanKey = vIdx.trim();
-                
-                // Dynamic Meta Template Mapping Registry
-                if (/^\d+$/.test(cleanKey)) {
-                    let registry = {};
-                    
-                    // 1. Enterprise Priority: Use Admin's Variable Mapping Override if exists on the template
-                    if (template.variableMapping && Object.keys(template.variableMapping).length > 0) {
-                        registry = template.variableMapping;
-                    } 
-                    // 2. Legacy Fallback: Hardcoded mappings based on old template names
-                    else if (templateKey === 'property_presentation') {
-                        registry = { '1': 'projectName', '2': 'location', '3': 'size', '4': 'price', '5': 'assignedTo' };
-                    } else if (templateKey === 'property_match_default') {
-                        registry = { '1': 'unitNo', '2': 'projectName', '3': 'price' };
-                    } else {
-                        registry = { '1': 'customer_name', '2': 'property_list_default', '3': 'assignedTo' };
-                    }
-                    
-                    const mappedField = registry[String(cleanKey)];
-                    const val = unifiedContext[mappedField] !== undefined ? unifiedContext[mappedField] : match;
-                    templateComponents.push(String(val));
-                    return String(val);
-                }
-
-                // Case-insensitive lookup for named variables like {{firstname}} or {{propertiesCount}}
-                const normalizedKey = cleanKey.toLowerCase();
-                const matchedKey = Object.keys(unifiedContext).find(k => k.toLowerCase() === normalizedKey);
-
-                if (matchedKey && unifiedContext[matchedKey] !== undefined) {
-                    templateComponents.push(String(unifiedContext[matchedKey]));
-                    return String(unifiedContext[matchedKey]);
-                }
-                
-                // If it's a completely unknown variable, push empty string so we don't break Meta positional API
-                templateComponents.push("");
-                return match;
-
-            });
-
-            // 🛡️ SAFETY FILTER: Strip any surviving raw MongoDB ObjectIds (24-char hex)
-            // These are IDs that couldn't be resolved — replace with empty string to prevent leakage.
-            resolvedBody = resolvedBody.replace(/\b[0-9a-fA-F]{24}\b/g, '');
-
-            // 4. Dispatch using WhatsApp Service
-            const targetPhone = lead.mobile || lead.phone;
-            if (!targetPhone) {
-                throw new Error('Customer does not have a valid mobile number configured.');
-            }
-
-            // Standardize mobile number structure (ensure prefix)
-            let formattedPhone = targetPhone.replace(/\D/g, '');
-            if (formattedPhone.length === 10) {
-                formattedPhone = '91' + formattedPhone;
-            }
-
-            let apiSuccess = false;
-            try {
-                const response = await whatsappService.sendMessage({
-                    mobile: targetPhone,
-                    message: resolvedBody,
-                    templateId: template.name,
-                    templateComponents: templateComponents,
-                    language: template.language || 'en_US',
-                    type: 'text'
-                });
-                if (response && response.success) {
-                    apiSuccess = true;
-                }
-            } catch (apiErr) {
-                console.warn('API send failed, falling back to WhatsApp App Redirect:', apiErr.message);
-            }
-
-            if (apiSuccess || isBlast) {
-                if (apiSuccess) toast.success(`Portfolio shared successfully via WhatsApp API to ${lead.name}!`, { id: loadToast });
-            } else {
-                // ━━ ENTERPRISE FALLBACK: Smart Multi-Layer WhatsApp Dispatch ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-                // Problem: WhatsApp Desktop App does NOT support pre-filled text via URL redirect.
-                // The `https://api.whatsapp.com/send?text=...` URL only works in WhatsApp Web (browser).
-                // When a user clicks 'Open in App', the text parameter is LOST by the desktop app.
-                //
-                // Solution: 
-                //   1. Always copy the fully resolved message to clipboard first
-                //   2. Try native whatsapp:// protocol (works better on Mac/Windows desktop)
-                //   3. Fallback to api.whatsapp.com (for mobile + WhatsApp Web users)
-                //   4. Show a persistent toast with instructions for desktop users
-
-                // Step 1: Copy to Clipboard (works regardless of which app opens)
-                try {
-                    await navigator.clipboard.writeText(resolvedBody);
-                } catch (clipErr) {
-                    console.warn('[Clipboard] Could not copy:', clipErr.message);
-                }
-
-                const encodedMsg = encodeURIComponent(resolvedBody);
-
-                // Reverted to whatsapp:// scheme as per user request to directly open the app
-                const isMac = navigator.userAgent.toLowerCase().includes('mac');
-                const appUrl = `whatsapp://send?phone=${formattedPhone}&text=${encodedMsg}`;
-                const webUrl = `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodedMsg}`;
-                
-                // Try opening the native app first, fallback to web
-                window.location.href = appUrl;
-                
-                // We use a small timeout to open the web version if the app doesn't open
-                setTimeout(() => {
-                    window.open(webUrl, '_blank');
-                }, 1000);
-
-                // Step 3: Show a persistent toast with clear instructions for desktop users
-                toast(
-                    (t) => (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxWidth: '340px' }}>
-                            <div style={{ fontWeight: 700, color: '#065f46', fontSize: '0.9rem' }}>
-                                ✅ Message Copied to Clipboard!
-                            </div>
-                            <div style={{ fontSize: '0.8rem', color: isDark ? 'var(--text-main)' : '#374151', lineHeight: '1.4' }}>
-                                WhatsApp Desktop App doesn't support pre-filled text via URL.<br/>
-                                <strong>Simply paste (Ctrl+V / ⌘V)</strong> in the WhatsApp message box after the app opens.
-                            </div>
-                            <button
-                                onClick={() => {
-                                    navigator.clipboard.writeText(resolvedBody);
-                                    toast.dismiss(t.id);
-                                }}
-                                style={{
-                                    marginTop: '4px', padding: '6px 14px', borderRadius: '6px',
-                                    background: '#059669', color: '#fff', border: 'none',
-                                    fontWeight: 600, cursor: 'pointer', fontSize: '0.8rem'
-                                }}
-                            >
-                                📋 Copy Again
-                            </button>
-                        </div>
-                    ),
-                    { id: loadToast, duration: 8000, icon: '📲' }
-                );
-            }
-
-            // Log activity regardless of channel chosen
-            selectedDeals.forEach(item => logActivity('Portfolio Dispatched', item));
-            window.dispatchEvent(new CustomEvent('activity-completed', {
-                detail: { entityId: lead._id, type: 'WHATSAPP' }
-            }));
-
-        } catch (error) {
-            console.error('[PORTFOLIO_DISPATCH_FAILED]', error);
-            const msg = error.response?.data?.message || error.message || 'Unknown error occurred.';
-            toast.error(`Dispatch Failed: ${msg}`, { id: loadToast });
-        } finally {
-            setIsSendingPortfolio(false);
-        }
-    };
 
     const generateEmailContent = (items) => {
         const subject = `🔥 Priority Selected: Top ${items.length} Property Matches for your Requirement!`;
@@ -1924,41 +1524,51 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         {/* Channel Select Toggles */}
-                        <button 
-                            disabled={!channelAvailability.whatsapp}
-                            onClick={() => setBlastChannels(prev => ({...prev, whatsapp: !prev.whatsapp}))}
-                            style={{ 
-                                padding: '6px 12px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 600, transition: 'all 0.2s', border: 'none',
-                                background: blastChannels.whatsapp ? '#10b981' : '#334155', color: blastChannels.whatsapp ? '#fff' : '#94a3b8', 
-                                opacity: channelAvailability.whatsapp ? 1 : 0.4, cursor: channelAvailability.whatsapp ? 'pointer' : 'not-allowed',
-                                display: 'flex', alignItems: 'center', gap: '6px', outline: blastChannels.whatsapp ? '2px solid #059669' : 'none'
-                            }}>
-                            <i className="fab fa-whatsapp"></i> WA API
-                        </button>
-                        
-                        <button 
-                            disabled={!channelAvailability.email}
-                            onClick={() => setBlastChannels(prev => ({...prev, email: !prev.email}))}
-                            style={{ 
-                                padding: '6px 12px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 600, transition: 'all 0.2s', border: 'none',
-                                background: blastChannels.email ? '#3b82f6' : '#334155', color: blastChannels.email ? '#fff' : '#94a3b8',
-                                opacity: channelAvailability.email ? 1 : 0.4, cursor: channelAvailability.email ? 'pointer' : 'not-allowed',
-                                display: 'flex', alignItems: 'center', gap: '6px', outline: blastChannels.email ? '2px solid #2563eb' : 'none'
-                            }}>
-                            <i className="fas fa-envelope"></i> Email
-                        </button>
-                        
-                        <button 
-                            disabled={!channelAvailability.sms}
-                            onClick={() => setBlastChannels(prev => ({...prev, sms: !prev.sms}))}
-                            style={{ 
-                                padding: '6px 12px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 600, transition: 'all 0.2s', border: 'none',
-                                background: blastChannels.sms ? '#8b5cf6' : '#334155', color: blastChannels.sms ? '#fff' : '#94a3b8',
-                                opacity: channelAvailability.sms ? 1 : 0.4, cursor: channelAvailability.sms ? 'pointer' : 'not-allowed',
-                                display: 'flex', alignItems: 'center', gap: '6px', outline: blastChannels.sms ? '2px solid #7c3aed' : 'none'
-                            }}>
-                            <i className="fas fa-comment-dots"></i> SMS
-                        </button>
+                        {['whatsapp', 'email', 'sms'].map(ch => (
+                            <div key={ch} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                <button 
+                                    disabled={!channelAvailability[ch]}
+                                    onClick={() => setBlastChannels(prev => ({...prev, [ch]: !prev[ch]}))}
+                                    style={{ 
+                                        padding: '6px 12px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 600, transition: 'all 0.2s', border: 'none',
+                                        background: blastChannels[ch] ? (ch === 'whatsapp' ? '#10b981' : ch === 'email' ? '#3b82f6' : '#8b5cf6') : '#334155', 
+                                        color: blastChannels[ch] ? '#fff' : '#94a3b8', 
+                                        opacity: channelAvailability[ch] ? 1 : 0.4, cursor: channelAvailability[ch] ? 'pointer' : 'not-allowed',
+                                        display: 'flex', alignItems: 'center', gap: '6px', 
+                                        outline: blastChannels[ch] ? `2px solid ${ch === 'whatsapp' ? '#059669' : ch === 'email' ? '#2563eb' : '#7c3aed'}` : 'none'
+                                    }}>
+                                    <i className={`fa${ch==='whatsapp'?'b':'s'} fa-${ch==='whatsapp'?'whatsapp':ch==='email'?'envelope':'comment-dots'}`}></i> {ch === 'whatsapp' ? 'WA API' : ch.toUpperCase()}
+                                </button>
+                                {blastChannels[ch] && (
+                                    <div style={{ display: 'flex', gap: '4px' }}>
+                                        <select 
+                                            value={channelSchedules[ch] ? 'schedule' : 'now'}
+                                            onChange={(e) => {
+                                                if (e.target.value === 'now') {
+                                                    setChannelSchedules(prev => ({...prev, [ch]: ''}));
+                                                } else {
+                                                    const date = new Date();
+                                                    date.setHours(date.getHours() + 1);
+                                                    setChannelSchedules(prev => ({...prev, [ch]: date.toISOString().slice(0, 16)}));
+                                                }
+                                            }}
+                                            style={{ padding: '2px 4px', borderRadius: '4px', border: '1px solid #475569', background: '#1e293b', color: '#e2e8f0', fontSize: '0.7rem' }}
+                                        >
+                                            <option value="now">Send Now</option>
+                                            <option value="schedule">Schedule Later</option>
+                                        </select>
+                                        {channelSchedules[ch] && (
+                                            <input 
+                                                type="datetime-local"
+                                                value={channelSchedules[ch]}
+                                                onChange={(e) => setChannelSchedules(prev => ({...prev, [ch]: e.target.value}))}
+                                                style={{ padding: '2px 4px', borderRadius: '4px', border: '1px solid #475569', background: '#1e293b', color: '#e2e8f0', fontSize: '0.7rem' }}
+                                            />
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        ))}
 
                         <button 
                             disabled={!channelAvailability.rcs}
@@ -1989,11 +1599,11 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                         <button 
                             className="btn-primary"
                             onClick={handleSendBlast}
-                            disabled={isBlasting || isSendingPortfolio || (!blastChannels.whatsapp && !blastChannels.email && !blastChannels.sms)}
+                            disabled={isBlasting || (!blastChannels.whatsapp && !blastChannels.email && !blastChannels.sms && !blastChannels.whatsapp_app)}
                             style={{ 
                                 padding: '8px 24px', borderRadius: '20px', background: 'linear-gradient(135deg, #ec4899 0%, #f43f5e 100%)', 
                                 color: '#fff', border: 'none', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer',
-                                opacity: (isBlasting || isSendingPortfolio) ? 0.7 : 1, transition: 'all 0.2s', boxShadow: '0 4px 15px rgba(236, 72, 153, 0.4)'
+                                opacity: (isBlasting) ? 0.7 : 1, transition: 'all 0.2s', boxShadow: '0 4px 15px rgba(236, 72, 153, 0.4)'
                             }}
                             onMouseOver={(e) => { if(!isBlasting) e.currentTarget.style.transform = 'translateY(-2px)'; }}
                             onMouseOut={(e) => e.currentTarget.style.transform = 'translateY(0)'}

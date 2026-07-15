@@ -443,6 +443,24 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
     // Contact Search State
     const [contactSearchQuery, setContactSearchQuery] = useState('');
     const [selectedContact, setSelectedContact] = useState(null);
+
+    // Omnichannel Auto-Dispatch states
+    const [blastChannels, setBlastChannels] = useState({
+        whatsapp: false,
+        email: false,
+        sms: false,
+        rcs: false,
+        whatsapp_app: false
+    });
+    const [hidePrice, setHidePrice] = useState(false);
+    const [channelSchedules, setChannelSchedules] = useState({
+        whatsapp: '',
+        email: '',
+        sms: '',
+        rcs: ''
+    });
+    const [isBlasting, setIsBlasting] = useState(false);
+    const channelAvailability = { whatsapp: true, email: true, sms: true, rcs: true, whatsapp_app: true };
     // Input Style
     const inputStyle = {
         width: '100%',
@@ -1145,6 +1163,103 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                 document.body.appendChild(successToast);
                 setTimeout(() => successToast.remove(), 3500);
 
+                // BACKGROUND AUTO-MATCH & OMNICHANNEL DISPATCH
+                const activeChannels = Object.keys(blastChannels).filter(k => blastChannels[k]);
+                if (mode === 'add' && activeChannels.length > 0 && response?.data?.lead?._id) {
+                    setIsBlasting(true);
+                    const leadId = response.data.lead._id;
+                    const leadObj = response.data.lead;
+                    const loadToast = toast.loading(`Matching & Dispatching via ${activeChannels.length} channel(s)...`);
+                    
+                    try {
+                        const matchRes = await api.get('deals/match', { params: { leadId } });
+                        if (matchRes.data?.success && matchRes.data?.data?.length > 0) {
+                            let isFallback = false;
+                            let matches = matchRes.data.data.filter(d => 
+                                (d.score >= 100 || d.rawScore >= 100 || d.matchPercentage >= 100)
+                            );
+                            
+                            if (matches.length === 0) {
+                                matches = matchRes.data.data.slice(0, 6);
+                                isFallback = true;
+                            }
+                            
+                            if (matches.length === 0) {
+                                toast.error(`No matches found for this lead.`, { id: loadToast });
+                                setIsBlasting(false);
+                                return;
+                            }
+                            
+                            const dealIds = matches.map(d => d._id);
+                            
+                            const getDealDetailsString = (d) => {
+                                let details = `${d.projectName || 'Premium Property'}`;
+                                const specs = [];
+                                const uType = d.unitType || d.inventoryId?.unitType;
+                                const sVal = d.size || d.inventoryId?.size;
+                                const sUnit = d.sizeUnit || d.inventoryId?.sizeUnit || 'Sq.Ft';
+                                if (uType) specs.push(uType);
+                                if (sVal) specs.push(`${sVal} ${sUnit}`);
+                                if (specs.length) details += ` (${specs.join(', ')})`;
+                                details += ` - ${hidePrice ? 'Price on request' : (d.price ? '₹'+d.price : 'Price on request')}`;
+                                return details;
+                            };
+
+                            // WhatsApp API via Manual Send
+                            if (blastChannels.whatsapp) {
+                                try {
+                                    await api.post('marketing/send-manual', {
+                                        leadId, dealIds, toggles: { whatsapp: true },
+                                        scheduledAt: channelSchedules?.whatsapp || undefined,
+                                        hidePrice, matchContext: isFallback ? 'top' : 'perfect'
+                                    });
+                                } catch(e) { console.error('WA API error', e); }
+                            }
+                            // Email
+                            if (blastChannels.email) {
+                                try {
+                                    await api.post('marketing/send-manual', {
+                                        leadId, dealIds, toggles: { email: true },
+                                        scheduledAt: channelSchedules?.email || undefined,
+                                        hidePrice, matchContext: isFallback ? 'top' : 'perfect'
+                                    });
+                                } catch(e) { console.error('Email error', e); }
+                            }
+                            // SMS
+                            if (blastChannels.sms) {
+                                try {
+                                    await api.post('marketing/send-manual', {
+                                        leadId, dealIds, toggles: { sms: true },
+                                        scheduledAt: channelSchedules?.sms || undefined,
+                                        hidePrice, matchContext: isFallback ? 'top' : 'perfect'
+                                    });
+                                } catch(e) { console.error('SMS error', e); }
+                            }
+                            // WA App Native Link (opens background popup if possible)
+                            if (blastChannels.whatsapp_app) {
+                                const matchTitle = isFallback ? "Top properties" : "Perfect properties";
+                                let textPayload = `Hi ${leadObj.firstName || 'there'}! I've curated some ${matchTitle.toLowerCase()} for you:\n\n`;
+                                matches.forEach((d, i) => {
+                                    textPayload += `${i+1}. ${getDealDetailsString(d)}\n`;
+                                });
+                                const phone = (leadObj.mobile || leadObj.phone || '').replace(/\D/g, '');
+                                const formattedPhone = phone.length === 10 ? `91${phone}` : phone;
+                                window.open(`whatsapp://send?phone=${formattedPhone}&text=${encodeURIComponent(textPayload)}`, '_blank');
+                            }
+                            const toastMsg = isFallback ? `Matched ${matches.length} top properties & dispatched!` : `Matched ${matches.length} perfect properties & dispatched!`;
+                            toast.success(toastMsg, { id: loadToast });
+                        } else {
+                            toast.error(`No matches found for this lead.`, { id: loadToast });
+                        }
+
+                    } catch (e) {
+                        console.error("Match & Dispatch error", e);
+                        toast.error('Dispatch encountered an issue.', { id: loadToast });
+                    } finally {
+                        setIsBlasting(false);
+                    }
+                }
+
                 setIsSaving(false);
                 // Ensure modal closes and parent state resets regardless of prop presence
                 if (typeof onClose === 'function') {
@@ -1746,6 +1861,13 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                 users={users}
                                 teams={teams}
                                 customSelectStyle={customSelectStyle}
+                                blastChannels={blastChannels}
+                                setBlastChannels={setBlastChannels}
+                                channelAvailability={channelAvailability}
+                                hidePrice={hidePrice}
+                                setHidePrice={setHidePrice}
+                                channelSchedules={channelSchedules}
+                                setChannelSchedules={setChannelSchedules}
                             />
                         ) : currentTab === 'requirement' ? (
                             <RequirementSection
@@ -1760,6 +1882,13 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                 customSelectStyle={customSelectStyle}
                                 CustomMultiSelect={CustomMultiSelect}
                                 AnimatedSegmentControl={AnimatedSegmentControl}
+                                blastChannels={blastChannels}
+                                setBlastChannels={setBlastChannels}
+                                channelAvailability={channelAvailability}
+                                hidePrice={hidePrice}
+                                setHidePrice={setHidePrice}
+                                channelSchedules={channelSchedules}
+                                setChannelSchedules={setChannelSchedules}
                             />
                         ) : currentTab === 'location' ? (
                             <LocationSection
@@ -2201,8 +2330,16 @@ const SystemSection = React.memo(function SystemSection({
     handleInputChange,
     users,
     teams,
-    customSelectStyle
+    customSelectStyle,
+    blastChannels,
+    setBlastChannels,
+    channelAvailability,
+    hidePrice,
+    setHidePrice,
+    channelSchedules,
+    setChannelSchedules
 }) {
+    const isDark = true;
     return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
         {/* System Details Grouped */}
@@ -2284,6 +2421,166 @@ const SystemSection = React.memo(function SystemSection({
                 }}
             />
         </div>
+        
+        <div style={{ marginTop: '16px', background: isDark ? 'rgba(30, 41, 59, 0.4)' : '#f8fafc', padding: '16px', borderRadius: '12px', border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}` }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <label style={{ fontSize: '0.85rem', color: isDark ? '#e2e8f0' : '#334155', fontWeight: 600, display: 'block' }}>Auto-Send Matched Deals</label>
+                        <button 
+                            type="button" 
+                            onClick={() => setHidePrice(!hidePrice)}
+                            style={{
+                                background: 'transparent',
+                                border: `1px solid ${hidePrice ? '#ef4444' : (isDark ? '#475569' : '#cbd5e1')}`,
+                                color: hidePrice ? '#ef4444' : (isDark ? '#94a3b8' : '#64748b'),
+                                fontSize: '0.7rem',
+                                padding: '2px 8px',
+                                borderRadius: '12px',
+                                cursor: 'pointer',
+                                fontWeight: 600,
+                                transition: 'all 0.2s',
+                                display: 'flex', alignItems: 'center', gap: '4px'
+                            }}>
+                            <i className={`fas ${hidePrice ? 'fa-eye-slash' : 'fa-eye'}`}></i>
+                            {hidePrice ? 'Price Hidden' : 'Hide Price'}
+                        </button>
+                    </div>
+                    <span style={{ fontSize: '0.75rem', color: '#64748b' }}>If enabled, perfect matches (or top 6) will be sent via selected channels.</span>
+                </div>
+                {Object.values(blastChannels).some(v => v) && (
+                    <span style={{ fontSize: '0.75rem', color: '#10b981', background: 'rgba(16, 185, 129, 0.1)', padding: '4px 8px', borderRadius: '12px', fontWeight: 600 }}>Auto-Dispatch Active</span>
+                )}
+            </div>
+            
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <button 
+                    type="button"
+                    disabled={!channelAvailability?.whatsapp}
+                    onClick={() => setBlastChannels(prev => ({...prev, whatsapp: !prev.whatsapp}))}
+                    style={{ 
+                        padding: '6px 14px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 600, transition: 'all 0.2s', border: 'none',
+                        background: blastChannels?.whatsapp ? '#10b981' : isDark ? '#334155' : '#e2e8f0', 
+                        color: blastChannels?.whatsapp ? '#fff' : isDark ? '#94a3b8' : '#64748b', 
+                        opacity: channelAvailability?.whatsapp ? 1 : 0.4, cursor: channelAvailability?.whatsapp ? 'pointer' : 'not-allowed',
+                        display: 'flex', alignItems: 'center', gap: '6px', outline: blastChannels?.whatsapp ? '2px solid rgba(16, 185, 129, 0.4)' : 'none'
+                    }}>
+                    <i className="fab fa-whatsapp"></i> WA API
+                </button>
+                
+                <button 
+                    type="button"
+                    disabled={!channelAvailability?.email}
+                    onClick={() => setBlastChannels(prev => ({...prev, email: !prev.email}))}
+                    style={{ 
+                        padding: '6px 14px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 600, transition: 'all 0.2s', border: 'none',
+                        background: blastChannels?.email ? '#3b82f6' : isDark ? '#334155' : '#e2e8f0', 
+                        color: blastChannels?.email ? '#fff' : isDark ? '#94a3b8' : '#64748b',
+                        opacity: channelAvailability?.email ? 1 : 0.4, cursor: channelAvailability?.email ? 'pointer' : 'not-allowed',
+                        display: 'flex', alignItems: 'center', gap: '6px', outline: blastChannels?.email ? '2px solid rgba(59, 130, 246, 0.4)' : 'none'
+                    }}>
+                    <i className="fas fa-envelope"></i> Email
+                </button>
+                
+                <button 
+                    type="button"
+                    disabled={!channelAvailability?.sms}
+                    onClick={() => setBlastChannels(prev => ({...prev, sms: !prev.sms}))}
+                    style={{ 
+                        padding: '6px 14px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 600, transition: 'all 0.2s', border: 'none',
+                        background: blastChannels?.sms ? '#8b5cf6' : isDark ? '#334155' : '#e2e8f0', 
+                        color: blastChannels?.sms ? '#fff' : isDark ? '#94a3b8' : '#64748b',
+                        opacity: channelAvailability?.sms ? 1 : 0.4, cursor: channelAvailability?.sms ? 'pointer' : 'not-allowed',
+                        display: 'flex', alignItems: 'center', gap: '6px', outline: blastChannels?.sms ? '2px solid rgba(139, 92, 246, 0.4)' : 'none'
+                    }}>
+                    <i className="fas fa-comment-dots"></i> SMS
+                </button>
+
+                <button 
+                    type="button"
+                    disabled={!channelAvailability?.rcs}
+                    onClick={() => setBlastChannels(prev => ({...prev, rcs: !prev.rcs}))}
+                    style={{ 
+                        padding: '6px 14px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 600, transition: 'all 0.2s', border: 'none',
+                        background: blastChannels?.rcs ? '#0ea5e9' : isDark ? '#334155' : '#e2e8f0', 
+                        color: blastChannels?.rcs ? '#fff' : isDark ? '#94a3b8' : '#64748b', 
+                        opacity: channelAvailability?.rcs ? 1 : 0.4, cursor: channelAvailability?.rcs ? 'pointer' : 'not-allowed',
+                        display: 'flex', alignItems: 'center', gap: '6px', outline: blastChannels?.rcs ? '2px solid rgba(14, 165, 233, 0.4)' : 'none'
+                    }}>
+                    <i className="fas fa-mobile-alt"></i> RCS
+                </button>
+                
+                <button 
+                    type="button"
+                    disabled={!channelAvailability?.whatsapp_app}
+                    onClick={() => setBlastChannels(prev => ({...prev, whatsapp_app: !prev.whatsapp_app}))}
+                    style={{ 
+                        padding: '6px 14px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 600, transition: 'all 0.2s', border: 'none',
+                        background: blastChannels?.whatsapp_app ? '#059669' : isDark ? '#334155' : '#e2e8f0', 
+                        color: blastChannels?.whatsapp_app ? '#fff' : isDark ? '#94a3b8' : '#64748b', 
+                        opacity: channelAvailability?.whatsapp_app ? 1 : 0.4, cursor: channelAvailability?.whatsapp_app ? 'pointer' : 'not-allowed',
+                        display: 'flex', alignItems: 'center', gap: '6px', outline: blastChannels?.whatsapp_app ? '2px solid rgba(5, 150, 105, 0.4)' : 'none'
+                    }}>
+                    <i className="fas fa-comment"></i> WA App
+                </button>
+            </div>
+
+            {Object.values(blastChannels).some(v => v) && (
+                <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <div style={{ fontSize: '0.8rem', fontWeight: 600, color: isDark ? '#cbd5e1' : '#475569', marginBottom: '4px' }}>Dispatch Schedule</div>
+                    
+                    {['whatsapp', 'email', 'sms'].map(ch => {
+                        if (!blastChannels[ch]) return null;
+                        const labels = { whatsapp: 'WA API', email: 'Email', sms: 'SMS' };
+                        const colors = { whatsapp: '#10b981', email: 'Email', sms: 'SMS' };
+                        return (
+                            <div key={ch} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: isDark ? 'rgba(15, 23, 42, 0.5)' : '#fff', borderRadius: '8px', border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}` }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: colors[ch], fontWeight: 600 }}>
+                                    <i className={`fas ${ch === 'whatsapp' ? 'fa-whatsapp' : ch === 'email' ? 'fa-envelope' : 'fa-comment-dots'}`}></i>
+                                    {labels[ch]}
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <select 
+                                        value={channelSchedules[ch] ? 'schedule' : 'now'} 
+                                        onChange={(e) => {
+                                            if (e.target.value === 'now') {
+                                                setChannelSchedules(prev => ({...prev, [ch]: ''}));
+                                            } else {
+                                                // Default to 1 hour from now
+                                                const date = new Date();
+                                                date.setHours(date.getHours() + 1);
+                                                setChannelSchedules(prev => ({...prev, [ch]: date.toISOString().slice(0, 16)}));
+                                            }
+                                        }}
+                                        style={{ padding: '4px 8px', borderRadius: '6px', border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`, background: isDark ? '#1e293b' : '#fff', color: isDark ? '#e2e8f0' : '#334155', fontSize: '0.75rem', outline: 'none' }}
+                                    >
+                                        <option value="now">Send Now</option>
+                                        <option value="schedule">Schedule Later</option>
+                                    </select>
+                                    
+                                    {channelSchedules[ch] && (
+                                        <input 
+                                            type="datetime-local"
+                                            value={channelSchedules[ch]}
+                                            onChange={(e) => setChannelSchedules(prev => ({...prev, [ch]: e.target.value}))}
+                                            style={{ padding: '3px 8px', borderRadius: '6px', border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`, background: isDark ? '#1e293b' : '#fff', color: isDark ? '#e2e8f0' : '#334155', fontSize: '0.75rem', outline: 'none' }}
+                                        />
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })}
+                    {blastChannels.whatsapp_app && (
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: isDark ? 'rgba(15, 23, 42, 0.5)' : '#fff', borderRadius: '8px', border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}` }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: '#059669', fontWeight: 600 }}>
+                                <i className="fas fa-comment"></i> WA App (Native)
+                            </div>
+                            <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontStyle: 'italic' }}>Will open immediately on save (cannot be scheduled)</div>
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
     </div>
     );
 });
@@ -2299,8 +2596,16 @@ const RequirementSection = React.memo(function RequirementSection({
     leadMasterFields,
     customSelectStyle,
     CustomMultiSelect,
-    AnimatedSegmentControl
+    AnimatedSegmentControl,
+    blastChannels,
+    setBlastChannels,
+    channelAvailability,
+    hidePrice,
+    setHidePrice,
+    channelSchedules,
+    setChannelSchedules
 }) {
+    const isDark = true;
     return (
         <div className="no-scrollbar" style={{ padding: '4px' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -2527,15 +2832,6 @@ const RequirementSection = React.memo(function RequirementSection({
                     </div>
                 </div>
 
-                <div style={{ marginTop: '16px' }}>
-                    <label style={{ fontSize: '0.8rem', color: '#64748b', display: 'block', marginBottom: '6px' }}>Send Matched Deals via</label>
-                    <CustomMultiSelect
-                        options={['WhatsApp', 'Message', 'RCS Message', 'Mail']}
-                        value={formData.sendMatchedDeal}
-                        onChange={(val) => handleInputChange('sendMatchedDeal', val)}
-                        placeholder="Select Channels"
-                    />
-                </div>
             </div>
         </div>
     );

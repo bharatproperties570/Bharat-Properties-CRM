@@ -81,3 +81,76 @@ export const buildSmsTemplate = (deal, inv) => {
         message: `New Property Alert! ${project} @ ${price}. Book visit: bhrtprop.co/${deal._id.toString().slice(-6)} -BHARATPROPERTIES`,
     };
 };
+
+/**
+ * Build an Email campaign for MULTIPLE properties.
+ */
+export const buildMultiEmailTemplate = (deals, hidePrice, matchContext) => {
+    const title = matchContext === 'perfect' ? 'Perfect Matches' : 'Top Matches';
+    let html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #f8fafc; padding: 20px; border-radius: 12px;">
+      <div style="background: linear-gradient(135deg, #1273eb, #0949ad); padding: 24px; border-radius: 8px; text-align: center; color: white;">
+        <h1 style="margin: 0; font-size: 22px;">Here are your ${title}</h1>
+      </div>
+      <div style="background: white; padding: 24px; border-radius: 8px; margin-top: 12px;">
+        <p style="color: #334155; line-height: 1.6; margin-bottom: 20px;">
+          Based on your requirements, we've curated the following exclusive properties from Bharat Properties:
+        </p>
+        <ul style="list-style: none; padding: 0; margin: 0;">`;
+
+    let textStr = `Here are your ${title}:\n\n`;
+
+    deals.forEach((dealItem, i) => {
+        const inv = dealItem.inventoryId ? dealItem.inventoryId : dealItem;
+        const deal = dealItem.inventoryId ? dealItem : dealItem; // If it's already inventory, we just use it
+        
+        const project = inv?.projectName || deal?.projectName || 'Premium Property';
+        const priceStr = hidePrice ? 'Price on request' : (inv?.price?.value ? `₹${Number(inv.price.value).toLocaleString('en-IN')}` : 'Price on request');
+        const size = inv?.size?.value ? `${inv.size.value} ${inv.size.unit || 'Sq.Ft.'}` : '';
+        const link = `${process.env.FRONTEND_URL || 'https://crm.bharatproperties.co'}/deals/${deal._id}`;
+        
+        html += `
+            <li style="margin-bottom: 16px; padding: 16px; border: 1px solid #e2e8f0; border-radius: 8px;">
+                <h3 style="margin: 0 0 8px; color: #1e293b; font-size: 18px;">${i+1}. ${project}</h3>
+                ${size ? `<p style="margin: 0 0 4px; color: #64748b; font-size: 14px;">📐 ${size}</p>` : ''}
+                <p style="margin: 0 0 12px; font-weight: bold; color: #1273eb;">${priceStr}</p>
+                <a href="${link}" style="display: inline-block; background: #e0f2fe; color: #0284c7; padding: 8px 16px; border-radius: 6px; text-decoration: none; font-size: 14px; font-weight: bold;">View Details</a>
+            </li>`;
+            
+        textStr += `${i+1}. ${project} ${size ? '('+size+')' : ''} - ${priceStr}\\nLink: ${link}\\n\\n`;
+    });
+
+    html += `
+        </ul>
+      </div>
+      <p style="color: #94a3b8; font-size: 12px; text-align: center; margin-top: 16px;">
+        Bharat Properties · Real Estate Experts
+      </p>
+    </div>`;
+
+    return { subject: `🏢 Your ${title} from Bharat Properties`, html, text: textStr };
+};
+
+/**
+ * Build a concise SMS campaign for MULTIPLE properties.
+ */
+export const buildMultiSmsTemplate = (deals, hidePrice, matchContext) => {
+    const title = matchContext === 'perfect' ? 'Perfect Matches' : 'Top Deals';
+    let textStr = `BHARAT PROPERTIES\nYour ${title}:\n`;
+    
+    // SMS has a tight character limit, just show top 3 max if we want to stay within reasonable limits
+    const topDeals = deals.slice(0, 3);
+    topDeals.forEach((dealItem, i) => {
+        const inv = dealItem.inventoryId ? dealItem.inventoryId : dealItem;
+        const project = (inv?.projectName || dealItem?.projectName || 'Property').substring(0, 20);
+        const priceStr = hidePrice ? 'Price on req' : (inv?.price?.value ? `Rs.${Math.round(inv.price.value / 100000)}L` : 'Price on req');
+        textStr += `${i+1}. ${project} @ ${priceStr}\\n`;
+    });
+    
+    if (deals.length > 3) {
+        textStr += `+ ${deals.length - 3} more. `;
+    }
+    
+    textStr += `Check your email for full details!`;
+    return { message: textStr.substring(0, 300) }; // Hard limit to prevent SMS failure
+};

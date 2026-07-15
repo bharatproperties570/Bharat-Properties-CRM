@@ -6,6 +6,7 @@ import NurtureBot from "./services/NurtureBot.js";
 import { initMatchingScheduler } from "./services/matchingScheduler.js";
 import AgingCronService from "./services/AgingCronService.js";
 import { startNightlyPricingCron } from "./jobs/nightlyPricingCron.js";
+import { startDispatchCron } from "./jobs/dispatchCron.js";
 
 // 🧠 SENIOR ARCHITECTURE: Initialize background workers
 import "./src/workers/marketingWorker.js";

@@ -17,6 +17,7 @@ import Lead  from '../models/Lead.js';
 import Inventory from '../models/Inventory.js';
 import MarketingContent from '../models/MarketingContent.js';
 import Activity from '../models/Activity.js';
+import DispatchJob from '../models/DispatchJob.js';
 import NurtureBot from '../services/NurtureBot.js';
 import marketingAudienceService from '../services/MarketingAudienceService.js';
 import { normalizePhone } from '../utils/normalization.js';
@@ -665,136 +666,6 @@ export const sendCampaign = async (req, res) => {
     }
 };
 
-export const sendManualMatch = async (req, res) => {
-    console.log('[ManualDispatch] Incoming Request:', { body: req.body, user: req.user?._id });
-    try {
-        let { dealId, leadId, dealIds, leadIds, toggles } = req.body;
-        
-        // Normalize to arrays
-        const finalDealIds = Array.isArray(dealIds) ? dealIds : (dealId ? [dealId] : []);
-        const finalLeadIds = Array.isArray(leadIds) ? leadIds : (leadId ? [leadId] : []);
-
-        if (finalDealIds.length === 0 || finalLeadIds.length === 0) {
-            console.error('[ManualDispatch] Bad Request: Missing IDs');
-            return res.status(400).json({ success: false, error: 'Deal IDs and Lead IDs are required' });
-        }
-
-        // 1. Load Services & Templates
-        const { buildWhatsAppTemplate, buildEmailTemplate, buildSmsTemplate } = await import('../services/CampaignConfig.js');
-        const waService = (await import('../services/WhatsAppService.js')).default;
-        const smsSvc = (await import('../services/SmsService.js')).default;
-        const eSvc = (await import('../services/email.service.js')).default;
-        const Activity = mongoose.model('Activity');
-
-        const visibilityFilter = await getVisibilityFilter(req.user);
-        const overallResults = [];
-
-        // 2. Iterate through cross-product (or usually it's 1-to-N or N-to-1)
-        for (const dId of finalDealIds) {
-            // Fetch Property/Deal (Polymorphic) - Strictly Scoped
-            let propertyData = await Inventory.findOne({ _id: dId, ...visibilityFilter }).lean();
-            let isInventory = true;
-            if (!propertyData) {
-                propertyData = await Deal.findOne({ _id: dId, ...visibilityFilter }).lean();
-                isInventory = false;
-            }
-            if (!propertyData) continue;
-
-            const mockInv = isInventory ? propertyData : (propertyData.inventoryId ? await Inventory.findOne({ _id: propertyData.inventoryId, ...visibilityFilter }).lean() : null);
-
-            for (const lId of finalLeadIds) {
-                const lead = await Lead.findOne({ _id: lId, ...visibilityFilter }).lean();
-                if (!lead) continue;
-
-                console.log(`[ManualDispatch] Processing Match: Prop:${dId} -> Lead:${lId}`);
-                const matchResults = [];
-
-                // 🧠 ENTERPRISE GRADE: Resolve variables using VariableResolutionService
-                // This handles {{1}}, {{2}}, and our new {{matchList}} automatically.
-                if (toggles?.whatsapp && (lead.mobile || lead.phones?.[0])) {
-                    const mobile = lead.mobile || lead.phones?.[0]?.number || lead.phones?.[0];
-                    
-                    // Inject selected properties into lead context for the resolver
-                    const enrichedLead = { 
-                        ...lead, 
-                        matchedProperties: finalDealIds.map(id => ({ inventoryId: id })) 
-                    };
-
-                    // 🧠 DYNAMIC MAPPING: Fetch from SystemSettings (Variable Registry)
-                    const SystemSetting = mongoose.model('SystemSetting');
-                    const registrySetting = await SystemSetting.findOne({ key: 'messaging_variable_registry' }).lean();
-                    const mapping = (registrySetting && registrySetting.value) ? registrySetting.value : {
-                        "1": "name",
-                        "2": "location",
-                        "3": "matchList"
-                    };
-
-                    const resolvedParams = (await import('../services/VariableResolutionService.js')).default.resolveForLeads(enrichedLead, mapping);
-                    
-                    // Construct the message based on the resolved parameters
-                    // We build a message that mimics the template structure
-                    let message = `Hi ${resolvedParams["1"] || 'Customer'} 👋\n\nBased on your requirement in ${resolvedParams["2"] || 'your preferred area'}, here are a few suitable options:\n\n${resolvedParams["3"] || resolvedParams["4"] || resolvedParams["5"] || 'Property matches below:'}`;
-                    
-                    // If matchList was mapped to another index, use that
-                    Object.keys(mapping).forEach(key => {
-                        if (mapping[key] === 'matchList') {
-                            message = `Hi ${resolvedParams["1"] || 'Customer'} 👋\n\nBased on your requirement in ${resolvedParams["2"] || 'your preferred area'}, here are a few suitable options:\n\n${resolvedParams[key]}`;
-                        }
-                    });
-
-                    try {
-                        const res = await waService.sendMessage(mobile, message);
-                        matchResults.push({ channel: 'whatsapp', status: res.success ? 'success' : 'failed' });
-                    } catch (err) { matchResults.push({ channel: 'whatsapp', status: 'failed', error: err.message }); }
-                }
-
-                // Dispatch Email
-                const emailAddr = lead.email || (Array.isArray(lead.emails) ? (lead.emails[0]?.address || lead.emails[0]) : null);
-                if (toggles?.email && emailAddr) {
-                    const template = buildEmailTemplate(propertyData, mockInv);
-                    try {
-                        await eSvc.sendEmail(emailAddr, template.subject, template.text, template.html);
-                        matchResults.push({ channel: 'email', status: 'success' });
-                    } catch (err) { matchResults.push({ channel: 'email', status: 'failed', error: err.message }); }
-                }
-
-                // Dispatch SMS
-                if (toggles?.sms && (lead.mobile || lead.phones?.[0])) {
-                    const mobile = lead.mobile || lead.phones?.[0]?.number || lead.phones?.[0];
-                    const template = buildSmsTemplate(propertyData, mockInv);
-                    try {
-                        const res = await smsSvc.sendSms(mobile, template.message);
-                        matchResults.push({ channel: 'sms', status: res.success ? 'success' : 'failed' });
-                    } catch (err) { matchResults.push({ channel: 'sms', status: 'failed', error: err.message }); }
-                }
-
-                // Log Activity
-                try {
-                    await Activity.create({
-                        type: 'Marketing',
-                        subject: `Manual Property Share: ${propertyData.projectName || propertyData.unitNo || 'Property'}`,
-                        entityType: 'Lead',
-                        entityId: lead._id,
-                        dueDate: new Date(),
-                        performedAt: new Date(),
-                        status: 'Completed',
-                        description: `Dispatched details to ${lead.fullName || lead.firstName} via ${matchResults.filter(r => r.status === 'success').map(r => r.channel).join(', ') || 'none'}`,
-                        details: { results: matchResults, toggles, inventoryId: isInventory ? dId : (propertyData.inventoryId || null) },
-                        performedBy: req.user?.firstName || 'System',
-                        assignedTo: req.user?._id
-                    });
-                } catch (logErr) { console.error('[ManualDispatch] Activity Log Error:', logErr.message); }
-
-                overallResults.push({ dealId: dId, leadId: lId, results: matchResults });
-            }
-        }
-
-        res.json({ success: true, results: overallResults });
-    } catch (error) {
-        console.error('[ManualDispatch] FATAL ERROR:', error);
-        res.status(500).json({ success: false, error: error.message });
-    }
-};
 
 export const activateDrip = async (req, res) => {
     try {
@@ -999,7 +870,7 @@ async function resolveMetaComponents(templateId, recipient, meta, registryMappin
             size: meta.features?.[0] || ''
         }]
     };
-    const resolvedMap = VariableResolutionService.resolveForLeads(enrichedContext, registryMapping);
+    const resolvedMap = (await import("../services/VariableResolutionService.js")).default.resolveForLeads(enrichedContext, registryMapping);
 
     // 2. Build Components Sequentially
     const components = [];
@@ -1128,7 +999,7 @@ async function _dispatchBNADirectly(data) {
                         `💰 *Price:* ${meta.price}\n📍 *Location:* ${meta.location}\n` +
                         `📐 *Specs:* ${meta.features?.join(' | ') || 'N/A'}\n\n` +
                         `🔗 Ref: ${shareableId}`;
-                    waRes = await waService.sendMessage(recipient.mobile, text);
+                    waRes = await (await import("../services/WhatsAppService.js")).default.sendMessage(recipient.mobile, text);
                 }
                 results.push({ channel: 'whatsapp', status: waRes.success ? 'success' : 'failed', error: waRes.error });
             } catch (e) { results.push({ channel: 'whatsapp', status: 'failed', error: e.message }); }
@@ -1136,7 +1007,7 @@ async function _dispatchBNADirectly(data) {
 
         if (channels.includes('email') && recipient.email) {
             try {
-                await eSvc.sendEmail(recipient.email, emailSubject, '', emailHtml);
+                await (await import("../services/email.service.js")).default.sendEmail(recipient.email, emailSubject, '', emailHtml);
                 results.push({ channel: 'email', status: 'success' });
             } catch (e) { results.push({ channel: 'email', status: 'failed', error: e.message }); }
         }
@@ -1289,7 +1160,7 @@ export async function _dispatchDirectly(data) {
                 if (templateName) {
                     // 🧠 SENIOR PROFESSIONAL: Resolve Template Components for Direct Dispatch
                     const VariableResolutionService = (await import('../services/VariableResolutionService.js')).default;
-                    const recipientParams = VariableResolutionService.resolveForLeads(resolutionData, waMapping || {});
+                    const recipientParams = (await import("../services/VariableResolutionService.js")).default.resolveForLeads(resolutionData, waMapping || {});
                     
                     let finalComponents = [];
                     (templateComponents || []).forEach(comp => {
@@ -1319,7 +1190,7 @@ export async function _dispatchDirectly(data) {
                     msgId = res.messageId;
                     debugLog(`LEAD[${i}]: WA Result: ${success} | ID: ${msgId} | Error: ${res.error || 'none'}`);
                 } else {
-                    const res = await waService.sendMessage(lead.mobile, resolvedContent);
+                    const res = await (await import("../services/WhatsAppService.js")).default.sendMessage(lead.mobile, resolvedContent);
                     success = res.success;
                     msgId = res.messageId;
                 }
@@ -1440,6 +1311,165 @@ export const getVariableRegistry = async (req, res) => {
         const setting = await SystemSetting.findOne({ key: 'messaging_variable_registry' }).lean();
         res.json({ success: true, data: setting?.value || { "1": "customer_name", "2": "property_list_default" } });
     } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+// Define the logic that actually runs the dispatch
+export const executeDispatch = async (payload, user) => {
+    const { dealIds, leadIds, toggles, hidePrice, matchContext } = payload;
+    
+    const finalDealIds = Array.isArray(dealIds) ? dealIds : [];
+    const finalLeadIds = Array.isArray(leadIds) ? leadIds : [];
+
+    const Inventory = mongoose.model('Inventory');
+    const Deal = mongoose.model('Deal');
+    const Lead = mongoose.model('Lead');
+    const Activity = mongoose.model('Activity');
+    const SystemSetting = mongoose.model('SystemSetting');
+
+    const visibilityFilter = user ? { /* whatever your getVisibilityFilter returns */ } : {};
+
+    // 1. Fetch all deals FIRST
+    const populatedDeals = [];
+    for (const dId of finalDealIds) {
+        let propertyData = await Inventory.findOne({ _id: dId, ...visibilityFilter }).lean();
+        if (!propertyData) {
+            propertyData = await Deal.findOne({ _id: dId, ...visibilityFilter }).lean();
+        }
+        if (propertyData) populatedDeals.push(propertyData);
+    }
+
+    if (populatedDeals.length === 0) return { success: false, message: 'No properties found.' };
+
+    const overallResults = [];
+
+    // 2. Iterate over Leads (Send ONE consolidated message per lead)
+    for (const lId of finalLeadIds) {
+        const lead = await Lead.findOne({ _id: lId, ...visibilityFilter }).lean();
+        if (!lead) continue;
+
+        console.log(`[ManualDispatch] Processing Match for Lead:${lId} with ${populatedDeals.length} properties.`);
+        const matchResults = [];
+
+        // WhatsApp
+        if (toggles?.whatsapp && (lead.mobile || lead.phones?.[0])) {
+            const mobile = lead.mobile || lead.phones?.[0]?.number || lead.phones?.[0];
+            
+            // Enrich lead with properties for VariableResolutionService
+            const enrichedLead = { 
+                ...lead, 
+                matchedProperties: populatedDeals.map(p => ({ inventoryId: p })) 
+            };
+
+            const registrySetting = await SystemSetting.findOne({ key: 'messaging_variable_registry' }).lean();
+            const mapping = (registrySetting && registrySetting.value) ? registrySetting.value : {
+                "1": "name",
+                "2": "location",
+                "3": "matchList"
+            };
+
+            const resolvedParams = (await import("../services/VariableResolutionService.js")).default.resolveForLeads(enrichedLead, mapping);
+            
+            let message = `Hi ${resolvedParams["1"] || 'Customer'} 👋\n\nBased on your requirement in ${resolvedParams["2"] || 'your preferred area'}, here are a few suitable options:\n\n${resolvedParams["3"] || resolvedParams["4"] || resolvedParams["5"] || 'Property matches below:'}`;
+            
+            Object.keys(mapping).forEach(key => {
+                if (mapping[key] === 'matchList') {
+                    message = `Hi ${resolvedParams["1"] || 'Customer'} 👋\n\nBased on your requirement in ${resolvedParams["2"] || 'your preferred area'}, here are a few suitable options:\n\n${resolvedParams[key]}`;
+                }
+            });
+
+            try {
+                const res = await (await import("../services/WhatsAppService.js")).default.sendMessage(mobile, message);
+                matchResults.push({ channel: 'whatsapp', status: res.success ? 'success' : 'failed' });
+            } catch (err) { matchResults.push({ channel: 'whatsapp', status: 'failed', error: err.message }); }
+        }
+
+        // Email
+        const emailAddr = lead.email || (Array.isArray(lead.emails) ? (lead.emails[0]?.address || lead.emails[0]) : null);
+        if (toggles?.email && emailAddr) {
+            const template = (await import("../services/CampaignConfig.js")).buildMultiEmailTemplate(populatedDeals, hidePrice, matchContext);
+            try {
+                await (await import("../services/email.service.js")).default.sendEmail(emailAddr, template.subject, template.text, template.html);
+                matchResults.push({ channel: 'email', status: 'success' });
+            } catch (err) { matchResults.push({ channel: 'email', status: 'failed', error: err.message }); }
+        }
+
+        // SMS
+        if (toggles?.sms && (lead.mobile || lead.phones?.[0])) {
+            const mobile = lead.mobile || lead.phones?.[0]?.number || lead.phones?.[0];
+            const template = (await import("../services/CampaignConfig.js")).buildMultiSmsTemplate(populatedDeals, hidePrice, matchContext);
+            try {
+                const res = await (await import("../services/SmsService.js")).default.sendSms(mobile, template.message);
+                matchResults.push({ channel: 'sms', status: res.success ? 'success' : 'failed' });
+            } catch (err) { matchResults.push({ channel: 'sms', status: 'failed', error: err.message }); }
+        }
+
+        // Log Activity
+        try {
+            await Activity.create({
+                type: 'Marketing',
+                subject: `Sent ${matchContext === 'perfect' ? 'Perfect Matches' : 'Top Matches'} (${populatedDeals.length} properties)`,
+                entityType: 'Lead',
+                entityId: lead._id,
+                dueDate: new Date(),
+                performedAt: new Date(),
+                status: 'Completed',
+                description: `Dispatched details to ${lead.fullName || lead.firstName} via ${matchResults.filter(r => r.status === 'success').map(r => r.channel).join(', ') || 'none'}`,
+                details: { results: matchResults, toggles, matchedCount: populatedDeals.length, hidePrice },
+                performedBy: user?.firstName || 'System',
+                assignedTo: user?._id
+            });
+        } catch (logErr) { console.error('[ManualDispatch] Activity Log Error:', logErr.message); }
+
+        overallResults.push({ leadId: lId, results: matchResults });
+    }
+    
+    return { success: true, results: overallResults };
+};
+
+export const sendManualMatch = async (req, res) => {
+    console.log('[ManualDispatch] Incoming Request:', { body: req.body, user: req.user?._id });
+    try {
+        let { dealId, leadId, dealIds, leadIds, toggles, hidePrice, matchContext, scheduledAt } = req.body;
+        
+        // Normalize to arrays
+        const finalDealIds = Array.isArray(dealIds) ? dealIds : (dealId ? [dealId] : []);
+        const finalLeadIds = Array.isArray(leadIds) ? leadIds : (leadId ? [leadId] : []);
+
+        if (finalDealIds.length === 0 || finalLeadIds.length === 0) {
+            console.error('[ManualDispatch] Bad Request: Missing IDs');
+            return res.status(400).json({ success: false, error: 'Deal IDs and Lead IDs are required' });
+        }
+
+        if (scheduledAt) {
+            const delay = new Date(scheduledAt).getTime() - Date.now();
+            if (delay > 0) {
+                console.log(`[ManualDispatch] Writing to DispatchJob for ${scheduledAt}`);
+                await DispatchJob.create({
+                    leadIds: finalLeadIds,
+                    dealIds: finalDealIds,
+                    toggles: toggles || {},
+                    hidePrice: hidePrice || false,
+                    matchContext: matchContext || 'perfect',
+                    scheduledAt: new Date(scheduledAt),
+                    status: 'pending'
+                });
+                return res.json({ success: true, message: `Dispatched correctly. Scheduled for ${new Date(scheduledAt).toLocaleString()}` });
+            }
+        }
+        
+        // Execute immediately
+        const payload = { dealIds: finalDealIds, leadIds: finalLeadIds, toggles, hidePrice, matchContext };
+        const result = await executeDispatch(payload, req.user);
+        
+        if (!result.success) {
+            return res.status(400).json(result);
+        }
+
+        res.json(result);
+    } catch (error) {
+        console.error('[ManualDispatch] FATAL ERROR:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 };
