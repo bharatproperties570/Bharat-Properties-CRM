@@ -332,11 +332,17 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
 
     // Progressive Rendering
     const [visibleCount, setVisibleCount] = useState(15);
-    const displayedItems = useMemo(() => matchedItems.slice(0, visibleCount), [matchedItems, visibleCount]);
+    const [showOnlyPerfectMatch, setShowOnlyPerfectMatch] = useState(false);
+    
+    const displayedItems = useMemo(() => {
+        const filtered = showOnlyPerfectMatch ? matchedItems.filter(i => i.isPreferredMatch) : matchedItems;
+        return filtered.slice(0, visibleCount);
+    }, [matchedItems, visibleCount, showOnlyPerfectMatch]);
 
     const handleSelectAll = (e) => {
+        const itemsToSelect = showOnlyPerfectMatch ? matchedItems.filter(i => i.isPreferredMatch) : matchedItems;
         if (e.target.checked) {
-            setSelectedItems(matchedItems.map(item => item.id || item.unitNo));
+            setSelectedItems(itemsToSelect.map(item => item.id || item.unitNo));
         } else {
             setSelectedItems([]);
         }
@@ -1019,12 +1025,24 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 8px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            <input type="checkbox" onChange={handleSelectAll} checked={selectedItems.length === matchedItems.length && matchedItems.length > 0} />
+                            <input 
+                                type="checkbox" 
+                                onChange={handleSelectAll} 
+                                checked={selectedItems.length === (showOnlyPerfectMatch ? matchedItems.filter(i => i.isPreferredMatch).length : matchedItems.length) && (showOnlyPerfectMatch ? matchedItems.filter(i => i.isPreferredMatch).length : matchedItems.length) > 0} 
+                            />
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <span style={{ fontSize: '0.95rem', fontWeight: 700 }}>{matchedItems.length} Matches Found</span>
+                                <span style={{ fontSize: '0.95rem', fontWeight: 700 }}>{showOnlyPerfectMatch ? matchedItems.filter(i => i.isPreferredMatch).length : matchedItems.length} Matches Found</span>
                                 {matchedItems.filter(i => i.isPreferredMatch).length > 0 && (
-                                    <span style={{ fontSize: '0.75rem', fontWeight: 800, background: '#10b981', color: '#fff', padding: '2px 8px', borderRadius: '100px' }}>
-                                        {matchedItems.filter(i => i.isPreferredMatch).length} Pref.
+                                    <span 
+                                        onClick={() => setShowOnlyPerfectMatch(!showOnlyPerfectMatch)}
+                                        style={{ 
+                                            fontSize: '0.75rem', fontWeight: 800, 
+                                            background: showOnlyPerfectMatch ? '#eab308' : '#10b981', 
+                                            color: '#fff', padding: '2px 8px', borderRadius: '100px',
+                                            cursor: 'pointer', transition: 'all 0.2s',
+                                            boxShadow: showOnlyPerfectMatch ? '0 0 8px rgba(234, 179, 8, 0.4)' : 'none'
+                                        }}>
+                                        {matchedItems.filter(i => i.isPreferredMatch).length} Perfect Match
                                     </span>
                                 )}
                             </div>
