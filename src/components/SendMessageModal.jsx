@@ -15,7 +15,8 @@ const SendMessageModal = ({
     initialProperty = null,
     initialProperties = [],
     initialTemplateId = '',
-    initialChannel = 'SMS'
+    initialChannel = 'SMS',
+    triggerContext = null
 }) => {
     const { fireEvent } = useTriggers();
     const { getLookupValue, lookups, projects, sizes } = usePropertyConfig();
@@ -95,17 +96,10 @@ const SendMessageModal = ({
         }
     }, [initialProperty]);
 
-    const mockReferences = {
-        property: propertyRefs.length > 0 ? propertyRefs : [
-            { id: 'p1', name: 'Luxury Villa in Sector 17', attachmentType: 'pdf', fileName: 'Villa_Brochure.pdf', link: 'https://bharatprops.com/b/123' },
-            { id: 'p2', name: '3BHK Apartment (Zirakpur)', attachmentType: 'image', fileName: 'Apartment_View.jpg', link: 'https://bharatprops.com/i/456' },
-        ],
-        booking: [
-            { id: 'b1', name: 'Unit A-402 (Highland Park)', attachmentType: 'pdf', fileName: 'Booking_Receipt_A402.pdf' },
-        ],
-        invoice: [
-            { id: 'inv1', name: 'INV-2023-001 (₹50k)', attachmentType: 'pdf', fileName: 'Invoice_001_Signed.pdf' },
-        ]
+    const dynamicReferences = {
+        property: propertyRefs,
+        booking: [],
+        invoice: []
     };
 
     // Scheduling
@@ -125,6 +119,12 @@ const SendMessageModal = ({
             const templates = Array.isArray(res) ? res : (res && Array.isArray(res.data) ? res.data : []);
             if (templates && templates.length > 0) {
                 setSmsTemplates(templates);
+                if (triggerContext && !initialTemplateId && isOpen) {
+                    const match = templates.find(t => t.systemContext?.includes(triggerContext));
+                    if (match && channel === 'SMS') {
+                        setTemplateId(match.id || match._id);
+                    }
+                }
             } else {
                 setSmsTemplates(smsTemplatesConst);
             }
@@ -143,6 +143,12 @@ const SendMessageModal = ({
             const templates = Array.isArray(res) ? res : (res && Array.isArray(res.templates) ? res.templates : []);
             if (templates && templates.length > 0) {
                 setWhatsappTemplates(templates);
+                if (triggerContext && !initialTemplateId && isOpen) {
+                    const match = templates.find(t => t.systemContext?.includes(triggerContext));
+                    if (match && channel === 'WHATSAPP') {
+                        setTemplateId(match.id || match._id);
+                    }
+                }
             } else {
                 setWhatsappTemplates(whatsappTemplatesConst);
             }
@@ -205,342 +211,48 @@ const SendMessageModal = ({
     };
 
 
-    // 🚀 Reactive Template Resolver
+
+    // 🚀 Remote Template Preview Resolver
     useEffect(() => {
         if (!templateId) return;
 
-        let resolvedBody = '';
-        const components = [];
-        const recipient = recipients[0] || {};
-
-        // Helper to retrieve flat or nested inventory fields
-        // Checks backend-enriched _label fields first (prevents ObjectId leakage in WhatsApp variables)
-        const getPropVal = (key) => {
-            if (properties.length === 0) return '';
-            const p = properties[0];
-            // First priority: backend-enriched label field (e.g. facing_label, roadWidth_label)
-            const labelKey = `${key}_label`;
-            if (p.inventoryId && typeof p.inventoryId === 'object' && p.inventoryId[labelKey] !== undefined && p.inventoryId[labelKey] !== null && p.inventoryId[labelKey] !== '') {
-                return p.inventoryId[labelKey];
-            }
-            let val = p[key];
-            if (val === null || val === undefined || val === '') {
-                if (p.unitSpecification && typeof p.unitSpecification === 'object') {
-                    val = p.unitSpecification[key];
-                }
-            }
-            if (val === null || val === undefined || val === '') {
-                if (p.inventoryId && typeof p.inventoryId === 'object') {
-                    val = p.inventoryId[key];
-                    if ((val === null || val === undefined || val === '') && p.inventoryId.unitSpecification && typeof p.inventoryId.unitSpecification === 'object') {
-                        val = p.inventoryId.unitSpecification[key];
-                    }
-                }
-            }
-            return val !== undefined && val !== null ? val : '';
-        };
-
-        // Helper to resolve lookups to human-readable labels
-        const resolveLookup = (val, type) => {
-            if (!val) return '';
-            
-            let idVal = val;
-            if (typeof val === 'object') {
-                const label = val.lookup_value || val.name || val.label || val.fullName;
-                if (label && typeof label !== 'object' && !/^[0-9a-fA-F]{24}$/.test(String(label))) return String(label);
-                idVal = val._id || val.id || val;
-            }
-
-            const idStr = String(idVal).trim();
-            if (!/^[0-9a-fA-F]{24}$/.test(idStr)) {
-                return idStr;
-            }
-
-            const resolved = getLookupValue(type, idStr);
-            if (resolved && typeof resolved !== 'object' && !/^[0-9a-fA-F]{24}$/.test(String(resolved))) {
-                return String(resolved);
-            }
-
-            // Fallback direct scanners
-            if (lookups) {
-                const normType = String(type || '').toLowerCase().replace(/\s+/g, '');
-                const typeKey = Object.keys(lookups).find(k => k.toLowerCase().replace(/\s+/g, '') === normType);
-                const lookupList = typeKey ? lookups[typeKey] : null;
-                if (Array.isArray(lookupList)) {
-                    const found = lookupList.find(l => String(l._id || l.id) === idStr);
-                    if (found) {
-                        const foundVal = found.lookup_value || found.name || found.label;
-                        if (foundVal && !/^[0-9a-fA-F]{24}$/.test(String(foundVal))) return String(foundVal);
-                    }
-                }
-
-                for (const cat in lookups) {
-                    if (Array.isArray(lookups[cat])) {
-                        const found = lookups[cat].find(l => String(l._id || l.id) === idStr);
-                        if (found) {
-                            const foundVal = found.lookup_value || found.name || found.label;
-                            if (foundVal && !/^[0-9a-fA-F]{24}$/.test(String(foundVal))) return String(foundVal);
-                        }
-                    }
-                }
-            }
-
-            if (sizes && Array.isArray(sizes)) {
-                const foundSize = sizes.find(s => String(s._id || s.id) === idStr);
-                if (foundSize) {
-                    const foundVal = foundSize.name || foundSize.lookup_value;
-                    if (foundVal && !/^[0-9a-fA-F]{24}$/.test(String(foundVal))) return String(foundVal);
-                }
-            }
-
-            if (projects && Array.isArray(projects)) {
-                const foundProj = projects.find(p => String(p._id || p.id) === idStr);
-                if (foundProj) {
-                    const foundVal = foundProj.name || foundProj.projectName || foundProj.title;
-                    if (foundVal && !/^[0-9a-fA-F]{24}$/.test(String(foundVal))) return String(foundVal);
-                }
-            }
-
-            return '';
-        };
-
-        const categoryRaw = getPropVal('category') || getPropVal('propertyType');
-        const categoryResolved = resolveLookup(categoryRaw, 'Category');
-
-        const subCategoryRaw = getPropVal('subCategory');
-        const subCategoryResolved = resolveLookup(subCategoryRaw, 'SubCategory');
-
-        const builtupTypeRaw = getPropVal('builtupType');
-        // Backend pre-resolves ObjectIds to strings; resolveLookup is a client-side fallback
-        const builtupTypeResolved = builtupTypeRaw && !/^[0-9a-fA-F]{24}$/.test(String(builtupTypeRaw))
-            ? builtupTypeRaw // Already a human-readable string from backend
-            : resolveLookup(builtupTypeRaw, 'BuiltupType');
-
-        const sizeLabelRaw = getPropVal('sizeLabel') || getPropVal('sizeConfig');
-        const sizeLabelResolved = (sizeLabelRaw && !/^[0-9a-fA-F]{24}$/.test(String(sizeLabelRaw)))
-            ? sizeLabelRaw
-            : (resolveLookup(sizeLabelRaw, 'Size') || getPropVal('size'));
-
-        const directionRaw = getPropVal('direction');
-        const directionResolved = directionRaw && !/^[0-9a-fA-F]{24}$/.test(String(directionRaw))
-            ? directionRaw
-            : resolveLookup(directionRaw, 'Direction');
-
-        const facingRaw = getPropVal('facing');
-        const facingResolved = facingRaw && !/^[0-9a-fA-F]{24}$/.test(String(facingRaw))
-            ? facingRaw
-            : resolveLookup(facingRaw, 'Facing');
-
-        const roadWidthRaw = getPropVal('roadWidth');
-        const roadWidthResolved = roadWidthRaw && !/^[0-9a-fA-F]{24}$/.test(String(roadWidthRaw))
-            ? roadWidthRaw
-            : resolveLookup(roadWidthRaw, 'RoadWidth');
-
-        const sizeRaw = getPropVal('size');
-        const sizeVal = typeof sizeRaw === 'object' ? (sizeRaw.value ? `${sizeRaw.value} ${sizeRaw.unit || 'Sq.Yd.'}` : '') : sizeRaw;
-
-        const priceVal = getPropVal('price');
-        const projectNameVal = getPropVal('projectName') || getPropVal('unitNo') || 'Premium Listing';
-
-        const locationRaw = getPropVal('location') || getPropVal('city') || getPropVal('sector');
-        const locationResolved = resolveLookup(locationRaw, 'Location') || resolveLookup(locationRaw, 'City') || resolveLookup(locationRaw, 'Locality') || locationRaw;
-
-        const propertyListDefault = properties.map((p, i) => {
-            const propVal = (key) => {
-                let v = p[key];
-                if (v === null || v === undefined || v === '') {
-                    if (p.inventoryId && typeof p.inventoryId === 'object') v = p.inventoryId[key];
-                }
-                return v !== undefined && v !== null ? v : '';
-            };
-            const loc = propVal('location') || propVal('city') || propVal('sector');
-            const resolvedLoc = resolveLookup(loc, 'Location') || resolveLookup(loc, 'City') || resolveLookup(loc, 'Locality') || loc || 'Sector';
-            return `${i + 1}️⃣ ${propVal('unitNo') || 'Unit'} - ${resolvedLoc}`;
-        }).join('\n');
-
-        const propertyListDetailed = properties.map((p, i) => {
-            const propVal = (key) => {
-                let v = p[key];
-                if (v === null || v === undefined || v === '') {
-                    if (p.inventoryId && typeof p.inventoryId === 'object') v = p.inventoryId[key];
-                }
-                return v !== undefined && v !== null ? v : '';
-            };
-            const loc = propVal('location') || propVal('city') || propVal('sector');
-            const resolvedLoc = resolveLookup(loc, 'Location') || resolveLookup(loc, 'City') || resolveLookup(loc, 'Locality') || loc || 'Sector';
-            const szRaw = propVal('size');
-            const szVal = typeof szRaw === 'object' ? (szRaw.value ? `${szRaw.value} ${szRaw.unit || 'Sq.Yd.'}` : '') : szRaw;
-            return `${i + 1}️⃣ 📍 ${resolvedLoc}\n📏 Size: ${szVal}\n💰 Price: ₹${propVal('price') || ''}`;
-        }).join('\n');
-
-        const agentName = recipient.assignedTo?.name || recipient.owner || recipient.agentName || currentUser?.name || 'Our Representative';
-        const agentMobile = recipient.assignment?.assignedTo?.mobile || recipient.assignedTo?.mobile || recipient.ownerMobile || recipient.agentMobile || currentUser?.mobile || currentUser?.phone || '';
-        const agentDetails = agentMobile ? `${agentName} (📞 ${agentMobile})` : agentName;
-
-        const unifiedContext = {
-            // Contact/Lead Exact Fields
-            'name': recipient.name,
-            'firstName': recipient.firstName || recipient.name?.split(' ')[0] || 'customer',
-            'surname': recipient.surname || '',
-            'mobile': recipient.phone || recipient.mobile || '',
-            'email': recipient.email || '',
-            'source': recipient.source || '',
-            'status': recipient.status || recipient.stage || '',
-            'requirement': recipient.requirement || recipient.requirementType || 'property',
-            'budgetMin': recipient.budgetMin || recipient.budget || '',
-            'budgetMax': recipient.budgetMax || '',
-            'areaMin': recipient.areaMin || '',
-            'areaMax': recipient.areaMax || '',
-            'locCity': recipient.locCity || recipient.location || '',
-            'locArea': recipient.locArea || '',
-            
-            // System Details
-            'assignedTo': agentDetails,
-            'ownerMobile': agentMobile,
-            'ownerEmail': recipient.assignedTo?.email || currentUser?.email || '',
-
-            // Project/Inventory Exact Fields
-            'projectName': projectNameVal,
-            'unitNo': getPropVal('unitNo'),
-            'block': getPropVal('block'),
-            'unitType': resolveLookup(getPropVal('unitType'), 'UnitType'),
-            'category': categoryResolved,
-            'subCategory': subCategoryResolved,
-            'builtupType': builtupTypeResolved,
-            'sizeType': sizeLabelResolved, // sizeType maps directly to the resolved size label as requested by the user
-            'sizeLabel': sizeLabelResolved,
-            'direction': directionResolved,
-            'facing': facingResolved,
-            'roadWidth': roadWidthResolved,
-            'price': priceVal || 'N/A',
-            'size': sizeVal || 'N/A',
-            'location': locationResolved || recipient.location || 'our project',
-            
-            // Computed / Summary Helpers
-            'propertyList': propertyListDefault,
-            'property_list_default': propertyListDefault,
-            'property_list_detailed': propertyListDetailed,
-            'requirementSummary': (recipient.requirement || recipient.requirementType) ? `Looking for ${recipient.requirement || recipient.requirementType} in ${locationResolved || recipient.location || 'our area'} budget ${recipient.budgetMin || recipient.budget || ''}` : 'Your property requirement',
-            'propertiesCount': properties.length || 0,
-            
-            // Fallbacks for older numeric mapping
-            'customer_name': recipient.firstName || recipient.name?.split(' ')[0] || 'customer'
-        };
-
-        const resolveVars = (text) => {
-            if (!text) return text;
-            return text.replace(/{{([^}]+)}}/g, (match, vIdx) => {
-                const cleanKey = vIdx.trim();
+        const fetchPreview = async () => {
+            try {
+                // If it's SMS or RCS, we could still do local or rely on backend. For 100% enterprise, we send all to backend.
+                // However, SMS/RCS templates might not be fully supported by the new backend method if we only wired whatsappService.previewTemplate.
+                // Wait, whatsappService.previewTemplate uses `whatsapp-config/preview` which handles SMS, WHATSAPP, RCS.
                 
-                // 1. DLT Index-based mapping
-                if (/^\d+$/.test(cleanKey)) {
-                    const defaultRegistry = {
-                        '1': 'customer_name',
-                        '2': 'property_list_default',
-                        '3': 'assignedTo'
-                    };
-                    const mappedField = variableRegistry[cleanKey] || variableRegistry[String(cleanKey)] || defaultRegistry[String(cleanKey)];
-                    const val = unifiedContext[mappedField] !== undefined ? renderValue(unifiedContext[mappedField], '') : match;
-                    components.push({ type: 'text', text: val });
-                    return val;
-                }
-                
-                // 2. Standardized Named Variables (e.g. {{firstName}}, {{location}})
-                if (unifiedContext[cleanKey] !== undefined) {
-                    const val = renderValue(unifiedContext[cleanKey], '');
-                    components.push({ type: 'text', text: val });
-                    return val;
-                }
-                
-                // 3. Fallbacks for specific legacy/hardcoded strings
-                const legacyHardcoded = {
-                    'MatchCount': 'several',
-                    'OldPrice': 'N/A',
-                    'NewPrice': 'N/A',
-                    'Savings': 'N/A',
-                    'Deadline': 'tomorrow',
-                    'Amount': 'the due amount',
-                    'DueDate': 'the due date',
-                    'PaymentType': 'payment',
-                    'PaymentMethods': 'Bank Transfer / UPI',
-                    'MatchPercentage': '95',
-                    'MatchReasons': '- Matches your budget\n- Preferred location\n- Right size',
-                    'CompetingBuyers': '2',
-                    'Slot1': 'Tomorrow 10 AM',
-                    'Slot2': 'Tomorrow 2 PM',
-                    'Slot3': 'Day after 11 AM',
-                    'PositiveFeedback': 'Location, Amenities',
-                    'Concerns': 'Price negotiation',
-                    'NextSteps': 'I will share a revised offer',
-                    'DocumentList': '- Aadhaar Card\n- PAN Card\n- Cancelled Cheque'
+                const payload = {
+                    template: channel === 'SMS' ? smsTemplates.find(t => String(t.id) === String(templateId) || t._id === templateId) 
+                            : channel === 'WHATSAPP' ? whatsappTemplates.find(t => String(t.id) === String(templateId) || t.name === templateId)
+                            : rcsTemplatesConst.find(t => String(t.id) === String(templateId)),
+                    channel,
+                    recipient: recipients[0] || {},
+                    properties
                 };
                 
-                if (legacyHardcoded[cleanKey] !== undefined) {
-                    const val = renderValue(legacyHardcoded[cleanKey], '');
-                    components.push({ type: 'text', text: val });
-                    return val;
-                }
+                if (!payload.template) return;
 
-                return match;
-            });
+                const response = await whatsappService.previewTemplate(payload);
+                if (response.success) {
+                    setMessageBody(response.resolvedBody || '');
+                    if (channel === 'WHATSAPP') {
+                        setWhatsappComponents(response.components || []);
+                        setIsTemplateModified(false);
+                        if (response.language) setTemplateLanguage(response.language);
+                    } else if (channel === 'RCS') {
+                        setRcsTitle(response.rcsTitle || '');
+                        setRcsActions(response.rcsActions || []);
+                    }
+                }
+            } catch (err) {
+                console.error("Failed to fetch template preview:", err);
+                toast.error("Failed to generate template preview from server.");
+            }
         };
 
-        if (channel === 'SMS') {
-            console.log("SMS Resolver: templateId =", templateId, "type =", typeof templateId);
-            console.log("smsTemplates available:", smsTemplates);
-            const template = smsTemplates.find(t => t._id === templateId || String(t.id) === String(templateId));
-            console.log("Found template:", template);
-            if (template) {
-                resolvedBody = resolveVars(template.body || '');
-                console.log("Resolved body:", resolvedBody);
-                setMessageBody(resolvedBody);
-            }
-        } else if (channel === 'WHATSAPP') {
-            const template = whatsappTemplates.find(t => t.name === templateId || String(t.id) === String(templateId));
-            if (template) {
-                // 1. Process Body (Meta components support + robust fallback for local content)
-                const bodyComp = template.components?.find(c => c.type === 'BODY');
-                if (bodyComp) {
-                    resolvedBody = resolveVars(bodyComp.text || template.body || '');
-                } else {
-                    resolvedBody = resolveVars(template.body || template.content || template.text || '');
-                }
-
-                // 2. Process Buttons (to capture variables for URLs)
-                const buttonComp = template.components?.find(c => c.type === 'BUTTONS');
-                if (buttonComp?.buttons) {
-                    buttonComp.buttons.forEach(btn => {
-                        if (btn.url) resolveVars(btn.url);
-                    });
-                }
-                
-                // Replace standard non-indexed tags for visual preview only
-                resolvedBody = resolvedBody.replace(/{{Name}}/g, recipient.name || 'valued customer');
-                resolvedBody = resolvedBody.replace(/{{FirstName}}/g, recipient.firstName || recipient.name?.split(' ')[0] || 'valued customer');
-                resolvedBody = resolvedBody.replace(/{{Phone}}/g, recipient.phone || 'your phone');
-
-                // 🛡️ SAFETY FILTER: Strip any surviving raw MongoDB ObjectIds (24-char hex)
-                // Prevents database IDs from leaking into WhatsApp messages.
-                resolvedBody = resolvedBody.replace(/\b[0-9a-fA-F]{24}\b/g, '');
-
-                setWhatsappComponents(components);
-                setMessageBody(resolvedBody);
-                setIsTemplateModified(false);
-                if (template.language) {
-                    setTemplateLanguage(template.language);
-                }
-            }
-        } else if (channel === 'RCS') {
-            const template = rcsTemplatesConst.find(t => String(t.id) === String(templateId));
-            if (template) {
-                setRcsTitle(template.name || '');
-                resolvedBody = resolveVars(template.body || '');
-                console.log("Resolved body:", resolvedBody);
-                setMessageBody(resolvedBody);
-                setRcsActions(template.buttons || []);
-            }
-        }
-    }, [isOpen, templateId, channel, whatsappTemplates, smsTemplates, recipients, variableRegistry, initialProperty, properties]);
+        fetchPreview();
+    }, [isOpen, templateId, channel, whatsappTemplates, smsTemplates, recipients, properties]);
 
     const handleTemplateChange = (e) => {
         setTemplateId(e.target.value);
@@ -556,7 +268,7 @@ const SendMessageModal = ({
             return;
         }
 
-        const item = mockReferences[type].find(i => i.id === id);
+        const item = dynamicReferences[type].find(i => i.id === id);
         setSelectedReference(item);
 
         if (item) {
@@ -606,7 +318,7 @@ const SendMessageModal = ({
 
             if (res && res.success) {
                 if (res.mock || res.provider === 'mock') {
-                    alert('⚠️ Message Simulated in Mock Mode.\nYour WhatsApp/SMS API keys are not configured in Settings. The system faked a success to prevent crashing.');
+                    toast.error('⚠️ Message Simulated in Mock Mode.\nYour WhatsApp/SMS API keys are not configured in Settings. The system faked a success to prevent crashing.');
                 }
                 
                 // If the parent provided an onSend callback, tell it we succeeded
@@ -630,7 +342,7 @@ const SendMessageModal = ({
         } catch (error) {
             console.error(`${channel} Sending Error:`, error);
             const errorMsg = error.response?.data?.error || error.response?.data?.message || error.message || "Unknown error";
-            alert(`Failed to send message: ${errorMsg}`);
+            toast.error(`Failed to send message: ${errorMsg}`);
         }
     };
 
@@ -776,7 +488,7 @@ const SendMessageModal = ({
                                         disabled={!referenceType}
                                     >
                                         <option value="">-- Select Item --</option>
-                                        {referenceType && mockReferences[referenceType].map(item => (
+                                        {referenceType && dynamicReferences[referenceType].map(item => (
                                             <option key={item.id} value={item.id}>
                                                 {item.name}
                                             </option>

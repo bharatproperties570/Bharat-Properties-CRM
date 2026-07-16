@@ -10,6 +10,7 @@ router.use(authenticate);
 
 router.get("/", getLeads);
 router.get("/match", matchLeads);
+router.post("/match", matchLeads);
 router.get("/:id", getLeadById);
 router.post("/import", importLeads);
 router.post("/check-duplicates", checkDuplicatesImport);

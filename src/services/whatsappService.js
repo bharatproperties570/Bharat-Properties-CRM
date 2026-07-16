@@ -53,6 +53,20 @@ const whatsappService = {
         }
     },
     /**
+     * Preview template compilation from the backend
+     */
+    async previewTemplate(payload) {
+        try {
+            // payload: { template, channel, recipient, properties }
+            const response = await api.post('whatsapp-config/preview', payload);
+            return response.data;
+        } catch (error) {
+            console.error('Error previewing template:', error);
+            throw error;
+        }
+    },
+
+    /**
      * Save/Update WhatsApp configuration
      */
     async saveConfig(config) {

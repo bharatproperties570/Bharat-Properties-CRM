@@ -1598,9 +1598,15 @@ export const matchLeads = async (req, res) => {
         } = req.query;
 
         const showOtherCities = showOtherCitiesParam === 'true';
+        let deal;
 
-        if (!dealId) {
-            return res.status(400).json({ success: false, error: "dealId is required" });
+        if (req.method === 'POST' && req.body && req.body.deal) {
+            deal = req.body.deal;
+        } else if (dealId) {
+            deal = await Deal.findById(dealId).populate('inventoryId').lean();
+            if (!deal) return res.status(404).json({ success: false, error: 'Deal not found' });
+        } else {
+            return res.status(400).json({ success: false, error: "dealId or deal data is required" });
         }
 
         const bFlex = parseFloat(budgetFlexibility) / 100;
@@ -1657,8 +1663,7 @@ export const matchLeads = async (req, res) => {
         };
 
         // ─── 1. DEAL HYDRATION ────────────────────────────────────────────────────
-        const deal = await Deal.findById(dealId).populate('inventoryId').lean();
-        if (!deal) return res.status(404).json({ success: false, error: 'Deal not found' });
+        // deal is already populated above
 
         const dealIntent      = getLookupVal(deal.intent);
         const dealIntentLbl   = getLookupLabel(deal.intent);

@@ -8,6 +8,7 @@ import { usePropertyConfig } from '../context/PropertyConfigContext';
 import { numberToIndianWords } from '../utils/numberToWords';
 import { api } from '../utils/api';
 import toast from 'react-hot-toast';
+import SendMessageModal from './SendMessageModal';
 
 const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToProperties }) => {
     const { getLookupId, getLookupValue, dealMasterFields } = usePropertyConfig();
@@ -18,7 +19,17 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
     const evaluateAndEnroll = useSequences()?.evaluateAndEnroll || (() => { });
 
 
+    
+    
+    // AI Lead Matching State
+    const [channelSchedules, setChannelSchedules] = useState({});
+    const [isMessageOpen, setIsMessageOpen] = useState(false);
+    const [messageRecipients, setMessageRecipients] = useState([]);
+    const [messageInitialChannel, setMessageInitialChannel] = useState('SMS');
+    const [createdDealContext, setCreatedDealContext] = useState(null);
+
     const [isSaving, setIsSaving] = useState(false);
+
     const [isGeneratingAi, setIsGeneratingAi] = useState(false);
     const [currentTime, setCurrentTime] = useState(new Date());
     const [projects, setProjects] = useState([]);
@@ -98,6 +109,7 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
         sendMatchedDeal: {
             sms: false,
             whatsapp: false,
+            whatsapp_app: false,
             email: false,
             rcs: false
         },
@@ -115,6 +127,40 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
         description: '',
         date: new Date().toISOString().split('T')[0]
     });
+
+    // Live Match Preview State
+    const [liveMatchCount, setLiveMatchCount] = useState(null);
+    const [isLiveMatching, setIsLiveMatching] = useState(false);
+    const [liveMatchedLeads, setLiveMatchedLeads] = useState([]);
+
+    useEffect(() => {
+        const fetchMatches = async () => {
+            if (!formData.projectName && !formData.price && !formData.location) {
+                setLiveMatchCount(null);
+                setLiveMatchedLeads([]);
+                return;
+            }
+            setIsLiveMatching(true);
+            try {
+                // We use POST to send the draft deal data
+                const matchRes = await api.post('leads/match', { deal: formData });
+                if (matchRes.data?.success) {
+                    setLiveMatchCount(matchRes.data.count || 0);
+                    setLiveMatchedLeads(matchRes.data.matchingLeads || []);
+                } else {
+                    setLiveMatchCount(0);
+                    setLiveMatchedLeads([]);
+                }
+            } catch(e) {
+                setLiveMatchCount(0);
+                setLiveMatchedLeads([]);
+            } finally {
+                setIsLiveMatching(false);
+            }
+        };
+        const timer = setTimeout(fetchMatches, 800);
+        return () => clearTimeout(timer);
+    }, [formData.projectName, formData.price, formData.location, formData.category, formData.subCategory, formData.propertyType, formData.size]);
 
     const METRIC_FACTORS = {
         'SqYard': 1,
@@ -653,6 +699,79 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                 }
                 if (formData.associatedContact.phone) {
                     evaluateAndEnroll({ ...formData.associatedContact, mobile: formData.associatedContact.phone }, 'contacts');
+                }
+            }
+
+            // 🎯 TRIGGER AI LEAD MATCHING & OUTREACH
+            const activeChannels = Object.keys(formData.sendMatchedDeal || {}).filter(k => formData.sendMatchedDeal[k]);
+            if (!deal && activeChannels.length > 0 && savedData._id) {
+                const loadToast = toast.loading(`Matching Deal with Leads for ${activeChannels.length} channel(s)...`);
+                try {
+                    const matchRes = await api.get('leads/match', { params: { dealId: savedData._id } });
+                    if (matchRes.data?.success && matchRes.data?.data?.length > 0) {
+                        let matches = matchRes.data.data;
+                        
+                        const scheduledChannels = activeChannels.filter(ch => channelSchedules[ch]);
+                        const nowChannels = activeChannels.filter(ch => !channelSchedules[ch] && ch !== 'whatsapp_app');
+                        const hasWhatsappApp = activeChannels.includes('whatsapp_app');
+
+                        // 1. Dispatch Scheduled Channels in Background
+                        for (let ch of scheduledChannels) {
+                            try {
+                                await api.post('marketing/send-manual', {
+                                    dealIds: [savedData._id],
+                                    leadIds: matches.map(m => m._id),
+                                    toggles: { [ch]: true },
+                                    scheduledAt: channelSchedules[ch],
+                                    matchContext: 'perfect'
+                                });
+                            } catch(e) { console.error(`Failed to schedule ${ch}`, e); }
+                        }
+
+                        if (hasWhatsappApp) {
+                            // Only send to Top 1 for WA App
+                            const topMatch = matches[0];
+                            if (topMatch) {
+                                const textPayload = `Hi ${topMatch.firstName || 'there'}! I have a highly recommended premium deal for you:
+
+${savedData.projectName || 'Premium Property'}${savedData.size ? ` (${savedData.size} ${savedData.sizeUnit})` : ''}
+Price: ${savedData.price ? '₹'+new Intl.NumberFormat('en-IN').format(savedData.price) : 'On Request'}`;
+                                const phone = (topMatch.mobile || topMatch.phone || '').replace(/\D/g, '');
+                                const formattedPhone = phone.length === 10 ? `91${phone}` : phone;
+                                window.open(`whatsapp://send?phone=${formattedPhone}&text=${encodeURIComponent(textPayload)}`, '_blank');
+                            }
+                        }
+
+                        // 2. Open Modal for Send Now Channels
+                        if (nowChannels.length > 0) {
+                            let primaryChannel = 'SMS';
+                            if (nowChannels.includes('whatsapp')) primaryChannel = 'WHATSAPP';
+                            else if (nowChannels.includes('email')) primaryChannel = 'EMAIL';
+                            else if (nowChannels.includes('rcs')) primaryChannel = 'RCS';
+
+                            toast.success(`Found ${matches.length} matches! Opening console for immediate channels...`, { id: loadToast });
+                            
+                            setMessageRecipients(matches.map(m => ({
+                                id: m._id,
+                                name: m.firstName + (m.lastName ? ' ' + m.lastName : ''),
+                                phone: m.mobile || m.phone,
+                                email: m.email
+                            })));
+                            setMessageInitialChannel(primaryChannel);
+                            setCreatedDealContext(savedData);
+                            setIsMessageOpen(true);
+                            
+                            onSave && onSave(savedData);
+                            return; // Exit early
+                        } else {
+                            toast.success(`Found ${matches.length} matches! Background schedules set successfully.`, { id: loadToast });
+                        }
+                    } else {
+                        toast.success(`No matching leads found. Skipping outreach.`, { id: loadToast, icon: 'ℹ️' });
+                    }
+                } catch (e) {
+                    console.error("Match & Dispatch error", e);
+                    toast.error('Dispatch encountered an issue.', { id: loadToast });
                 }
             }
 
@@ -1391,35 +1510,107 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                             </div>
 
                             <div style={sectionStyle}>
-                                <div style={{ marginBottom: '12px' }}>
-                                    <h5 style={{ margin: '0 0 4px 0', fontSize: '0.9rem', fontWeight: 700, color: '#334155' }}>🎯 AI Lead Matching & Outreach</h5>
-                                    <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>Automatically notify matching leads via selected channels upon deal creation.</p>
+                                <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <h5 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 700, color: '#334155' }}>🎯 AI Lead Matching & Outreach</h5>
+                                            {isLiveMatching ? (
+                                                <span style={{ fontSize: '0.7rem', color: '#64748b', background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px' }}><i className="fas fa-spinner fa-spin"></i> Calculating...</span>
+                                            ) : liveMatchCount !== null && (
+                                                <span style={{ 
+                                                    fontSize: '0.7rem', fontWeight: 700, padding: '2px 6px', borderRadius: '4px',
+                                                    color: liveMatchCount > 0 ? '#059669' : '#ef4444',
+                                                    background: liveMatchCount > 0 ? '#d1fae5' : '#fee2e2'
+                                                }}>
+                                                    {liveMatchCount} {liveMatchCount === 1 ? 'Match' : 'Matches'}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>Automatically notify matching leads via selected channels upon deal creation.</p>
+                                    </div>
+                                    {Object.values(formData.sendMatchedDeal || {}).some(v => v) && (
+                                        <span style={{ fontSize: '0.75rem', color: '#10b981', background: 'rgba(16, 185, 129, 0.1)', padding: '4px 8px', borderRadius: '12px', fontWeight: 600 }}>Auto-Dispatch Active</span>
+                                    )}
                                 </div>
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                                     {[
                                         { id: 'sms', icon: 'fas fa-comment-dots', label: 'SMS', color: '#6366f1' },
-                                        { id: 'whatsapp', icon: 'fab fa-whatsapp', label: 'WhatsApp', color: '#25d366' },
+                                        { id: 'whatsapp', icon: 'fab fa-whatsapp', label: 'WhatsApp (API)', color: '#25d366' },
+                                        { id: 'whatsapp_app', icon: 'fas fa-comment', label: 'WA App (Native)', color: '#059669' },
                                         { id: 'email', icon: 'fas fa-envelope', label: 'Email', color: '#ef4444' },
                                         { id: 'rcs', icon: 'fas fa-comment-alt', label: 'RCS', color: '#3b82f6' }
-                                    ].map(option => (
+                                    ].map(option => {
+                                        const isDisabled = liveMatchCount === 0;
+                                        return (
                                         <button
                                             key={option.id}
                                             type="button"
-                                            onClick={() => handleNestedInputChange('sendMatchedDeal', option.id, !formData.sendMatchedDeal[option.id])}
+                                            onClick={() => !isDisabled && handleNestedInputChange('sendMatchedDeal', option.id, !formData.sendMatchedDeal[option.id])}
                                             style={{
                                                 display: 'flex', alignItems: 'center', gap: '10px', padding: '12px',
                                                 borderRadius: '10px', border: `2px solid ${formData.sendMatchedDeal[option.id] ? option.color : '#e2e8f0'}`,
                                                 background: formData.sendMatchedDeal[option.id] ? `${option.color}10` : '#fff',
-                                                cursor: 'pointer', transition: 'all 0.2s',
-                                                color: formData.sendMatchedDeal[option.id] ? option.color : '#64748b'
+                                                cursor: isDisabled ? 'not-allowed' : 'pointer', transition: 'all 0.2s',
+                                                color: formData.sendMatchedDeal[option.id] ? option.color : '#64748b',
+                                                opacity: isDisabled ? 0.5 : 1
                                             }}
                                         >
                                             <i className={option.icon}></i>
                                             <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>{option.label}</span>
                                             {formData.sendMatchedDeal[option.id] && <i className="fas fa-check-circle" style={{ marginLeft: 'auto' }}></i>}
                                         </button>
-                                    ))}
+                                    );})}
                                 </div>
+                                {Object.values(formData.sendMatchedDeal || {}).some(v => v) && (
+                                    <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                        <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#334155', marginBottom: '4px' }}>Dispatch Schedule</div>
+                                        
+                                        {['whatsapp', 'whatsapp_app', 'email', 'sms', 'rcs'].map(ch => {
+                                            if (!formData.sendMatchedDeal[ch]) return null;
+                                            const labels = { whatsapp: 'WhatsApp', whatsapp_app: 'WA App (Native)', email: 'Email', sms: 'SMS', rcs: 'RCS' };
+                                            
+                                            return (
+                                                <div key={ch} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: '#fff', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: '#334155', fontWeight: 600 }}>
+                                                        <i className={`fas ${ch === 'whatsapp' ? 'fa-whatsapp' : ch === 'whatsapp_app' ? 'fa-comment' : ch === 'email' ? 'fa-envelope' : ch === 'sms' ? 'fa-comment-dots' : 'fa-comment-alt'}`}></i>
+                                                        {labels[ch]}
+                                                    </div>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                        {ch === 'whatsapp_app' ? (
+                                                            <div style={{ fontSize: '0.7rem', color: '#059669', fontStyle: 'italic' }}>Immediate Top-1 Match Only</div>
+                                                        ) : (
+                                                        <select 
+                                                            value={channelSchedules[ch] ? 'schedule' : 'now'} 
+                                                            onChange={(e) => {
+                                                                if (e.target.value === 'now') {
+                                                                    setChannelSchedules(prev => ({...prev, [ch]: ''}));
+                                                                } else {
+                                                                    const date = new Date();
+                                                                    date.setHours(date.getHours() + 1);
+                                                                    setChannelSchedules(prev => ({...prev, [ch]: date.toISOString().slice(0, 16)}));
+                                                                }
+                                                            }}
+                                                            style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', color: '#334155', fontSize: '0.75rem', outline: 'none' }}
+                                                        >
+                                                            <option value="now">Send Now (with Preview)</option>
+                                                            <option value="schedule">Schedule Later</option>
+                                                        </select>
+                                                        
+                                                        )}
+                                                        {channelSchedules[ch] && (
+                                                            <input 
+                                                                type="datetime-local"
+                                                                value={channelSchedules[ch]}
+                                                                onChange={(e) => setChannelSchedules(prev => ({...prev, [ch]: e.target.value}))}
+                                                                style={{ padding: '3px 8px', borderRadius: '6px', border: '1px solid #cbd5e1', background: '#fff', color: '#334155', fontSize: '0.75rem', outline: 'none' }}
+                                                            />
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -1549,6 +1740,23 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
                     </button>
                 </div>
             </div>
+
+            {isMessageOpen && (
+                <SendMessageModal triggerContext='deal_match'
+                    isOpen={isMessageOpen}
+                    onClose={() => {
+                        setIsMessageOpen(false);
+                        onClose(); // Close the deal modal now that message modal is done
+                    }}
+                    onSend={() => {
+                        setIsMessageOpen(false);
+                        onClose();
+                    }}
+                    initialRecipients={messageRecipients}
+                    initialChannel={messageInitialChannel}
+                    initialProperty={createdDealContext}
+                />
+            )}
         </div>
     );
 };

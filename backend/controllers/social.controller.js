@@ -1,4 +1,5 @@
 import SystemSetting from '../src/modules/systemSettings/system.model.js';
+import { resolveMessageTemplate } from '../utils/templateResolver.js';
 import socialCommentService from '../services/SocialCommentService.js';
 import facebookService from '../services/FacebookService.js';
 import whatsAppService from '../services/WhatsAppService.js';
@@ -883,6 +884,25 @@ export const testSocialConnection = async (req, res) => {
         res.json(result);
     } catch (err) {
         console.error('[SocialController] testSocialConnection error:', err.message);
+        res.status(500).json({ success: false, error: err.message });
+    }
+};
+
+/**
+ * POST /api/whatsapp-config/preview
+ * Preview a compiled template from the backend
+ */
+export const previewMessage = async (req, res) => {
+    try {
+        const { template, channel, recipient, properties } = req.body;
+        if (!template || !channel) {
+            return res.status(400).json({ success: false, error: 'Template and channel are required' });
+        }
+        const currentUser = req.user;
+        const result = await resolveMessageTemplate(template, channel, recipient, properties, currentUser);
+        res.json({ success: true, ...result });
+    } catch (err) {
+        console.error('[SocialController] previewMessage error:', err.message);
         res.status(500).json({ success: false, error: err.message });
     }
 };

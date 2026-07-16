@@ -1274,7 +1274,6 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                             { key: 'budget',   label: '💰 Budget',    color: '#10b981' },
                                             { key: 'size',     label: '📐 Size',      color: '#f59e0b' }
                                         ].map(({ key, label, color }) => {
-    const { isDark } = useTheme();
                                             const sig = item.scoreBreakdown[key];
                                             if (!sig) return null;
                                             const pct = sig.max > 0 ? Math.round((sig.earned / sig.max) * 100) : 0;
@@ -1634,7 +1633,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             )}
 
             <ComposeEmailModal isOpen={isMailOpen} onClose={() => setIsMailOpen(false)} recipients={[lead]} initialSubject={mailSubject} initialBody={mailBody} autoAttachments={mailAttachments} />
-            <SendMessageModal isOpen={isMessageOpen} onClose={() => setIsMessageOpen(false)} initialRecipients={recipients} initialTemplateId={initialTemplateId} initialChannel={initialChannel} initialProperties={selectedProperties} onSend={() => setIsMessageOpen(false)} />
+            <SendMessageModal triggerContext='deal_match' isOpen={isMessageOpen} onClose={() => setIsMessageOpen(false)} initialRecipients={recipients} initialTemplateId={initialTemplateId} initialChannel={initialChannel} initialProperties={selectedProperties} onSend={() => setIsMessageOpen(false)} />
             <CreateActivityModal isOpen={isActivityOpen} onClose={() => setIsActivityOpen(false)} initialData={activityInitialData} onSave={() => setIsActivityOpen(false)} />
             {showQuickFill && (
                 <QuickFillModal 

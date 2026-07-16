@@ -1,7 +1,5 @@
 import { useTheme } from '../../../context/ThemeContext';
-import { useMemo, useState, useEffect, useCallback } from 'react';
-import ComposeEmailModal from '../../Communication/components/ComposeEmailModal';
-import SendMessageModal from '../../../components/SendMessageModal';
+import { useState, useEffect, useCallback } from 'react';
 import CreateActivityModal from '../../../components/CreateActivityModal';
 import toast from 'react-hot-toast';
 import { api } from '../../../utils/api';
@@ -9,9 +7,6 @@ import { useActivities } from '../../../context/ActivityContext';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import { formatIndianCurrency, formatLeadBudget } from '../../../utils/numberToWords';
 
-// Deal Match Template ID (from constants/templates.js)
-const DEAL_MATCH_TEMPLATE_ID = 8;
-const DEAL_MATCH_SMS_TEMPLATE_ID = 10;
 
 const DealMatchingPage = ({ onNavigate, dealId }) => {
     const { isDark } = useTheme();
@@ -28,7 +23,7 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
     const [loading, setLoading]             = useState(true);
     const [matchingLoading, setMatchingLoading] = useState(false);
 
-    // UI State
+    // Omnichannel UI State
     const [budgetFlexibility, setBudgetFlexibility] = useState(20);
     const [sizeFlexibility, setSizeFlexibility]     = useState(20);
     const [showOtherCities, setShowOtherCities]     = useState(false);
@@ -36,14 +31,27 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
     const [showOnlyPreferred, setShowOnlyPreferred] = useState(false);
     const [showSuggestions, setShowSuggestions]     = useState(true);
     const [selectedLeads, setSelectedLeads]         = useState([]);
-    const [isMailOpen, setIsMailOpen]               = useState(false);
-    const [isMessageOpen, setIsMessageOpen]         = useState(false);
+    
+    // Legacy state remaining
     const [isActivityOpen, setIsActivityOpen]       = useState(false);
-    const [selectedContactsForMail, setSelectedContactsForMail]       = useState([]);
-    const [selectedContactsForMessage, setSelectedContactsForMessage] = useState([]);
-    const [activityInitialData, setActivityInitialData]               = useState(null);
-    const [mailSubject, setMailSubject] = useState('');
-    const [mailBody, setMailBody]       = useState('');
+    const [activityInitialData, setActivityInitialData] = useState(null);
+
+    // New Omnichannel States
+    const [isBlasting, setIsBlasting] = useState(false);
+    const [hidePrice, setHidePrice] = useState(false);
+    const [blastChannels, setBlastChannels] = useState({
+        email: true,
+        sms: false,
+        whatsapp: true,
+        whatsapp_app: false,
+        rcs: false
+    });
+    const [channelSchedules, setChannelSchedules] = useState({
+        whatsapp: null,
+        email: null,
+        sms: null,
+        rcs: null
+    });
 
     // 1. Fetch Deal
     useEffect(() => {
@@ -104,92 +112,68 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
         return String(v);
     }, [lookups, projects]);
 
-    // WhatsApp Handlers (bypass for preferred matches, web for others)
-    const handleWhatsApp = (lead) => {
-        const msg = `Hi ${lead.firstName || 'there'}, I found a property matching your requirement: ${renderVal(deal?.propertyType)} at ${renderVal(deal?.location)}. Price: ${formatIndianCurrency(deal?.price)}. Interested?`;
-        const encoded = encodeURIComponent(msg);
-        if (lead.isPreferredMatch) {
-            window.location.href = `whatsapp://send?phone=91${lead.mobile}&text=${encoded}`;
-        } else {
-            window.open(`https://wa.me/91${lead.mobile}?text=${encoded}`, '_blank');
-        }
-    };
 
-    const handleBatchWhatsApp = () => {
-        const selected = matchedLeads.filter(l => selectedLeads.includes(l.mobile));
-        const loc = deal ? renderVal(deal.location) : '';
-        const price = deal ? formatIndianCurrency(deal.price || 0) : '';
-        selected.forEach(l => {
-            const msg = `Hi ${l.firstName || 'there'}, we have a property matching your requirement at ${loc}. Price: ${price}. Interested?`;
-            const encoded = encodeURIComponent(msg);
-            if (l.isPreferredMatch) {
-                window.location.href = `whatsapp://send?phone=91${l.mobile}&text=${encoded}`;
-            } else {
-                window.open(`https://wa.me/91${l.mobile}?text=${encoded}`, '_blank');
+    // --- Unified Omnichannel Dispatch ---
+    const handleSendBlast = async () => {
+        if (!dealId) return toast.error('No deal selected');
+        if (selectedLeads.length === 0) return toast.error('Select at least one lead');
+        if (!Object.values(blastChannels).some(v => v)) return toast.error('Select at least one channel');
+        
+        // Resolve leads
+        const leadsToSend = matchedLeads.filter(l => selectedLeads.includes(l.mobile));
+        
+        setIsBlasting(true);
+        const loadToast = toast.loading('Dispatching deal via selected channels...');
+
+        try {
+            // 1. Native WhatsApp App Fallback
+            if (blastChannels.whatsapp_app) {
+                // If it's just one or a few, we can open tabs. If it's many, maybe just one.
+                const loc = deal ? renderVal(deal.location) : '';
+                const priceStr = hidePrice ? 'Available on Request' : (deal ? formatIndianCurrency(deal.price || 0) : '');
+                leadsToSend.forEach(l => {
+                    const msg = `Hi ${l.firstName || 'there'}, we have a property matching your requirement at ${loc}. Price: ${priceStr}. Interested?`;
+                    const encoded = encodeURIComponent(msg);
+                    if (l.isPreferredMatch) {
+                        window.open(`whatsapp://send?phone=91${l.mobile}&text=${encoded}`, '_blank');
+                    } else {
+                        window.open(`https://wa.me/91${l.mobile}?text=${encoded}`, '_blank');
+                    }
+                });
             }
-        });
-    };
 
-    // Injects real deal data into the Deal Property Match template variables
-    const buildDealEmailBody = useCallback((templateContent, hideUnitNumber = false) => {
-        if (!deal || !templateContent) return templateContent;
-        const size = deal.size?.value || deal.size || 0;
-        const sizeStr = size > 0 ? `${size} ${deal.sizeUnit || 'Sq.Ft.'}` : 'N/A';
-        
-        let builtupHtml = '';
-        const builtupType = deal.builtupType || deal.inventoryId?.builtupType;
-        if (builtupType) {
-            builtupHtml = `
-            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px; margin-bottom: 20px;">
-                <div style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">🏗 Built-up Status</div>
-                <div style="font-size: 15px; font-weight: 800; color: #1e293b;">${renderVal(builtupType)}</div>
-            </div>`;
+            // 2. Enterprise Unified API Calls for scheduled/now sending
+            const dispatchPromises = [];
+            const apiChannels = ['whatsapp', 'email', 'sms', 'rcs'].filter(ch => blastChannels[ch]);
+            
+            if (apiChannels.length > 0) {
+                dispatchPromises.push(
+                    api.post('marketing/send-manual', {
+                        dealId: deal._id,
+                        leadIds: leadsToSend.map(l => l._id),
+                        toggles: blastChannels,
+                        scheduledAt: apiChannels.reduce((acc, ch) => {
+                            if (channelSchedules[ch]) acc = channelSchedules[ch]; 
+                            return acc;
+                        }, undefined), // Simplified single schedule extraction
+                        hidePrice,
+                        matchContext: showOnlyPreferred ? 'perfect' : 'top'
+                    })
+                );
+            }
+
+            if (dispatchPromises.length > 0) {
+                await Promise.all(dispatchPromises);
+            }
+
+            toast.success(`Omnichannel dispatch processed via Enterprise Queue!`, { id: loadToast });
+            setSelectedLeads([]);
+        } catch (error) {
+            console.error(error);
+            toast.error('Dispatch encountered an issue.', { id: loadToast });
+        } finally {
+            setIsBlasting(false);
         }
-
-        const dir = renderVal(deal.direction || deal.inventoryId?.direction);
-        const facing = renderVal(deal.facing || deal.inventoryId?.facing);
-        const road = renderVal(deal.roadWidth || deal.inventoryId?.roadWidth);
-        
-        let orientationHtml = '';
-        if ((dir && dir !== 'N/A') || (facing && facing !== 'N/A') || (road && road !== 'N/A')) {
-            orientationHtml = `
-            <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 14px 16px; margin-bottom: 20px; font-size: 0;">
-                <div style="font-size: 10px; font-weight: 700; color: #166534; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 10px;">🧭 Orientation</div>
-                <div style="display: block;">
-                    ${dir && dir !== 'N/A' ? `<div style="display: inline-block; background: #ffffff; border: 1px solid #dcfce7; padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: 700; color: #166534; margin-right: 8px; margin-bottom: 8px; vertical-align: middle;"><span style="font-size: 14px; vertical-align: middle; margin-right: 4px;">🎯</span> ${dir}</div>` : ''}
-                    ${facing && facing !== 'N/A' ? `<div style="display: inline-block; background: #ffffff; border: 1px solid #dcfce7; padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: 700; color: #166534; margin-right: 8px; margin-bottom: 8px; vertical-align: middle;"><span style="font-size: 14px; vertical-align: middle; margin-right: 4px;">👀</span> ${facing} Facing</div>` : ''}
-                    ${road && road !== 'N/A' ? `<div style="display: inline-block; background: #ffffff; border: 1px solid #dcfce7; padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: 700; color: #166534; margin-right: 8px; margin-bottom: 8px; vertical-align: middle;"><span style="font-size: 14px; vertical-align: middle; margin-right: 4px;">🛣</span> ${road} Road</div>` : ''}
-                </div>
-            </div>`;
-        }
-
-        const ownershipStr = renderVal(deal.ownership || deal.inventoryId?.ownership) || 'N/A';
-        
-        return templateContent
-            .replace(/\{\{DealProject\}\}/g, deal.projectName || deal.inventoryId?.projectName || 'N/A')
-            .replace(/\{\{DealLocation\}\}/g, renderVal(deal.location || deal.inventoryId?.address?.locality))
-            .replace(/\{\{DealPrice\}\}/g, formatIndianCurrency(deal.price || deal.quotePrice || 0))
-            .replace(/\{\{DealUnit\}\}/g, hideUnitNumber ? 'Available on Request' : (deal.unitNo || deal.inventoryId?.unitNo || 'N/A'))
-            .replace(/\{\{DealSize\}\}/g, sizeStr)
-            .replace(/\{\{DealSizeLabel\}\}/g, renderVal(deal.sizeLabel || deal.sizeConfig || deal.inventoryId?.sizeConfig) || 'Standard')
-            .replace(/\{\{DealOrientationStripHTML\}\}/g, orientationHtml)
-            .replace(/\{\{DealOwnership\}\}/g, ownershipStr)
-            .replace(/\{\{DealBuiltupHTML\}\}/g, builtupHtml)
-            .replace(/\{\{DealCategory\}\}/g, renderVal(deal.category || deal.inventoryId?.category))
-            .replace(/\{\{DealSubCategory\}\}/g, renderVal(deal.subCategory || deal.inventoryId?.subCategory) !== 'N/A' ? renderVal(deal.subCategory || deal.inventoryId?.subCategory) : 'N/A')
-            .replace(/\{\{DealBlock\}\}/g, deal.block || deal.inventoryId?.block || 'N/A')
-            .replace(/\{\{DealStage\}\}/g, renderVal(deal.stage) || 'Available');
-    }, [deal, renderVal]);
-
-    const handleBatchMail = () => {
-        const contactsForMail = matchedLeads.filter(l => selectedLeads.includes(l.mobile));
-        setSelectedContactsForMail(contactsForMail);
-        setIsMailOpen(true);
-    };
-
-    const handleBatchMessage = () => {
-        setSelectedContactsForMessage(matchedLeads.filter(l => selectedLeads.includes(l.mobile)));
-        setIsMessageOpen(true);
     };
 
     const handleSelectLead = (mobile) => {
@@ -536,20 +520,13 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                                                     <button title="Call" onClick={() => window.open(`tel:${lead.mobile}`)} style={{ width: '34px', height: '34px', borderRadius: '9px', border: '1px solid #dcfce7', background: isDark ? 'rgba(16,185,129,0.1)' : '#f0fdf4', color: '#15803d', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', transition: 'all 0.15s' }}>
                                                         <i className="fas fa-phone-alt"></i>
                                                     </button>
-                                                    <button title={lead.isPreferredMatch ? 'WhatsApp (Desktop App)' : 'WhatsApp'} onClick={() => handleWhatsApp(lead)} style={{ width: '34px', height: '34px', borderRadius: '9px', border: '1px solid #dcfce7', background: isDark ? 'rgba(37,211,102,0.1)' : '#f0fdf4', color: '#16a34a', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.9rem', transition: 'all 0.15s' }}>
+                                                    <button title="WhatsApp" onClick={() => window.open(`https://wa.me/91${lead.mobile}`, '_blank')} style={{ width: '34px', height: '34px', borderRadius: '9px', border: '1px solid #dcfce7', background: isDark ? 'rgba(37,211,102,0.1)' : '#f0fdf4', color: '#16a34a', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.9rem', transition: 'all 0.15s' }}>
                                                         <i className="fab fa-whatsapp"></i>
-                                                    </button>
-                                                    <button title="SMS" onClick={() => { setSelectedContactsForMessage([lead]); setIsMessageOpen(true); }} style={{ width: '34px', height: '34px', borderRadius: '9px', border: '1px solid #dbeafe', background: isDark ? 'rgba(37,99,235,0.1)' : '#eff6ff', color: '#1d4ed8', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', transition: 'all 0.15s' }}>
-                                                        <i className="fas fa-comment-alt"></i>
-                                                    </button>
-                                                    <button title="Email" onClick={() => { setSelectedContactsForMail([lead]); setIsMailOpen(true); }} style={{ width: '34px', height: '34px', borderRadius: '9px', border: '1px solid #ede9fe', background: isDark ? 'rgba(109,40,217,0.1)' : '#f5f3ff', color: '#6d28d9', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', transition: 'all 0.15s' }}>
-                                                        <i className="fas fa-envelope"></i>
                                                     </button>
                                                 </div>
                                                 <button onClick={() => { setActivityInitialData({ activityType: 'Site Visit', relatedTo: [{ id: lead.mobile, name: `${lead.firstName} ${lead.lastName || ''}`.trim() }] }); setIsActivityOpen(true); }} style={{ padding: '6px 12px', borderRadius: '8px', border: `1px solid ${brd}`, background: card, color: txt, fontWeight: 700, fontSize: '0.72rem', cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.15s' }}>
                                                     <i className="fas fa-calendar-plus" style={{ marginRight: '5px', color: '#2563eb' }}></i>Schedule Visit
-                                                </button>
-                                            </div>
+                                                </button>                                            </div>
                                         </div>
                                     </div>
                                 );
@@ -559,47 +536,122 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                 </div>
             </div>
 
-            {/* ─── BATCH BAR ─── */}
+
+            {/* ─── OMNICHANNEL DISPATCH BAR ─── */}
             {selectedLeads.length > 0 && (
-                <div style={{ position: 'fixed', bottom: '28px', left: '50%', transform: 'translateX(-50%)', background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', padding: '14px 24px', borderRadius: '16px', display: 'flex', alignItems: 'center', gap: '12px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)', zIndex: 1000, border: '1px solid rgba(255,255,255,0.08)', backdropFilter: 'blur(12px)', flexWrap: 'wrap' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingRight: '12px', borderRight: '1px solid rgba(255,255,255,0.12)' }}>
-                        <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: '0.85rem', color: '#fff' }}>{selectedLeads.length}</div>
-                        <span style={{ color: '#e2e8f0', fontWeight: 600, fontSize: '0.9rem' }}>leads selected</span>
+                <div style={{ position: 'fixed', bottom: '28px', left: '50%', transform: 'translateX(-50%)', background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)', padding: '16px 24px', borderRadius: '20px', display: 'flex', alignItems: 'center', gap: '16px', boxShadow: isDark ? '0 25px 50px -12px rgba(0,0,0,0.8)' : '0 20px 40px -10px rgba(0,0,0,0.1)', zIndex: 1000, border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.05)', backdropFilter: 'blur(16px)', flexWrap: 'wrap' }}>
+                    
+                    {/* Selected Count */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingRight: '16px', borderRight: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.1)' }}>
+                        <div style={{ width: '32px', height: '32px', borderRadius: '10px', background: '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: '0.9rem', color: '#fff', boxShadow: '0 4px 10px rgba(59, 130, 246, 0.3)' }}>{selectedLeads.length}</div>
+                        <span style={{ color: txt, fontWeight: 700, fontSize: '0.95rem' }}>leads</span>
                     </div>
-                    <button onClick={handleBatchWhatsApp} style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '8px 14px', borderRadius: '10px', background: '#25d366', border: 'none', color: '#fff', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer' }}>
-                        <i className="fab fa-whatsapp"></i> WhatsApp
-                    </button>
-                    <button onClick={handleBatchMail} style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '8px 14px', borderRadius: '10px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', color: '#e2e8f0', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer' }}>
-                        <i className="fas fa-envelope"></i> Email
-                    </button>
-                    <button onClick={handleBatchMessage} style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '8px 14px', borderRadius: '10px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', color: '#e2e8f0', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer' }}>
-                        <i className="fas fa-comment"></i> SMS
-                    </button>
-                    <button onClick={() => setSelectedLeads([])} style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: '#94a3b8', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <i className="fas fa-times"></i>
-                    </button>
+
+                    {/* Channels & Schedulers */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        {['whatsapp', 'email', 'sms'].map(ch => (
+                            <div key={ch} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                <button 
+                                    onClick={() => setBlastChannels(prev => ({...prev, [ch]: !prev[ch]}))}
+                                    style={{ 
+                                        padding: '8px 14px', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 700, transition: 'all 0.2s', border: 'none',
+                                        background: blastChannels[ch] ? (ch === 'whatsapp' ? '#10b981' : ch === 'email' ? '#3b82f6' : '#8b5cf6') : (isDark ? '#334155' : '#e2e8f0'), 
+                                        color: blastChannels[ch] ? '#fff' : sub, 
+                                        cursor: 'pointer',
+                                        display: 'flex', alignItems: 'center', gap: '8px', 
+                                        outline: blastChannels[ch] ? `2px solid ${ch === 'whatsapp' ? '#059669' : ch === 'email' ? '#2563eb' : '#7c3aed'}` : 'none'
+                                    }}>
+                                    <i className={`fa${ch==='whatsapp'?'b':'s'} fa-${ch==='whatsapp'?'whatsapp':ch==='email'?'envelope':'comment-dots'}`}></i> {ch === 'whatsapp' ? 'WA API' : ch.toUpperCase()}
+                                </button>
+                                {blastChannels[ch] && (
+                                    <div style={{ display: 'flex', gap: '4px' }}>
+                                        <select 
+                                            value={channelSchedules[ch] ? 'schedule' : 'now'}
+                                            onChange={(e) => {
+                                                if (e.target.value === 'now') {
+                                                    setChannelSchedules(prev => ({...prev, [ch]: ''}));
+                                                } else {
+                                                    const date = new Date();
+                                                    date.setHours(date.getHours() + 1);
+                                                    setChannelSchedules(prev => ({...prev, [ch]: date.toISOString().slice(0, 16)}));
+                                                }
+                                            }}
+                                            style={{ padding: '4px', borderRadius: '6px', border: `1px solid ${brd}`, background: card, color: txt, fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}
+                                        >
+                                            <option value="now">Send Now</option>
+                                            <option value="schedule">Schedule</option>
+                                        </select>
+                                        {channelSchedules[ch] && (
+                                            <input 
+                                                type="datetime-local"
+                                                value={channelSchedules[ch]}
+                                                onChange={(e) => setChannelSchedules(prev => ({...prev, [ch]: e.target.value}))}
+                                                style={{ padding: '4px', borderRadius: '6px', border: `1px solid ${brd}`, background: card, color: txt, fontSize: '0.75rem', cursor: 'pointer' }}
+                                            />
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+
+                        <button 
+                            onClick={() => setBlastChannels(prev => ({...prev, rcs: !prev.rcs}))}
+                            style={{ 
+                                padding: '8px 14px', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 700, transition: 'all 0.2s', border: 'none',
+                                background: blastChannels.rcs ? '#0ea5e9' : (isDark ? '#334155' : '#e2e8f0'), color: blastChannels.rcs ? '#fff' : sub, 
+                                cursor: 'pointer',
+                                display: 'flex', alignItems: 'center', gap: '8px', outline: blastChannels.rcs ? '2px solid #0284c7' : 'none'
+                            }}>
+                            <i className="fas fa-mobile-alt"></i> RCS
+                        </button>
+                        
+                        <button 
+                            onClick={() => setBlastChannels(prev => ({...prev, whatsapp_app: !prev.whatsapp_app}))}
+                            style={{ 
+                                padding: '8px 14px', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 700, transition: 'all 0.2s', border: 'none',
+                                background: blastChannels.whatsapp_app ? '#059669' : (isDark ? '#334155' : '#e2e8f0'), color: blastChannels.whatsapp_app ? '#fff' : sub, 
+                                cursor: 'pointer',
+                                display: 'flex', alignItems: 'center', gap: '8px', outline: blastChannels.whatsapp_app ? '2px solid #047857' : 'none'
+                            }}>
+                            <i className="fas fa-comment"></i> WA App
+                        </button>
+                    </div>
+
+                    <div style={{ width: '1px', height: '32px', background: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)', margin: '0 8px' }}></div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, color: txt }}>
+                            <input type="checkbox" checked={hidePrice} onChange={e => setHidePrice(e.target.checked)} style={{ cursor: 'pointer' }} />
+                            Hide Price
+                        </label>
+                    </div>
+
+                    <div style={{ width: '1px', height: '32px', background: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)', margin: '0 8px' }}></div>
+
+                    {/* Submit & Cancel */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <button 
+                            onClick={handleSendBlast}
+                            disabled={isBlasting || (!blastChannels.whatsapp && !blastChannels.email && !blastChannels.sms && !blastChannels.whatsapp_app && !blastChannels.rcs)}
+                            style={{ 
+                                padding: '10px 24px', borderRadius: '20px', background: 'linear-gradient(135deg, #ec4899 0%, #f43f5e 100%)', 
+                                color: '#fff', border: 'none', fontWeight: 800, fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer',
+                                opacity: isBlasting ? 0.7 : 1, transition: 'all 0.2s', boxShadow: '0 8px 20px -6px rgba(236, 72, 153, 0.6)'
+                            }}
+                            onMouseOver={(e) => { if(!isBlasting) e.currentTarget.style.transform = 'translateY(-2px)'; }}
+                            onMouseOut={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                        >
+                            {isBlasting ? <i className="fas fa-circle-notch fa-spin"></i> : <i className="fas fa-paper-plane"></i>}
+                            {isBlasting ? 'DISPATCHING...' : 'DISPATCH NOW'}
+                        </button>
+
+                        <button onClick={() => setSelectedLeads([])} style={{ width: '36px', height: '36px', borderRadius: '12px', background: isDark ? 'rgba(255,255,255,0.06)' : '#f1f5f9', border: `1px solid ${brd}`, color: sub, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }} onMouseOver={e => e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.1)' : '#e2e8f0'} onMouseOut={e => e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.06)' : '#f1f5f9'}>
+                            <i className="fas fa-times"></i>
+                        </button>
+                    </div>
                 </div>
             )}
 
-            {/* Modals */}
-            <ComposeEmailModal
-                isOpen={isMailOpen}
-                onClose={() => setIsMailOpen(false)}
-                recipients={selectedContactsForMail}
-                initialSubject={`🏠 Exclusive Property Match Found for You | ${deal?.projectName || deal?.inventoryId?.projectName || ''}`}
-                initialTemplateId={DEAL_MATCH_TEMPLATE_ID}
-                dealData={deal}
-                dealDataBuilder={buildDealEmailBody}
-            />
-            <SendMessageModal 
-                isOpen={isMessageOpen} 
-                onClose={() => setIsMessageOpen(false)} 
-                initialRecipients={selectedContactsForMessage.map(c => ({ ...c, phone: c.mobile }))} 
-                onSend={() => setIsMessageOpen(false)} 
-                initialTemplateId={DEAL_MATCH_SMS_TEMPLATE_ID}
-                initialChannel="SMS"
-                initialProperty={deal}
-            />
             <CreateActivityModal isOpen={isActivityOpen} onClose={() => setIsActivityOpen(false)} initialData={activityInitialData} onSave={(data) => { addActivity(data); setIsActivityOpen(false); }} />
         </div>
     );

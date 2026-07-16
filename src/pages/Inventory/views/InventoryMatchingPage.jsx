@@ -1,3 +1,4 @@
+import { useTheme } from '../../../context/ThemeContext';
 import { useMemo, useState, useEffect, useCallback } from 'react';
 import ComposeEmailModal from '../../Communication/components/ComposeEmailModal';
 import SendMessageModal from '../../../components/SendMessageModal';
@@ -675,7 +676,7 @@ const InventoryMatchingPage = ({ onNavigate, inventoryId }) => {
                 initialBody={mailBody}
                 autoAttachments={mailAttachments}
             />
-            <SendMessageModal
+            <SendMessageModal triggerContext='deal_match'
                 isOpen={isMessageOpen}
                 onClose={() => setIsMessageOpen(false)}
                 initialRecipients={selectedContactsForMessage?.map(contact => ({
