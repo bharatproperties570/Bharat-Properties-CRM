@@ -140,8 +140,10 @@ export const ImportProvider = ({ children }) => {
 
         } catch (err) {
             console.error('Background Import Error:', err);
-            updateImport({ status: 'error', progress: 100 });
-            toast.error(`Import for ${moduleLabel || module} failed.`);
+            
+            const errorMessage = err.response?.data?.error || err.response?.data?.message || err.message || 'Unknown network error';
+            updateImport({ status: 'error', progress: 100, errors: [{ row: 'System', name: 'Fatal Error', reason: errorMessage }] });
+            toast.error(`Import for ${moduleLabel || module} failed: ${errorMessage}`, { duration: 8000 });
         }
     }, []);
 

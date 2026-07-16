@@ -463,7 +463,7 @@ const ImportDataPage = () => {
                 moduleLabel: MODULE_CONFIG[module]?.label || module,
                 endpoint,
                 transformedData,
-                chunkSize: 10,
+                chunkSize: 2, // Reduced to 2 to prevent 10s serverless timeouts on Live API
                 basePayload,
                 onComplete: (results) => {
                     setImportStats({

@@ -206,6 +206,16 @@ class AddressParsingService {
     }
 
     _extractHouseNoAndClean(rawAddress) {
+        // SPECIAL STRATEGY 0: Number/Sector combo like "1227/5 U.E" or "156/13 URBAN ESTATE"
+        const specialMatch = rawAddress.match(/\b([0-9]+)\/([0-9]+[A-Z]?)\s*(?:U\.?E\.?|URBAN\s+ESTATE|H\.?\s*B\.?\s*COLONY|HOUSING\s+BOARD\s+COLONY|SECTOR|SEC|SACTOR)\b/i);
+        if (specialMatch) {
+            return {
+                houseNo: specialMatch[1],
+                extractedSector: specialMatch[2],
+                cleanedAddress: rawAddress.replace(specialMatch[0], ' ')
+            };
+        }
+
         const rules = [
             // STRATEGY 1: Direct H.NO patterns
             /(?:R\/O|C\/O|VPO|AT|PROF)?\s*(?:H\.?\s*N[OO]\.?|HOUSE\s*NO\.?)\s*[-:,\s]*([0-9]+[A-Z/.\\-]*)/i,
@@ -255,7 +265,7 @@ class AddressParsingService {
                 }
             }
         }
-        return { houseNo: extracted, cleanedAddress: cleanedAddress };
+        return { houseNo: extracted, extractedSector: null, cleanedAddress: cleanedAddress };
     }
 
     _extractPostOfficeAndClean(rawAddress) {
@@ -277,8 +287,9 @@ class AddressParsingService {
     _applyMasterRules(rawAddress) {
         const result = this._getEmptyAddress();
         
-        let { houseNo, cleanedAddress } = this._extractHouseNoAndClean(rawAddress);
+        let { houseNo, extractedSector, cleanedAddress } = this._extractHouseNoAndClean(rawAddress);
         if (houseNo) result.houseNo = houseNo;
+        if (extractedSector) result.location = `Sector ${extractedSector}`;
         
         const poData = this._extractPostOfficeAndClean(cleanedAddress);
         if (poData.postOffice) {
