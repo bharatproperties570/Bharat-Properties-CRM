@@ -40,6 +40,7 @@ const ImportDataPage = () => {
     const [unitSearchQuery, setUnitSearchQuery] = useState({}); // { rowKey: searchText }
     const [unitSearchResults, setUnitSearchResults] = useState({}); // { rowKey: [inventory items] }
     const conflictSectionRef = useRef(null);
+    const [showOnlyConflicts, setShowOnlyConflicts] = useState(false);
 
     // Global Defaults for Assignment
 
@@ -584,6 +585,76 @@ const ImportDataPage = () => {
         .progress-line {
             transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
         }
+        @keyframes pulseGlow {
+            0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
+            70% { box-shadow: 0 0 0 20px rgba(59, 130, 246, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+        }
+        @keyframes dataFlow {
+            0% { background-position: 0% 50%; }
+            100% { background-position: 200% 50%; }
+        }
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+        .futuristic-loader {
+            position: relative;
+            background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            box-shadow: inset 0 0 30px rgba(59, 130, 246, 0.1), 0 20px 40px -10px rgba(0,0,0,0.3);
+            border-radius: 24px;
+            padding: 50px 40px;
+            overflow: hidden;
+            color: #f8fafc;
+        }
+        .futuristic-loader::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; height: 3px;
+            background: linear-gradient(90deg, transparent, #3b82f6, #ec4899, #8b5cf6, transparent);
+            background-size: 200% auto;
+            animation: dataFlow 2s linear infinite;
+        }
+        .data-grid-bg {
+            position: absolute;
+            inset: 0;
+            background-image: 
+                linear-gradient(rgba(59, 130, 246, 0.05) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(59, 130, 246, 0.05) 1px, transparent 1px);
+            background-size: 20px 20px;
+            opacity: 0.6;
+            z-index: 0;
+            pointer-events: none;
+        }
+        .orb {
+            width: 100px; height: 100px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 2.5rem; color: white;
+            animation: pulseGlow 2s infinite, float 4s ease-in-out infinite;
+            margin: 0 auto 30px;
+            position: relative;
+            z-index: 1;
+            box-shadow: 0 0 40px rgba(59, 130, 246, 0.6);
+            border: 4px solid rgba(255,255,255,0.1);
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            margin-top: 30px;
+            position: relative;
+            z-index: 1;
+        }
+        .stat-box {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 16px;
+            backdrop-filter: blur(10px);
+        }
     `;
 
     // --- Renderers ---
@@ -624,16 +695,76 @@ const ImportDataPage = () => {
         </div>
     );
 
+    const FuturisticImportProgress = () => {
+        const [elapsedTime, setElapsedTime] = useState(0);
+
+        useEffect(() => {
+            const timer = setInterval(() => {
+                setElapsedTime(prev => prev + 1);
+            }, 1000);
+            return () => clearInterval(timer);
+        }, []);
+
+        const totalRecords = fileData.data.length;
+        const processedRecords = Math.round((progress / 100) * totalRecords);
+        const recordsPerSecond = elapsedTime > 0 ? (processedRecords / elapsedTime).toFixed(1) : 0;
+        const estimatedSecondsLeft = recordsPerSecond > 0 ? Math.ceil((totalRecords - processedRecords) / recordsPerSecond) : '...';
+
+        return (
+            <div className="futuristic-loader" style={{ maxWidth: '700px', margin: '40px auto', textAlign: 'center' }}>
+                <div className="data-grid-bg"></div>
+                <div className="orb">
+                    <i className="fas fa-database"></i>
+                </div>
+                
+                <h3 style={{ fontSize: '1.5rem', fontWeight: 800, margin: '0 0 8px', letterSpacing: '1px', textTransform: 'uppercase', position: 'relative', zIndex: 1 }}>Neural Data Ingestion</h3>
+                <p style={{ color: '#94a3b8', fontSize: '0.95rem', margin: '0 0 32px', position: 'relative', zIndex: 1 }}>Syncing records to the enterprise grid...</p>
+
+                <div style={{ position: 'relative', zIndex: 1 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px', fontSize: '0.85rem', fontWeight: 700, color: '#3b82f6' }}>
+                        <span>{progress}% COMPLETED</span>
+                        <span>{processedRecords} / {totalRecords}</span>
+                    </div>
+                    <div style={{ height: '12px', width: '100%', background: 'rgba(255,255,255,0.05)', borderRadius: '6px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.5)' }}>
+                        <div style={{ height: '100%', width: `${progress}%`, background: 'linear-gradient(90deg, #3b82f6, #ec4899)', transition: 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)', position: 'relative' }}>
+                            <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: '20px', background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.8))', animation: 'dataFlow 1s linear infinite' }}></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="stats-grid">
+                    <div className="stat-box">
+                        <div style={{ fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 800, marginBottom: '8px', letterSpacing: '0.5px' }}>Elapsed</div>
+                        <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#fff' }}>{elapsedTime}s</div>
+                    </div>
+                    <div className="stat-box">
+                        <div style={{ fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 800, marginBottom: '8px', letterSpacing: '0.5px' }}>Throughput</div>
+                        <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#34d399' }}>{recordsPerSecond} <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>r/s</span></div>
+                    </div>
+                    <div className="stat-box">
+                        <div style={{ fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 800, marginBottom: '8px', letterSpacing: '0.5px' }}>ETA</div>
+                        <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#fcd34d' }}>{estimatedSecondsLeft}{estimatedSecondsLeft !== '...' ? 's' : ''}</div>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
     return (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg-body)', padding: '24px' }}>
             <style>{customStyles}</style>
-            
-            <div className="import-wizard-card" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                <div style={{ padding: '40px 40px 10px', textAlign: 'center' }}>
-                    <h2 style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-main)', margin: '0 0 12px', letterSpacing: '-0.5px' }}>Import Data Hub</h2>
-                    <p style={{ color: 'var(--text-muted)', fontSize: '1rem', margin: '0 0 40px', maxWidth: '600px', marginInline: 'auto' }}>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '20px' }}>
+                <div style={{ flex: 1 }}>
+                    <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-main)', margin: '0 0 4px', letterSpacing: '-0.5px' }}>Import Data Hub</h2>
+                    <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', margin: '0' }}>
                         Seamlessly bring your external data into {MODULE_CONFIG[module]?.label || 'the CRM'} with our intelligent import wizard.
                     </p>
+                </div>
+            </div>
+            
+            <div className="import-wizard-card" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                <div style={{ padding: '20px 40px 10px', textAlign: 'center' }}>
                     <Stepper />
                 </div>
 
@@ -654,25 +785,25 @@ const ImportDataPage = () => {
                                                 border: isSelected ? '2px solid #3b82f6' : '1px solid var(--border-color)',
                                                 background: isSelected ? 'linear-gradient(145deg, rgba(59, 130, 246, 0.08), rgba(59, 130, 246, 0.02))' : 'var(--bg-card)',
                                                 borderRadius: '16px',
-                                                padding: '32px 24px',
+                                                padding: '24px 20px',
                                                 cursor: 'pointer',
                                                 display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center',
                                                 boxShadow: isSelected ? '0 10px 25px -5px rgba(59, 130, 246, 0.2)' : 'none'
                                             }}
                                         >
                                             <div style={{
-                                                width: '64px', height: '64px', borderRadius: '16px',
+                                                width: '48px', height: '48px', borderRadius: '12px',
                                                 background: isSelected ? 'linear-gradient(135deg, #3b82f6, #8b5cf6)' : 'var(--bg-light)',
                                                 color: isSelected ? '#ffffff' : 'var(--text-muted)',
                                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                fontSize: '1.75rem', marginBottom: '20px',
+                                                fontSize: '1.5rem', marginBottom: '12px',
                                                 boxShadow: isSelected ? '0 8px 16px rgba(59, 130, 246, 0.3)' : 'none',
                                                 transition: 'all 0.3s'
                                             }}>
                                                 <i className={`fas ${mod.icon}`}></i>
                                             </div>
-                                            <h4 style={{ margin: '0 0 10px', fontSize: '1.1rem', fontWeight: 700, color: isSelected ? '#3b82f6' : 'var(--text-main)' }}>{mod.label}</h4>
-                                            <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: '1.5' }}>{mod.description}</p>
+                                            <h4 style={{ margin: '0 0 6px', fontSize: '1rem', fontWeight: 700, color: isSelected ? '#3b82f6' : 'var(--text-main)' }}>{mod.label}</h4>
+                                            <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>{mod.description}</p>
                                         </div>
                                     );
                                 })}
@@ -683,9 +814,9 @@ const ImportDataPage = () => {
                 {/* Step 2: Upload */}
                 {step === 2 && (
                     <div style={{ maxWidth: '700px', margin: '0 auto', animation: 'fadeIn 0.5s ease-out' }}>
-                        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-                            <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '8px', letterSpacing: '-0.5px' }}>Upload Data</h3>
-                            <p style={{ color: 'var(--text-muted)' }}>Drag and drop your {MODULE_CONFIG[module].label} CSV file below</p>
+                        <div style={{ textAlign: 'center', marginBottom: '16px' }}>
+                            <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '4px', letterSpacing: '-0.5px' }}>Upload Data</h3>
+                            <p style={{ color: 'var(--text-muted)', margin: 0 }}>Drag and drop your {MODULE_CONFIG[module].label} CSV file below</p>
                         </div>
 
                         {(module === 'sizes' || module === 'inventory') && (
@@ -777,7 +908,7 @@ const ImportDataPage = () => {
                                 border: isDragging ? '2px dashed #3b82f6' : '2px dashed #cbd5e1',
                                 borderRadius: '20px',
                                 background: isDragging ? 'rgba(59, 130, 246, 0.05)' : 'var(--bg-card)',
-                                padding: '60px 40px',
+                                padding: '30px 40px',
                                 textAlign: 'center',
                                 cursor: 'pointer',
                                 transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
@@ -789,12 +920,12 @@ const ImportDataPage = () => {
                             onMouseLeave={(e) => { if(!isDragging) { e.currentTarget.style.borderColor = '#cbd5e1'; e.currentTarget.style.background = 'var(--bg-card)'; } }}
                         >
                             <div style={{ 
-                                width: '80px', height: '80px', borderRadius: '50%', background: isDragging ? '#3b82f6' : 'var(--bg-light)', 
-                                display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px',
+                                width: '60px', height: '60px', borderRadius: '50%', background: isDragging ? '#3b82f6' : 'var(--bg-light)', 
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px',
                                 transition: 'all 0.3s', color: isDragging ? '#ffffff' : '#94a3b8',
                                 boxShadow: isDragging ? '0 10px 25px rgba(59, 130, 246, 0.4)' : 'none'
                             }}>
-                                <i className="fas fa-cloud-upload-alt" style={{ fontSize: '2.5rem' }}></i>
+                                <i className="fas fa-cloud-upload-alt" style={{ fontSize: '2rem' }}></i>
                             </div>
                             <h4 style={{ margin: '0 0 12px', color: 'var(--text-main)', fontSize: '1.25rem', fontWeight: 700 }}>
                                 {file ? (
@@ -893,14 +1024,16 @@ const ImportDataPage = () => {
                                                         border: isMapped ? '1px solid #34d399' : '1px solid var(--border-color)', 
                                                         background: 'var(--bg-body)', outline: 'none', transition: 'all 0.2s',
                                                         color: isMapped ? '#065f46' : 'var(--text-main)',
-                                                        fontWeight: isMapped ? 600 : 400
+                                                        fontWeight: isMapped ? 600 : 400,
+                                                        pointerEvents: 'auto',
+                                                        cursor: 'pointer'
                                                     }}
                                                     onFocus={(e) => e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.2)'}
                                                     onBlur={(e) => e.target.style.boxShadow = 'none'}
                                                 >
                                                     <option value="">-- Unmapped --</option>
-                                                    {fileData.headers.map(h => (
-                                                        <option key={h} value={h}>{h}</option>
+                                                    {fileData.headers.map((h, idx) => (
+                                                        <option key={`${h}-${idx}`} value={h}>{h || `[Empty Column ${idx + 1}]`}</option>
                                                     ))}
                                                 </select>
                                             </div>
@@ -916,20 +1049,13 @@ const ImportDataPage = () => {
                         </div>
                     </div>
                 )}
-                    </div>
-                )}
+
 
                 {/* Step 4: Preview & Confirm */}
                 {step === 4 && (
                     <div style={{ maxWidth: '800px', margin: '0 auto' }}>
                         {importing ? (
-                            <div style={{ padding: '60px 0', textAlign: 'center' }}>
-                                <h3 style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '16px' }}>Importing Records...</h3>
-                                <div style={{ height: '8px', width: '100%', background: 'var(--border-color)', borderRadius: '4px', overflow: 'hidden', marginBottom: '16px' }}>
-                                    <div style={{ height: '100%', width: `${progress}%`, background: 'var(--primary-color)', transition: 'width 0.1s' }}></div>
-                                </div>
-                                <p style={{ color: 'var(--text-muted)', fontWeight: 600 }}>Processing {Math.round((progress / 100) * fileData.data.length)} of {fileData.data.length} records ({progress}%)</p>
-                            </div>
+                            <FuturisticImportProgress />
                         ) : (
                             <div>
                                 <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '16px' }}>Review Data Analysis</h3>
@@ -943,7 +1069,20 @@ const ImportDataPage = () => {
                                                 </div>
                                                 {conflicts.length > 0 ? `Data Conflicts Detected (${conflicts.length})` : 'Data Preview (No Conflicts)'}
                                             </h3>
-                                            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600 }}>Total Rows: {fileData.data.length}</div>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                                                {conflicts.length > 0 && (
+                                                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', color: 'var(--text-main)', cursor: 'pointer', fontWeight: 600 }}>
+                                                        <input 
+                                                            type="checkbox" 
+                                                            checked={showOnlyConflicts} 
+                                                            onChange={(e) => setShowOnlyConflicts(e.target.checked)} 
+                                                            style={{ cursor: 'pointer' }}
+                                                        />
+                                                        Show Only Conflicts
+                                                    </label>
+                                                )}
+                                                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600 }}>Total Rows: {fileData.data.length}</div>
+                                            </div>
                                         </div>
                                         
                                         {conflicts.length > 1 && (
@@ -983,6 +1122,9 @@ const ImportDataPage = () => {
                                                         const rowKey = `row_${idx}`;
                                                         const conflict = conflicts.find(c => c.rowKey === rowKey);
                                                         const isConflict = !!conflict;
+                                                        
+                                                        if (showOnlyConflicts && !isConflict) return null;
+
                                                         const isExpanded = expandedConflictRow === rowKey;
                                                         
                                                         const getVal = (sysKey) => {

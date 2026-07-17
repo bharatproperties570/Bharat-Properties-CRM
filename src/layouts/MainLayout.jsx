@@ -399,91 +399,198 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
                 )}
                 {/* Background Import Tracking Widget */}
                 {activeImports.length > 0 && (
-                    <div style={{
-                        position: 'fixed',
-                        bottom: '24px',
-                        right: '24px',
-                        width: '320px',
-                        zIndex: 9999,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '12px'
-                    }}>
-                        {activeImports.map(imp => (
-                            <div key={imp.id} style={{
-                                background: '#fff',
-                                borderRadius: '12px',
-                                padding: '16px',
-                                boxShadow: '0 10px 25px rgba(0,0,0,0.1)',
-                                borderLeft: `4px solid ${imp.status === 'completed' ? '#16a34a' : imp.status === 'error' ? '#dc2626' : '#3b82f6'}`,
-                                position: 'relative'
-                            }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                                    <h4 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 700, color: '#1e293b' }}>
-                                        {imp.moduleLabel} Import
-                                    </h4>
-                                    <button 
-                                        onClick={() => clearImport(imp.id)}
-                                        style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '1rem' }}
-                                    >
-                                        <i className="fas fa-times"></i>
-                                    </button>
-                                </div>
-                                
-                                {imp.status === 'running' && (() => {
-                                    const elapsed = Date.now() - (imp.startTime || Date.now());
-                                    let etaText = 'Calculating...';
-                                    if (imp.progress > 0 && imp.progress < 100) {
-                                        const totalEstimatedTime = (elapsed / imp.progress) * 100;
-                                        const remainingTime = totalEstimatedTime - elapsed;
-                                        const remainingSecs = Math.max(0, Math.ceil(remainingTime / 1000));
-                                        if (remainingSecs > 60) {
-                                            etaText = `${Math.ceil(remainingSecs / 60)} min remaining`;
-                                        } else {
-                                            etaText = `${remainingSecs} sec remaining`;
-                                        }
-                                    }
+                    <>
+                        <style>{`
+                            @keyframes flyIcon {
+                                0% { transform: translateY(-50%) rotate(-5deg); }
+                                50% { transform: translateY(-50%) rotate(5deg) scale(1.1); }
+                                100% { transform: translateY(-50%) rotate(-5deg); }
+                            }
+                            @keyframes pulseTrack {
+                                0% { opacity: 0.8; box-shadow: 0 0 5px rgba(59,130,246,0.5); }
+                                50% { opacity: 1; box-shadow: 0 0 15px rgba(59,130,246,0.8); }
+                                100% { opacity: 0.8; box-shadow: 0 0 5px rgba(59,130,246,0.5); }
+                            }
+                            .futuristic-widget {
+                                background: var(--bg-card, #ffffff);
+                                backdrop-filter: blur(12px);
+                                border: 1px solid var(--border-color, #e2e8f0);
+                                border-radius: 16px;
+                                padding: 20px;
+                                color: var(--text-main, #1e293b);
+                                box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+                                overflow: hidden;
+                                position: relative;
+                                transition: all 0.3s ease;
+                            }
+                            .futuristic-widget::before {
+                                content: '';
+                                position: absolute;
+                                inset: 0;
+                                background: linear-gradient(90deg, transparent, rgba(59,130,246,0.03) 1px, transparent 1px),
+                                            linear-gradient(180deg, transparent, rgba(59,130,246,0.03) 1px, transparent 1px);
+                                background-size: 10px 10px;
+                                pointer-events: none;
+                            }
+                        `}</style>
+                        <div style={{
+                            position: 'fixed',
+                            bottom: '24px',
+                            right: '24px',
+                            width: '360px',
+                            zIndex: 9999,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '16px'
+                        }}>
+                            {activeImports.map(imp => {
+                                const getModuleIcon = (mod) => {
+                                    if(mod === 'propertyOwners' || mod === 'contacts') return 'fa-user-tie';
+                                    if(mod === 'inventory') return 'fa-building';
+                                    if(mod === 'leads') return 'fa-bolt';
+                                    if(mod === 'sizes') return 'fa-ruler-combined';
+                                    return 'fa-file-csv';
+                                };
+                                const modIcon = getModuleIcon(imp.module || imp.moduleLabel?.toLowerCase());
 
-                                    return (
-                                        <>
-                                            <div style={{ height: '6px', background: '#e2e8f0', borderRadius: '3px', overflow: 'hidden', marginBottom: '8px' }}>
-                                                <div style={{ height: '100%', width: `${imp.progress}%`, background: '#3b82f6', transition: 'width 0.3s' }}></div>
-                                            </div>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>
-                                                <span>{imp.processedRecords} / {imp.totalRecords}</span>
-                                                <span style={{ color: '#3b82f6' }}>{imp.progress}%</span>
-                                            </div>
-                                            <div style={{ display: 'flex', justifyContent: 'flex-end', fontSize: '0.75rem', color: '#64748b', marginTop: '4px' }}>
-                                                <span><i className="fas fa-clock"></i> {etaText}</span>
-                                            </div>
-                                        </>
-                                    );
-                                })()}
-                                
-                                {imp.status === 'completed' && (
-                                    <div style={{ fontSize: '0.8rem', color: '#16a34a', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                        <i className="fas fa-check-circle"></i> Completed ({imp.stats?.success || 0} added/updated
-                                        {imp.stats?.failed > 0 && (
-                                            <span style={{ color: '#dc2626' }}>, {imp.stats.failed} failed</span>
-                                        )})
-                                    </div>
-                                )}
-
-                                {imp.status === 'error' && (
-                                    <div style={{ fontSize: '0.8rem', color: '#dc2626', fontWeight: 600, display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                            <i className="fas fa-exclamation-circle"></i> Failed to complete
+                                return (
+                                <div key={imp.id} className="futuristic-widget" style={{
+                                    borderLeft: `4px solid ${imp.status === 'completed' ? '#10b981' : imp.status === 'error' ? '#ef4444' : '#3b82f6'}`
+                                }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', position: 'relative', zIndex: 1 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                            {imp.status === 'running' ? (
+                                                <div style={{ background: 'rgba(59,130,246,0.1)', color: '#3b82f6', width: '32px', height: '32px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                    <i className={`fas ${modIcon} fa-bounce`} style={{ fontSize: '0.9rem' }}></i>
+                                                </div>
+                                            ) : imp.status === 'completed' ? (
+                                                <div style={{ background: 'rgba(16,185,129,0.1)', color: '#10b981', width: '32px', height: '32px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                    <i className="fas fa-check" style={{ fontSize: '0.9rem' }}></i>
+                                                </div>
+                                            ) : (
+                                                <div style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444', width: '32px', height: '32px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                    <i className="fas fa-exclamation-triangle" style={{ fontSize: '0.9rem' }}></i>
+                                                </div>
+                                            )}
+                                            <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                                {imp.moduleLabel} INGESTION
+                                            </h4>
                                         </div>
-                                        {imp.errors?.[0]?.reason && (
-                                            <div style={{ fontSize: '0.75rem', fontWeight: 400, opacity: 0.9 }}>
-                                                {imp.errors[0].reason}
-                                            </div>
-                                        )}
+                                        <button 
+                                            onClick={() => clearImport(imp.id)}
+                                            style={{ background: 'var(--bg-light, #f1f5f9)', border: 'none', color: 'var(--text-muted, #94a3b8)', cursor: 'pointer', borderRadius: '50%', width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }}
+                                            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)'; e.currentTarget.style.color = '#ef4444'; }}
+                                            onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--bg-light, #f1f5f9)'; e.currentTarget.style.color = 'var(--text-muted, #94a3b8)'; }}
+                                        >
+                                            <i className="fas fa-times" style={{ fontSize: '0.8rem' }}></i>
+                                        </button>
                                     </div>
-                                )}
-                            </div>
-                        ))}
-                    </div>
+                                    
+                                    {imp.status === 'running' && (() => {
+                                        const elapsed = Date.now() - (imp.startTime || Date.now());
+                                        let etaText = 'Calculating...';
+                                        if (imp.progress > 0 && imp.progress < 100) {
+                                            const totalEstimatedTime = (elapsed / imp.progress) * 100;
+                                            const remainingTime = totalEstimatedTime - elapsed;
+                                            const remainingSecs = Math.max(0, Math.ceil(remainingTime / 1000));
+                                            if (remainingSecs > 60) {
+                                                etaText = `${Math.ceil(remainingSecs / 60)} min remaining`;
+                                            } else {
+                                                etaText = `${remainingSecs} sec remaining`;
+                                            }
+                                        }
+
+                                        return (
+                                            <div style={{ position: 'relative', zIndex: 1 }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-muted, #64748b)', fontWeight: 700, marginBottom: '8px' }}>
+                                                    <span>PROCESSED: {imp.processedRecords} / {imp.totalRecords}</span>
+                                                    <span style={{ color: '#3b82f6' }}>{imp.progress}%</span>
+                                                </div>
+                                                
+                                                {/* Animated Entity Progress Track */}
+                                                <div style={{ position: 'relative', height: '36px', marginBottom: '8px' }}>
+                                                    {/* The Track Line */}
+                                                    <div style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%)', left: 0, right: 0, height: '6px', background: 'var(--bg-light, #e2e8f0)', borderRadius: '3px', overflow: 'hidden' }}>
+                                                        <div style={{ 
+                                                            height: '100%', width: `${imp.progress}%`, 
+                                                            background: 'linear-gradient(90deg, #60a5fa, #3b82f6)',
+                                                            transition: 'width 0.3s ease',
+                                                            animation: 'pulseTrack 2s infinite'
+                                                        }}></div>
+                                                    </div>
+                                                    
+                                                    {/* The moving entity icon */}
+                                                    <div style={{ 
+                                                        position: 'absolute', 
+                                                        top: '50%', 
+                                                        left: `calc(${imp.progress}% - 14px)`, 
+                                                        transform: 'translateY(-50%)',
+                                                        width: '28px', 
+                                                        height: '28px', 
+                                                        background: '#fff', 
+                                                        border: '2px solid #3b82f6', 
+                                                        borderRadius: '50%', 
+                                                        display: 'flex', 
+                                                        alignItems: 'center', 
+                                                        justifyContent: 'center',
+                                                        color: '#3b82f6',
+                                                        boxShadow: '0 0 10px rgba(59,130,246,0.3)',
+                                                        transition: 'left 0.3s ease',
+                                                        zIndex: 2,
+                                                        animation: 'flyIcon 1s infinite ease-in-out'
+                                                    }}>
+                                                        <i className={`fas ${modIcon}`} style={{ fontSize: '0.75rem' }}></i>
+                                                    </div>
+                                                </div>
+
+                                                <div style={{ display: 'flex', justifyContent: 'flex-end', fontSize: '0.75rem', color: '#f59e0b', fontWeight: 700, letterSpacing: '0.5px' }}>
+                                                    <span><i className="fas fa-clock fa-spin" style={{ marginRight: '6px', animationDuration: '4s' }}></i> ETA: {etaText.toUpperCase()}</span>
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
+                                    
+                                    {imp.status === 'completed' && (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', position: 'relative', zIndex: 1 }}>
+                                            <div style={{ fontSize: '0.85rem', color: '#10b981', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <div style={{ padding: '6px 10px', background: 'rgba(16,185,129,0.1)', borderRadius: '8px', border: '1px solid rgba(16,185,129,0.3)' }}>
+                                                    <i className="fas fa-check-circle" style={{ marginRight: '4px' }}></i> {imp.stats?.success || 0} Synced
+                                                </div>
+                                                {imp.stats?.failed > 0 && (
+                                                    <div style={{ padding: '6px 10px', background: 'rgba(239,68,68,0.1)', borderRadius: '8px', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444' }}>
+                                                        <i className="fas fa-exclamation-circle" style={{ marginRight: '4px' }}></i> {imp.stats.failed} Errors
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <button 
+                                                onClick={() => clearImport(imp.id)}
+                                                style={{ 
+                                                    width: '100%', padding: '10px', 
+                                                    background: 'linear-gradient(135deg, #3b82f6, #4f46e5)', 
+                                                    color: '#fff', border: 'none', borderRadius: '8px', 
+                                                    fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer', 
+                                                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', 
+                                                    boxShadow: '0 4px 10px rgba(59,130,246,0.3)',
+                                                    transition: 'all 0.2s'
+                                                }}
+                                                onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 6px 15px rgba(59,130,246,0.4)'; }}
+                                                onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 10px rgba(59,130,246,0.3)'; }}
+                                            >
+                                                <i className="fas fa-chart-bar"></i> View Full Report
+                                            </button>
+                                        </div>
+                                    )}
+                                    
+                                    {imp.status === 'error' && (
+                                        <div style={{ fontSize: '0.85rem', color: '#ef4444', fontWeight: 700, position: 'relative', zIndex: 1 }}>
+                                            <i className="fas fa-times-circle" style={{ marginRight: '6px' }}></i> Process Terminated
+                                        </div>
+                                    )}
+                                </div>
+                                );
+                            })}
+                        </div>
+                    </>
                 )}
             </main>
         </div>
