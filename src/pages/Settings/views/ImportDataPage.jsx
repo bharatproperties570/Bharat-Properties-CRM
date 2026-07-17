@@ -266,39 +266,64 @@ const ImportDataPage = () => {
                 return item;
             });
 
-            const response = await api.post('/inventory/bulk-update-owners', {
-                dryRun: true,
-                data: transformedData
-            });
+            // Chunk the analysis to prevent Vercel 10s timeouts
+            const CHUNK_SIZE = 5;
+            let allConflicts = [];
+            let allNotFound = [];
+            let allDuplicates = [];
+            let allPlannedUpdates = [];
+            let totalNew = 0;
+            let totalUpdated = 0;
+            let totalNoMobile = 0;
 
-            if (response.data.success) {
-                setConflicts(response.data.conflicts || []);
-                setNotFound(response.data.notFound || []);
-                setImportSummary({
-                    newItems: response.data.newCount || 0,
-                    updateItems: response.data.updatedCount || response.data.successCount || 0,
-                    noMobileItems: response.data.noMobileCount || 0
+            for (let i = 0; i < transformedData.length; i += CHUNK_SIZE) {
+                const chunk = transformedData.slice(i, i + CHUNK_SIZE);
+                const response = await api.post('/inventory/bulk-update-owners', {
+                    dryRun: true,
+                    data: chunk
                 });
-                
-                // Default resolutions - set EMPTY so user must explicitly choose
-                const initialResolutions = {};
-                // Do NOT pre-set any resolution - user must click and choose
-                setResolutions(initialResolutions);
-                setPlannedUpdates(response.data.plannedUpdates || []);
-                setDuplicates(response.data.duplicates || []); // 🚀 Store matches for transparency
 
-                if (response.data.conflictCount > 0) {
-                    toast.error(`Detected ${response.data.conflictCount} data conflicts.`);
-                } else if ((response.data.notFound || []).length > 0) {
-                    toast(`⚠️ ${response.data.notFound.length} units not found in system.`, { icon: '⚠️' });
+                if (response.data.success) {
+                    allConflicts = [...allConflicts, ...(response.data.conflicts || [])];
+                    allNotFound = [...allNotFound, ...(response.data.notFound || [])];
+                    allDuplicates = [...allDuplicates, ...(response.data.duplicates || [])];
+                    allPlannedUpdates = [...allPlannedUpdates, ...(response.data.plannedUpdates || [])];
+                    totalNew += (response.data.newCount || 0);
+                    totalUpdated += (response.data.updatedCount || response.data.successCount || 0);
+                    totalNoMobile += (response.data.noMobileCount || 0);
                 } else {
-                    toast.success('Validation complete: No conflicts found.');
+                    throw new Error(response.data.message || 'Validation failed on chunk');
                 }
             }
+
+            setConflicts(allConflicts);
+            setNotFound(allNotFound);
+            setImportSummary({
+                newItems: totalNew,
+                updateItems: totalUpdated,
+                noMobileItems: totalNoMobile
+            });
+            
+            // Default resolutions - set EMPTY so user must explicitly choose
+            setResolutions({});
+            setPlannedUpdates(allPlannedUpdates);
+            setDuplicates(allDuplicates);
+
+            if (allConflicts.length > 0) {
+                toast.error(`Detected ${allConflicts.length} data conflicts.`);
+            } else if (allNotFound.length > 0) {
+                toast(`⚠️ ${allNotFound.length} units not found in system.`, { icon: '⚠️' });
+            } else {
+                toast.success('Validation complete: No conflicts found.');
+            }
+            return true;
         } catch (error) {
-            toast.error('Data validation failed');
+            console.error("Analysis Error:", error);
+            toast.error('Data validation failed. The file might be too large or there is a network issue.');
+            return false;
         } finally {
             setIsAnalyzing(false);
+            setCheckingDuplicates(false);
         }
     };
 
@@ -524,27 +549,73 @@ const ImportDataPage = () => {
 
     // --- Renderers ---
 
+    // --- Custom Styles for Futuristic UI ---
+    const customStyles = `
+        .import-wizard-card {
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.15);
+            border-radius: 24px;
+            overflow: hidden;
+            background: linear-gradient(145deg, var(--bg-card) 0%, rgba(255,255,255,0.03) 100%);
+            border: 1px solid var(--border-color);
+            position: relative;
+        }
+        .import-wizard-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; height: 4px;
+            background: linear-gradient(90deg, #3b82f6, #8b5cf6, #ec4899);
+        }
+        .module-card {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            backdrop-filter: blur(10px);
+        }
+        .module-card:hover {
+            transform: translateY(-5px) scale(1.02);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            border-color: rgba(59, 130, 246, 0.5) !important;
+        }
+        .step-circle {
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .step-circle.active {
+            box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.15), 0 0 25px rgba(59, 130, 246, 0.4);
+            transform: scale(1.15);
+        }
+        .progress-line {
+            transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+    `;
+
+    // --- Renderers ---
+
     const Stepper = () => (
-        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0 40px 40px', position: 'relative' }}>
-            <div style={{ position: 'absolute', top: '15px', left: '60px', right: '60px', height: '2px', background: 'var(--border-color)', zIndex: 0 }}>
-                <div style={{ height: '100%', width: `${((step - 1) / 4) * 100}%`, background: 'var(--primary-color)', transition: 'width 0.3s' }}></div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 40px 50px', position: 'relative' }}>
+            <div style={{ position: 'absolute', top: '25px', left: '60px', right: '60px', height: '4px', background: 'var(--border-color)', borderRadius: '2px', zIndex: 0, overflow: 'hidden' }}>
+                <div className="progress-line" style={{ height: '100%', width: `${((step - 1) / 4) * 100}%`, background: 'linear-gradient(90deg, #3b82f6, #60a5fa)', borderRadius: '2px' }}></div>
             </div>
             {['Select', 'Upload', 'Map', 'Preview', 'Finish'].map((label, i) => {
                 const s = i + 1;
+                const isActive = s === step;
+                const isCompleted = s < step;
                 return (
-                    <div key={s} style={{ zIndex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
-                        <div style={{
-                            width: '32px', height: '32px', borderRadius: '50%',
-                            background: s <= step ? 'var(--primary-color)' : 'var(--bg-card)',
-                            border: s <= step ? 'none' : '2px solid var(--border-color)',
-                            color: s <= step ? 'var(--bg-card)' : 'var(--text-muted)',
+                    <div key={s} style={{ zIndex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+                        <div className={`step-circle ${isActive ? 'active' : ''}`} style={{
+                            width: '36px', height: '36px', borderRadius: '50%',
+                            background: isCompleted ? '#3b82f6' : isActive ? 'var(--bg-card)' : 'var(--bg-light)',
+                            border: isActive ? '3px solid #3b82f6' : isCompleted ? 'none' : '2px solid var(--border-color)',
+                            color: isCompleted ? '#ffffff' : isActive ? '#3b82f6' : 'var(--text-muted)',
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            fontWeight: 700, fontSize: '0.9rem',
-                            transition: 'all 0.3s'
+                            fontWeight: 800, fontSize: '0.95rem'
                         }}>
-                            {s < step ? <i className="fas fa-check"></i> : s}
+                            {isCompleted ? <i className="fas fa-check"></i> : s}
                         </div>
-                        <div style={{ fontSize: '0.75rem', fontWeight: 600, color: s <= step ? 'var(--text-main)' : 'var(--text-muted)' }}>
+                        <div style={{ 
+                            fontSize: '0.8rem', 
+                            fontWeight: isActive ? 700 : 600, 
+                            color: isActive ? '#3b82f6' : isCompleted ? 'var(--text-main)' : 'var(--text-muted)',
+                            letterSpacing: '0.5px',
+                            textTransform: 'uppercase'
+                        }}>
                             {label}
                         </div>
                     </div>
@@ -554,127 +625,145 @@ const ImportDataPage = () => {
     );
 
     return (
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg-card)' }}>
-            <div style={{ padding: '32px 40px 0' }}>
-                <h2 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '8px' }}>Import Data Wizard</h2>
-                <p style={{ color: 'var(--text-muted)', marginBottom: '32px' }}>Bulk import data from CSV files into {MODULE_CONFIG[module]?.label || 'CRM'}.</p>
-                <Stepper />
-            </div>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg-body)', padding: '24px' }}>
+            <style>{customStyles}</style>
+            
+            <div className="import-wizard-card" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                <div style={{ padding: '40px 40px 10px', textAlign: 'center' }}>
+                    <h2 style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-main)', margin: '0 0 12px', letterSpacing: '-0.5px' }}>Import Data Hub</h2>
+                    <p style={{ color: 'var(--text-muted)', fontSize: '1rem', margin: '0 0 40px', maxWidth: '600px', marginInline: 'auto' }}>
+                        Seamlessly bring your external data into {MODULE_CONFIG[module]?.label || 'the CRM'} with our intelligent import wizard.
+                    </p>
+                    <Stepper />
+                </div>
 
-            <div style={{ flex: 1, overflowY: 'auto', padding: '0 40px 40px' }}>
-                {/* Step 1: Select Module */}
-                {step === 1 && (
-                    <div style={{ maxWidth: '800px', margin: '0 auto' }}>
-                        <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '24px' }}>Select Data Module</h3>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px' }}>
-                            {Object.values(MODULE_CONFIG).map(mod => (
-                                <div
-                                    key={mod.id}
-                                    onClick={() => setModule(mod.id)}
-                                    style={{
-                                        border: module === mod.id ? '2px solid var(--primary-color)' : '1px solid var(--border-color)',
-                                        background: module === mod.id ? 'rgba(59, 130, 246, 0.1)' : 'var(--bg-card)',
-                                        borderRadius: '12px',
-                                        padding: '24px',
-                                        cursor: 'pointer',
-                                        transition: 'all 0.2s',
-                                        display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center'
-                                    }}
-                                >
-                                    <div style={{
-                                        width: '48px', height: '48px', borderRadius: '12px',
-                                        background: module === mod.id ? 'var(--primary-color)' : 'var(--bg-light)',
-                                        color: module === mod.id ? 'var(--bg-card)' : 'var(--text-muted)',
-                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                        fontSize: '1.5rem', marginBottom: '16px'
-                                    }}>
-                                        <i className={`fas ${mod.icon}`}></i>
-                                    </div>
-                                    <h4 style={{ margin: '0 0 8px', color: 'var(--text-main)' }}>{mod.label}</h4>
-                                    <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>{mod.description}</p>
-                                </div>
-                            ))}
+                <div style={{ flex: 1, overflowY: 'auto', padding: '0 40px 40px' }}>
+                    {/* Step 1: Select Module */}
+                    {step === 1 && (
+                        <div style={{ maxWidth: '900px', margin: '0 auto', animation: 'fadeIn 0.5s ease-out' }}>
+                            <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '32px', textAlign: 'center' }}>What would you like to import?</h3>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '24px' }}>
+                                {Object.values(MODULE_CONFIG).map(mod => {
+                                    const isSelected = module === mod.id;
+                                    return (
+                                        <div
+                                            key={mod.id}
+                                            className="module-card"
+                                            onClick={() => setModule(mod.id)}
+                                            style={{
+                                                border: isSelected ? '2px solid #3b82f6' : '1px solid var(--border-color)',
+                                                background: isSelected ? 'linear-gradient(145deg, rgba(59, 130, 246, 0.08), rgba(59, 130, 246, 0.02))' : 'var(--bg-card)',
+                                                borderRadius: '16px',
+                                                padding: '32px 24px',
+                                                cursor: 'pointer',
+                                                display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center',
+                                                boxShadow: isSelected ? '0 10px 25px -5px rgba(59, 130, 246, 0.2)' : 'none'
+                                            }}
+                                        >
+                                            <div style={{
+                                                width: '64px', height: '64px', borderRadius: '16px',
+                                                background: isSelected ? 'linear-gradient(135deg, #3b82f6, #8b5cf6)' : 'var(--bg-light)',
+                                                color: isSelected ? '#ffffff' : 'var(--text-muted)',
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                fontSize: '1.75rem', marginBottom: '20px',
+                                                boxShadow: isSelected ? '0 8px 16px rgba(59, 130, 246, 0.3)' : 'none',
+                                                transition: 'all 0.3s'
+                                            }}>
+                                                <i className={`fas ${mod.icon}`}></i>
+                                            </div>
+                                            <h4 style={{ margin: '0 0 10px', fontSize: '1.1rem', fontWeight: 700, color: isSelected ? '#3b82f6' : 'var(--text-main)' }}>{mod.label}</h4>
+                                            <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: '1.5' }}>{mod.description}</p>
+                                        </div>
+                                    );
+                                })}
+                            </div>
                         </div>
-                    </div>
-                )}
+                    )}
 
                 {/* Step 2: Upload */}
                 {step === 2 && (
-                    <div style={{ maxWidth: '600px', margin: '0 auto' }}>
-                        <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '16px' }}>Upload File for {MODULE_CONFIG[module].label}</h3>
+                    <div style={{ maxWidth: '700px', margin: '0 auto', animation: 'fadeIn 0.5s ease-out' }}>
+                        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+                            <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '8px', letterSpacing: '-0.5px' }}>Upload Data</h3>
+                            <p style={{ color: 'var(--text-muted)' }}>Drag and drop your {MODULE_CONFIG[module].label} CSV file below</p>
+                        </div>
 
                         {(module === 'sizes' || module === 'inventory') && (
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
-                                <div>
-                                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>Select Project</label>
-                                    <select
-                                        id="project-selection-import"
-                                        value={selectedProject}
-                                        onChange={(e) => handleProjectChange(e.target.value)}
-                                        style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.9rem' }}
-                                    >
-                                        <option value="">-- Choose Project --</option>
-                                        {projects.map(p => (
-                                            <option key={p._id || p.id} value={p._id || p.id}>
-                                                {p.name}
-                                            </option>
-                                        ))}
-                                    </select>
-                                    {projects.length === 0 && (
-                                        <p style={{ fontSize: '0.7rem', color: '#ef4444', marginTop: '4px' }}>
-                                            <i className="fa fa-exclamation-triangle" style={{ marginRight: '4px' }}></i>
-                                            No projects found. Please create a project first.
-                                        </p>
-                                    )}
-                                </div>
-                                <div>
-                                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>Select Block</label>
-                                    <select
-                                        id="block-selection-import"
-                                        value={selectedBlock}
-                                        onChange={(e) => setSelectedBlock(e.target.value)}
-                                        disabled={!selectedProject || blocks.length === 0}
-                                        style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '0.9rem', opacity: (!selectedProject || blocks.length === 0) ? 0.6 : 1 }}
-                                    >
-                                        <option value="">
-                                            {!selectedProject ? '-- Select Project First --' : (blocks.length === 0 ? '-- No Blocks Found --' : '-- Choose Block --')}
-                                        </option>
-                                        {blocks.map(b => <option key={b.name} value={b.name}>{b.name}</option>)}
-                                    </select>
-                                </div>
-                                <div style={{ gridColumn: 'span 2', marginTop: '16px' }}>
-                                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>Assign to Team(s) <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(Multiple selection supported)</span></label>
-                                    <div style={{ 
-                                        border: '1px solid var(--border-color)', 
-                                        borderRadius: '8px', 
-                                        padding: '12px', 
-                                        background: 'var(--bg-card)',
-                                        maxHeight: '150px',
-                                        overflowY: 'auto',
-                                        display: 'grid',
-                                        gridTemplateColumns: 'repeat(2, 1fr)',
-                                        gap: '8px'
-                                    }}>
-                                        {teams.length === 0 ? (
-                                            <div style={{ gridColumn: 'span 2', textAlign: 'center', padding: '10px', color: 'var(--text-muted)' }}>No teams found. Ensure teams are created in User Management.</div>
-                                        ) : teams.map(t => (
-                                            <label key={t._id} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', padding: '4px 8px', borderRadius: '4px', background: selectedTeams.includes(t._id) ? 'rgba(59, 130, 246, 0.1)' : 'transparent', transition: 'all 0.2s' }}>
-                                                <input 
-                                                    type="checkbox" 
-                                                    checked={selectedTeams.includes(t._id)}
-                                                    onChange={(e) => {
-                                                        if (e.target.checked) setSelectedTeams([...selectedTeams, t._id]);
-                                                        else setSelectedTeams(selectedTeams.filter(id => id !== t._id));
-                                                    }}
-                                                    style={{ width: '16px', height: '16px' }}
-                                                />
-                                                <span style={{ fontSize: '0.85rem', fontWeight: selectedTeams.includes(t._id) ? 600 : 400, color: selectedTeams.includes(t._id) ? '#2563eb' : 'var(--text-muted)' }}>{t.name}</span>
-                                            </label>
-                                        ))}
+                            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '24px', marginBottom: '32px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
+                                <h4 style={{ fontSize: '1rem', fontWeight: 700, margin: '0 0 16px', color: 'var(--text-main)' }}>Context Settings</h4>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>Select Project</label>
+                                        <select
+                                            id="project-selection-import"
+                                            value={selectedProject}
+                                            onChange={(e) => handleProjectChange(e.target.value)}
+                                            style={{ width: '100%', padding: '12px 16px', borderRadius: '10px', border: '1px solid var(--border-color)', fontSize: '0.95rem', outline: 'none', transition: 'all 0.2s', background: 'var(--bg-body)' }}
+                                            onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                                            onBlur={(e) => e.target.style.borderColor = 'var(--border-color)'}
+                                        >
+                                            <option value="">-- Choose Project --</option>
+                                            {projects.map(p => (
+                                                <option key={p._id || p.id} value={p._id || p.id}>
+                                                    {p.name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        {projects.length === 0 && (
+                                            <p style={{ fontSize: '0.75rem', color: '#ef4444', marginTop: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                <i className="fa fa-exclamation-triangle"></i>
+                                                No projects found. Please create a project first.
+                                            </p>
+                                        )}
                                     </div>
-                                    <p style={{ marginTop: '8px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                                        <i className="fas fa-info-circle" style={{ marginRight: '4px' }}></i> Selected teams will have full visibility and management access to this inventory.
-                                    </p>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>Select Block</label>
+                                        <select
+                                            id="block-selection-import"
+                                            value={selectedBlock}
+                                            onChange={(e) => setSelectedBlock(e.target.value)}
+                                            disabled={!selectedProject || blocks.length === 0}
+                                            style={{ width: '100%', padding: '12px 16px', borderRadius: '10px', border: '1px solid var(--border-color)', fontSize: '0.95rem', outline: 'none', transition: 'all 0.2s', background: 'var(--bg-body)', opacity: (!selectedProject || blocks.length === 0) ? 0.6 : 1 }}
+                                            onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                                            onBlur={(e) => e.target.style.borderColor = 'var(--border-color)'}
+                                        >
+                                            <option value="">
+                                                {!selectedProject ? '-- Select Project First --' : (blocks.length === 0 ? '-- No Blocks Found --' : '-- Choose Block --')}
+                                            </option>
+                                            {blocks.map(b => <option key={b.name} value={b.name}>{b.name}</option>)}
+                                        </select>
+                                    </div>
+                                    <div style={{ gridColumn: 'span 2', marginTop: '8px' }}>
+                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '12px' }}>Assign to Team(s) <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(Optional)</span></label>
+                                        <div style={{ 
+                                            border: '1px solid var(--border-color)', 
+                                            borderRadius: '12px', 
+                                            padding: '16px', 
+                                            background: 'var(--bg-body)',
+                                            maxHeight: '180px',
+                                            overflowY: 'auto',
+                                            display: 'grid',
+                                            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                                            gap: '12px'
+                                        }}>
+                                            {teams.length === 0 ? (
+                                                <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '16px', color: 'var(--text-muted)' }}>No teams found. Ensure teams are created in User Management.</div>
+                                            ) : teams.map(t => (
+                                                <label key={t._id} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', padding: '8px 12px', borderRadius: '8px', background: selectedTeams.includes(t._id) ? 'rgba(59, 130, 246, 0.1)' : 'transparent', border: selectedTeams.includes(t._id) ? '1px solid rgba(59, 130, 246, 0.3)' : '1px solid transparent', transition: 'all 0.2s' }}>
+                                                    <input 
+                                                        type="checkbox" 
+                                                        checked={selectedTeams.includes(t._id)}
+                                                        onChange={(e) => {
+                                                            if (e.target.checked) setSelectedTeams([...selectedTeams, t._id]);
+                                                            else setSelectedTeams(selectedTeams.filter(id => id !== t._id));
+                                                        }}
+                                                        style={{ width: '18px', height: '18px', accentColor: '#3b82f6' }}
+                                                    />
+                                                    <span style={{ fontSize: '0.9rem', fontWeight: selectedTeams.includes(t._id) ? 600 : 400, color: selectedTeams.includes(t._id) ? '#2563eb' : 'var(--text-main)' }}>{t.name}</span>
+                                                </label>
+                                            ))}
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         )}
@@ -685,19 +774,36 @@ const ImportDataPage = () => {
                             onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
                             onClick={() => fileInputRef.current.click()}
                             style={{
-                                border: isDragging ? '2px dashed var(--primary-color)' : '2px dashed #cbd5e1',
-                                borderRadius: '12px',
-                                background: isDragging ? 'rgba(59, 130, 246, 0.1)' : 'var(--bg-light)',
+                                border: isDragging ? '2px dashed #3b82f6' : '2px dashed #cbd5e1',
+                                borderRadius: '20px',
+                                background: isDragging ? 'rgba(59, 130, 246, 0.05)' : 'var(--bg-card)',
                                 padding: '60px 40px',
                                 textAlign: 'center',
                                 cursor: 'pointer',
-                                transition: 'all 0.2s',
-                                marginBottom: '24px'
+                                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                                marginBottom: '24px',
+                                transform: isDragging ? 'scale(1.02)' : 'scale(1)',
+                                boxShadow: isDragging ? '0 20px 25px -5px rgba(59, 130, 246, 0.1)' : '0 4px 6px -1px rgba(0,0,0,0.05)'
                             }}
+                            onMouseEnter={(e) => { if(!isDragging) { e.currentTarget.style.borderColor = '#94a3b8'; e.currentTarget.style.background = 'var(--bg-light)'; } }}
+                            onMouseLeave={(e) => { if(!isDragging) { e.currentTarget.style.borderColor = '#cbd5e1'; e.currentTarget.style.background = 'var(--bg-card)'; } }}
                         >
-                            <i className="fas fa-cloud-upload-alt" style={{ fontSize: '3rem', color: isDragging ? 'var(--primary-color)' : 'var(--text-muted)', marginBottom: '16px' }}></i>
-                            <h4 style={{ margin: '0 0 8px', color: 'var(--text-main)' }}>{file ? file.name : (isDragging ? 'Drop file to upload' : 'Drag & Drop CSV here')}</h4>
-                            <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem' }}>or <span style={{ color: 'var(--primary-color)', fontWeight: 600 }}>browse files</span></p>
+                            <div style={{ 
+                                width: '80px', height: '80px', borderRadius: '50%', background: isDragging ? '#3b82f6' : 'var(--bg-light)', 
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px',
+                                transition: 'all 0.3s', color: isDragging ? '#ffffff' : '#94a3b8',
+                                boxShadow: isDragging ? '0 10px 25px rgba(59, 130, 246, 0.4)' : 'none'
+                            }}>
+                                <i className="fas fa-cloud-upload-alt" style={{ fontSize: '2.5rem' }}></i>
+                            </div>
+                            <h4 style={{ margin: '0 0 12px', color: 'var(--text-main)', fontSize: '1.25rem', fontWeight: 700 }}>
+                                {file ? (
+                                    <span style={{ color: '#10b981' }}><i className="fas fa-check-circle" style={{ marginRight: '8px' }}></i> {file.name}</span>
+                                ) : (
+                                    isDragging ? 'Drop file to upload' : 'Drag & Drop CSV here'
+                                )}
+                            </h4>
+                            {!file && <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.95rem' }}>or <span style={{ color: '#3b82f6', fontWeight: 600, textDecoration: 'underline', textUnderlineOffset: '4px' }}>browse files</span> on your computer</p>}
                             <input
                                 type="file"
                                 ref={fileInputRef}
@@ -707,90 +813,109 @@ const ImportDataPage = () => {
                             />
                         </div>
 
-                        <div style={{ background: 'rgba(59, 130, 246, 0.1)', borderRadius: '8px', padding: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                <i className="fas fa-file-csv" style={{ fontSize: '1.5rem', color: '#2563eb' }}></i>
+                        <div style={{ background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(139, 92, 246, 0.1))', border: '1px solid rgba(59, 130, 246, 0.2)', borderRadius: '16px', padding: '20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 4px 15px rgba(0,0,0,0.02)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                                <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 10px rgba(0,0,0,0.05)' }}>
+                                    <i className="fas fa-file-csv" style={{ fontSize: '1.5rem', color: '#3b82f6' }}></i>
+                                </div>
                                 <div>
-                                    <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>Need a sample?</div>
-                                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Download template for {MODULE_CONFIG[module].label}</div>
+                                    <div style={{ fontWeight: 700, color: 'var(--text-main)', fontSize: '1rem', marginBottom: '2px' }}>Need a template?</div>
+                                    <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Download the official {MODULE_CONFIG[module].label} CSV template</div>
                                 </div>
                             </div>
                             <button
                                 onClick={generateSampleCSV}
-                                style={{ background: 'var(--bg-card)', border: '1px solid #bfdbfe', color: '#2563eb', padding: '8px 16px', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}
+                                style={{ background: '#ffffff', border: '1px solid #bfdbfe', color: '#2563eb', padding: '10px 20px', borderRadius: '8px', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s', boxShadow: '0 2px 5px rgba(59,130,246,0.1)' }}
+                                onMouseEnter={(e) => { e.currentTarget.style.background = '#eff6ff'; e.currentTarget.style.borderColor = '#93c5fd'; }}
+                                onMouseLeave={(e) => { e.currentTarget.style.background = '#ffffff'; e.currentTarget.style.borderColor = '#bfdbfe'; }}
                             >
                                 <i className="fas fa-download" style={{ marginRight: '8px' }}></i> Download
                             </button>
-                        </div>
-
-
-
-                        <div style={{ marginTop: '24px', textAlign: 'center' }}>
-                            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                                Tip: You can also map these fields directly from your CSV in the next step.
-                            </p>
                         </div>
                     </div>
                 )}
 
                 {/* Step 3: Map Columns */}
                 {step === 3 && (
-                    <div style={{ maxWidth: '800px', margin: '0 auto' }}>
-                        <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '16px' }}>Map Columns</h3>
-                        <p style={{ color: 'var(--text-muted)', marginBottom: '24px' }}>Match your file columns to the {MODULE_CONFIG[module].label} fields.</p>
-
-                        <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden' }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', background: 'var(--bg-light)', padding: '12px 16px', borderBottom: '1px solid var(--border-color)', fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                                <div>System Field</div>
-                                <div>Your File Header</div>
-                                <div>Sample Data (Row 1)</div>
-                            </div>
-                            {(() => {
-                                const allFields = MODULE_CONFIG[module].fields;
-                                if (module !== 'sizes') return allFields;
-
-                                // Size-specific dynamic visibility
-                                const unitTypeFileHeader = mapping['unitType'];
-                                const firstRowValue = (unitTypeFileHeader && fileData.data.length > 0)
-                                    ? fileData.data[0][unitTypeFileHeader]
-                                    : '';
-
-                                const isBHK = /bhk/i.test(firstRowValue);
-
-                                return allFields.filter(field => {
-                                    if (isBHK) {
-                                        // If BHK, hide Plot-specific fields (Width, Length, Area and their Metrics)
-                                        return !['width', 'length', 'lengthMetrics', 'area', 'areaMetrics'].includes(field.key);
-                                    } else {
-                                        // If Plot/Other, hide BHK-specific fields (Builtup, Carpet, Super Area)
-                                        return !['builtupArea', 'carpetArea', 'superArea'].includes(field.key);
-                                    }
-                                });
-                            })().map((field) => (
-                                <div key={field.key} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', padding: '16px', borderBottom: '1px solid #f1f5f9', alignItems: 'center', fontSize: '0.9rem' }}>
-                                    <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>
-                                        {field.label} {field.required && <span style={{ color: '#ef4444' }}>*</span>}
-                                    </div>
-                                    <div>
-                                        <select
-                                            value={mapping[field.key] || ''}
-                                            onChange={(e) => mapColumn(field.key, e.target.value)}
-                                            style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid var(--border-color)' }}
-                                        >
-                                            <option value="">-- Unmapped --</option>
-                                            {fileData.headers.map(h => (
-                                                <option key={h} value={h}>{h}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                    <div style={{ color: 'var(--text-muted)', fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                        {mapping[field.key] && fileData.data.length > 0
-                                            ? fileData.data[0][mapping[field.key]]
-                                            : '-'}
-                                    </div>
-                                </div>
-                            ))}
+                    <div style={{ maxWidth: '900px', margin: '0 auto', animation: 'fadeIn 0.5s ease-out' }}>
+                        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+                            <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '8px', letterSpacing: '-0.5px' }}>Map Your Columns</h3>
+                            <p style={{ color: 'var(--text-muted)' }}>Match your CSV headers to the corresponding {MODULE_CONFIG[module].label} fields in the CRM.</p>
                         </div>
+
+                        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '16px', overflow: 'hidden', boxShadow: '0 10px 25px -5px rgba(0,0,0,0.05)' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(200px, 1.2fr) minmax(200px, 1.2fr) minmax(150px, 1fr)', background: 'linear-gradient(90deg, #f8fafc, #f1f5f9)', padding: '16px 24px', borderBottom: '1px solid var(--border-color)', fontWeight: 700, color: 'var(--text-main)', fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><i className="fas fa-database" style={{ color: '#64748b' }}></i> System Field</div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><i className="fas fa-file-csv" style={{ color: '#64748b' }}></i> Your File Header</div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><i className="fas fa-eye" style={{ color: '#64748b' }}></i> Preview (Row 1)</div>
+                            </div>
+                            <div style={{ maxHeight: '500px', overflowY: 'auto' }}>
+                                {(() => {
+                                    const allFields = MODULE_CONFIG[module].fields;
+                                    if (module !== 'sizes') return allFields;
+
+                                    // Size-specific dynamic visibility
+                                    const unitTypeFileHeader = mapping['unitType'];
+                                    const firstRowValue = (unitTypeFileHeader && fileData.data.length > 0)
+                                        ? fileData.data[0][unitTypeFileHeader]
+                                        : '';
+
+                                    const isBHK = /bhk/i.test(firstRowValue);
+
+                                    return allFields.filter(field => {
+                                        if (isBHK) {
+                                            // If BHK, hide Plot-specific fields (Width, Length, Area and their Metrics)
+                                            return !['width', 'length', 'lengthMetrics', 'area', 'areaMetrics'].includes(field.key);
+                                        } else {
+                                            // If Plot/Other, hide BHK-specific fields (Builtup, Carpet, Super Area)
+                                            return !['builtupArea', 'carpetArea', 'superArea'].includes(field.key);
+                                        }
+                                    });
+                                })().map((field) => {
+                                    const isMapped = !!mapping[field.key];
+                                    return (
+                                        <div key={field.key} style={{ 
+                                            display: 'grid', gridTemplateColumns: 'minmax(200px, 1.2fr) minmax(200px, 1.2fr) minmax(150px, 1fr)', 
+                                            padding: '16px 24px', borderBottom: '1px solid #f1f5f9', alignItems: 'center', fontSize: '0.95rem',
+                                            background: isMapped ? 'rgba(16, 185, 129, 0.03)' : 'transparent',
+                                            transition: 'background 0.2s'
+                                        }}>
+                                            <div style={{ fontWeight: 600, color: isMapped ? '#059669' : 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                {isMapped && <i className="fas fa-check-circle" style={{ color: '#10b981' }}></i>}
+                                                {field.label} {field.required && <span style={{ color: '#ef4444' }}>*</span>}
+                                            </div>
+                                            <div>
+                                                <select
+                                                    value={mapping[field.key] || ''}
+                                                    onChange={(e) => mapColumn(field.key, e.target.value)}
+                                                    style={{ 
+                                                        width: '100%', padding: '10px 12px', borderRadius: '8px', 
+                                                        border: isMapped ? '1px solid #34d399' : '1px solid var(--border-color)', 
+                                                        background: 'var(--bg-body)', outline: 'none', transition: 'all 0.2s',
+                                                        color: isMapped ? '#065f46' : 'var(--text-main)',
+                                                        fontWeight: isMapped ? 600 : 400
+                                                    }}
+                                                    onFocus={(e) => e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.2)'}
+                                                    onBlur={(e) => e.target.style.boxShadow = 'none'}
+                                                >
+                                                    <option value="">-- Unmapped --</option>
+                                                    {fileData.headers.map(h => (
+                                                        <option key={h} value={h}>{h}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                            <div style={{ color: isMapped ? 'var(--text-main)' : 'var(--text-muted)', fontStyle: isMapped ? 'normal' : 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingLeft: '16px' }}>
+                                                {mapping[field.key] && fileData.data.length > 0
+                                                    ? fileData.data[0][mapping[field.key]] || <span style={{ color: 'var(--text-muted)' }}>[Empty in Row 1]</span>
+                                                    : '-'}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </div>
+                )}
                     </div>
                 )}
 
@@ -811,9 +936,11 @@ const ImportDataPage = () => {
 
                                 {module === 'propertyOwners' && (
                                     <div ref={conflictSectionRef} style={{ marginBottom: '32px', background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border-color)', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
-                                        <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: conflicts.length > 0 ? '#fff1f2' : 'var(--bg-light)' }}>
-                                            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: conflicts.length > 0 ? '#be123c' : 'var(--text-main)', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                <i className={conflicts.length > 0 ? "fas fa-exclamation-triangle" : "fas fa-table"}></i> 
+                                        <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: conflicts.length > 0 ? 'linear-gradient(135deg, #fff1f2, #ffe4e6)' : 'linear-gradient(135deg, #f8fafc, #f1f5f9)' }}>
+                                            <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: conflicts.length > 0 ? '#be123c' : 'var(--text-main)', margin: 0, display: 'flex', alignItems: 'center', gap: '10px', textShadow: conflicts.length > 0 ? '0 1px 2px rgba(190, 18, 60, 0.1)' : 'none' }}>
+                                                <div style={{ background: conflicts.length > 0 ? '#e11d48' : '#3b82f6', color: '#fff', width: '32px', height: '32px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+                                                    <i className={conflicts.length > 0 ? "fas fa-exclamation-triangle" : "fas fa-table"}></i> 
+                                                </div>
                                                 {conflicts.length > 0 ? `Data Conflicts Detected (${conflicts.length})` : 'Data Preview (No Conflicts)'}
                                             </h3>
                                             <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600 }}>Total Rows: {fileData.data.length}</div>
@@ -1361,175 +1488,205 @@ const ImportDataPage = () => {
                 )}
 
                 {/* Step 5: Success & Errors */}
+                {/* Step 5: Success & Errors */}
                 {step === 5 && (
-                    <div style={{ maxWidth: '800px', margin: '0 auto', textAlign: 'center', padding: '20px 0' }}>
-                        <div style={{
-                            width: '80px', height: '80px',
-                            background: importStats.failed > 0 ? '#fff7ed' : 'rgba(34, 197, 94, 0.15)',
-                            color: importStats.failed > 0 ? '#ea580c' : '#16a34a',
-                            borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            fontSize: '2.5rem', margin: '0 auto 24px'
+                    <div style={{ maxWidth: '900px', margin: '0 auto', animation: 'fadeIn 0.5s ease-out' }}>
+                        <div style={{ 
+                            background: importStats.failed > 0 ? 'linear-gradient(135deg, #fff7ed, #ffedd5)' : 'linear-gradient(135deg, #f0fdf4, #dcfce7)',
+                            border: importStats.failed > 0 ? '1px solid #fdba74' : '1px solid #86efac',
+                            borderRadius: '24px', padding: '40px 32px', textAlign: 'center', marginBottom: '32px',
+                            boxShadow: importStats.failed > 0 ? '0 10px 25px -5px rgba(234, 88, 12, 0.1)' : '0 10px 25px -5px rgba(22, 163, 74, 0.1)'
                         }}>
-                            <i className={`fas ${importStats.failed > 0 ? 'fa-exclamation-circle' : 'fa-check'}`}></i>
-                        </div>
+                            <div style={{
+                                width: '80px', height: '80px', margin: '0 auto 24px',
+                                background: importStats.failed > 0 ? '#ea580c' : '#16a34a',
+                                color: '#ffffff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                fontSize: '2.5rem', boxShadow: importStats.failed > 0 ? '0 8px 20px rgba(234, 88, 12, 0.3)' : '0 8px 20px rgba(22, 163, 74, 0.3)'
+                            }}>
+                                <i className={`fas ${importStats.failed > 0 ? 'fa-exclamation' : 'fa-check'}`}></i>
+                            </div>
 
-                        <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '12px' }}>
-                            {importStats.failed > 0 ? 'Import Completed with Issues' : 'Import Successful!'}
-                        </h2>
+                            <h2 style={{ fontSize: '2rem', fontWeight: 800, color: importStats.failed > 0 ? '#9a3412' : '#166534', margin: '0 0 16px', letterSpacing: '-0.5px' }}>
+                                {importStats.failed > 0 ? 'Import Completed with Issues' : 'Import Successful!'}
+                            </h2>
 
-                        <p style={{ color: 'var(--text-muted)', marginBottom: '32px' }}>
-                            Successfully processed <strong>{importStats.success}</strong> records.
-                            <div style={{ marginTop: '8px', fontSize: '0.9rem', display: 'flex', gap: '20px', flexWrap: 'wrap', justifyContent: 'center' }}>
-                                <span style={{ color: '#16a34a' }}>• New Added: {importStats.newCount}</span>
-                                <span style={{ color: '#2563eb' }}>• Updated: {importStats.updatedCount}</span>
+                            <p style={{ color: importStats.failed > 0 ? '#c2410c' : '#15803d', fontSize: '1.1rem', margin: '0 0 32px' }}>
+                                Successfully processed <strong>{importStats.success}</strong> out of <strong>{importStats.success + importStats.failed}</strong> records.
+                            </p>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '16px', justifyContent: 'center' }}>
+                                <div style={{ background: '#ffffff', padding: '16px', borderRadius: '16px', border: '1px solid rgba(22, 163, 74, 0.2)', boxShadow: '0 4px 6px rgba(0,0,0,0.02)' }}>
+                                    <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#16a34a' }}>{importStats.newCount || 0}</div>
+                                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>New Records</div>
+                                </div>
+                                <div style={{ background: '#ffffff', padding: '16px', borderRadius: '16px', border: '1px solid rgba(59, 130, 246, 0.2)', boxShadow: '0 4px 6px rgba(0,0,0,0.02)' }}>
+                                    <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#2563eb' }}>{importStats.updatedCount || 0}</div>
+                                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Updated</div>
+                                </div>
                                 {importStats.failed > 0 && (
-                                    <span style={{ color: '#dc2626', fontWeight: 600 }}>• Failed: {importStats.failed}</span>
+                                    <div style={{ background: '#fff5f5', padding: '16px', borderRadius: '16px', border: '1px solid rgba(220, 38, 38, 0.2)', boxShadow: '0 4px 6px rgba(0,0,0,0.02)' }}>
+                                        <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#dc2626' }}>{importStats.failed}</div>
+                                        <div style={{ fontSize: '0.8rem', color: '#dc2626', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Failed</div>
+                                    </div>
                                 )}
                             </div>
-                        </p>
-
-                        <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', borderBottom: '1px solid var(--border-color)' }}>
-                            <button 
-                                onClick={() => setActiveReportTab('success')}
-                                style={{
-                                    padding: '10px 20px', border: 'none', background: 'none',
-                                    borderBottom: activeReportTab === 'success' ? '2px solid #16a34a' : 'none',
-                                    color: activeReportTab === 'success' ? '#16a34a' : 'var(--text-muted)',
-                                    fontWeight: 700, cursor: 'pointer', fontSize: '0.9rem'
-                                }}
-                            >
-                                <i className="fas fa-check-circle" style={{ marginRight: '8px' }}></i> Success Audit ({importSuccessLogs.length})
-                            </button>
-                            <button 
-                                onClick={() => setActiveReportTab('error')}
-                                style={{
-                                    padding: '10px 20px', border: 'none', background: 'none',
-                                    borderBottom: activeReportTab === 'error' ? '2px solid #dc2626' : 'none',
-                                    color: activeReportTab === 'error' ? '#dc2626' : 'var(--text-muted)',
-                                    fontWeight: 700, cursor: 'pointer', fontSize: '0.9rem'
-                                }}
-                            >
-                                <i className="fas fa-times-circle" style={{ marginRight: '8px' }}></i> Failure Report ({importErrors.length})
-                            </button>
                         </div>
 
-                        {activeReportTab === 'success' && (
-                            <div style={{ marginBottom: '32px', textAlign: 'left' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                    <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-main)' }}>Import Audit Trail</h3>
-                                    <button
-                                        onClick={() => {
-                                            const csv = generateSuccessReportCSV(importSuccessLogs);
-                                            downloadFile(csv, `import_success_${module}_${Date.now()}.csv`);
-                                        }}
-                                        style={{
-                                            background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: '#16a34a',
-                                            padding: '6px 12px', borderRadius: '6px', fontSize: '0.8rem',
-                                            fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
-                                        }}
-                                    >
-                                        <i className="fas fa-file-excel"></i> Download Audit CSV
-                                    </button>
-                                </div>
-                                <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden' }}>
-                                    <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
-                                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-                                            <thead style={{ background: 'var(--bg-light)', position: 'sticky', top: 0 }}>
-                                                <tr>
-                                                    <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>Identifier</th>
-                                                    <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>Project</th>
-                                                    <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>Block</th>
-                                                    <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>Status</th>
-                                                    {module === 'propertyOwners' && <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>Action</th>}
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {importSuccessLogs.length === 0 ? (
-                                                    <tr><td colSpan="5" style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>No records processed in this batch.</td></tr>
-                                                ) : importSuccessLogs.map((log, idx) => (
-                                                    <tr key={idx} style={{ borderBottom: idx === importSuccessLogs.length - 1 ? 'none' : '1px solid #f1f5f9' }}>
-                                                        <td style={{ padding: '12px', color: 'var(--text-main)', fontWeight: 600 }}>{log.unitNo || 'N/A'}</td>
-                                                        <td style={{ padding: '12px', color: 'var(--text-muted)' }}>{log.project || 'N/A'}</td>
-                                                        <td style={{ padding: '12px', color: 'var(--text-muted)' }}>{log.block || 'N/A'}</td>
-                                                        <td style={{ padding: '12px' }}>
-                                                            <span style={{ padding: '2px 8px', borderRadius: '4px', background: log.status === 'Conflict Pending' ? 'var(--danger-bg)' : 'rgba(34, 197, 94, 0.15)', color: log.status === 'Conflict Pending' ? '#dc2626' : '#16a34a', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase' }}>{log.status}</span>
-                                                        </td>
-                                                        {module === 'propertyOwners' && (
-                                                            <td style={{ padding: '12px' }}>
-                                                                {log.status === 'Conflict Pending' && (
-                                                                    <button
-                                                                        onClick={() => { 
-                                                                            setStep(4); 
-                                                                            if (log.rowKey) setExpandedConflictRow(log.rowKey);
-                                                                            setTimeout(() => conflictSectionRef.current?.scrollIntoView({ behavior: 'smooth' }), 100); 
-                                                                        }}
-                                                                        style={{ padding: '4px 12px', borderRadius: '6px', border: '1px solid #fca5a5', background: 'var(--danger-bg)', color: '#dc2626', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px' }}
-                                                                    >
-                                                                        <i className="fas fa-arrow-left"></i> Resolve Now
-                                                                    </button>
-                                                                )}
-                                                            </td>
-                                                        )}
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
+                        <div style={{ background: 'var(--bg-card)', borderRadius: '20px', border: '1px solid var(--border-color)', overflow: 'hidden', boxShadow: '0 4px 15px rgba(0,0,0,0.03)' }}>
+                            <div style={{ display: 'flex', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-light)' }}>
+                                <button 
+                                    onClick={() => setActiveReportTab('success')}
+                                    style={{
+                                        flex: 1, padding: '16px 20px', border: 'none', background: activeReportTab === 'success' ? '#ffffff' : 'transparent',
+                                        borderBottom: activeReportTab === 'success' ? '2px solid #16a34a' : '2px solid transparent',
+                                        color: activeReportTab === 'success' ? '#16a34a' : 'var(--text-muted)',
+                                        fontWeight: 700, cursor: 'pointer', fontSize: '0.95rem', transition: 'all 0.2s'
+                                    }}
+                                >
+                                    <i className="fas fa-check-circle" style={{ marginRight: '8px' }}></i> Success Audit ({importSuccessLogs.length})
+                                </button>
+                                <button 
+                                    onClick={() => setActiveReportTab('error')}
+                                    style={{
+                                        flex: 1, padding: '16px 20px', border: 'none', background: activeReportTab === 'error' ? '#ffffff' : 'transparent',
+                                        borderBottom: activeReportTab === 'error' ? '2px solid #dc2626' : '2px solid transparent',
+                                        color: activeReportTab === 'error' ? '#dc2626' : 'var(--text-muted)',
+                                        fontWeight: 700, cursor: 'pointer', fontSize: '0.95rem', transition: 'all 0.2s'
+                                    }}
+                                >
+                                    <i className="fas fa-times-circle" style={{ marginRight: '8px' }}></i> Failure Report ({importErrors.length})
+                                </button>
                             </div>
-                        )}
 
-                        {activeReportTab === 'error' && (
-                            <div style={{ marginBottom: '32px', textAlign: 'left' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                    <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-main)' }}>Failure Details</h3>
-                                    <button
-                                        onClick={() => {
-                                            const csv = generateErrorReportCSV(importErrors);
-                                            downloadFile(csv, `import_errors_${module}_${Date.now()}.csv`);
-                                        }}
-                                        style={{
-                                            background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: '#dc2626',
-                                            padding: '6px 12px', borderRadius: '6px', fontSize: '0.8rem',
-                                            fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
-                                        }}
-                                    >
-                                        <i className="fas fa-download"></i> Download Error CSV
-                                    </button>
-                                </div>
-                                <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden' }}>
-                                    <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
-                                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-                                            <thead style={{ background: 'var(--bg-light)', position: 'sticky', top: 0 }}>
-                                                <tr>
-                                                    <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>Row</th>
-                                                    <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>Item/Name</th>
-                                                    <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>Reason</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {importErrors.length === 0 ? (
-                                                    <tr><td colSpan="3" style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>No errors found. All records processed successfully.</td></tr>
-                                                ) : importErrors.map((err, idx) => (
-                                                    <tr key={idx} style={{ borderBottom: idx === importErrors.length - 1 ? 'none' : '1px solid #f1f5f9' }}>
-                                                        <td style={{ padding: '12px', color: 'var(--text-muted)', fontWeight: 500 }}>{err.row}</td>
-                                                        <td style={{ padding: '12px', color: 'var(--text-main)', fontWeight: 600 }}>{err.name}</td>
-                                                        <td style={{ padding: '12px', color: '#dc2626' }}>{err.reason}</td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
+                            <div style={{ padding: '24px' }}>
+                                {activeReportTab === 'success' && (
+                                    <div style={{ animation: 'fadeIn 0.3s' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                                            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)', margin: 0 }}>Import Audit Trail</h3>
+                                            <button
+                                                onClick={() => {
+                                                    const csv = generateSuccessReportCSV(importSuccessLogs);
+                                                    downloadFile(csv, `import_success_${module}_${Date.now()}.csv`);
+                                                }}
+                                                style={{
+                                                    background: 'rgba(22, 163, 74, 0.1)', color: '#16a34a', border: 'none',
+                                                    padding: '8px 16px', borderRadius: '8px', fontSize: '0.85rem',
+                                                    fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s'
+                                                }}
+                                                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(22, 163, 74, 0.15)'}
+                                                onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(22, 163, 74, 0.1)'}
+                                            >
+                                                <i className="fas fa-download"></i> Export CSV
+                                            </button>
+                                        </div>
+                                        <div style={{ border: '1px solid var(--border-color)', borderRadius: '12px', overflow: 'hidden' }}>
+                                            <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
+                                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
+                                                    <thead style={{ background: 'var(--bg-light)', position: 'sticky', top: 0, zIndex: 10 }}>
+                                                        <tr>
+                                                            <th style={{ padding: '12px 16px', textAlign: 'left', borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', fontWeight: 600 }}>Identifier</th>
+                                                            <th style={{ padding: '12px 16px', textAlign: 'left', borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', fontWeight: 600 }}>Project</th>
+                                                            <th style={{ padding: '12px 16px', textAlign: 'left', borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', fontWeight: 600 }}>Block</th>
+                                                            <th style={{ padding: '12px 16px', textAlign: 'left', borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', fontWeight: 600 }}>Status</th>
+                                                            {module === 'propertyOwners' && <th style={{ padding: '12px 16px', textAlign: 'left', borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', fontWeight: 600 }}>Action</th>}
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {importSuccessLogs.length === 0 ? (
+                                                            <tr><td colSpan="5" style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>No records processed in this batch.</td></tr>
+                                                        ) : importSuccessLogs.map((log, idx) => (
+                                                            <tr key={idx} style={{ borderBottom: idx === importSuccessLogs.length - 1 ? 'none' : '1px solid #f1f5f9', background: idx % 2 === 0 ? 'transparent' : 'var(--bg-body)' }}>
+                                                                <td style={{ padding: '12px 16px', color: 'var(--text-main)', fontWeight: 600 }}>{log.unitNo || 'N/A'}</td>
+                                                                <td style={{ padding: '12px 16px', color: 'var(--text-muted)' }}>{log.project || 'N/A'}</td>
+                                                                <td style={{ padding: '12px 16px', color: 'var(--text-muted)' }}>{log.block || 'N/A'}</td>
+                                                                <td style={{ padding: '12px 16px' }}>
+                                                                    <span style={{ padding: '4px 10px', borderRadius: '6px', background: log.status === 'Conflict Pending' ? 'rgba(220, 38, 38, 0.1)' : 'rgba(34, 197, 94, 0.1)', color: log.status === 'Conflict Pending' ? '#dc2626' : '#16a34a', fontSize: '0.75rem', fontWeight: 700 }}>
+                                                                        {log.status === 'Conflict Pending' ? <i className="fas fa-exclamation-triangle" style={{ marginRight: '4px' }}></i> : <i className="fas fa-check" style={{ marginRight: '4px' }}></i>}
+                                                                        {log.status}
+                                                                    </span>
+                                                                </td>
+                                                                {module === 'propertyOwners' && (
+                                                                    <td style={{ padding: '12px 16px' }}>
+                                                                        {log.status === 'Conflict Pending' && (
+                                                                            <button
+                                                                                onClick={() => { 
+                                                                                    setStep(4); 
+                                                                                    if (log.rowKey) setExpandedConflictRow(log.rowKey);
+                                                                                    setTimeout(() => conflictSectionRef.current?.scrollIntoView({ behavior: 'smooth' }), 100); 
+                                                                                }}
+                                                                                style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #fca5a5', background: 'var(--danger-bg)', color: '#dc2626', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', transition: 'all 0.2s' }}
+                                                                                onMouseEnter={(e) => e.currentTarget.style.background = '#fee2e2'}
+                                                                                onMouseLeave={(e) => e.currentTarget.style.background = 'var(--danger-bg)'}
+                                                                            >
+                                                                                <i className="fas fa-arrow-left"></i> Resolve Now
+                                                                            </button>
+                                                                        )}
+                                                                    </td>
+                                                                )}
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
                                     </div>
-                                </div>
-                                {importErrors.length > 0 && (
-                                    <p style={{ marginTop: '12px', fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center' }}>
-                                        Tip: Fix these rows in your CSV file and try uploading them again.
-                                    </p>
+                                )}
+
+                                {activeReportTab === 'error' && (
+                                    <div style={{ animation: 'fadeIn 0.3s' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                                            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)', margin: 0 }}>Failure Details</h3>
+                                            <button
+                                                onClick={() => {
+                                                    const csv = generateErrorReportCSV(importErrors);
+                                                    downloadFile(csv, `import_errors_${module}_${Date.now()}.csv`);
+                                                }}
+                                                style={{
+                                                    background: 'rgba(220, 38, 38, 0.1)', color: '#dc2626', border: 'none',
+                                                    padding: '8px 16px', borderRadius: '8px', fontSize: '0.85rem',
+                                                    fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s'
+                                                }}
+                                                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(220, 38, 38, 0.15)'}
+                                                onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(220, 38, 38, 0.1)'}
+                                            >
+                                                <i className="fas fa-download"></i> Export Errors
+                                            </button>
+                                        </div>
+                                        <div style={{ border: '1px solid var(--border-color)', borderRadius: '12px', overflow: 'hidden' }}>
+                                            <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
+                                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
+                                                    <thead style={{ background: 'var(--bg-light)', position: 'sticky', top: 0, zIndex: 10 }}>
+                                                        <tr>
+                                                            <th style={{ padding: '12px 16px', textAlign: 'left', borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', fontWeight: 600 }}>Row</th>
+                                                            <th style={{ padding: '12px 16px', textAlign: 'left', borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', fontWeight: 600 }}>Item/Name</th>
+                                                            <th style={{ padding: '12px 16px', textAlign: 'left', borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', fontWeight: 600 }}>Reason</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {importErrors.length === 0 ? (
+                                                            <tr><td colSpan="3" style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>No errors found. All records processed successfully.</td></tr>
+                                                        ) : importErrors.map((err, idx) => (
+                                                            <tr key={idx} style={{ borderBottom: idx === importErrors.length - 1 ? 'none' : '1px solid #f1f5f9', background: idx % 2 === 0 ? 'transparent' : 'var(--bg-body)' }}>
+                                                                <td style={{ padding: '12px 16px', color: 'var(--text-muted)', fontWeight: 600 }}>{err.row}</td>
+                                                                <td style={{ padding: '12px 16px', color: 'var(--text-main)', fontWeight: 700 }}>{err.name}</td>
+                                                                <td style={{ padding: '12px 16px', color: '#dc2626' }}>
+                                                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                                                                        <i className="fas fa-times-circle" style={{ marginTop: '3px' }}></i>
+                                                                        <span>{err.reason}</span>
+                                                                    </div>
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
                                 )}
                             </div>
-                        )}
+                        </div>
 
-                        <div style={{ display: 'flex', justifyContent: 'center', gap: '16px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'center', marginTop: '32px' }}>
                             <button
                                 onClick={() => {
                                     setStep(1);
@@ -1541,10 +1698,15 @@ const ImportDataPage = () => {
                                     setImportSuccessLogs([]);
                                     setImportStats({ success: 0, failed: 0 });
                                 }}
-                                className="btn-outline"
-                                style={{ padding: '12px 32px', borderRadius: '6px', fontWeight: 600 }}
+                                style={{ 
+                                    padding: '14px 32px', borderRadius: '10px', fontWeight: 700, fontSize: '1rem',
+                                    background: '#3b82f6', color: '#ffffff', border: 'none', cursor: 'pointer',
+                                    boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)', transition: 'all 0.2s'
+                                }}
+                                onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 6px 16px rgba(59, 130, 246, 0.4)'; }}
+                                onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.3)'; }}
                             >
-                                Import More Data
+                                <i className="fas fa-redo-alt" style={{ marginRight: '8px' }}></i> Start New Import
                             </button>
                         </div>
                     </div>
@@ -1575,8 +1737,10 @@ const ImportDataPage = () => {
                             // Analysis Trigger for Property Owners
                             if (step === 3 && module === 'propertyOwners') {
                                 if (Object.keys(mapping).length === 0) return toast.error('Please map at least one field');
-                                await handleAnalyze();
-                                setStep(4);
+                                const success = await handleAnalyze();
+                                if (success) {
+                                    setStep(4);
+                                }
                                 return;
                             }
 
@@ -1595,6 +1759,7 @@ const ImportDataPage = () => {
                     </button>
                 </div>
             )}
+            </div>
         </div>
     );
 };
