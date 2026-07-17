@@ -470,8 +470,15 @@ const MainLayout = ({ children, currentView, onNavigate }) => {
                                 )}
 
                                 {imp.status === 'error' && (
-                                    <div style={{ fontSize: '0.8rem', color: '#dc2626', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                        <i className="fas fa-exclamation-circle"></i> Failed to complete
+                                    <div style={{ fontSize: '0.8rem', color: '#dc2626', fontWeight: 600, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <i className="fas fa-exclamation-circle"></i> Failed to complete
+                                        </div>
+                                        {imp.errors?.[0]?.reason && (
+                                            <div style={{ fontSize: '0.75rem', fontWeight: 400, opacity: 0.9 }}>
+                                                {imp.errors[0].reason}
+                                            </div>
+                                        )}
                                     </div>
                                 )}
                             </div>

@@ -389,7 +389,7 @@ const ImportDataPage = () => {
             });
 
             const totalRecords = transformedData.length;
-            const chunkSize = 10; // Reduced for more 'live' progress updates as requested by user
+            const chunkSize = 2; // Reduced for more 'live' progress updates and to avoid 10s Vercel Timeout
             let totalSuccessCount = 0;
             let totalErrorCount = 0;
             let totalNewCount = 0;
