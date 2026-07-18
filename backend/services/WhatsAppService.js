@@ -523,13 +523,13 @@ class WhatsAppService {
                     const mappedBtn = { text: btn.text || 'Button' };
                     if (btn.type === 'URL') {
                         mappedBtn.type = 'URL';
-                        mappedBtn.url = 'https://www.example.com'; // Requires URL structure
+                        mappedBtn.url = btn.url || 'https://www.example.com';
                     } else if (btn.type === 'PHONE') {
                         mappedBtn.type = 'PHONE_NUMBER';
-                        mappedBtn.phone_number = '+919999999999'; // Requires phone structure
+                        mappedBtn.phone_number = btn.phone_number || '+919999999999';
                     } else if (btn.type === 'COPY_CODE') {
                         mappedBtn.type = 'COPY_CODE';
-                        mappedBtn.example = 'OFFER20'; 
+                        mappedBtn.example = btn.example || 'OFFER20'; 
                     } else {
                         mappedBtn.type = 'QUICK_REPLY';
                     }

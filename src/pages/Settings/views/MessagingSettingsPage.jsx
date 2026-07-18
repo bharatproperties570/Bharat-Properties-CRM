@@ -243,17 +243,28 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                         {templateData.buttons.map((btn, i) => (
-                            <div key={i} style={{ display: 'flex', gap: '8px', alignItems: 'center', background: '#ffffff', padding: '8px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                                <select value={btn.type} onChange={e => updateButton(i, 'type', e.target.value)} style={{ padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', flex: 1 }}>
-                                    <option value="QUICK_REPLY">Custom (Quick Reply)</option>
-                                    <option value="URL">Visit website</option>
-                                    <option value="PHONE">Call phone number</option>
-                                    <option value="COPY_CODE">Copy offer code</option>
-                                </select>
-                                <input type="text" placeholder="Button text" value={btn.text} onChange={e => updateButton(i, 'text', e.target.value)} style={{ flex: 2, padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }} />
-                                <button onClick={() => removeButton(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: '4px 8px' }}>
-                                    <i className="fas fa-trash-alt"></i>
-                                </button>
+                            <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '8px', background: '#ffffff', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                    <select value={btn.type} onChange={e => updateButton(i, 'type', e.target.value)} style={{ padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', flex: 1 }}>
+                                        <option value="QUICK_REPLY">Custom (Quick Reply)</option>
+                                        <option value="URL">Visit website</option>
+                                        <option value="PHONE">Call phone number</option>
+                                        <option value="COPY_CODE">Copy offer code</option>
+                                    </select>
+                                    <input type="text" placeholder="Button text" value={btn.text} onChange={e => updateButton(i, 'text', e.target.value)} style={{ flex: 2, padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }} />
+                                    <button onClick={() => removeButton(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: '4px 8px' }}>
+                                        <i className="fas fa-trash-alt"></i>
+                                    </button>
+                                </div>
+                                {btn.type === 'URL' && (
+                                    <input type="text" placeholder="Website URL (e.g. https://www.example.com)" value={btn.url || ''} onChange={e => updateButton(i, 'url', e.target.value)} style={{ width: '100%', padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }} />
+                                )}
+                                {btn.type === 'PHONE' && (
+                                    <input type="text" placeholder="Phone number (e.g. +1234567890)" value={btn.phone_number || ''} onChange={e => updateButton(i, 'phone_number', e.target.value)} style={{ width: '100%', padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }} />
+                                )}
+                                {btn.type === 'COPY_CODE' && (
+                                    <input type="text" placeholder="Offer code (e.g. 50OFF)" value={btn.example || ''} onChange={e => updateButton(i, 'example', e.target.value)} style={{ width: '100%', padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }} />
+                                )}
                             </div>
                         ))}
                     </div>
