@@ -28,7 +28,8 @@ class WhatsAppService {
             return {
                 token: setting.value.token,
                 phoneId: setting.value.phoneId,
-                businessId: setting.value.businessId
+                businessId: setting.value.businessId,
+                appId: setting.value.appId || process.env.META_WA_APP_ID
             };
         }
 
@@ -37,7 +38,8 @@ class WhatsAppService {
             return {
                 token: process.env.META_WA_TOKEN,
                 phoneId: process.env.META_WA_PHONE_ID,
-                businessId: process.env.YOUR_WABA_ID
+                businessId: process.env.YOUR_WABA_ID,
+                appId: process.env.META_WA_APP_ID
             };
         }
 
@@ -468,6 +470,37 @@ class WhatsAppService {
         }
     }
 
+    async _uploadMediaToMeta(fileObj, metaConfig) {
+        if (!metaConfig.appId) throw new Error("Meta App ID is missing. Cannot upload media.");
+        
+        // Extract base64 and decode
+        const base64Data = fileObj.data.split(',')[1];
+        const buffer = Buffer.from(base64Data, 'base64');
+        const fileLength = buffer.length;
+
+        // Step 1: Create session
+        const sessionUrl = `${META_GRAPH_BASE}/${metaConfig.appId}/uploads?file_length=${fileLength}&file_type=${fileObj.type}`;
+        const sessionResponse = await axios.post(sessionUrl, {}, {
+            headers: {
+                'Authorization': `Bearer ${metaConfig.token}`
+            }
+        });
+        
+        const uploadSessionId = sessionResponse.data.id;
+        
+        // Step 2: Upload data
+        const uploadUrl = `${META_GRAPH_BASE}/${uploadSessionId}`;
+        const uploadResponse = await axios.post(uploadUrl, buffer, {
+            headers: {
+                'Authorization': `OAuth ${metaConfig.token}`,
+                'file_offset': '0',
+                'Content-Type': 'application/octet-stream'
+            }
+        });
+
+        return uploadResponse.data.h; // The file handle
+    }
+
     /**
      * Submit a template for review/approval to Meta
      */
@@ -488,6 +521,10 @@ class WhatsAppService {
                 category: templateData.category || 'MARKETING',
                 components: []
             };
+            
+            if (templateData.subCategory) payload.allow_category_change = true;
+            if (templateData.flowId) payload.flow_id = templateData.flowId;
+            if (templateData.catalogueId) payload.catalogue_id = templateData.catalogueId;
 
             // Add Header
             if (templateData.headerType && templateData.headerType !== 'NONE') {
@@ -497,6 +534,9 @@ class WhatsAppService {
                 };
                 if (templateData.headerType === 'TEXT' && templateData.headerText) {
                     headerComp.text = templateData.headerText;
+                } else if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(templateData.headerType) && templateData.headerFile) {
+                    const fileHandle = await this._uploadMediaToMeta(templateData.headerFile, metaConfig);
+                    headerComp.example = { header_handle: [fileHandle] };
                 }
                 payload.components.push(headerComp);
             }

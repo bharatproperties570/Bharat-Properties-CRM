@@ -138,19 +138,35 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
                         { id: 'ORDER_DETAILS', title: 'Order details', desc: 'Send messages through which customers can pay you.' },
                         { id: 'CALLING_PERMISSIONS', title: 'Calling permissions request', desc: 'Ask customers if you can call them on WhatsApp.' }
                     ]).map(sub => (
-                        <label key={sub.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', cursor: 'pointer', padding: '12px', border: '1px solid var(--border-color)', borderRadius: '8px', background: templateData.subCategory === sub.id ? '#f8fafc' : 'transparent' }}>
-                            <input 
-                                type="radio" 
-                                name="subCategory" 
-                                checked={templateData.subCategory === sub.id} 
-                                onChange={() => setTemplateData({ ...templateData, subCategory: sub.id })} 
-                                style={{ marginTop: '4px' }}
-                            />
-                            <div>
-                                <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-main)' }}>{sub.title}</div>
-                                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '2px' }}>{sub.desc}</div>
-                            </div>
-                        </label>
+                        <div key={sub.id}>
+                            <label style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', cursor: 'pointer', padding: '12px', border: '1px solid var(--border-color)', borderRadius: '8px', background: templateData.subCategory === sub.id ? '#f8fafc' : 'transparent' }}>
+                                <input 
+                                    type="radio" 
+                                    name="subCategory" 
+                                    checked={templateData.subCategory === sub.id} 
+                                    onChange={() => setTemplateData({ ...templateData, subCategory: sub.id })} 
+                                    style={{ marginTop: '4px' }}
+                                />
+                                <div style={{ flex: 1 }}>
+                                    <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-main)' }}>{sub.title}</div>
+                                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '2px' }}>{sub.desc}</div>
+                                    
+                                    {templateData.subCategory === sub.id && sub.id === 'FLOWS' && (
+                                        <div style={{ marginTop: '12px' }}>
+                                            <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Flow ID <span style={{ color: '#ef4444' }}>*</span></label>
+                                            <input type="text" placeholder="e.g. 1234567890" value={templateData.flowId || ''} onChange={e => setTemplateData({ ...templateData, flowId: e.target.value })} style={{ width: '100%', padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }} />
+                                        </div>
+                                    )}
+                                    
+                                    {templateData.subCategory === sub.id && sub.id === 'CATALOGUE' && (
+                                        <div style={{ marginTop: '12px' }}>
+                                            <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Catalogue ID <span style={{ color: '#ef4444' }}>*</span></label>
+                                            <input type="text" placeholder="e.g. 9876543210" value={templateData.catalogueId || ''} onChange={e => setTemplateData({ ...templateData, catalogueId: e.target.value })} style={{ width: '100%', padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }} />
+                                        </div>
+                                    )}
+                                </div>
+                            </label>
+                        </div>
                     ))}
                 </div>
             )}
@@ -201,9 +217,33 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
                         <input type="text" placeholder="Add a short line of text..." value={templateData.headerText} onChange={e => setTemplateData({ ...templateData, headerText: e.target.value })} style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '0.9rem' }} />
                     )}
                     {['IMAGE', 'VIDEO', 'DOCUMENT'].includes(templateData.headerType) && (
-                        <div style={{ padding: '20px', border: '1px dashed #cbd5e1', borderRadius: '8px', textAlign: 'center', color: '#64748b', fontSize: '0.85rem', background: '#ffffff' }}>
-                            <i className="fas fa-cloud-upload-alt" style={{ marginBottom: '8px', display: 'block', fontSize: '1.2rem' }}></i>
-                            Drag and drop to upload<br/>Or choose files
+                        <div style={{ position: 'relative', padding: '20px', border: '1px dashed #cbd5e1', borderRadius: '8px', textAlign: 'center', color: '#64748b', fontSize: '0.85rem', background: '#ffffff' }}>
+                            <input 
+                                type="file" 
+                                accept={templateData.headerType === 'IMAGE' ? 'image/*' : templateData.headerType === 'VIDEO' ? 'video/*' : '.pdf,.doc,.docx'} 
+                                onChange={(e) => {
+                                    const file = e.target.files[0];
+                                    if (file) {
+                                        const reader = new FileReader();
+                                        reader.onloadend = () => {
+                                            setTemplateData({ ...templateData, headerFile: { name: file.name, type: file.type, data: reader.result } });
+                                        };
+                                        reader.readAsDataURL(file);
+                                    }
+                                }}
+                                style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer' }}
+                            />
+                            {templateData.headerFile ? (
+                                <div style={{ color: 'var(--primary-color)', fontWeight: 600 }}>
+                                    <i className="fas fa-file-check" style={{ marginBottom: '8px', display: 'block', fontSize: '1.2rem' }}></i>
+                                    {templateData.headerFile.name}
+                                </div>
+                            ) : (
+                                <div>
+                                    <i className="fas fa-cloud-upload-alt" style={{ marginBottom: '8px', display: 'block', fontSize: '1.2rem' }}></i>
+                                    Drag and drop to upload<br/>Or click to choose {templateData.headerType.toLowerCase()}
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
@@ -257,10 +297,36 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
                                     </button>
                                 </div>
                                 {btn.type === 'URL' && (
-                                    <input type="text" placeholder="Website URL (e.g. https://www.example.com)" value={btn.url || ''} onChange={e => updateButton(i, 'url', e.target.value)} style={{ width: '100%', padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }} />
+                                    <input 
+                                        type="text" 
+                                        placeholder="Website URL (e.g. https://www.example.com)" 
+                                        value={btn.url || ''} 
+                                        onChange={e => updateButton(i, 'url', e.target.value)} 
+                                        onBlur={e => {
+                                            let val = e.target.value.trim();
+                                            if (val && !val.startsWith('http://') && !val.startsWith('https://')) {
+                                                val = 'https://' + val;
+                                                updateButton(i, 'url', val);
+                                            }
+                                        }}
+                                        style={{ width: '100%', padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }} 
+                                    />
                                 )}
                                 {btn.type === 'PHONE' && (
-                                    <input type="text" placeholder="Phone number (e.g. +1234567890)" value={btn.phone_number || ''} onChange={e => updateButton(i, 'phone_number', e.target.value)} style={{ width: '100%', padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }} />
+                                    <input 
+                                        type="text" 
+                                        placeholder="Phone number (e.g. +919876543210)" 
+                                        value={btn.phone_number || ''} 
+                                        onChange={e => updateButton(i, 'phone_number', e.target.value)} 
+                                        onBlur={e => {
+                                            let val = e.target.value.trim();
+                                            if (val && !val.startsWith('+')) {
+                                                val = '+' + val.replace(/\D/g, ''); // keep only numbers
+                                                updateButton(i, 'phone_number', val);
+                                            }
+                                        }}
+                                        style={{ width: '100%', padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }} 
+                                    />
                                 )}
                                 {btn.type === 'COPY_CODE' && (
                                     <input type="text" placeholder="Offer code (e.g. 50OFF)" value={btn.example || ''} onChange={e => updateButton(i, 'example', e.target.value)} style={{ width: '100%', padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }} />
