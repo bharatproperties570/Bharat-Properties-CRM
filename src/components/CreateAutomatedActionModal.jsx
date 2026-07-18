@@ -1,8 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useAutomatedActions } from '../context/AutomatedActionsContext';
+import { systemSettingsAPI } from '../utils/api';
 
 const CreateAutomatedActionModal = ({ isOpen, onClose, editData }) => {
     const { addAction } = useAutomatedActions();
+    const [waTemplates, setWaTemplates] = useState([]);
+    
     const [formData, setFormData] = useState({
         name: '',
         targetModule: 'leads',
@@ -10,12 +13,32 @@ const CreateAutomatedActionModal = ({ isOpen, onClose, editData }) => {
         invokedByTrigger: '',
         isActive: true,
         fieldMapping: {},
+        notificationConfig: {
+            channels: { whatsapp: false, sms: false, email: false },
+            templates: { whatsapp: '', sms: '', email: '' }
+        },
         rollbackPolicy: 'Manual'
     });
 
     useEffect(() => {
-        if (editData) setFormData(editData);
+        if (editData) {
+            setFormData({
+                ...editData,
+                notificationConfig: editData.notificationConfig || {
+                    channels: { whatsapp: false, sms: false, email: false },
+                    templates: { whatsapp: '', sms: '', email: '' }
+                }
+            });
+        }
     }, [editData]);
+
+    useEffect(() => {
+        if (isOpen) {
+            systemSettingsAPI.getByKey('crm_whatsapp_templates')
+                .then(res => setWaTemplates(res?.value || []))
+                .catch(err => console.error('Failed to load templates', err));
+        }
+    }, [isOpen]);
 
     if (!isOpen) return null;
 
@@ -112,6 +135,86 @@ const CreateAutomatedActionModal = ({ isOpen, onClose, editData }) => {
                         />
                         <p style={{ margin: '4px 0 0 0', fontSize: '0.7rem', color: '#94a3b8' }}>Automated actions cannot run without a trigger.</p>
                     </div>
+
+                    {formData.actionType === 'send_notification' && (
+                        <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#1e293b', marginBottom: '16px' }}>
+                                <i className="fas fa-bullhorn" style={{ color: 'var(--primary-color)' }}></i>
+                                <span style={{ fontSize: '0.9rem', fontWeight: 800 }}>Omnichannel Notification Settings</span>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '16px', marginBottom: '16px' }}>
+                                {['whatsapp', 'sms', 'email'].map(channel => (
+                                    <label key={channel} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', cursor: 'pointer', fontWeight: 600 }}>
+                                        <input 
+                                            type="checkbox" 
+                                            checked={formData.notificationConfig.channels[channel]}
+                                            onChange={(e) => {
+                                                const newConfig = { ...formData.notificationConfig };
+                                                newConfig.channels[channel] = e.target.checked;
+                                                setFormData({ ...formData, notificationConfig: newConfig });
+                                            }}
+                                        />
+                                        {channel.toUpperCase()}
+                                    </label>
+                                ))}
+                            </div>
+
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                {formData.notificationConfig.channels.whatsapp && (
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, marginBottom: '6px', color: '#059669' }}><i className="fab fa-whatsapp"></i> WhatsApp Template</label>
+                                        <select 
+                                            value={formData.notificationConfig.templates.whatsapp}
+                                            onChange={e => {
+                                                const newConfig = { ...formData.notificationConfig };
+                                                newConfig.templates.whatsapp = e.target.value;
+                                                setFormData({ ...formData, notificationConfig: newConfig });
+                                            }}
+                                            style={{ width: '100%', padding: '8px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.85rem' }}
+                                        >
+                                            <option value="">-- Select Approved Template --</option>
+                                            {waTemplates.filter(t => t.status === 'APPROVED').map(t => (
+                                                <option key={t.id} value={t.name}>{t.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                )}
+                                {formData.notificationConfig.channels.sms && (
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, marginBottom: '6px', color: '#3b82f6' }}><i className="fas fa-sms"></i> SMS Content / DLT ID</label>
+                                        <input 
+                                            type="text"
+                                            placeholder="Enter DLT Template ID or exact text"
+                                            value={formData.notificationConfig.templates.sms}
+                                            onChange={e => {
+                                                const newConfig = { ...formData.notificationConfig };
+                                                newConfig.templates.sms = e.target.value;
+                                                setFormData({ ...formData, notificationConfig: newConfig });
+                                            }}
+                                            style={{ width: '100%', padding: '8px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.85rem' }}
+                                        />
+                                    </div>
+                                )}
+                                {formData.notificationConfig.channels.email && (
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, marginBottom: '6px', color: '#4b5563' }}><i className="fas fa-envelope"></i> Email Subject</label>
+                                        <input 
+                                            type="text"
+                                            placeholder="Enter dynamic subject or template key"
+                                            value={formData.notificationConfig.templates.email}
+                                            onChange={e => {
+                                                const newConfig = { ...formData.notificationConfig };
+                                                newConfig.templates.email = e.target.value;
+                                                setFormData({ ...formData, notificationConfig: newConfig });
+                                            }}
+                                            style={{ width: '100%', padding: '8px', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.85rem' }}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
 
                     <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#1e293b', marginBottom: '8px' }}>
