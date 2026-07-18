@@ -193,6 +193,7 @@ export const resolveMessageTemplate = async (template, channel, recipient, prope
         'customer_name': recipient?.firstName || recipient?.name?.split(' ')[0] || 'customer'
     };
 
+    const seen = new Set();
     const resolveVars = (text) => {
         if (!text) return text;
         return text.replace(/{{([^}]+)}}/g, (match, vIdx) => {
@@ -207,14 +208,20 @@ export const resolveMessageTemplate = async (template, channel, recipient, prope
                 };
                 const mappedField = variableRegistry[cleanKey] || variableRegistry[String(cleanKey)] || defaultRegistry[String(cleanKey)];
                 const val = unifiedContext[mappedField] !== undefined ? renderValue(unifiedContext[mappedField], '') : match;
-                components.push({ type: 'text', text: val });
+                if (!seen.has(cleanKey)) {
+                    components.push({ type: 'text', text: val });
+                    seen.add(cleanKey);
+                }
                 return val;
             }
             
             // Standardized Named Variables
             if (unifiedContext[cleanKey] !== undefined) {
                 const val = renderValue(unifiedContext[cleanKey], '');
-                components.push({ type: 'text', text: val });
+                if (!seen.has(cleanKey)) {
+                    components.push({ type: 'text', text: val });
+                    seen.add(cleanKey);
+                }
                 return val;
             }
             
@@ -243,7 +250,10 @@ export const resolveMessageTemplate = async (template, channel, recipient, prope
             
             if (legacyHardcoded[cleanKey] !== undefined) {
                 const val = renderValue(legacyHardcoded[cleanKey], '');
-                components.push({ type: 'text', text: val });
+                if (!seen.has(cleanKey)) {
+                    components.push({ type: 'text', text: val });
+                    seen.add(cleanKey);
+                }
                 return val;
             }
 

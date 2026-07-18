@@ -128,7 +128,8 @@ export const sendWhatsAppMessage = async (req, res, next) => {
                 templateDef.components.forEach(compDef => {
                     if (compDef.type === 'BODY') {
                         const bodyMatches = compDef.text.match(/{{(\d+)}}/g) || [];
-                        const bodyVarCount = bodyMatches.length;
+                        const uniqueVars = new Set(bodyMatches.map(m => m.match(/\d+/)[0]));
+                        const bodyVarCount = uniqueVars.size;
                         const bodyParams = templateComponents.slice(currentVarIndex, currentVarIndex + bodyVarCount);
                         console.log(`[WhatsApp/Debug] Body Matches:`, bodyMatches);
                         console.log(`[WhatsApp/Debug] Body Vars found: ${bodyVarCount}, parameters provided: ${bodyParams.length}`);
