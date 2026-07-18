@@ -574,11 +574,94 @@ const VariableRegistryTab = () => {
 
 // AutomationEngineTab logic removed as it has been moved to Global Business Rules
 
+const ContextEditModal = ({ isOpen, onClose, template, onSave }) => {
+    const [selectedContext, setSelectedContext] = useState([]);
+
+    useEffect(() => {
+        if (isOpen && template) {
+            setSelectedContext(template.systemContext || []);
+        }
+    }, [isOpen, template]);
+
+    if (!isOpen || !template) return null;
+
+    const options = [
+        { value: 'lead_match_full', label: 'Lead Match (Full Details)' },
+        { value: 'lead_match_short', label: 'Lead Match (Short Details)' },
+        { value: 'deal_match', label: 'Deal Match (Auto-Dispatch & Centre)' },
+        { value: 'marketing_blast', label: 'Marketing Blast' },
+        { value: 'welcome', label: 'Welcome/Auto-Reply' }
+    ];
+
+    const handleToggle = (val) => {
+        if (selectedContext.includes(val)) {
+            setSelectedContext(selectedContext.filter(c => c !== val));
+        } else {
+            setSelectedContext([...selectedContext, val]);
+        }
+    };
+
+    return (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10002 }}>
+            <div style={{ background: 'var(--bg-card)', width: '500px', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
+                <div style={{ padding: '16px 24px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)' }}>Set System Trigger Context</h3>
+                    <i className="fas fa-times" style={{ cursor: 'pointer', color: 'var(--text-muted)' }} onClick={onClose}></i>
+                </div>
+                <div style={{ padding: '24px' }}>
+                    <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '16px', marginTop: 0 }}>
+                        Select where this template should be used automatically by the system.
+                    </p>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        {options.map(opt => {
+                            const isSelected = selectedContext.includes(opt.value);
+                            return (
+                                <div 
+                                    key={opt.value}
+                                    onClick={() => handleToggle(opt.value)}
+                                    style={{ 
+                                        padding: '12px 16px', 
+                                        borderRadius: '8px', 
+                                        border: `1px solid ${isSelected ? 'var(--primary-color)' : 'var(--border-color)'}`,
+                                        background: isSelected ? 'rgba(99, 102, 241, 0.05)' : 'var(--bg-light)',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '12px',
+                                        transition: 'all 0.2s'
+                                    }}
+                                >
+                                    <div style={{ 
+                                        width: '20px', height: '20px', borderRadius: '4px', 
+                                        border: `2px solid ${isSelected ? 'var(--primary-color)' : 'var(--border-color)'}`,
+                                        background: isSelected ? 'var(--primary-color)' : 'transparent',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                    }}>
+                                        {isSelected && <i className="fas fa-check" style={{ color: '#fff', fontSize: '12px' }}></i>}
+                                    </div>
+                                    <span style={{ fontSize: '0.9rem', fontWeight: 600, color: isSelected ? 'var(--primary-color)' : 'var(--text-main)' }}>
+                                        {opt.label}
+                                    </span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+                <div style={{ padding: '16px 24px', borderTop: '1px solid #f1f5f9', background: 'var(--bg-light)', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                    <button className="btn-outline" onClick={onClose} style={{ background: 'var(--bg-card)' }}>Cancel</button>
+                    <button className="btn-primary" onClick={() => { onSave(template, selectedContext); onClose(); }}>Save Context</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const MessagingSettingsPage = () => {
     const [subTab, setSubTab] = useState('templates');
     const [templateType, setTemplateType] = useState('whatsapp');
     const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
     const [editingTemplate, setEditingTemplate] = useState(null);
+    const [contextEditingTemplate, setContextEditingTemplate] = useState(null);
     const [isSyncing, setIsSyncing] = useState(false);
     const [isSyncingMeta, setIsSyncingMeta] = useState(false); // Enterprise Sync State
     const [activeDropdown, setActiveDropdown] = useState(null);
@@ -736,6 +819,52 @@ const MessagingSettingsPage = () => {
             toast.success(data.id ? 'Template updated & saved ✓' : 'Template created & saved ✓');
         } catch (err) {
             toast.error('Failed to save template: ' + err.message);
+        } finally {
+            setIsSyncing(false);
+        }
+    };
+
+    const handleSaveContext = async (template, newContext) => {
+        setIsSyncing(true);
+        try {
+            const updatedData = { ...template, systemContext: newContext };
+            
+            // Re-use the save logic (it handles DB persist and deal_match logic)
+            // But we don't submit to meta again just for context update
+            let updatedList;
+            setAllTemplates(prev => {
+                const currentList = prev[templateType];
+                
+                // ENFORCEMENT LOGIC: 1-to-1 mapping for deal_match
+                let sanitizedList = [...currentList];
+                if (updatedData.systemContext?.includes('deal_match')) {
+                    let strippedCount = 0;
+                    sanitizedList = sanitizedList.map(t => {
+                        if (t.id !== template.id && t.systemContext?.includes('deal_match')) {
+                            strippedCount++;
+                            return {
+                                ...t,
+                                systemContext: t.systemContext.filter(ctx => ctx !== 'deal_match')
+                            };
+                        }
+                        return t;
+                    });
+                    if (strippedCount > 0) {
+                        setTimeout(() => {
+                            toast.success(`Deal Match context was removed from ${strippedCount} other template(s).`);
+                        }, 500);
+                    }
+                }
+
+                updatedList = sanitizedList.map(t => t.id === template.id ? updatedData : t);
+                return { ...prev, [templateType]: updatedList };
+            });
+
+            await new Promise(r => setTimeout(r, 50));
+            await persistTemplates(templateType, updatedList || allTemplates[templateType]);
+            toast.success('System trigger context updated ✓');
+        } catch (err) {
+            toast.error('Failed to update context: ' + err.message);
         } finally {
             setIsSyncing(false);
         }
@@ -900,7 +1029,7 @@ const MessagingSettingsPage = () => {
                                                     </div>
                                                     <div 
                                                         style={{ padding: '10px 16px', fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--text-main)', fontWeight: 600 }}
-                                                        onClick={() => { setActiveDropdown(null); handleEdit(row); }}
+                                                        onClick={() => { setActiveDropdown(null); setContextEditingTemplate(row); }}
                                                         onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-light)'}
                                                         onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                                                     >
@@ -995,6 +1124,13 @@ const MessagingSettingsPage = () => {
                 channelType={templateType}
                 initialData={editingTemplate}
                 onSave={handleSaveTemplate}
+            />
+
+            <ContextEditModal
+                isOpen={!!contextEditingTemplate}
+                onClose={() => setContextEditingTemplate(null)}
+                template={contextEditingTemplate}
+                onSave={handleSaveContext}
             />
         </div>
     );
