@@ -149,48 +149,52 @@ export const resolveMessageTemplate = async (template, channel, recipient, prope
     const agentDetails = agentMobile ? `${agentName} (📞 ${agentMobile})` : agentName;
 
     const unifiedContext = {
-        'name': recipient?.name,
-        'firstName': recipient?.firstName || recipient?.name?.split(' ')[0] || 'customer',
-        'surname': recipient?.surname || '',
+        // Customer / Lead Data
+        'full_name': recipient?.name || '',
+        'first_name': recipient?.firstName || recipient?.name?.split(' ')[0] || 'customer',
+        'last_name': recipient?.surname || recipient?.lastName || '',
         'mobile': recipient?.phone || recipient?.mobile || '',
         'email': recipient?.email || '',
-        'source': recipient?.source || '',
-        'status': recipient?.status || recipient?.stage || '',
-        'requirement': recipient?.requirement || recipient?.requirementType || 'property',
-        'budgetMin': recipient?.budgetMin || recipient?.budget || '',
-        'budgetMax': recipient?.budgetMax || '',
-        'areaMin': recipient?.areaMin || '',
-        'areaMax': recipient?.areaMax || '',
-        'locCity': recipient?.locCity || recipient?.location || '',
-        'locArea': recipient?.locArea || '',
+        'lead_source': recipient?.source || '',
+        'lead_status': recipient?.status || recipient?.stage || '',
+        'lead_stage': recipient?.stage || recipient?.status || '',
+        'lead_requirement': recipient?.requirement || recipient?.requirementType || 'property',
+        'budget_min': recipient?.budgetMin || recipient?.budget || '',
+        'budget_max': recipient?.budgetMax || '',
+        'preferred_city': recipient?.locCity || recipient?.location || '',
+        'preferred_area': recipient?.locArea || '',
         
-        'assignedTo': agentDetails,
-        'ownerMobile': agentMobile,
-        'ownerEmail': recipient?.assignedTo?.email || currentUser?.email || '',
+        // Agent / System Data
+        'agent_name': agentName || '',
+        'agent_mobile': agentMobile || '',
+        'agent_email': recipient?.assignedTo?.email || currentUser?.email || '',
+        'company_name': 'Bharat Properties', // Hardcoded or from env
 
-        'projectName': projectNameVal,
-        'unitNo': getPropVal('unitNo'),
-        'block': getPropVal('block'),
-        'unitType': await resolveLookup(getPropVal('unitType'), 'UnitType', lookupsCache),
-        'category': categoryResolved,
-        'subCategory': subCategoryResolved,
-        'builtupType': builtupTypeResolved,
-        'sizeType': sizeLabelResolved,
-        'sizeLabel': sizeLabelResolved,
-        'direction': directionResolved,
-        'facing': facingResolved,
-        'roadWidth': roadWidthResolved,
-        'price': priceVal || 'N/A',
-        'size': sizeVal || 'N/A',
-        'location': locationResolved || recipient?.location || 'our project',
+        // Property Data
+        'project_name': projectNameVal,
+        'unit_number': getPropVal('unitNo'),
+        'block_name': getPropVal('block'),
+        'unit_type': await resolveLookup(getPropVal('unitType'), 'UnitType', lookupsCache),
+        'property_category': categoryResolved,
+        'property_subcategory': subCategoryResolved,
+        'builtup_type': builtupTypeResolved,
+        'size_label': sizeLabelResolved,
+        'property_direction': directionResolved,
+        'property_facing': facingResolved,
+        'road_width': roadWidthResolved,
+        'property_price': priceVal || 'N/A',
+        'property_size': sizeVal || 'N/A',
+        'property_location': locationResolved || recipient?.location || 'our project',
         
-        'propertyList': propertyListDefault,
+        // Dynamic / Match Data
+        'property_list': propertyListDefault,
         'property_list_default': propertyListDefault,
         'property_list_detailed': propertyListDetailed,
-        'requirementSummary': (recipient?.requirement || recipient?.requirementType) ? `Looking for ${recipient?.requirement || recipient?.requirementType} in ${locationResolved || recipient?.location || 'our area'} budget ${recipient?.budgetMin || recipient?.budget || ''}` : 'Your property requirement',
-        'propertiesCount': properties?.length || 0,
+        'requirement_summary': (recipient?.requirement || recipient?.requirementType) ? `Looking for ${recipient?.requirement || recipient?.requirementType} in ${locationResolved || recipient?.location || 'our area'} budget ${recipient?.budgetMin || recipient?.budget || ''}` : 'Your property requirement',
+        'properties_count': properties?.length || 0,
         
-        'customer_name': recipient?.firstName || recipient?.name?.split(' ')[0] || 'customer'
+        'customer_name': recipient?.firstName || recipient?.name?.split(' ')[0] || 'customer',
+        'match_percentage': '95'
     };
 
     const seen = new Set();
@@ -199,27 +203,11 @@ export const resolveMessageTemplate = async (template, channel, recipient, prope
         return text.replace(/{{([^}]+)}}/g, (match, vIdx) => {
             const cleanKey = vIdx.trim();
             
-            // DLT Index-based mapping
-            if (/^\d+$/.test(cleanKey)) {
-                const defaultRegistry = {
-                    '1': 'customer_name',
-                    '2': 'property_list_default',
-                    '3': 'assignedTo'
-                };
-                const mappedField = variableRegistry[cleanKey] || variableRegistry[String(cleanKey)] || defaultRegistry[String(cleanKey)];
-                const val = unifiedContext[mappedField] !== undefined ? renderValue(unifiedContext[mappedField], '') : match;
-                if (!seen.has(cleanKey)) {
-                    components.push({ type: 'text', text: val });
-                    seen.add(cleanKey);
-                }
-                return val;
-            }
-            
             // Standardized Named Variables
             if (unifiedContext[cleanKey] !== undefined) {
                 const val = renderValue(unifiedContext[cleanKey], '');
                 if (!seen.has(cleanKey)) {
-                    components.push({ type: 'text', text: val });
+                    components.push({ type: 'text', parameter_name: cleanKey, text: val });
                     seen.add(cleanKey);
                 }
                 return val;
@@ -227,31 +215,31 @@ export const resolveMessageTemplate = async (template, channel, recipient, prope
             
             // Fallbacks for specific legacy/hardcoded strings
             const legacyHardcoded = {
-                'MatchCount': 'several',
-                'OldPrice': 'N/A',
-                'NewPrice': 'N/A',
-                'Savings': 'N/A',
-                'Deadline': 'tomorrow',
-                'Amount': 'the due amount',
-                'DueDate': 'the due date',
-                'PaymentType': 'payment',
-                'PaymentMethods': 'Bank Transfer / UPI',
-                'MatchPercentage': '95',
-                'MatchReasons': '- Matches your budget\n- Preferred location\n- Right size',
-                'CompetingBuyers': '2',
-                'Slot1': 'Tomorrow 10 AM',
-                'Slot2': 'Tomorrow 2 PM',
-                'Slot3': 'Day after 11 AM',
-                'PositiveFeedback': 'Location, Amenities',
-                'Concerns': 'Price negotiation',
-                'NextSteps': 'I will share a revised offer',
-                'DocumentList': '- Aadhaar Card\n- PAN Card\n- Cancelled Cheque'
+                'match_count': 'several',
+                'old_price': 'N/A',
+                'new_price': 'N/A',
+                'savings': 'N/A',
+                'deadline': 'tomorrow',
+                'amount': 'the due amount',
+                'due_date': 'the due date',
+                'payment_type': 'payment',
+                'payment_methods': 'Bank Transfer / UPI',
+                'match_percentage': '95',
+                'match_reasons': '- Matches your budget\n- Preferred location\n- Right size',
+                'competing_buyers': '2',
+                'slot_1': 'Tomorrow 10 AM',
+                'slot_2': 'Tomorrow 2 PM',
+                'slot_3': 'Day after 11 AM',
+                'positive_feedback': 'Location, Amenities',
+                'concerns': 'Price negotiation',
+                'next_steps': 'I will share a revised offer',
+                'document_list': '- Aadhaar Card\n- PAN Card\n- Cancelled Cheque'
             };
             
             if (legacyHardcoded[cleanKey] !== undefined) {
                 const val = renderValue(legacyHardcoded[cleanKey], '');
                 if (!seen.has(cleanKey)) {
-                    components.push({ type: 'text', text: val });
+                    components.push({ type: 'text', parameter_name: cleanKey, text: val });
                     seen.add(cleanKey);
                 }
                 return val;

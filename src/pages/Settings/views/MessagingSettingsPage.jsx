@@ -557,31 +557,55 @@ const VariableRegistryTab = () => {
                     </thead>
                     <tbody>
                         {[
-                            { var: '{{firstName}}', desc: 'Customer First Name', ctx: 'Lead/Contact' },
-                            { var: '{{name}}', desc: 'Customer Full Name', ctx: 'Lead/Contact' },
+                            // Customer / Lead Data
+                            { var: '{{first_name}}', desc: 'Customer First Name', ctx: 'Lead/Contact' },
+                            { var: '{{last_name}}', desc: 'Customer Last Name', ctx: 'Lead/Contact' },
+                            { var: '{{full_name}}', desc: 'Customer Full Name', ctx: 'Lead/Contact' },
                             { var: '{{mobile}}', desc: 'Customer Mobile Number', ctx: 'Lead/Contact' },
                             { var: '{{email}}', desc: 'Customer Email Address', ctx: 'Lead/Contact' },
-                            { var: '{{source}}', desc: 'Lead Source (e.g. Website, Facebook)', ctx: 'Lead' },
-                            { var: '{{status}}', desc: 'Lead Status/Stage', ctx: 'Lead' },
-                            { var: '{{requirement}}', desc: 'Property Requirement (Buy/Rent)', ctx: 'Lead' },
-                            { var: '{{budgetMin}}', desc: 'Minimum Budget', ctx: 'Lead' },
-                            { var: '{{budgetMax}}', desc: 'Maximum Budget', ctx: 'Lead' },
-                            { var: '{{locCity}}', desc: 'Preferred City', ctx: 'Lead' },
-                            { var: '{{locArea}}', desc: 'Preferred Area/Locality', ctx: 'Lead' },
+                            { var: '{{lead_source}}', desc: 'Lead Source (e.g. Website, Facebook)', ctx: 'Lead' },
+                            { var: '{{lead_status}}', desc: 'Lead Status (e.g. New, Follow-up)', ctx: 'Lead' },
+                            { var: '{{lead_stage}}', desc: 'Sales Stage (e.g. Negotiation)', ctx: 'Lead' },
+                            { var: '{{lead_requirement}}', desc: 'Property Requirement (Buy/Rent)', ctx: 'Lead' },
+                            { var: '{{budget_min}}', desc: 'Minimum Budget', ctx: 'Lead' },
+                            { var: '{{budget_max}}', desc: 'Maximum Budget', ctx: 'Lead' },
+                            { var: '{{preferred_city}}', desc: 'Preferred City', ctx: 'Lead' },
+                            { var: '{{preferred_area}}', desc: 'Preferred Area/Locality', ctx: 'Lead' },
                             
-                            { var: '{{assignedTo}}', desc: 'Assigned Agent Name', ctx: 'System' },
-                            { var: '{{ownerMobile}}', desc: 'Assigned Agent Mobile', ctx: 'System' },
+                            // Agent / System Data
+                            { var: '{{agent_name}}', desc: 'Assigned Agent Name', ctx: 'System' },
+                            { var: '{{agent_mobile}}', desc: 'Assigned Agent Mobile', ctx: 'System' },
+                            { var: '{{agent_email}}', desc: 'Assigned Agent Email', ctx: 'System' },
+                            { var: '{{company_name}}', desc: 'Your Company Name', ctx: 'System' },
                             
-                            { var: '{{projectName}}', desc: 'Property Project Name', ctx: 'Property' },
-                            { var: '{{unitNo}}', desc: 'Property Unit Number', ctx: 'Property' },
-                            { var: '{{category}}', desc: 'Property Category (e.g. Residential)', ctx: 'Property' },
-                            { var: '{{subCategory}}', desc: 'Property Sub-Category (e.g. Apartment)', ctx: 'Property' },
-                            { var: '{{price}}', desc: 'Property Price', ctx: 'Property' },
-                            { var: '{{size}}', desc: 'Property Size / Area', ctx: 'Property' },
-                            { var: '{{location}}', desc: 'Property Location / Address', ctx: 'Property' },
+                            // Property / Inventory Data
+                            { var: '{{project_name}}', desc: 'Property Project Name', ctx: 'Property' },
+                            { var: '{{unit_number}}', desc: 'Property Unit Number', ctx: 'Property' },
+                            { var: '{{block_name}}', desc: 'Property Block / Tower', ctx: 'Property' },
+                            { var: '{{unit_type}}', desc: 'Unit Type (e.g. 2 BHK, 3 BHK)', ctx: 'Property' },
+                            { var: '{{property_category}}', desc: 'Property Category (e.g. Residential)', ctx: 'Property' },
+                            { var: '{{property_subcategory}}', desc: 'Property Sub-Category (e.g. Apartment)', ctx: 'Property' },
+                            { var: '{{builtup_type}}', desc: 'Built-up Type', ctx: 'Property' },
+                            { var: '{{size_label}}', desc: 'Size Type (e.g. Sq.Ft)', ctx: 'Property' },
+                            { var: '{{property_direction}}', desc: 'Property Direction', ctx: 'Property' },
+                            { var: '{{property_facing}}', desc: 'Property Facing (e.g. North, East)', ctx: 'Property' },
+                            { var: '{{road_width}}', desc: 'Road Width', ctx: 'Property' },
+                            { var: '{{property_price}}', desc: 'Property Price', ctx: 'Property' },
+                            { var: '{{property_size}}', desc: 'Property Size / Area', ctx: 'Property' },
+                            { var: '{{property_location}}', desc: 'Property Location / Address', ctx: 'Property' },
+                            
+                            // Dynamic / Match Data
+                            { var: '{{property_list}}', desc: 'Standard matched property list', ctx: 'Match' },
                             { var: '{{property_list_default}}', desc: 'Formatted list of matched properties', ctx: 'Match' },
+                            { var: '{{property_list_detailed}}', desc: 'Detailed list with specs & pricing', ctx: 'Match' },
+                            { var: '{{requirement_summary}}', desc: 'Summary of what customer is looking for', ctx: 'Match' },
+                            { var: '{{properties_count}}', desc: 'Total number of properties matched', ctx: 'Match' },
+                            { var: '{{match_percentage}}', desc: 'Match Percentage Score (AI generated)', ctx: 'Match' },
                             
-                            { var: '{{MatchPercentage}}', desc: 'Match Percentage Score', ctx: 'Match' }
+                            // Legacy / Static Data
+                            { var: '{{amount}}', desc: 'Due Amount (For reminders)', ctx: 'System' },
+                            { var: '{{due_date}}', desc: 'Due Date (For reminders)', ctx: 'System' },
+                            { var: '{{document_list}}', desc: 'Required Document List', ctx: 'System' }
                         ].map((item, i) => (
                             <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
                                 <td style={{ padding: '12px 16px' }}>
