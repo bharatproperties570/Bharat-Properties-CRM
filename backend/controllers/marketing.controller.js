@@ -929,16 +929,31 @@ async function _dispatchBNADirectly(data) {
     let templateComponents = null;
 
     let templateRegistryData = null;
-    if (templateId) {
-        try {
-            const SystemSetting = mongoose.model('SystemSetting');
-            const registrySetting = await SystemSetting.findOne({ key: 'messaging_variable_registry' }).lean();
-            templateRegistryData = {
-                mapping: registrySetting?.value || { "1": "customer_name", "2": "property_list_default" }
-            };
-        } catch (err) {
-            console.error('[BNA/TemplateInit] Error:', err.message);
+    let activeTemplateId = templateId;
+    let activeTemplateLang = language || 'en';
+
+    try {
+        const SystemSetting = mongoose.model('SystemSetting');
+        const registrySetting = await SystemSetting.findOne({ key: 'messaging_variable_registry' }).lean();
+        templateRegistryData = {
+            mapping: registrySetting?.value || { "1": "customer_name", "2": "property_list_default" }
+        };
+
+        // 🧠 Auto-Resolve System Trigger Context if no explicit template provided
+        if (!activeTemplateId) {
+            const templatesSetting = await SystemSetting.findOne({ key: 'crm_whatsapp_templates' }).lean();
+            if (templatesSetting?.value) {
+                // Find first template that has 'deal_match' context (Meta approved ones only preferably, but local logic will handle it)
+                const dealMatchTemplate = templatesSetting.value.find(t => t.systemContext?.includes('deal_match'));
+                if (dealMatchTemplate) {
+                    activeTemplateId = dealMatchTemplate.name || dealMatchTemplate.id;
+                    activeTemplateLang = dealMatchTemplate.language || 'en';
+                    console.log(`[BNA/Context] Auto-resolved deal_match context to template: ${activeTemplateId}`);
+                }
+            }
         }
+    } catch (err) {
+        console.error('[BNA/TemplateInit] Error:', err.message);
     }
 
     // Fallback text message (when no template selected or template not found)
@@ -982,16 +997,16 @@ async function _dispatchBNADirectly(data) {
         if (channels.includes('whatsapp') && recipient.mobile) {
             try {
                 let waRes;
-                if (templateId && templateRegistryData) {
+                if (activeTemplateId && templateRegistryData) {
                     const personalizedComponents = await resolveMetaComponents(
-                        templateId, 
+                        activeTemplateId, 
                         recipient, 
                         meta, 
                         templateRegistryData.mapping
                     );
                     
-                    console.log(`[BNA/WA] Dispatching '${templateId}' with ${personalizedComponents.length} components.`);
-                    waRes = await waService.sendTemplate(recipient.mobile, templateId, language || 'en', personalizedComponents);
+                    console.log(`[BNA/WA] Dispatching '${activeTemplateId}' with ${personalizedComponents.length} components.`);
+                    waRes = await waService.sendTemplate(recipient.mobile, activeTemplateId, activeTemplateLang, personalizedComponents);
                 } else {
                     // Fallback to text
                     const text = `🏢 *BNA ALERT: ${meta.title}*\n\n` +
@@ -1364,23 +1379,42 @@ export const executeDispatch = async (payload, user) => {
 
             const registrySetting = await SystemSetting.findOne({ key: 'messaging_variable_registry' }).lean();
             const mapping = (registrySetting && registrySetting.value) ? registrySetting.value : {
-                "1": "name",
-                "2": "location",
-                "3": "matchList"
+                "1": "customer_name",
+                "2": "property_list_default"
             };
 
-            const resolvedParams = (await import("../services/VariableResolutionService.js")).default.resolveForLeads(enrichedLead, mapping);
-            
-            let message = `Hi ${resolvedParams["1"] || 'Customer'} 👋\n\nBased on your requirement in ${resolvedParams["2"] || 'your preferred area'}, here are a few suitable options:\n\n${resolvedParams["3"] || resolvedParams["4"] || resolvedParams["5"] || 'Property matches below:'}`;
-            
-            Object.keys(mapping).forEach(key => {
-                if (mapping[key] === 'matchList') {
-                    message = `Hi ${resolvedParams["1"] || 'Customer'} 👋\n\nBased on your requirement in ${resolvedParams["2"] || 'your preferred area'}, here are a few suitable options:\n\n${resolvedParams[key]}`;
-                }
-            });
-
             try {
-                const res = await (await import("../services/WhatsAppService.js")).default.sendMessage(mobile, message);
+                const templatesSetting = await SystemSetting.findOne({ key: 'crm_whatsapp_templates' }).lean();
+                const expectedContext = matchContext === 'perfect' ? 'lead_match_full' : 'lead_match_short';
+                const matchTemplate = templatesSetting?.value?.find(t => t.systemContext?.includes(expectedContext));
+                
+                let res;
+                if (matchTemplate) {
+                    const templateId = matchTemplate.name || matchTemplate.id;
+                    const language = matchTemplate.language || 'en';
+                    const waService = (await import('../services/WhatsAppService.js')).default;
+                    
+                    const metaObj = { 
+                        title: populatedDeals[0]?.projectName || 'Project',
+                        location: populatedDeals[0]?.sector || populatedDeals[0]?.location || '',
+                        price: populatedDeals[0]?.price || '',
+                        inventoryId: populatedDeals[0]?._id
+                    };
+
+                    const personalizedComponents = await resolveMetaComponents(
+                        templateId, 
+                        enrichedLead, 
+                        metaObj, 
+                        mapping
+                    );
+
+                    console.log(`[ManualDispatch/WA] Context resolved '${expectedContext}' -> Dispatching '${templateId}'`);
+                    res = await waService.sendTemplate(mobile, templateId, language, personalizedComponents);
+                } else {
+                    const resolvedParams = (await import("../services/VariableResolutionService.js")).default.resolveForLeads(enrichedLead, mapping);
+                    let message = `Hi ${resolvedParams["1"] || 'Customer'} 👋\n\nBased on your requirement, here are a few suitable options:\n\n${resolvedParams["2"] || 'Property matches below:'}`;
+                    res = await (await import("../services/WhatsAppService.js")).default.sendMessage(mobile, message);
+                }
                 matchResults.push({ channel: 'whatsapp', status: res.success ? 'success' : 'failed' });
             } catch (err) { matchResults.push({ channel: 'whatsapp', status: 'failed', error: err.message }); }
         }

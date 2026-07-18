@@ -178,10 +178,46 @@ class NurtureBot {
             if (rule.whatsapp?.enabled) {
                 try {
                     const wa = rule.whatsapp;
-                    if (wa.templateName) {
-                        const components = [{ type: 'body', parameters: [{ type: 'text', text: name }] }];
-                        await whatsAppService.sendTemplate(lead.mobile, wa.templateName, 'en_US', components);
-                        await this._logActivity(lead._id, 'WhatsApp', `Automated [${wa.templateName}] sent via ${triggerId}`);
+                    let templateName = wa.templateName;
+                    let language = 'en_US';
+                    let isContextual = false;
+                    let contextComponents = [];
+
+                    // 🧠 Auto-Resolve System Context for 'Lead Created' (welcome) if no strict rule template
+                    if (!templateName && triggerId === 'Lead Created') {
+                        const templatesSetting = await SystemSetting.findOne({ key: 'crm_whatsapp_templates' }).lean();
+                        const welcomeTemplate = templatesSetting?.value?.find(t => t.systemContext?.includes('welcome'));
+                        if (welcomeTemplate) {
+                            templateName = welcomeTemplate.name || welcomeTemplate.id;
+                            language = welcomeTemplate.language || 'en';
+                            isContextual = true;
+                            
+                            // Map variables for context template
+                            const registrySetting = await SystemSetting.findOne({ key: 'messaging_variable_registry' }).lean();
+                            const VariableResolutionService = (await import('../services/VariableResolutionService.js')).default;
+                            const resolvedParams = VariableResolutionService.resolveForLeads(lead, registrySetting?.value || {});
+
+                            let globalVarIndex = 1;
+                            welcomeTemplate.components?.forEach(compDef => {
+                                if (compDef.type === 'BODY') {
+                                    const matches = compDef.text.match(/{{(\d+)}}/g) || [];
+                                    if (matches.length > 0) {
+                                        const parameters = matches.map(() => {
+                                            const val = resolvedParams[String(globalVarIndex)] || '—';
+                                            globalVarIndex++;
+                                            return { type: 'text', text: String(val) };
+                                        });
+                                        contextComponents.push({ type: 'body', parameters });
+                                    }
+                                }
+                            });
+                        }
+                    }
+
+                    if (templateName) {
+                        const components = isContextual ? contextComponents : [{ type: 'body', parameters: [{ type: 'text', text: name }] }];
+                        await whatsAppService.sendTemplate(lead.mobile, templateName, language, components);
+                        await this._logActivity(lead._id, 'WhatsApp', `Automated [${templateName}] sent via ${triggerId}`);
                     } else if (wa.body) {
                         await whatsAppService.sendMessage(lead.mobile, resolveVars(wa.body));
                         await this._logActivity(lead._id, 'WhatsApp', `Manual WhatsApp sent via ${triggerId}`);
