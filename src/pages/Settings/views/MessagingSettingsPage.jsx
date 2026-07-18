@@ -247,64 +247,7 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
     );
 
     const renderVariableMapping = () => {
-        if (channelType !== 'whatsapp') return null;
-
-        const fieldOptions = [
-            { id: 'firstname', label: 'First Name' },
-            { id: 'customer_name', label: 'Full Name' },
-            { id: 'mobile', label: 'Mobile Number' },
-            { id: 'email', label: 'Email Address' },
-            { id: 'unitno', label: 'Unit/Plot Number' },
-            { id: 'size', label: 'Size (3 BHK/Marla)' },
-            { id: 'price', label: 'Basic Price' },
-            { id: 'projectname', label: 'Project Name' },
-            { id: 'location', label: 'Location' },
-            { id: 'property_list_default', label: 'Property List (Default)' },
-            { id: 'property_list_detailed', label: 'Property List (Detailed)' },
-            { id: 'assignedto', label: 'Assigned Agent' },
-            { id: 'ownermobile', label: 'Agent Mobile' },
-            { id: 'propertiescount', label: 'Properties Count' },
-            { id: 'agent_name', label: 'Agent Name' },
-            { id: 'agent_mobile', label: 'Agent Mobile' },
-            { id: 'ai_intent_summary', label: 'AI Intent Summary' }
-        ];
-
-        return (
-            <div style={{ marginTop: '32px', background: 'var(--bg-light)', padding: '24px', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-                <div style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <ShieldCheck size={18} color="var(--primary-color)" /> Template Variable Mapping (Override)
-                </div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '20px' }}>Define what each {"{{n}}"} variable represents for THIS template specifically.</div>
-                
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
-                    {[1, 2, 3, 4, 5, 6].map(num => {
-                        const idx = String(num);
-                        const currentVal = (templateData.variableMapping && templateData.variableMapping[idx]) || '';
-                        
-                        return (
-                            <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'var(--bg-card)', padding: '8px 12px', borderRadius: '8px', border: '1px solid #f1f5f9' }}>
-                                <div style={{ background: 'var(--text-main)', color: '#ffffff', width: '28px', height: '28px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 800 }}>
-                                    {idx}
-                                </div>
-                                <select 
-                                    value={currentVal}
-                                    onChange={e => {
-                                        const newMapping = { ...(templateData.variableMapping || {}), [idx]: e.target.value };
-                                        setTemplateData({ ...templateData, variableMapping: newMapping });
-                                    }}
-                                    style={{ flex: 1, border: 'none', outline: 'none', fontSize: '0.8rem', color: currentVal ? 'var(--text-main)' : 'var(--text-muted)' }}
-                                >
-                                    <option value="">-- Use Global Default --</option>
-                                    {fieldOptions.map(opt => (
-                                        <option key={opt.id} value={opt.id}>{opt.label}</option>
-                                    ))}
-                                </select>
-                            </div>
-                        );
-                    })}
-                </div>
-            </div>
-        );
+        return null;
     };
 
     const renderSMSFields = () => (
@@ -460,7 +403,6 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
                         {channelType === 'whatsapp' ? (
                             <>
                                 {renderWhatsAppFields()}
-                                {renderVariableMapping()}
                             </>
                         ) : channelType === 'rcs' ? renderRCSFields() : renderSMSFields()}
                     </div>
@@ -639,6 +581,7 @@ const MessagingSettingsPage = () => {
     const [editingTemplate, setEditingTemplate] = useState(null);
     const [isSyncing, setIsSyncing] = useState(false);
     const [isSyncingMeta, setIsSyncingMeta] = useState(false); // Enterprise Sync State
+    const [activeDropdown, setActiveDropdown] = useState(null);
 
     // Initialize from hardcoded defaults; DB overrides on mount
     const [allTemplates, setAllTemplates] = useState({
@@ -931,19 +874,50 @@ const MessagingSettingsPage = () => {
                                 <td style={{ padding: '16px 12px' }}>Bharat Properties</td>
                                 <td style={{ padding: '16px 12px' }}>Owned by you</td>
                                 <td style={{ padding: '16px 12px' }}>
-                                    <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-                                        <i
-                                            className="far fa-edit"
-                                            style={{ cursor: 'pointer', color: '#3b82f6' }}
-                                            onClick={() => handleEdit(row)}
-                                            title="Edit Template"
-                                        ></i>
-                                        <i
-                                            className="far fa-trash-alt"
-                                            style={{ cursor: 'pointer', color: '#ef4444' }}
-                                            onClick={() => handleDelete(row.id)}
-                                            title="Delete Template"
-                                        ></i>
+                                    <div style={{ position: 'relative', display: 'flex', justifyContent: 'flex-end' }}>
+                                        <div 
+                                            style={{ cursor: 'pointer', padding: '4px 8px', borderRadius: '4px' }} 
+                                            onClick={(e) => { e.stopPropagation(); setActiveDropdown(activeDropdown === row.id ? null : row.id); }}
+                                            onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
+                                            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                                        >
+                                            <i className="fas fa-ellipsis-v" style={{ color: 'var(--text-muted)' }}></i>
+                                        </div>
+                                        {activeDropdown === row.id && (
+                                            <>
+                                                <div 
+                                                    style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9 }} 
+                                                    onClick={() => setActiveDropdown(null)} 
+                                                />
+                                                <div style={{ position: 'absolute', right: '0', top: '32px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '8px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)', zIndex: 10, width: '220px', padding: '4px 0', textAlign: 'left' }}>
+                                                    <div 
+                                                        style={{ padding: '10px 16px', fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--text-main)', fontWeight: 600 }}
+                                                        onClick={() => { setActiveDropdown(null); handleEdit(row); }}
+                                                        onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-light)'}
+                                                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                                                    >
+                                                        <i className="far fa-edit" style={{ width: '16px', color: '#3b82f6', textAlign: 'center' }}></i> Edit Template
+                                                    </div>
+                                                    <div 
+                                                        style={{ padding: '10px 16px', fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--text-main)', fontWeight: 600 }}
+                                                        onClick={() => { setActiveDropdown(null); handleEdit(row); }}
+                                                        onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-light)'}
+                                                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                                                    >
+                                                        <i className="fas fa-plug" style={{ width: '16px', color: 'var(--primary-color)', textAlign: 'center' }}></i> System Trigger Context
+                                                    </div>
+                                                    <div style={{ height: '1px', background: 'var(--border-color)', margin: '4px 0' }}></div>
+                                                    <div 
+                                                        style={{ padding: '10px 16px', fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', color: '#ef4444', fontWeight: 600 }}
+                                                        onClick={() => { setActiveDropdown(null); handleDelete(row.id); }}
+                                                        onMouseEnter={(e) => e.currentTarget.style.background = '#fef2f2'}
+                                                        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                                                    >
+                                                        <i className="far fa-trash-alt" style={{ width: '16px', textAlign: 'center' }}></i> Delete Template
+                                                    </div>
+                                                </div>
+                                            </>
+                                        )}
                                     </div>
                                 </td>
                             </tr>
