@@ -489,10 +489,56 @@ class WhatsAppService {
                 components: []
             };
 
+            // Add Header
+            if (templateData.headerType && templateData.headerType !== 'NONE') {
+                const headerComp = {
+                    type: 'HEADER',
+                    format: templateData.headerType
+                };
+                if (templateData.headerType === 'TEXT' && templateData.headerText) {
+                    headerComp.text = templateData.headerText;
+                }
+                payload.components.push(headerComp);
+            }
+
+            // Add Body
             if (templateData.body) {
                 payload.components.push({
                     type: 'BODY',
                     text: templateData.body
+                });
+            }
+
+            // Add Footer
+            if (templateData.footer) {
+                payload.components.push({
+                    type: 'FOOTER',
+                    text: templateData.footer
+                });
+            }
+
+            // Add Buttons
+            if (templateData.buttons && templateData.buttons.length > 0) {
+                const buttons = templateData.buttons.map(btn => {
+                    const mappedBtn = { text: btn.text || 'Button' };
+                    if (btn.type === 'URL') {
+                        mappedBtn.type = 'URL';
+                        mappedBtn.url = 'https://www.example.com'; // Requires URL structure
+                    } else if (btn.type === 'PHONE') {
+                        mappedBtn.type = 'PHONE_NUMBER';
+                        mappedBtn.phone_number = '+919999999999'; // Requires phone structure
+                    } else if (btn.type === 'COPY_CODE') {
+                        mappedBtn.type = 'COPY_CODE';
+                        mappedBtn.example = 'OFFER20'; 
+                    } else {
+                        mappedBtn.type = 'QUICK_REPLY';
+                    }
+                    return mappedBtn;
+                });
+                
+                payload.components.push({
+                    type: 'BUTTONS',
+                    buttons: buttons
                 });
             }
 
