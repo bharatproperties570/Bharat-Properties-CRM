@@ -123,13 +123,19 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
                 ))}
             </div>
 
-            {templateData.category === 'MARKETING' && (
+            {(templateData.category === 'MARKETING' || templateData.category === 'UTILITY') && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '8px' }}>
-                    {[
+                    {(templateData.category === 'MARKETING' ? [
                         { id: 'DEFAULT', title: 'Default', desc: 'Send messages with media and customized buttons to engage your customers.' },
                         { id: 'CATALOGUE', title: 'Catalogue', desc: 'Send messages that drive sales by connecting your product catalogue.' },
                         { id: 'FLOWS', title: 'Flows', desc: 'Send a form to capture customer interests, appointment requests or run surveys.' }
-                    ].map(sub => (
+                    ] : [
+                        { id: 'DEFAULT', title: 'Default', desc: 'Send messages about an existing order or account.' },
+                        { id: 'FLOWS', title: 'Flows', desc: 'Send a form to collect feedback, send reminders or manage orders.' },
+                        { id: 'ORDER_STATUS', title: 'Order status', desc: 'Send messages to tell customers about the progress of their orders.' },
+                        { id: 'ORDER_DETAILS', title: 'Order details', desc: 'Send messages through which customers can pay you.' },
+                        { id: 'CALLING_PERMISSIONS', title: 'Calling permissions request', desc: 'Ask customers if you can call them on WhatsApp.' }
+                    ]).map(sub => (
                         <label key={sub.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', cursor: 'pointer', padding: '12px', border: '1px solid var(--border-color)', borderRadius: '8px', background: templateData.subCategory === sub.id ? '#f8fafc' : 'transparent' }}>
                             <input 
                                 type="radio" 
