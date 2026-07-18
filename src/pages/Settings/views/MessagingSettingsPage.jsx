@@ -128,7 +128,9 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
                     {(templateData.category === 'MARKETING' ? [
                         { id: 'DEFAULT', title: 'Default', desc: 'Send messages with media and customized buttons to engage your customers.' },
                         { id: 'CATALOGUE', title: 'Catalogue', desc: 'Send messages that drive sales by connecting your product catalogue.' },
-                        { id: 'FLOWS', title: 'Flows', desc: 'Send a form to capture customer interests, appointment requests or run surveys.' }
+                        { id: 'FLOWS', title: 'Flows', desc: 'Send a form to capture customer interests, appointment requests or run surveys.' },
+                        { id: 'ORDER_DETAILS', title: 'Order details', desc: 'Send messages through which customers can pay you.' },
+                        { id: 'CALLING_PERMISSIONS', title: 'Calling permissions request', desc: 'Ask customers if you can call them on WhatsApp.' }
                     ] : [
                         { id: 'DEFAULT', title: 'Default', desc: 'Send messages about an existing order or account.' },
                         { id: 'FLOWS', title: 'Flows', desc: 'Send a form to collect feedback, send reminders or manage orders.' },
