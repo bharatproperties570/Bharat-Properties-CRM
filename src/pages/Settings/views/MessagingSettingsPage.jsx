@@ -510,8 +510,22 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
                             </>
                         )}
                         
-                        {channelType !== 'whatsapp' && (
-                            <div style={{ marginTop: '32px' }}>
+                        {/* Internal CRM Settings */}
+                        <div style={{ marginTop: '32px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+                                <div>
+                                    <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-main)', display: 'block' }}>Share with everyone</label>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Allow other team members to use this template</div>
+                                </div>
+                                <label className="switch" style={{ position: 'relative', display: 'inline-block', width: '34px', height: '20px' }}>
+                                    <input type="checkbox" checked={templateData.shared !== false} onChange={e => setTemplateData({ ...templateData, shared: e.target.checked })} style={{ opacity: 0, width: 0, height: 0 }} />
+                                    <span className="slider round" style={{ position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: templateData.shared !== false ? 'var(--primary-color)' : '#ccc', transition: '.4s', borderRadius: '34px' }}>
+                                        <span style={{ position: 'absolute', content: '""', height: '14px', width: '14px', left: templateData.shared !== false ? '16px' : '3px', bottom: '3px', backgroundColor: 'white', transition: '.4s', borderRadius: '50%' }}></span>
+                                    </span>
+                                </label>
+                            </div>
+
+                            <div>
                                 <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>Assign Tags</label>
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '8px 12px', border: '1px solid var(--border-color)', borderRadius: '8px', minHeight: '48px', alignItems: 'center' }}>
                                     {templateData.tags.map(tag => (
@@ -522,7 +536,7 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
                                     <input type="text" style={{ border: 'none', outline: 'none', flex: 1, minWidth: '120px', fontSize: '0.95rem' }} placeholder={templateData.tags.length === 0 ? "Search or create tags..." : ""} value={tagInput} onChange={e => setTagInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && tagInput.trim()) { setTemplateData({ ...templateData, tags: [...templateData.tags, tagInput.trim()] }); setTagInput(''); } }} />
                                 </div>
                             </div>
-                        )}
+                        </div>
                     </div>
 
                     {/* Right Panel: Preview */}
