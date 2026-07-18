@@ -76,7 +76,7 @@ export const emailTemplates = [
         visibility: 'Owned by everyone',
         tags: ['Deal Match', 'Priority', 'Leads'],
         subject: '🏠 Exclusive Property Match Found for You | {{project_name}}',
-        isDealMatchTemplate: true,
+        systemContext: ['deal_match', 'deal_match_modal'],
         content: `<div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 640px; margin: 0 auto; background: #f8fafc;">
 
   <!-- Header Banner -->
@@ -640,20 +640,14 @@ Bharat Properties
         tags: ['Feedback', 'Inventory']
     },
     {
-        id: 11,
-        name: 'property_match_alert',
-        content: `Hi {{first_name}}! 🏠
-
-We found an exclusive property match that aligns perfectly with your requirements:
-
-{{property_category}}
-
-Would you like to schedule a priority site visit or receive more details?
-
-Best regards,
-{{property_location}}
-Bharat Properties`,
-        tags: ['Property', 'Match Alert']
+        id: 'tpl_deal_match_wa',
+        name: 'Deal Property Match',
+        systemContext: ['deal_match', 'deal_match_modal'],
+        category: 'UTILITY',
+        language: 'en',
+        status: 'APPROVED',
+        content: `Dear {{first_name}},\n\nWe have identified a property that aligns with your criteria.\n\nProject: {{project_name}}\nLocation: {{property_location}}\nPrice: {{property_price}}\n\nPlease let us know if you would like to schedule a viewing or require further details.\n\nRegards,\n{{agent_name}}\nBharat Properties`,
+        tags: ['Deal Match', 'Utility']
     },
     // --- NEW WHATSAPP TEMPLATES ---
     {
@@ -757,7 +751,7 @@ export const smsTemplates = [
         id: 10,
         name: 'Deal Property Match',
         body: 'EXCLUSIVE MATCH 🌟 Hi {{first_name}}, we found a highly sought-after {{property_size}} unit at {{project_name}}, {{property_location}} matching your exact criteria! 🔑 Premium inventory, moving fast at {{property_price}}. Reply YES or call us ASAP to secure a priority viewing! - Bharat Properties',
-        tags: ['Deal Match', 'Priority']
+        tags: ['Deal Match', 'Priority'], systemContext: ['deal_match', 'deal_match_modal']
     },
     {
         id: 'fb_interested_hot_sms',
@@ -938,5 +932,19 @@ export const rcsTemplates = [
             { type: 'PHONE', text: 'Call Us', phone: '{{property_location}}' }
         ],
         tags: ['Feedback', 'Relationship']
+    }
+, 
+    {
+        id: 'tpl_deal_match_rcs',
+        name: 'Deal Property Match',
+        systemContext: ['deal_match', 'deal_match_modal'],
+        body: 'Property Match Found 🏠\n\nDear {{first_name}},\n\nWe found a unit in {{project_name}} matching your requirements.\n\nLocation: {{property_location}}\nPrice: {{property_price}}\n\nPlease review and let us know your thoughts.',
+        media: { type: 'image', url: 'property_exterior_url' },
+        buttons: [
+            { type: 'URL', text: 'View Details', url: '{{property_list_detailed}}' },
+            { type: 'REPLY', text: 'Interested', reply: 'INTERESTED' },
+            { type: 'PHONE', text: 'Call Agent', phone: '{{agent_mobile}}' }
+        ],
+        tags: ['Deal Match', 'Priority']
     }
 ];
