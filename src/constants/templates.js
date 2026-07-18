@@ -6,7 +6,7 @@ export const emailTemplates = [
         visibility: 'Owned by everyone',
         tags: ['Welcome', 'Leads'],
         subject: '👋 Welcome to Bharat Properties | Let\'s find your dream home!',
-        content: `Dear {{First name}},<br><br>Thank you for choosing <strong>Bharat Properties</strong>. We are thrilled to assist you in your journey to find the perfect property.<br><br>Our mission is to provide you with a seamless and transparent real estate experience. One of our senior consultants will reach out to you shortly to understand your requirements in detail.<br><br>In the meantime, feel free to browse our latest premium listings on our website.<br><br>Best regards,<br>{{Sender's signature}}`,
+        content: `Dear {{first_name}},<br><br>Thank you for choosing <strong>Bharat Properties</strong>. We are thrilled to assist you in your journey to find the perfect property.<br><br>Our mission is to provide you with a seamless and transparent real estate experience. One of our senior consultants will reach out to you shortly to understand your requirements in detail.<br><br>In the meantime, feel free to browse our latest premium listings on our website.<br><br>Best regards,<br>{{agent_name}}`,
         shared: true
     },
     {
@@ -16,7 +16,7 @@ export const emailTemplates = [
         visibility: 'Owned by everyone',
         tags: ['Leads', 'Priority'],
         subject: '🔥 Exclusive Selection: Top property matches for you!',
-        content: `Dear {{First name}},<br><br>Based on our latest market analysis, we have identified these <strong>Top Property Matches</strong> that perfectly align with your requirements.<br><br>{{PropertyList}}<br><br>These properties are currently seeing high interest. Would you like to schedule a priority visit this weekend?<br><br>Best regards,<br>{{Sender's signature}}`,
+        content: `Dear {{first_name}},<br><br>Based on our latest market analysis, we have identified these <strong>Top Property Matches</strong> that perfectly align with your requirements.<br><br>{{property_list}}<br><br>These properties are currently seeing high interest. Would you like to schedule a priority visit this weekend?<br><br>Best regards,<br>{{agent_name}}`,
         shared: true
     },
     {
@@ -25,8 +25,8 @@ export const emailTemplates = [
         author: 'Bharat Properties',
         visibility: 'Owned by everyone',
         tags: ['Site Visit'],
-        subject: '✅ Confirmed: Your Property Visit for {{PropertyList}}',
-        content: `Hello {{First name}},<br><br>Your site visit has been successfully scheduled. Here are the details:<br><br>📍 <strong>Location:</strong> {{PropertyList}}<br>📅 <strong>Date & Time:</strong> [Insert Selection]<br>👤 <strong>Assigned Executive:</strong> {{Sender's first name}}<br><br>We recommend arriving 5 minutes early. If you need a pickup or directions, please reply to this email or call us directly.<br><br>Looking forward to showing you your potential future home!<br><br>Best regards,<br>{{Sender's signature}}`,
+        subject: '✅ Confirmed: Your Property Visit for {{property_list}}',
+        content: `Hello {{first_name}},<br><br>Your site visit has been successfully scheduled. Here are the details:<br><br>📍 <strong>Location:</strong> {{property_list}}<br>📅 <strong>Date & Time:</strong> [Insert Selection]<br>👤 <strong>Assigned Executive:</strong> {{agent_name}}<br><br>We recommend arriving 5 minutes early. If you need a pickup or directions, please reply to this email or call us directly.<br><br>Looking forward to showing you your potential future home!<br><br>Best regards,<br>{{agent_name}}`,
         shared: true
     },
     {
@@ -35,8 +35,8 @@ export const emailTemplates = [
         author: 'Bharat Properties',
         visibility: 'Owned by everyone',
         tags: ['Follow-up'],
-        subject: '🏠 Thoughts on your recent visit? | Next steps for {{PropertyList}}',
-        content: `Dear {{First name}},<br><br>It was a pleasure meeting you during our visit to <strong>{{PropertyList}}</strong> today. We would love to hear your thoughts on the property.<br><br>Did the unit meet your expectations, or would you like to explore other options in a similar range?<br><br><strong>Next Steps:</strong> We can initiate the negotiation process if you liked this unit, or I can share 2-3 alternative listings by tomorrow morning.<br><br>Waiting for your feedback.<br><br>Best regards,<br>{{Sender's signature}}`,
+        subject: '🏠 Thoughts on your recent visit? | Next steps for {{property_list}}',
+        content: `Dear {{first_name}},<br><br>It was a pleasure meeting you during our visit to <strong>{{property_list}}</strong> today. We would love to hear your thoughts on the property.<br><br>Did the unit meet your expectations, or would you like to explore other options in a similar range?<br><br><strong>Next Steps:</strong> We can initiate the negotiation process if you liked this unit, or I can share 2-3 alternative listings by tomorrow morning.<br><br>Waiting for your feedback.<br><br>Best regards,<br>{{agent_name}}`,
         shared: true
     },
     {
@@ -45,8 +45,8 @@ export const emailTemplates = [
         author: 'Bharat Properties',
         visibility: 'Owned by everyone',
         tags: ['Re-engagement'],
-        subject: '💎 New inventory just landed! | Are you still looking in {{Address}}?',
-        content: `Hi {{First name}},<br><br>It's been a while since we last spoke! I wanted to give you a quick heads-up that some <strong>exclusive new inventory</strong> has just opened up in {{Address}} that matches your previous preferences.<br><br>Before these hit the public portals, would you like to see the details?<br><br>Looking forward to reconnecting.<br><br>Best regards,<br>{{Sender's signature}}`,
+        subject: '💎 New inventory just landed! | Are you still looking in {{property_location}}?',
+        content: `Hi {{first_name}},<br><br>It's been a while since we last spoke! I wanted to give you a quick heads-up that some <strong>exclusive new inventory</strong> has just opened up in {{property_location}} that matches your previous preferences.<br><br>Before these hit the public portals, would you like to see the details?<br><br>Looking forward to reconnecting.<br><br>Best regards,<br>{{agent_name}}`,
         shared: true
     },
     {
@@ -55,8 +55,8 @@ export const emailTemplates = [
         author: 'Bharat Properties',
         visibility: 'Owned by everyone',
         tags: ['Deals', 'Success'],
-        subject: '🎉 Congratulations on your new home at {{Company name}}!',
-        content: `Dear {{First name}},<br><br><div style="text-align: center; padding: 20px; background: #f0fdf4; border-radius: 12px; border: 1px solid #bbf7d0;"><h2>🎉 CONGRATULATIONS!</h2><p>Your booking for the unit at <strong>{{Company name}}</strong> has been successfully processed.</p></div><br>This is a major milestone, and we are honored to be part of it. Our post-sales team will guide you through the documentation and registry process shortly.<br><br>Welcome to the Bharat Properties family!<br><br>Best regards,<br>{{Sender's signature}}`,
+        subject: '🎉 Congratulations on your new home at {{company_name}}!',
+        content: `Dear {{first_name}},<br><br><div style="text-align: center; padding: 20px; background: #f0fdf4; border-radius: 12px; border: 1px solid #bbf7d0;"><h2>🎉 CONGRATULATIONS!</h2><p>Your booking for the unit at <strong>{{company_name}}</strong> has been successfully processed.</p></div><br>This is a major milestone, and we are honored to be part of it. Our post-sales team will guide you through the documentation and registry process shortly.<br><br>Welcome to the Bharat Properties family!<br><br>Best regards,<br>{{agent_name}}`,
         shared: true
     },
     {
@@ -65,8 +65,8 @@ export const emailTemplates = [
         author: 'Bharat Properties',
         visibility: 'Owned by everyone',
         tags: ['Operations'],
-        subject: '📄 Action Required: Documentation for {{First name}}',
-        content: `Dear {{First name}},<br><br>To proceed with your application for {{Company name}}, we require the following documents at your earliest convenience:<br><br>✅ PAN Card Copy<br>✅ Aadhaar Card (Front & Back)<br>✅ Passport Size Photograph<br>✅ Booking Cheque/Transaction Receipt<br><br>Please reply to this email with the scanned copies or WhatsApp them to us at +91-XXXXX-XXXXX.<br><br>Keeping these ready will ensure a smooth and priority processing of your file.<br><br>Best regards,<br>{{Sender's signature}}`,
+        subject: '📄 Action Required: Documentation for {{first_name}}',
+        content: `Dear {{first_name}},<br><br>To proceed with your application for {{company_name}}, we require the following documents at your earliest convenience:<br><br>✅ PAN Card Copy<br>✅ Aadhaar Card (Front & Back)<br>✅ Passport Size Photograph<br>✅ Booking Cheque/Transaction Receipt<br><br>Please reply to this email with the scanned copies or WhatsApp them to us at +91-XXXXX-XXXXX.<br><br>Keeping these ready will ensure a smooth and priority processing of your file.<br><br>Best regards,<br>{{agent_name}}`,
         shared: true
     },
     {
@@ -75,7 +75,7 @@ export const emailTemplates = [
         author: 'Bharat Properties',
         visibility: 'Owned by everyone',
         tags: ['Deal Match', 'Priority', 'Leads'],
-        subject: '🏠 Exclusive Property Match Found for You | {{DealProject}}',
+        subject: '🏠 Exclusive Property Match Found for You | {{project_name}}',
         isDealMatchTemplate: true,
         content: `<div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 640px; margin: 0 auto; background: #f8fafc;">
 
@@ -90,7 +90,7 @@ export const emailTemplates = [
 
   <!-- Greeting -->
   <div style="background: #ffffff; padding: 32px 40px 0;">
-    <p style="margin: 0 0 6px; font-size: 15px; color: #475569;">Dear <strong style="color: #1e293b;">{{First name}}</strong>,</p>
+    <p style="margin: 0 0 6px; font-size: 15px; color: #475569;">Dear <strong style="color: #1e293b;">{{first_name}}</strong>,</p>
     <p style="margin: 0; font-size: 14px; color: #64748b; line-height: 1.7;">I am pleased to share an exclusive property opportunity that perfectly aligns with your investment goals and lifestyle requirements. This unit is currently available and seeing strong buyer interest — I recommend reviewing it at the earliest convenience.</p>
   </div>
 
@@ -103,12 +103,12 @@ export const emailTemplates = [
         <tr>
           <td valign="top" style="padding-bottom: 12px; text-align: left;">
             <div style="font-size: 11px; font-weight: 700; color: #0284c7; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">📍 Project</div>
-            <div style="font-size: 22px; font-weight: 900; color: #0c4a6e; margin: 0; word-break: break-word;">{{DealProject}}</div>
-            <div style="font-size: 13px; color: #0369a1; margin-top: 4px; font-weight: 600;">{{DealLocation}}</div>
+            <div style="font-size: 22px; font-weight: 900; color: #0c4a6e; margin: 0; word-break: break-word;">{{project_name}}</div>
+            <div style="font-size: 13px; color: #0369a1; margin-top: 4px; font-weight: 600;">{{property_location}}</div>
           </td>
           <td valign="top" style="text-align: right;">
             <div style="font-size: 11px; font-weight: 700; color: #059669; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">💰 Asking Price</div>
-            <div style="font-size: 24px; font-weight: 900; color: #065f46;">{{DealPrice}}</div>
+            <div style="font-size: 24px; font-weight: 900; color: #065f46;">{{property_price}}</div>
             <div style="font-size: 11px; color: #6b7280; margin-top: 3px; font-weight: 600;">All Inclusive</div>
           </td>
         </tr>
@@ -122,14 +122,14 @@ export const emailTemplates = [
       <div style="display: inline-block; width: 100%; max-width: 270px; vertical-align: top; margin-bottom: 12px; margin-right: 10px;">
         <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px; font-size: 14px;">
           <div style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">🏗 Unit Number</div>
-          <div style="font-size: 16px; font-weight: 800; color: #1e293b; word-break: break-word;">{{DealUnit}}</div>
+          <div style="font-size: 16px; font-weight: 800; color: #1e293b; word-break: break-word;">{{unit_number}}</div>
         </div>
       </div>
 
       <div style="display: inline-block; width: 100%; max-width: 270px; vertical-align: top; margin-bottom: 12px;">
         <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px; font-size: 14px;">
           <div style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">🏠 Category</div>
-          <div style="font-size: 15px; font-weight: 800; color: #1e293b; word-break: break-word;">{{DealCategory}}</div>
+          <div style="font-size: 15px; font-weight: 800; color: #1e293b; word-break: break-word;">{{property_category}}</div>
         </div>
       </div>
 
@@ -137,14 +137,14 @@ export const emailTemplates = [
       <div style="display: inline-block; width: 100%; max-width: 270px; vertical-align: top; margin-bottom: 12px; margin-right: 10px;">
         <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px; font-size: 14px;">
           <div style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">🏷 Type / Specification</div>
-          <div style="font-size: 15px; font-weight: 800; color: #1e293b; word-break: break-word;">{{DealSubCategory}}</div>
+          <div style="font-size: 15px; font-weight: 800; color: #1e293b; word-break: break-word;">{{property_subcategory}}</div>
         </div>
       </div>
 
       <div style="display: inline-block; width: 100%; max-width: 270px; vertical-align: top; margin-bottom: 12px;">
         <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px; font-size: 14px;">
           <div style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">🏢 Block / Floor</div>
-          <div style="font-size: 15px; font-weight: 800; color: #1e293b; word-break: break-word;">{{DealBlock}}</div>
+          <div style="font-size: 15px; font-weight: 800; color: #1e293b; word-break: break-word;">{{block_name}}</div>
         </div>
       </div>
 
@@ -152,26 +152,26 @@ export const emailTemplates = [
       <div style="display: inline-block; width: 100%; max-width: 270px; vertical-align: top; margin-bottom: 12px; margin-right: 10px;">
         <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px; font-size: 14px;">
           <div style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">📜 Ownership</div>
-          <div style="font-size: 15px; font-weight: 800; color: #1e293b; word-break: break-word;">{{DealOwnership}}</div>
+          <div style="font-size: 15px; font-weight: 800; color: #1e293b; word-break: break-word;">{{property_subcategory}}</div>
         </div>
       </div>
 
       <div style="display: inline-block; width: 100%; max-width: 270px; vertical-align: top; margin-bottom: 12px;">
         <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px; font-size: 14px;">
           <div style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">📐 Size Type</div>
-          <div style="font-size: 15px; font-weight: 800; color: #1e293b; word-break: break-word;">{{DealSizeLabel}}</div>
+          <div style="font-size: 15px; font-weight: 800; color: #1e293b; word-break: break-word;">{{size_label}}</div>
         </div>
       </div>
     </div>
 
-    {{DealBuiltupHTML}}
+    {{property_list_detailed}}
 
     <div style="background: #fefce8; border: 1px solid #fde68a; border-radius: 10px; padding: 14px 16px; margin-bottom: 20px;">
       <div style="font-size: 10px; font-weight: 700; color: #92400e; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">📊 Availability Status</div>
-      <div style="font-size: 15px; font-weight: 800; color: #78350f; word-break: break-word;">{{DealStage}}</div>
+      <div style="font-size: 15px; font-weight: 800; color: #78350f; word-break: break-word;">{{lead_stage}}</div>
     </div>
 
-    {{DealOrientationStripHTML}}
+    {{property_list_detailed}}
 
     <!-- Why This Property -->
     <div style="background: linear-gradient(135deg, #faf5ff, #ede9fe); border: 1px solid #ddd6fe; border-radius: 12px; padding: 20px 24px; margin-bottom: 20px;">
@@ -181,11 +181,11 @@ export const emailTemplates = [
       <div style="display: block;">
         <div style="margin-bottom: 10px;">
           <div style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #7c3aed; margin-right: 10px; vertical-align: middle;"></div>
-          <span style="display: inline-block; width: 90%; font-size: 13px; color: #374151; font-weight: 600; vertical-align: middle; word-break: break-word;">Location matches your preferred area in <strong>{{DealLocation}}</strong></span>
+          <span style="display: inline-block; width: 90%; font-size: 13px; color: #374151; font-weight: 600; vertical-align: middle; word-break: break-word;">Location matches your preferred area in <strong>{{property_location}}</strong></span>
         </div>
         <div style="margin-bottom: 10px;">
           <div style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #7c3aed; margin-right: 10px; vertical-align: middle;"></div>
-          <span style="display: inline-block; width: 90%; font-size: 13px; color: #374151; font-weight: 600; vertical-align: middle; word-break: break-word;">Asking price of <strong>{{DealPrice}}</strong> is aligned with your budget range</span>
+          <span style="display: inline-block; width: 90%; font-size: 13px; color: #374151; font-weight: 600; vertical-align: middle; word-break: break-word;">Asking price of <strong>{{property_price}}</strong> is aligned with your budget range</span>
         </div>
         <div style="margin-bottom: 10px;">
           <div style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #7c3aed; margin-right: 10px; vertical-align: middle;"></div>
@@ -193,7 +193,7 @@ export const emailTemplates = [
         </div>
         <div style="margin-bottom: 10px;">
           <div style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #7c3aed; margin-right: 10px; vertical-align: middle;"></div>
-          <span style="display: inline-block; width: 90%; font-size: 13px; color: #374151; font-weight: 600; vertical-align: middle; word-break: break-word;">Currently <strong>{{DealStage}}</strong> — act quickly to secure this unit</span>
+          <span style="display: inline-block; width: 90%; font-size: 13px; color: #374151; font-weight: 600; vertical-align: middle; word-break: break-word;">Currently <strong>{{lead_stage}}</strong> — act quickly to secure this unit</span>
         </div>
       </div>
     </div>
@@ -216,7 +216,7 @@ export const emailTemplates = [
       <a href="https://crm.bharatproperties.co/public/form/standard-project-tour-scheduler-bqnh6" style="display: inline-block; background: linear-gradient(135deg, #2563eb, #1d4ed8); color: #ffffff; padding: 14px 32px; border-radius: 50px; text-decoration: none; font-size: 14px; font-weight: 800; letter-spacing: 0.3px; box-shadow: 0 4px 15px rgba(37,99,235,0.35); margin-right: 10px; margin-bottom: 10px;">
         📅 Schedule Visit
       </a>
-      <a href="https://wa.me/91{{AgentMobile}}?text=Hi%2C%20I'm%20interested%20in%20the%20property%20%2A{{DealProject}}%2A%20at%20%2A{{DealLocation}}%2A." style="display: inline-block; background: linear-gradient(135deg, #25d366, #128c7e); color: #ffffff; padding: 14px 32px; border-radius: 50px; text-decoration: none; font-size: 14px; font-weight: 800; letter-spacing: 0.3px; box-shadow: 0 4px 15px rgba(37,211,102,0.35); margin-bottom: 10px;">
+      <a href="https://wa.me/91{{agent_mobile}}?text=Hi%2C%20I'm%20interested%20in%20the%20property%20%2A{{project_name}}%2A%20at%20%2A{{property_location}}%2A." style="display: inline-block; background: linear-gradient(135deg, #25d366, #128c7e); color: #ffffff; padding: 14px 32px; border-radius: 50px; text-decoration: none; font-size: 14px; font-weight: 800; letter-spacing: 0.3px; box-shadow: 0 4px 15px rgba(37,211,102,0.35); margin-bottom: 10px;">
         💬 WhatsApp Us
       </a>
     </div>
@@ -227,7 +227,7 @@ export const emailTemplates = [
     <!-- Closing -->
     <p style="font-size: 14px; color: #475569; line-height: 1.7; margin: 0 0 16px;">I am available for a detailed walkthrough at your preferred time. Please feel free to reach out, and I will ensure a seamless experience from property viewing to documentation.</p>
     <p style="font-size: 14px; color: #475569; margin: 0 0 6px;">Warm regards,</p>
-    <strong style="font-size: 15px; color: #1e293b;">{{Sender's signature}}</strong>
+    <strong style="font-size: 15px; color: #1e293b;">{{agent_name}}</strong>
     <p style="font-size: 12px; color: #94a3b8; margin: 4px 0 0;">Bharat Properties | 📞 +91-9991333570</p>
   </div>
 
@@ -246,7 +246,7 @@ export const emailTemplates = [
         author: 'System',
         tags: ['Feedback', 'Inventory'],
         subject: 'Priority Update regarding {unit}',
-        content: `Hi {owner},<br><br>Great to hear from you regarding <strong>{unit}</strong>! I'm finalizing the details for our <strong>{time}</strong> meeting. Please keep the original documents ready.<br><br>Best regards,<br>Bharat Properties`,
+        content: `Hi {{full_name}},<br><br>Great to hear from you regarding <strong>{{unit_number}}</strong>! I'm finalizing the details for our <strong>{{due_date}}</strong> meeting. Please keep the original documents ready.<br><br>Best regards,<br>Bharat Properties`,
         shared: true
     },
     {
@@ -255,7 +255,7 @@ export const emailTemplates = [
         author: 'System',
         tags: ['Feedback', 'Inventory'],
         subject: 'Interest noted for {unit}',
-        content: `Hi {owner},<br><br>Thank you for your time discussing <strong>{unit}</strong>. I've noted your interest for <strong>{reason}</strong>. I will share some market comparisons shortly.<br><br>Best regards,<br>Bharat Properties`,
+        content: `Hi {{full_name}},<br><br>Thank you for your time discussing <strong>{{unit_number}}</strong>. I've noted your interest for <strong>{{lead_status}}</strong>. I will share some market comparisons shortly.<br><br>Best regards,<br>Bharat Properties`,
         shared: true
     },
     {
@@ -264,7 +264,7 @@ export const emailTemplates = [
         author: 'System',
         tags: ['Feedback', 'Inventory'],
         subject: 'Call back request for {unit}',
-        content: `Hi {owner},<br><br>Apologies for the interruption. I will call you back at <strong>{time}</strong> regarding <strong>{unit}</strong> as requested.<br><br>Best regards,<br>Bharat Properties`,
+        content: `Hi {{full_name}},<br><br>Apologies for the interruption. I will call you back at <strong>{{due_date}}</strong> regarding <strong>{{unit_number}}</strong> as requested.<br><br>Best regards,<br>Bharat Properties`,
         shared: true
     },
     {
@@ -273,7 +273,7 @@ export const emailTemplates = [
         author: 'System',
         tags: ['Feedback', 'Inventory'],
         subject: 'Status update for {unit}',
-        content: `Hi {owner},<br><br>Thank you for the update on <strong>{unit}</strong>. I've updated the record as <strong>{reason}</strong>. Do reach out if your plans change.<br><br>Best regards,<br>Bharat Properties`,
+        content: `Hi {{full_name}},<br><br>Thank you for the update on <strong>{{unit_number}}</strong>. I've updated the record as <strong>{{lead_status}}</strong>. Do reach out if your plans change.<br><br>Best regards,<br>Bharat Properties`,
         shared: true
     },
     {
@@ -282,7 +282,7 @@ export const emailTemplates = [
         author: 'System',
         tags: ['Feedback', 'Inventory'],
         subject: 'Missed you regarding {unit}',
-        content: `Hi {owner},<br><br>I tried reaching you regarding <strong>{unit}</strong>. Seems like you were busy — I'll call again shortly.<br><br>Best regards,<br>Bharat Properties`,
+        content: `Hi {{full_name}},<br><br>I tried reaching you regarding <strong>{{unit_number}}</strong>. Seems like you were busy — I'll call again shortly.<br><br>Best regards,<br>Bharat Properties`,
         shared: true
     },
     {
@@ -291,7 +291,7 @@ export const emailTemplates = [
         author: 'System',
         tags: ['Feedback', 'Inventory'],
         subject: 'Tried reaching you for {unit}',
-        content: `Hi {owner},<br><br>We tried contacting you regarding <strong>{unit}</strong> but were unable to reach you. We will try again at a later time.<br><br>Best regards,<br>Bharat Properties`,
+        content: `Hi {{full_name}},<br><br>We tried contacting you regarding <strong>{{unit_number}}</strong> but were unable to reach you. We will try again at a later time.<br><br>Best regards,<br>Bharat Properties`,
         shared: true
     },
     {
@@ -300,7 +300,7 @@ export const emailTemplates = [
         author: 'System',
         tags: ['Feedback', 'Inventory'],
         subject: 'Market update for {unit}',
-        content: `Hi {owner},<br><br>Thank you for sharing your thoughts on <strong>{unit}</strong>. If you decide to sell or rent, we have active buyers ready. Feel free to reach out anytime.<br><br>Best regards,<br>Bharat Properties`,
+        content: `Hi {{full_name}},<br><br>Thank you for sharing your thoughts on <strong>{{unit_number}}</strong>. If you decide to sell or rent, we have active buyers ready. Feel free to reach out anytime.<br><br>Best regards,<br>Bharat Properties`,
         shared: true
     },
     {
@@ -309,7 +309,7 @@ export const emailTemplates = [
         author: 'System',
         tags: ['Feedback', 'Inventory'],
         subject: 'Your inquiry regarding {unit}',
-        content: `Hi {owner},<br><br>Thank you for your inquiry regarding <strong>{unit}</strong>. Our team will get back to you shortly with the requested information.<br><br>Best regards,<br>Bharat Properties`,
+        content: `Hi {{full_name}},<br><br>Thank you for your inquiry regarding <strong>{{unit_number}}</strong>. Our team will get back to you shortly with the requested information.<br><br>Best regards,<br>Bharat Properties`,
         shared: true
     },
     {
@@ -318,7 +318,7 @@ export const emailTemplates = [
         author: 'System',
         tags: ['Feedback', 'Inventory'],
         subject: 'Contact verification for {unit}',
-        content: `Hi,<br><br>We attempted to contact the registered owner for <strong>{unit}</strong> but the number appears to be incorrect or unavailable. Our team will verify and update the records.<br><br>Best regards,<br>Bharat Properties`,
+        content: `Hi,<br><br>We attempted to contact the registered owner for <strong>{{unit_number}}</strong> but the number appears to be incorrect or unavailable. Our team will verify and update the records.<br><br>Best regards,<br>Bharat Properties`,
         shared: true
     },
     // --- NEW TEMPLATES FROM TEMPLATE CONTEXT ---
@@ -328,8 +328,8 @@ export const emailTemplates = [
         author: 'Bharat Properties',
         visibility: 'Owned by everyone',
         tags: ['Drip', 'Nurture'],
-        subject: 'Top 5 reasons to invest in {{Project_Name}}',
-        content: `Dear {{First name}},<br><br>Still thinking about your real estate investment? Here are the top 5 reasons why our project is considered the best choice by experts:<br><br>1. Prime Location<br>2. High ROI<br>3. Premium Amenities<br>4. RERA Approved<br>5. Trusted Builder<br><br>Reply to this email to book a free consultation!<br><br>Best regards,<br>{{Sender's signature}}`,
+        subject: 'Top 5 reasons to invest in {{project_name}}',
+        content: `Dear {{first_name}},<br><br>Still thinking about your real estate investment? Here are the top 5 reasons why our project is considered the best choice by experts:<br><br>1. Prime Location<br>2. High ROI<br>3. Premium Amenities<br>4. RERA Approved<br>5. Trusted Builder<br><br>Reply to this email to book a free consultation!<br><br>Best regards,<br>{{agent_name}}`,
         shared: true
     },
     {
@@ -339,7 +339,7 @@ export const emailTemplates = [
         visibility: 'Owned by everyone',
         tags: ['Post-Sales', 'Automated'],
         subject: '🎉 Happy 1st Anniversary of your Booking!',
-        content: `Dear {{First name}},<br><br>Happy 1st Anniversary of joining our community! 🎉 It has been a wonderful year building your dream home.<br><br>We are organizing a special get-together for all future residents next month. Stay tuned for the invite!<br><br>Best regards,<br>{{Sender's signature}}`,
+        content: `Dear {{first_name}},<br><br>Happy 1st Anniversary of joining our community! 🎉 It has been a wonderful year building your dream home.<br><br>We are organizing a special get-together for all future residents next month. Stay tuned for the invite!<br><br>Best regards,<br>{{agent_name}}`,
         shared: true
     }
 ];
@@ -348,33 +348,33 @@ export const whatsappTemplates = [
     {
         id: 1,
         name: 'Property Presentation',
-        content: `Hi {{ContactName}}! 🏠
+        content: `Hi {{first_name}}! 🏠
 
-I found a *{{PropertyType}}* that matches your requirement perfectly!
+I found a *{{property_category}}* that matches your requirement perfectly!
 
-📍 *Location:* {{Location}}
-📏 *Size:* {{Size}}
-💰 *Price:* ₹{{Price}}
-✨ *Highlights:* {{Highlights}}
+📍 *Location:* {{property_location}}
+📏 *Size:* {{property_size}}
+💰 *Price:* ₹{{property_price}}
+✨ *Highlights:* {{property_list_default}}
 
-🔗 View Details: {{PropertyLink}}
+🔗 View Details: {{property_list_detailed}}
 
 This property is getting high interest. Would you like to schedule a visit this weekend?
 
 Best regards,
-*{{AgentName}}*
+*{{agent_name}}*
 Bharat Properties
-📞 {{AgentPhone}}`,
+📞 {{agent_mobile}}`,
         tags: ['Property', 'Lead Nurturing']
     },
     {
         id: 2,
         name: 'Property Portfolio',
-        content: `Hi {{ContactName}},
+        content: `Hi {{first_name}},
 
-As discussed, I've curated a portfolio of *{{PropertiesCount}} premium properties* specifically matching your requirements. 🏠💼
+As discussed, I've curated a portfolio of *{{properties_count}} premium properties* specifically matching your requirements. 🏠💼
 
-{{PropertyList}}
+{{property_list}}
 
 I'd love to discuss these further and schedule visits for your top choices.
 
@@ -383,9 +383,9 @@ I'd love to discuss these further and schedule visits for your top choices.
 Looking forward to your feedback!
 
 Best regards,
-*{{AgentName}}*
+*{{agent_name}}*
 Bharat Properties
-📞 {{AgentPhone}}`,
+📞 {{agent_mobile}}`,
         tags: ['Property', 'Portfolio']
     },
     {
@@ -393,39 +393,39 @@ Bharat Properties
         name: 'Exclusive Deal Alert',
         content: `🔥 *EXCLUSIVE OPPORTUNITY* 🔥
 
-Hi {{ContactName}},
+Hi {{first_name}},
 
-A *{{PropertyType}}* just became available in *{{Location}}* that perfectly matches your requirements!
+A *{{property_category}}* just became available in *{{property_location}}* that perfectly matches your requirements!
 
 💎 *Key Details:*
-📏 Size: {{Size}}
-💰 Price: ₹{{Price}}
-🎯 Match Score: {{MatchPercentage}}%
+📏 Size: {{property_size}}
+💰 Price: ₹{{property_price}}
+🎯 Match Score: {{match_percentage}}%
 
 ⚡ *Why this is perfect for you:*
-{{MatchReasons}}
+{{requirement_summary}}
 
-This won't last long - {{CompetingBuyers}} other buyers are already interested!
+This won't last long - {{properties_count}} other buyers are already interested!
 
 *Can we schedule a viewing today or tomorrow?*
 
 Best regards,
-*{{AgentName}}*
+*{{agent_name}}*
 Bharat Properties
-📞 {{AgentPhone}}`,
+📞 {{agent_mobile}}`,
         tags: ['Deal', 'Urgent']
     },
     {
         id: 4,
         name: 'Site Visit Invitation',
-        content: `Hi {{ContactName}}! 👋
+        content: `Hi {{first_name}}! 👋
 
-Great news! The *{{PropertyType}}* in *{{Location}}* is available for viewing.
+Great news! The *{{property_category}}* in *{{property_location}}* is available for viewing.
 
 📅 *Suggested Visit Slots:*
-• {{Slot1}}
-• {{Slot2}}
-• {{Slot3}}
+• {{due_date}}
+• {{due_date}}
+• {{due_date}}
 
 I'll personally accompany you and share insider details about the property and neighborhood.
 
@@ -434,22 +434,22 @@ I'll personally accompany you and share insider details about the property and n
 Just reply with the number (1, 2, or 3) and I'll confirm immediately!
 
 See you soon,
-*{{AgentName}}*
+*{{agent_name}}*
 Bharat Properties
-📞 {{AgentPhone}}`,
+📞 {{agent_mobile}}`,
         tags: ['Site Visit', 'Action']
     },
     {
         id: 5,
         name: 'Quick Inquiry Response',
-        content: `Hi {{ContactName}}! 😊
+        content: `Hi {{first_name}}! 😊
 
-Thank you for your inquiry about *{{PropertyType}}* in *{{Location}}*!
+Thank you for your inquiry about *{{property_category}}* in *{{property_location}}*!
 
 I've received your requirements:
-{{RequirementSummary}}
+{{requirement_summary}}
 
-✅ *Good news!* We have {{MatchCount}} properties that match your criteria.
+✅ *Good news!* We have {{properties_count}} properties that match your criteria.
 
 I'm preparing a curated list for you. Meanwhile, could you confirm:
 1. Your preferred budget range?
@@ -459,40 +459,40 @@ I'm preparing a curated list for you. Meanwhile, could you confirm:
 I'll get back to you within 30 minutes with the best options!
 
 Best regards,
-*{{AgentName}}*
+*{{agent_name}}*
 Bharat Properties
-📞 {{AgentPhone}}`,
+📞 {{agent_mobile}}`,
         tags: ['Inquiry', 'Response']
     },
     {
         id: 6,
         name: 'Follow-up After Site Visit',
-        content: `Hi {{ContactName}},
+        content: `Hi {{first_name}},
 
-Thank you for visiting *{{PropertyName}}* with me today! 🏠
+Thank you for visiting *{{project_name}}* with me today! 🏠
 
 I hope you liked what you saw. Here's a quick summary:
 
-✅ *What you loved:* {{PositiveFeedback}}
-🤔 *Your concerns:* {{Concerns}}
+✅ *What you loved:* {{lead_status}}
+🤔 *Your concerns:* {{lead_requirement}}
 
 *Next Steps:*
-{{NextSteps}}
+{{lead_stage}}
 
 Feel free to call me anytime if you have questions.
 
 Best regards,
-*{{AgentName}}*
+*{{agent_name}}*
 Bharat Properties
-📞 {{AgentPhone}}`,
+📞 {{agent_mobile}}`,
         tags: ['Follow-up', 'Site Visit']
     },
     {
         id: 7,
         name: 'Welcome Message',
-        content: `Welcome to Bharat Properties, {{ContactName}}! 🎉
+        content: `Welcome to Bharat Properties, {{first_name}}! 🎉
 
-I'm *{{AgentName}}*, your dedicated property consultant.
+I'm *{{agent_name}}*, your dedicated property consultant.
 
 🏆 *What I'll help you with:*
 ✓ Find properties matching your exact needs
@@ -501,16 +501,16 @@ I'm *{{AgentName}}*, your dedicated property consultant.
 ✓ Handle all documentation
 
 📱 *How to reach me:*
-• WhatsApp: {{AgentPhone}} (Fastest!)
-• Call: {{AgentPhone}}
-• Email: {{AgentEmail}}
+• WhatsApp: {{agent_mobile}} (Fastest!)
+• Call: {{agent_mobile}}
+• Email: {{agent_email}}
 
 *What type of property are you looking for?*
 
 Let's find your dream property together!
 
 Best regards,
-*{{AgentName}}*
+*{{agent_name}}*
 Bharat Properties`,
         tags: ['Welcome', 'Onboarding']
     },
@@ -519,118 +519,118 @@ Bharat Properties`,
         name: 'Price Drop Alert',
         content: `🔔 *PRICE DROP ALERT!* 🔔
 
-Hi {{ContactName}},
+Hi {{first_name}},
 
-Remember the *{{PropertyType}}* in *{{Location}}* you were interested in?
+Remember the *{{property_category}}* in *{{property_location}}* you were interested in?
 
 *Great news!* The price has been reduced:
 
-~~₹{{OldPrice}}~~ → *₹{{NewPrice}}*
+~~₹{{property_price}}~~ → *₹{{property_price}}*
 
-💰 *You save: ₹{{Savings}}!*
+💰 *You save: ₹{{property_price}}!*
 
 This is a limited-time opportunity. The owner needs to close quickly.
 
 *Interested? Let's schedule a visit ASAP!*
 
 Best regards,
-*{{AgentName}}*
+*{{agent_name}}*
 Bharat Properties
-📞 {{AgentPhone}}`,
+📞 {{agent_mobile}}`,
         tags: ['Price Drop', 'Urgent']
     },
     {
         id: 9,
         name: 'Document Request',
-        content: `Hi {{ContactName}},
+        content: `Hi {{first_name}},
 
-To proceed with your *{{PropertyType}}* booking in *{{Location}}*, we need the following documents:
+To proceed with your *{{property_category}}* booking in *{{property_location}}*, we need the following documents:
 
 📄 *Required Documents:*
-{{DocumentList}}
+{{document_list}}
 
 *How to submit:*
 Simply click photos and send them via WhatsApp to this number.
 
-⏰ *Timeline:* Please share by {{Deadline}} to secure the property.
+⏰ *Timeline:* Please share by {{due_date}} to secure the property.
 
 Let me know if you need any clarification!
 
 Best regards,
-*{{AgentName}}*
+*{{agent_name}}*
 Bharat Properties
-📞 {{AgentPhone}}`,
+📞 {{agent_mobile}}`,
         tags: ['Documentation', 'Transaction']
     },
     {
         id: 10,
         name: 'Payment Reminder',
-        content: `Hi {{ContactName}},
+        content: `Hi {{first_name}},
 
-This is a friendly reminder about your upcoming payment for *{{PropertyName}}*.
+This is a friendly reminder about your upcoming payment for *{{project_name}}*.
 
 💰 *Payment Details:*
-Amount: ₹{{Amount}}
-Due Date: {{DueDate}}
-Payment Type: {{PaymentType}}
+Amount: ₹{{amount}}
+Due Date: {{due_date}}
+Payment Type: {{lead_status}}
 
 *Payment Options:*
-{{PaymentMethods}}
+{{lead_status}}
 
 Please confirm once done. Let me know if you need any assistance!
 
 Best regards,
-*{{AgentName}}*
+*{{agent_name}}*
 Bharat Properties
-📞 {{AgentPhone}}`,
+📞 {{agent_mobile}}`,
         tags: ['Payment', 'Reminder']
     },
     {
         id: 'fb_interested_hot_wa',
         name: 'Feedback: Interested (Hot)',
-        content: "Hi {owner}, great to hear from you regarding {unit}! I'm finalizing the details for our {time} meeting. Please keep the original documents ready.",
+        content: "Hi {owner}, great to hear from you regarding {{unit_number}}! I'm finalizing the details for our {{due_date}} meeting. Please keep the original documents ready.",
         tags: ['Feedback', 'Inventory']
     },
     {
         id: 'fb_interested_warm_wa',
         name: 'Feedback: Interested (Warm)',
-        content: "Hi {owner}, thank you for your time discussing {unit}. I've noted your interest for {reason}. I will share some market comparisons shortly.",
+        content: "Hi {owner}, thank you for your time discussing {{unit_number}}. I've noted your interest for {{lead_status}}. I will share some market comparisons shortly.",
         tags: ['Feedback', 'Inventory']
     },
     {
         id: 'fb_callback_wa',
         name: 'Feedback: Request Call Back',
-        content: "Hi {owner}, apologies for the interruption. I will call you back at {time} regarding {unit} as requested.",
+        content: "Hi {owner}, apologies for the interruption. I will call you back at {{due_date}} regarding {{unit_number}} as requested.",
         tags: ['Feedback', 'Inventory']
     },
     {
         id: 'fb_not_interested_wa',
         name: 'Feedback: Not Interested',
-        content: "Hi {owner}, thank you for the update on {unit}. I've updated the record as {reason}. Do reach out if your plans change.",
+        content: "Hi {owner}, thank you for the update on {{unit_number}}. I've updated the record as {{lead_status}}. Do reach out if your plans change.",
         tags: ['Feedback', 'Inventory']
     },
     {
         id: 'fb_busy_driving_wa',
         name: 'Feedback: Busy / Driving',
-        content: "Hi {owner}, I tried calling you regarding {unit}. I'll reach out again later today. Sorry for the interruption.",
+        content: "Hi {owner}, I tried calling you regarding {{unit_number}}. I'll reach out again later today. Sorry for the interruption.",
         tags: ['Feedback', 'Inventory']
     },
     {
         id: 'fb_switch_off_wa',
         name: 'Feedback: Switch Off / Unreachable',
-        content: "Hi {owner}, we tried reaching you about {unit} but couldn't connect. We'll try again soon. Please call us back at your convenience.",
+        content: "Hi {owner}, we tried reaching you about {{unit_number}} but couldn't connect. We'll try again soon. Please call us back at your convenience.",
         tags: ['Feedback', 'Inventory']
     },
     {
         id: 'fb_market_feedback_wa',
         name: 'Feedback: Market Feedback',
-        content: "Hi {owner}, thank you for the insight on {unit}. If you decide to proceed with sale or rent, I have active buyers ready. Do keep us in mind!",
+        content: "Hi {owner}, thank you for the insight on {{unit_number}}. If you decide to proceed with sale or rent, I have active buyers ready. Do keep us in mind!",
         tags: ['Feedback', 'Inventory']
     },
     {
         id: 'fb_general_inquiry_wa',
         name: 'Feedback: General Inquiry',
-        content: "Hi {owner}, thank you for your inquiry about {unit}. Our team will get back to you shortly with the details you requested.",
+        content: "Hi {owner}, thank you for your inquiry about {{unit_number}}. Our team will get back to you shortly with the details you requested.",
         tags: ['Feedback', 'Inventory']
     },
     {
@@ -642,16 +642,16 @@ Bharat Properties
     {
         id: 11,
         name: 'property_match_alert',
-        content: `Hi {{1}}! 🏠
+        content: `Hi {{first_name}}! 🏠
 
 We found an exclusive property match that aligns perfectly with your requirements:
 
-{{2}}
+{{property_category}}
 
 Would you like to schedule a priority site visit or receive more details?
 
 Best regards,
-{{3}}
+{{property_location}}
 Bharat Properties`,
         tags: ['Property', 'Match Alert']
     },
@@ -662,7 +662,7 @@ Bharat Properties`,
         category: 'MARKETING',
         language: 'en',
         status: 'APPROVED',
-        content: `Hello {{ContactName}} 👋,\nTake a VIP Virtual Tour of our Sample Flat right from your phone! 📱\nClick here to watch: [Video Link]\nLet me know what you think! - {{AgentName}}`
+        content: `Hello {{first_name}} 👋,\nTake a VIP Virtual Tour of our Sample Flat right from your phone! 📱\nClick here to watch: [Video Link]\nLet me know what you think! - {{agent_name}}`
     },
     {
         id: 'tpl_drip_day14_urgency',
@@ -670,7 +670,7 @@ Bharat Properties`,
         category: 'MARKETING',
         language: 'en',
         status: 'APPROVED',
-        content: `Hi {{ContactName}}! ⏳ Just 3 corner-units left in Phase 1. If you book a site visit this weekend, we will arrange a complimentary cab pick-up. 🚖 Reply "YES" to claim.`
+        content: `Hi {{first_name}}! ⏳ Just 3 corner-units left in Phase 1. If you book a site visit this weekend, we will arrange a complimentary cab pick-up. 🚖 Reply "YES" to claim.`
     },
     {
         id: 'tpl_post_sales_welcome',
@@ -678,7 +678,7 @@ Bharat Properties`,
         category: 'UTILITY',
         language: 'en',
         status: 'APPROVED',
-        content: `Congratulations {{ContactName}}! 🎊 Welcome to the Bharat Properties family. We have successfully registered your booking. Here is a link to your Next Steps and Payment Schedule document: [Doc Link]. Please reach out if you need any assistance!`
+        content: `Congratulations {{first_name}}! 🎊 Welcome to the Bharat Properties family. We have successfully registered your booking. Here is a link to your Next Steps and Payment Schedule document: [Doc Link]. Please reach out if you need any assistance!`
     },
     {
         id: 'tpl_post_sales_update_m1',
@@ -686,7 +686,7 @@ Bharat Properties`,
         category: 'UTILITY',
         language: 'en',
         status: 'APPROVED',
-        content: `Hi {{ContactName}}, hope you are doing great! 🏗️ Here is the Month 1 construction update for your future home. The foundation work is 80% complete! See live photos here: [Photos Link]`
+        content: `Hi {{first_name}}, hope you are doing great! 🏗️ Here is the Month 1 construction update for your future home. The foundation work is 80% complete! See live photos here: [Photos Link]`
     },
     {
         id: 'tpl_referral_request',
@@ -694,7 +694,7 @@ Bharat Properties`,
         category: 'MARKETING',
         language: 'en',
         status: 'APPROVED',
-        content: `Hello {{ContactName}}! 🌟 We hope you are excited about your new investment. Did you know you can earn rewards? Refer a friend using your unique link: [Referral Link]. If they book, YOU get a free modular kitchen upgrade! 🎁 Share it today!`
+        content: `Hello {{first_name}}! 🌟 We hope you are excited about your new investment. Did you know you can earn rewards? Refer a friend using your unique link: [Referral Link]. If they book, YOU get a free modular kitchen upgrade! 🎁 Share it today!`
     }
 ];
 
@@ -702,91 +702,91 @@ export const smsTemplates = [
     {
         id: 1,
         name: 'Property Alert',
-        body: 'Hi {{1}}, New {{2}} available in {{3}}! Size: {{4}}, Price: Rs{{5}}. Visit: {{6}}. Call {{7}} - Bharat Properties',
+        body: 'Hi {{first_name}}, New {{property_category}} available in {{property_location}}! Size: {{property_size}}, Price: Rs{{property_price}}. Visit: {{property_list_detailed}}. Call {{agent_mobile}} - Bharat Properties',
         tags: ['Property', 'Alert']
     },
     {
         id: 2,
         name: 'Site Visit Confirmation',
-        body: 'Hi {{1}}, Your site visit for {{2}} at {{3}} is confirmed for {{4}}. Agent {{5}} will meet you. Call {{6}} for changes. - Bharat Properties',
+        body: 'Hi {{first_name}}, Your site visit for {{property_category}} at {{property_location}} is confirmed for {{property_size}}. Agent {{property_price}} will meet you. Call {{property_list_detailed}} for changes. - Bharat Properties',
         tags: ['Site Visit', 'Confirmation']
     },
     {
         id: 3,
         name: 'Quick Follow-up',
-        body: 'Hi {{1}}, Following up on {{2}} in {{3}}. Still interested? We have {{4}} similar options. Reply YES or call {{5}} - {{6}}, Bharat Properties',
+        body: 'Hi {{first_name}}, Following up on {{property_category}} in {{property_location}}. Still interested? We have {{property_size}} similar options. Reply YES or call {{property_price}} - {{property_list_detailed}}, Bharat Properties',
         tags: ['Follow-up']
     },
     {
         id: 4,
         name: 'Document Reminder',
-        body: 'Hi {{1}}, Reminder: Please submit {{2}} for {{3}} booking by {{4}}. WhatsApp docs to {{5}} or email {{6}}. - Bharat Properties',
+        body: 'Hi {{first_name}}, Reminder: Please submit {{property_category}} for {{property_location}} booking by {{property_size}}. WhatsApp docs to {{property_price}} or email {{property_list_detailed}}. - Bharat Properties',
         tags: ['Documentation', 'Reminder']
     },
     {
         id: 5,
         name: 'Payment Due',
-        body: 'Hi {{1}}, Payment reminder for {{2}}: Rs{{3}} due on {{4}}. Pay via {{5}}. Confirm at {{6}}. Thank you! - Bharat Properties',
+        body: 'Hi {{first_name}}, Payment reminder for {{property_category}}: Rs{{property_location}} due on {{property_size}}. Pay via {{property_price}}. Confirm at {{property_list_detailed}}. Thank you! - Bharat Properties',
         tags: ['Payment', 'Reminder']
     },
     {
         id: 6,
         name: 'Price Drop Alert',
-        body: 'PRICE DROP! {{1}} in {{2}} now Rs{{3}} (was Rs{{4}}). Save Rs{{5}}! Limited time. Call {{6}} NOW - {{7}}, Bharat Properties',
+        body: 'PRICE DROP! {{first_name}} in {{property_category}} now Rs{{property_location}} (was Rs{{property_size}}). Save Rs{{property_price}}! Limited time. Call {{property_list_detailed}} NOW - {{agent_mobile}}, Bharat Properties',
         tags: ['Price Drop', 'Urgent']
     },
     {
         id: 7,
         name: 'Welcome SMS',
-        body: 'Welcome {{1}}! I am {{2}}, your property consultant at Bharat Properties. Looking for {{3}}? Call/WhatsApp {{4}} anytime. Lets find your dream home!',
+        body: 'Welcome {{first_name}}! I am {{property_category}}, your property consultant at Bharat Properties. Looking for {{property_location}}? Call/WhatsApp {{property_size}} anytime. Lets find your dream home!',
         tags: ['Welcome', 'Onboarding']
     },
     {
         id: 8,
         name: 'Deal Closure',
-        body: 'Congratulations {{1}}! Your {{2}} booking in {{3}} is confirmed. Booking ID: {{4}}. Next steps: {{5}}. Contact {{6}} - Bharat Properties',
+        body: 'Congratulations {{first_name}}! Your {{property_category}} booking in {{property_location}} is confirmed. Booking ID: {{property_size}}. Next steps: {{property_price}}. Contact {{property_list_detailed}} - Bharat Properties',
         tags: ['Closure', 'Confirmation']
     },
     {
         id: 9,
         name: 'Exclusive Offer',
-        body: 'EXCLUSIVE for you {{1}}! {{2}} in {{3}} - {{4}} match! Rs{{5}}, {{6}}. Book visit: {{7}}. Offer ends {{8}} - Bharat Properties',
+        body: 'EXCLUSIVE for you {{first_name}}! {{property_category}} in {{property_location}} - {{property_size}} match! Rs{{property_price}}, {{property_list_detailed}}. Book visit: {{agent_mobile}}. Offer ends {{due_date}} - Bharat Properties',
         tags: ['Offer', 'Exclusive']
     },
     {
         id: 10,
         name: 'Deal Property Match',
-        body: 'EXCLUSIVE MATCH 🌟 Hi {{firstName}}, we found a highly sought-after {{size}} unit at {{projectName}}, {{location}} matching your exact criteria! 🔑 Premium inventory, moving fast at {{price}}. Reply YES or call us ASAP to secure a priority viewing! - Bharat Properties',
+        body: 'EXCLUSIVE MATCH 🌟 Hi {{first_name}}, we found a highly sought-after {{property_size}} unit at {{project_name}}, {{property_location}} matching your exact criteria! 🔑 Premium inventory, moving fast at {{property_price}}. Reply YES or call us ASAP to secure a priority viewing! - Bharat Properties',
         tags: ['Deal Match', 'Priority']
     },
     {
         id: 'fb_interested_hot_sms',
         name: 'Feedback: Interested (Hot)',
-        body: "{unit} Update: Hi {owner}, finalized meeting for {time}. Please keep documents ready.",
+        body: "{unit} Update: Hi {{full_name}}, finalized meeting for {{due_date}}. Please keep documents ready.",
         tags: ['Feedback', 'Inventory']
     },
     {
         id: 'fb_interested_warm_sms',
         name: 'Feedback: Interested (Warm)',
-        body: "Hi {owner}, thanks for discussing {unit}. Noted your interest as {reason}. Will share details soon.",
+        body: "Hi {owner}, thanks for discussing {{unit_number}}. Noted your interest as {{lead_status}}. Will share details soon.",
         tags: ['Feedback', 'Inventory']
     },
     {
         id: 'fb_callback_sms',
         name: 'Feedback: Request Call Back',
-        body: "Hi {owner}, will call you back at {time} regarding {unit}. Sorry for the interruption.",
+        body: "Hi {owner}, will call you back at {{due_date}} regarding {{unit_number}}. Sorry for the interruption.",
         tags: ['Feedback', 'Inventory']
     },
     {
         id: 'fb_not_interested_sms',
         name: 'Feedback: Not Interested',
-        body: "Hi {owner}, noted on {unit} as {reason}. Reach out if plans change. Thanks.",
+        body: "Hi {owner}, noted on {{unit_number}} as {{lead_status}}. Reach out if plans change. Thanks.",
         tags: ['Feedback', 'Inventory']
     },
     {
         id: 'fb_busy_driving_sms',
         name: 'Feedback: Busy / Driving',
-        body: "Hi {owner}, tried calling for {unit}. Will call again later. Thanks — Bharat Properties",
+        body: "Hi {owner}, tried calling for {{unit_number}}. Will call again later. Thanks — Bharat Properties",
         tags: ['Feedback', 'Inventory']
     },
     {
@@ -798,13 +798,13 @@ export const smsTemplates = [
     {
         id: 'fb_market_feedback_sms',
         name: 'Feedback: Market Feedback',
-        body: "Hi {owner}, thanks for feedback on {unit}. Contact us if you decide to sell/rent. Active buyers ready — Bharat Properties",
+        body: "Hi {owner}, thanks for feedback on {{unit_number}}. Contact us if you decide to sell/rent. Active buyers ready — Bharat Properties",
         tags: ['Feedback', 'Inventory']
     },
     {
         id: 'fb_general_inquiry_sms',
         name: 'Feedback: General Inquiry',
-        body: "Hi {owner}, noted your inquiry on {unit}. Our team will connect shortly. - Bharat Properties",
+        body: "Hi {owner}, noted your inquiry on {{unit_number}}. Our team will connect shortly. - Bharat Properties",
         tags: ['Feedback', 'Inventory']
     },
     {
@@ -819,11 +819,11 @@ export const rcsTemplates = [
     {
         id: 1,
         name: 'Premium Property Showcase',
-        body: 'Discover Your Dream Home 🏠\n\n{{1}} in {{2}}\n\nSize: {{3}}\nPrice: ₹{{4}}\nHighlights: {{5}}\n\nExclusive viewing slots available!',
+        body: 'Discover Your Dream Home 🏠\n\n{{first_name}} in {{property_category}}\n\nSize: {{property_location}}\nPrice: ₹{{property_size}}\nHighlights: {{property_price}}\n\nExclusive viewing slots available!',
         media: { type: 'image', url: 'property_image_url' },
         buttons: [
-            { type: 'URL', text: 'View Details', url: '{{6}}' },
-            { type: 'PHONE', text: 'Call Agent', phone: '{{7}}' },
+            { type: 'URL', text: 'View Details', url: '{{property_list_detailed}}' },
+            { type: 'PHONE', text: 'Call Agent', phone: '{{agent_mobile}}' },
             { type: 'REPLY', text: 'Book Visit', reply: 'BOOK_VISIT' }
         ],
         tags: ['Property', 'Premium']
@@ -831,11 +831,11 @@ export const rcsTemplates = [
     {
         id: 2,
         name: 'New Project Launch',
-        body: '🚀 NEW LAUNCH: {{1}}\n\n{{2}}\n\n✨ Features:\n{{3}}\n\n💎 Early Bird Offer:\n{{4}}\n\nLimited units available!',
+        body: '🚀 NEW LAUNCH: {{first_name}}\n\n{{property_category}}\n\n✨ Features:\n{{property_location}}\n\n💎 Early Bird Offer:\n{{property_size}}\n\nLimited units available!',
         media: { type: 'image', url: 'project_banner_url' },
         buttons: [
-            { type: 'URL', text: 'View Brochure', url: '{{5}}' },
-            { type: 'PHONE', text: 'Call Now', phone: '{{6}}' },
+            { type: 'URL', text: 'View Brochure', url: '{{property_price}}' },
+            { type: 'PHONE', text: 'Call Now', phone: '{{property_list_detailed}}' },
             { type: 'REPLY', text: 'Get Price List', reply: 'PRICE_LIST' }
         ],
         tags: ['Launch', 'Marketing']
@@ -843,36 +843,36 @@ export const rcsTemplates = [
     {
         id: 3,
         name: 'Site Visit Invitation',
-        body: 'Your Property Viewing Awaits! 🗓️\n\n{{1}} in {{2}}\n\nAvailable Slots:\n• {{3}}\n• {{4}}\n• {{5}}\n\nAgent {{6}} will accompany you.',
+        body: 'Your Property Viewing Awaits! 🗓️\n\n{{first_name}} in {{property_category}}\n\nAvailable Slots:\n• {{property_location}}\n• {{property_size}}\n• {{property_price}}\n\nAgent {{property_list_detailed}} will accompany you.',
         media: { type: 'image', url: 'property_exterior_url' },
         buttons: [
             { type: 'REPLY', text: 'Slot 1', reply: 'SLOT_1' },
             { type: 'REPLY', text: 'Slot 2', reply: 'SLOT_2' },
             { type: 'REPLY', text: 'Slot 3', reply: 'SLOT_3' },
-            { type: 'PHONE', text: 'Call Agent', phone: '{{7}}' }
+            { type: 'PHONE', text: 'Call Agent', phone: '{{agent_mobile}}' }
         ],
         tags: ['Site Visit', 'Interactive']
     },
     {
         id: 4,
         name: 'Virtual Tour Invitation',
-        body: 'Experience {{1}} from Home! 🎥\n\n360° Virtual Tour Available\n\nLocation: {{2}}\nSize: {{3}}\nPrice: ₹{{4}}\n\nTake a virtual walk-through now!',
+        body: 'Experience {{first_name}} from Home! 🎥\n\n360° Virtual Tour Available\n\nLocation: {{property_category}}\nSize: {{property_location}}\nPrice: ₹{{property_size}}\n\nTake a virtual walk-through now!',
         media: { type: 'video', url: 'virtual_tour_url' },
         buttons: [
-            { type: 'URL', text: 'Start Virtual Tour', url: '{{5}}' },
+            { type: 'URL', text: 'Start Virtual Tour', url: '{{property_price}}' },
             { type: 'REPLY', text: 'Book Physical Visit', reply: 'PHYSICAL_VISIT' },
-            { type: 'PHONE', text: 'Speak to Agent', phone: '{{6}}' }
+            { type: 'PHONE', text: 'Speak to Agent', phone: '{{property_list_detailed}}' }
         ],
         tags: ['Virtual Tour', 'Technology']
     },
     {
         id: 5,
         name: 'Document Submission',
-        body: 'Document Checklist 📄\n\nFor {{1}} booking:\n\n{{2}}\n\nDeadline: {{3}}\n\nSubmit via WhatsApp or upload online.',
+        body: 'Document Checklist 📄\n\nFor {{first_name}} booking:\n\n{{property_category}}\n\nDeadline: {{property_location}}\n\nSubmit via WhatsApp or upload online.',
         media: { type: 'image', url: 'document_checklist_url' },
         buttons: [
-            { type: 'URL', text: 'Upload Documents', url: '{{4}}' },
-            { type: 'PHONE', text: 'WhatsApp Docs', phone: '{{5}}' },
+            { type: 'URL', text: 'Upload Documents', url: '{{property_size}}' },
+            { type: 'PHONE', text: 'WhatsApp Docs', phone: '{{property_price}}' },
             { type: 'REPLY', text: 'Need Help', reply: 'HELP_DOCS' }
         ],
         tags: ['Documentation', 'Transaction']
@@ -880,62 +880,62 @@ export const rcsTemplates = [
     {
         id: 6,
         name: 'Payment Reminder Rich',
-        body: 'Payment Reminder 💰\n\n{{1}}\n\nAmount: ₹{{2}}\nDue: {{3}}\nType: {{4}}\n\nPay securely online or via bank transfer.',
+        body: 'Payment Reminder 💰\n\n{{first_name}}\n\nAmount: ₹{{property_category}}\nDue: {{property_location}}\nType: {{property_size}}\n\nPay securely online or via bank transfer.',
         media: { type: 'image', url: 'payment_reminder_banner' },
         buttons: [
-            { type: 'URL', text: 'Pay Online', url: '{{5}}' },
+            { type: 'URL', text: 'Pay Online', url: '{{property_price}}' },
             { type: 'REPLY', text: 'Payment Done', reply: 'PAID' },
-            { type: 'PHONE', text: 'Call Support', phone: '{{6}}' }
+            { type: 'PHONE', text: 'Call Support', phone: '{{property_list_detailed}}' }
         ],
         tags: ['Payment', 'Reminder']
     },
     {
         id: 7,
         name: 'Exclusive Deal Alert',
-        body: '🔥 EXCLUSIVE MATCH!\n\n{{1}}, we found your perfect property!\n\n{{2}} in {{3}}\nMatch Score: {{4}}%\n\nPrice: ₹{{5}}\n\n⚡ High demand - Act fast!',
+        body: '🔥 EXCLUSIVE MATCH!\n\n{{first_name}}, we found your perfect property!\n\n{{property_category}} in {{property_location}}\nMatch Score: {{property_size}}%\n\nPrice: ₹{{property_price}}\n\n⚡ High demand - Act fast!',
         media: { type: 'image', url: 'property_highlight_url' },
         buttons: [
-            { type: 'URL', text: 'Full Details', url: '{{6}}' },
+            { type: 'URL', text: 'Full Details', url: '{{property_list_detailed}}' },
             { type: 'REPLY', text: 'Book Visit Today', reply: 'BOOK_NOW' },
             { type: 'REPLY', text: 'See Similar', reply: 'SIMILAR' },
-            { type: 'PHONE', text: 'Call {{7}}', phone: '{{7}}' }
+            { type: 'PHONE', text: 'Call {{agent_mobile}}', phone: '{{agent_mobile}}' }
         ],
         tags: ['Deal', 'Urgent', 'Personalized']
     },
     {
         id: 8,
         name: 'Customer Testimonial',
-        body: '⭐ Success Story\n\n"{{1}}"\n\n- {{2}}\n{{3}}\n\nJoin {{4}}+ happy homeowners!\n\nLet us help you find your dream property.',
+        body: '⭐ Success Story\n\n"{{first_name}}"\n\n- {{property_category}}\n{{property_location}}\n\nJoin {{property_size}}+ happy homeowners!\n\nLet us help you find your dream property.',
         media: { type: 'image', url: 'testimonial_image_url' },
         buttons: [
-            { type: 'URL', text: 'View All Reviews', url: '{{5}}' },
+            { type: 'URL', text: 'View All Reviews', url: '{{property_price}}' },
             { type: 'REPLY', text: 'Start My Journey', reply: 'START' },
-            { type: 'PHONE', text: 'Talk to Expert', phone: '{{6}}' }
+            { type: 'PHONE', text: 'Talk to Expert', phone: '{{property_list_detailed}}' }
         ],
         tags: ['Testimonial', 'Trust Building']
     },
     {
         id: 9,
         name: 'Price Comparison',
-        body: 'Smart Investment Alert 📊\n\n{{1}} in {{2}}\n\nOur Price: ₹{{3}}\nMarket Avg: ₹{{4}}\nYou Save: ₹{{5}}\n\nROI Potential: {{6}}%',
+        body: 'Smart Investment Alert 📊\n\n{{first_name}} in {{property_category}}\n\nOur Price: ₹{{property_location}}\nMarket Avg: ₹{{property_size}}\nYou Save: ₹{{property_price}}\n\nROI Potential: {{property_list_detailed}}%',
         media: { type: 'image', url: 'price_comparison_chart' },
         buttons: [
-            { type: 'URL', text: 'Detailed Analysis', url: '{{7}}' },
+            { type: 'URL', text: 'Detailed Analysis', url: '{{agent_mobile}}' },
             { type: 'REPLY', text: 'Book Now', reply: 'BOOK' },
-            { type: 'PHONE', text: 'Discuss Investment', phone: '{{8}}' }
+            { type: 'PHONE', text: 'Discuss Investment', phone: '{{due_date}}' }
         ],
         tags: ['Investment', 'Analytics']
     },
     {
         id: 10,
         name: 'Feedback Request',
-        body: 'We Value Your Feedback! 🌟\n\nHi {{1}},\n\nHow was your experience with Bharat Properties?\n\nYour feedback helps us serve you better.',
+        body: 'We Value Your Feedback! 🌟\n\nHi {{first_name}},\n\nHow was your experience with Bharat Properties?\n\nYour feedback helps us serve you better.',
         media: { type: 'image', url: 'feedback_banner_url' },
         buttons: [
-            { type: 'URL', text: 'Share Feedback', url: '{{2}}' },
+            { type: 'URL', text: 'Share Feedback', url: '{{property_category}}' },
             { type: 'REPLY', text: 'Excellent ⭐⭐⭐⭐⭐', reply: 'RATING_5' },
             { type: 'REPLY', text: 'Good ⭐⭐⭐⭐', reply: 'RATING_4' },
-            { type: 'PHONE', text: 'Call Us', phone: '{{3}}' }
+            { type: 'PHONE', text: 'Call Us', phone: '{{property_location}}' }
         ],
         tags: ['Feedback', 'Relationship']
     }
