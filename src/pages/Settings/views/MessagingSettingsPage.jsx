@@ -605,57 +605,7 @@ const VariableRegistryTab = () => {
         }
     ];
 
-    const fetchVariables = async () => {
-        try {
-            const res = await systemSettingsAPI.getByKey('messaging_variable_registry');
-            if (res.success && res.data?.value) {
-                const raw = res.data.value;
-                const normalized = {};
-                // 🧠 Professional Migration Logic: Convert legacy strings to object schema
-                Object.keys(raw).forEach(k => {
-                    const val = raw[k];
-                    if (typeof val === 'string') {
-                        normalized[String(k)] = { source: val, mode: 'static' };
-                    } else {
-                        normalized[String(k)] = val;
-                    }
-                });
-                setVariables(normalized);
-            }
-        } catch (err) {
-            console.warn('No variable registry found.');
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    useEffect(() => {
-        fetchVariables();
-    }, []);
-
-    const handleSave = async () => {
-        setIsSaving(true);
-        try {
-            await systemSettingsAPI.upsert('messaging_variable_registry', {
-                category: 'messaging',
-                value: variables,
-                description: 'Tiered variable registry (Static/Dynamic support)',
-                isPublic: true
-            });
-            toast.success('Enterprise mapping registry updated');
-        } catch (err) {
-            toast.error('Save failed: ' + err.message);
-        } finally {
-            setIsSaving(false);
-        }
-    };
-
-    const updateVar = (idx, field, val) => {
-        setVariables(p => ({
-            ...p,
-            [idx]: { ...(p[idx] || { source: '', mode: 'static' }), [field]: val }
-        }));
-    };
+    // Removed legacy fetch/save functions
 
     if (isLoading) return <div style={{ padding: '40px', textAlign: 'center' }}><span className="spinner-sm"></span></div>;
 
@@ -666,88 +616,67 @@ const VariableRegistryTab = () => {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', background: 'var(--bg-card)', padding: '20px', borderRadius: '12px', border: '1px solid #f1f5f9' }}>
                 <div>
                     <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <Database size={20} color="var(--primary-color)" /> Hybrid Resolution Registry
+                        <Database size={20} color="var(--primary-color)" /> Supported Template Variables
                     </div>
-                    <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '4px' }}>Configure <b>Static</b> (Global) vs <b>Dynamic</b> (Runtime) variables for enterprise campaigns.</div>
+                    <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                        Use these exact word variables in your WhatsApp and SMS templates. The CRM will automatically populate them with real data when sending.
+                    </div>
                 </div>
-                <button className="btn-primary" onClick={handleSave} disabled={isSaving}>
-                    {isSaving ? 'Synchronizing...' : 'Save Registry'}
-                </button>
             </div>
 
             <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                     <thead>
                         <tr style={{ background: 'var(--bg-light)', borderBottom: '1px solid var(--border-color)' }}>
-                            <th style={{ padding: '16px', textAlign: 'left', width: '80px' }}>Index</th>
-                            <th style={{ padding: '16px', textAlign: 'left', width: '200px' }}>Resolution Mode</th>
-                            <th style={{ padding: '16px', textAlign: 'left' }}>Internal Semantic Name</th>
-                            <th style={{ padding: '16px', textAlign: 'left' }}>Status</th>
+                            <th style={{ padding: '16px', textAlign: 'left', width: '250px' }}>Variable Syntax</th>
+                            <th style={{ padding: '16px', textAlign: 'left' }}>Description & Data Source</th>
+                            <th style={{ padding: '16px', textAlign: 'left', width: '120px' }}>Context</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {Array.from({ length: 30 }).map((_, i) => {
-                            const idx = String(i + 1);
-                            const config = variables[idx] || { source: '', mode: 'static' };
-                            const isLocked = lockedIndices.includes(idx);
-
-                            return (
-                                <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9', background: isLocked ? '#fafafa' : 'var(--bg-card)' }}>
-                                    <td style={{ padding: '12px 16px' }}>
-                                        <div style={{ background: 'var(--text-main)', color: '#ffffff', width: '32px', height: '32px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.75rem' }}>
-                                            {idx}
-                                        </div>
-                                    </td>
-                                    <td style={{ padding: '12px 16px' }}>
-                                        <div style={{ display: 'flex', background: 'var(--bg-light)', padding: '3px', borderRadius: '8px', width: 'fit-content' }}>
-                                            <button 
-                                                onClick={() => !isLocked && updateVar(idx, 'mode', 'static')}
-                                                style={{ padding: '6px 12px', border: 'none', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700, cursor: isLocked ? 'not-allowed' : 'pointer', background: config.mode === 'static' ? 'var(--bg-card)' : 'transparent', color: config.mode === 'static' ? 'var(--text-main)' : 'var(--text-muted)', boxShadow: config.mode === 'static' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none' }}
-                                            >
-                                                <ShieldCheck size={12} style={{ marginRight: '4px', display: 'inline' }} /> Static
-                                            </button>
-                                            <button 
-                                                onClick={() => !isLocked && updateVar(idx, 'mode', 'dynamic')}
-                                                style={{ padding: '6px 12px', border: 'none', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700, cursor: isLocked ? 'not-allowed' : 'pointer', background: config.mode === 'dynamic' ? 'var(--bg-card)' : 'transparent', color: config.mode === 'dynamic' ? 'var(--primary-color)' : 'var(--text-muted)', boxShadow: config.mode === 'dynamic' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none' }}
-                                            >
-                                                <Sparkles size={12} style={{ marginRight: '4px', display: 'inline' }} /> Dynamic
-                                            </button>
-                                        </div>
-                                    </td>
-                                    <td style={{ padding: '12px 16px' }}>
-                                        <select 
-                                            value={config.source} 
-                                            onChange={e => updateVar(idx, 'source', e.target.value)}
-                                            style={{ width: '100%', padding: '10px', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '0.85rem' }}
-                                        >
-                                            <option value="">-- No Global Fallback --</option>
-                                            {fieldOptions.map(cat => (
-                                                <optgroup key={cat.category} label={cat.category}>
-                                                    {cat.options.map(opt => (
-                                                        <option key={opt.id} value={opt.id}>{opt.label}</option>
-                                                    ))}
-                                                </optgroup>
-                                            ))}
-                                        </select>
-                                    </td>
-                                    <td style={{ padding: '12px 16px' }}>
-                                        {isLocked ? (
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: 600 }}>
-                                                <History size={14} /> System Locked
-                                            </div>
-                                        ) : config.mode === 'dynamic' ? (
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#f59e0b', fontSize: '0.75rem', fontWeight: 700 }}>
-                                                <MessageSquare size={14} /> Override Allowed
-                                            </div>
-                                        ) : (
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#10b981', fontSize: '0.75rem', fontWeight: 600 }}>
-                                                <ShieldCheck size={14} /> Global Only
-                                            </div>
-                                        )}
-                                    </td>
-                                </tr>
-                            );
-                        })}
+                        {[
+                            { var: '{{firstName}}', desc: 'Customer First Name', ctx: 'Lead/Contact' },
+                            { var: '{{name}}', desc: 'Customer Full Name', ctx: 'Lead/Contact' },
+                            { var: '{{mobile}}', desc: 'Customer Mobile Number', ctx: 'Lead/Contact' },
+                            { var: '{{email}}', desc: 'Customer Email Address', ctx: 'Lead/Contact' },
+                            { var: '{{source}}', desc: 'Lead Source (e.g. Website, Facebook)', ctx: 'Lead' },
+                            { var: '{{status}}', desc: 'Lead Status/Stage', ctx: 'Lead' },
+                            { var: '{{requirement}}', desc: 'Property Requirement (Buy/Rent)', ctx: 'Lead' },
+                            { var: '{{budgetMin}}', desc: 'Minimum Budget', ctx: 'Lead' },
+                            { var: '{{budgetMax}}', desc: 'Maximum Budget', ctx: 'Lead' },
+                            { var: '{{locCity}}', desc: 'Preferred City', ctx: 'Lead' },
+                            { var: '{{locArea}}', desc: 'Preferred Area/Locality', ctx: 'Lead' },
+                            
+                            { var: '{{assignedTo}}', desc: 'Assigned Agent Name', ctx: 'System' },
+                            { var: '{{ownerMobile}}', desc: 'Assigned Agent Mobile', ctx: 'System' },
+                            
+                            { var: '{{projectName}}', desc: 'Property Project Name', ctx: 'Property' },
+                            { var: '{{unitNo}}', desc: 'Property Unit Number', ctx: 'Property' },
+                            { var: '{{category}}', desc: 'Property Category (e.g. Residential)', ctx: 'Property' },
+                            { var: '{{subCategory}}', desc: 'Property Sub-Category (e.g. Apartment)', ctx: 'Property' },
+                            { var: '{{price}}', desc: 'Property Price', ctx: 'Property' },
+                            { var: '{{size}}', desc: 'Property Size / Area', ctx: 'Property' },
+                            { var: '{{location}}', desc: 'Property Location / Address', ctx: 'Property' },
+                            { var: '{{property_list_default}}', desc: 'Formatted list of matched properties', ctx: 'Match' },
+                            
+                            { var: '{{MatchPercentage}}', desc: 'Match Percentage Score', ctx: 'Match' }
+                        ].map((item, i) => (
+                            <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                <td style={{ padding: '12px 16px' }}>
+                                    <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', color: 'var(--primary-color)', padding: '6px 12px', borderRadius: '6px', display: 'inline-block', fontWeight: 800, fontSize: '0.8rem', fontFamily: 'monospace' }}>
+                                        {item.var}
+                                    </div>
+                                </td>
+                                <td style={{ padding: '12px 16px', color: 'var(--text-main)', fontWeight: 600 }}>
+                                    {item.desc}
+                                </td>
+                                <td style={{ padding: '12px 16px' }}>
+                                    <span style={{ fontSize: '0.75rem', fontWeight: 700, padding: '4px 8px', borderRadius: '4px', background: item.ctx === 'Lead' || item.ctx === 'Lead/Contact' ? '#dbeafe' : item.ctx === 'Property' ? '#dcfce7' : '#f3e8ff', color: item.ctx === 'Lead' || item.ctx === 'Lead/Contact' ? '#2563eb' : item.ctx === 'Property' ? '#16a34a' : '#9333ea' }}>
+                                        {item.ctx}
+                                    </span>
+                                </td>
+                            </tr>
+                        ))}
                     </tbody>
                 </table>
             </div>
