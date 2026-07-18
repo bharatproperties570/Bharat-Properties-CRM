@@ -548,7 +548,8 @@ const ContextEditModal = ({ isOpen, onClose, template, onSave }) => {
     const options = [
         { value: 'lead_match_full', label: 'Lead Match (Full Details)' },
         { value: 'lead_match_short', label: 'Lead Match (Short Details)' },
-        { value: 'deal_match', label: 'Deal Match (Auto-Dispatch & Centre)' },
+        { value: 'deal_match', label: 'Deal Match (Auto-Dispatch)' },
+        { value: 'deal_match_modal', label: 'Deal Match (Message Modal)' },
         { value: 'marketing_blast', label: 'Marketing Blast' },
         { value: 'welcome', label: 'Welcome/Auto-Reply' }
     ];
