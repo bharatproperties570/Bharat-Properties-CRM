@@ -721,11 +721,18 @@ const MessagingSettingsPage = () => {
                 await smsService.saveTemplate(data.id ? { ...data, _id: data.id } : data);
                 loadSmsTemplates();
             } else {
+                // Keep body + content in sync for compatibility locally
+                const savedData = {
+                    ...data,
+                    body:    data.body    || data.content || '',
+                    content: data.content || data.body    || '',
+                };
+
                 // ENTERPRISE UPGRADE: Sync Up to Meta Cloud API (WhatsApp only)
                 if (templateType === 'whatsapp') {
                     try {
                         const toastId = toast.loading('Submitting template to Meta for review...');
-                        await whatsappService.submitTemplateToMeta(data);
+                        await whatsappService.submitTemplateToMeta(savedData);
                         toast.success('Successfully submitted to Meta!', { id: toastId });
                     } catch (err) {
                         console.warn('Backend Meta Submission Endpoint missing, falling back to local CRM store:', err);
@@ -733,12 +740,6 @@ const MessagingSettingsPage = () => {
                     }
                 }
 
-                // Keep body + content in sync for compatibility locally
-                const savedData = {
-                    ...data,
-                    body:    data.body    || data.content || '',
-                    content: data.content || data.body    || '',
-                };
 
                 let updatedList;
                 setAllTemplates(prev => {
@@ -840,9 +841,23 @@ const MessagingSettingsPage = () => {
         try {
             const res = await whatsappService.syncTemplatesFromMeta();
             if (res?.success && res.data) {
-                setAllTemplates(prev => ({ ...prev, whatsapp: res.data }));
-                await persistTemplates('whatsapp', res.data);
-                toast.success(`Successfully synced ${res.data.length} templates from Meta!`, { id: toastId });
+                setAllTemplates(prev => {
+                    const localTemplates = prev.whatsapp || [];
+                    const mergedTemplates = [...localTemplates];
+                    
+                    res.data.forEach(metaTpl => {
+                        const existingIdx = mergedTemplates.findIndex(t => t.id === metaTpl.id || t.name === metaTpl.name);
+                        if (existingIdx >= 0) {
+                            mergedTemplates[existingIdx] = { ...mergedTemplates[existingIdx], ...metaTpl };
+                        } else {
+                            mergedTemplates.push(metaTpl);
+                        }
+                    });
+                    
+                    persistTemplates('whatsapp', mergedTemplates);
+                    return { ...prev, whatsapp: mergedTemplates };
+                });
+                toast.success(`Successfully synced templates from Meta!`, { id: toastId });
             } else {
                 throw new Error('Invalid response format');
             }
