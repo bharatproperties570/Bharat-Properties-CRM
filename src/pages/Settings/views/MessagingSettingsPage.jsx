@@ -108,46 +108,6 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
                 </div>
             </div>
 
-            {/* ENTERPRISE UPGRADE: System Trigger Intent Context */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block' }}>
-                    <i className="fas fa-plug" style={{ color: 'var(--primary-color)', marginRight: '6px' }}></i>
-                    System Trigger Context (Where should this template be used?)
-                </label>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '12px', background: 'rgba(99, 102, 241, 0.05)', border: '1px solid rgba(99, 102, 241, 0.2)', borderRadius: '8px' }}>
-                    {[
-                        { value: 'lead_match_full', label: 'Lead Match (Full Details)' },
-                        { value: 'lead_match_short', label: 'Lead Match (Short Details)' },
-                        { value: 'deal_match', label: 'Deal Match (Auto-Dispatch & Centre)' },
-                        { value: 'marketing_blast', label: 'Marketing Blast' },
-                        { value: 'welcome', label: 'Welcome/Auto-Reply' }
-                    ].map(ctx => {
-                        const isSelected = templateData.systemContext?.includes(ctx.value);
-                        return (
-                            <div 
-                                key={ctx.value}
-                                onClick={() => {
-                                    let newContext = [...(templateData.systemContext || [])];
-                                    if (isSelected) {
-                                        newContext = newContext.filter(c => c !== ctx.value);
-                                    } else {
-                                        newContext.push(ctx.value);
-                                    }
-                                    setTemplateData({ ...templateData, systemContext: newContext });
-                                }}
-                                style={{ 
-                                    padding: '6px 12px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s',
-                                    background: isSelected ? 'var(--primary-color)' : 'var(--bg-card)', 
-                                    color: isSelected ? '#fff' : 'var(--text-muted)', 
-                                    border: `1px solid ${isSelected ? 'var(--primary-color)' : 'var(--border-color)'}`
-                                }}>
-                                {isSelected ? <i className="fas fa-check" style={{ marginRight: '4px' }}></i> : ''}
-                                {ctx.label}
-                            </div>
-                        );
-                    })}
-                </div>
-            </div>
 
             <div>
                 <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>Header (Optional)</label>
