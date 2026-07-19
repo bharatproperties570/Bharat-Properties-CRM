@@ -409,7 +409,7 @@ class VariableResolutionService {
                     if (!lead.hideUnit && !lead.hideUnitNumber && unit !== 'TBD' && unit !== '') {
                         lines.push(unit);
                     }
-                    lines.push(project);
+                    lines.push(pName);
                     lines.push(''); // Blank line
                     
                     // Specs
