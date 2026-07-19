@@ -335,11 +335,24 @@ class VariableResolutionService {
                     return 'Please check our latest premium property matches below:';
                 }
                 return lead.matchedProperties.map((p, i) => {
-                    const loc = p.inventoryId?.projectName || p.sector || 'Prime Location';
-                    const sz = p.size || p.inventoryId?.size?.value || 'Standard Size';
-                    const szUnit = p.inventoryId?.size?.unit || 'Sq.Ft.';
-                    const pr = p.price || (p.inventoryId?.price?.value ? `₹${(p.inventoryId.price.value / 10000000).toFixed(2)} Cr` : 'On Request');
-                    return `${i + 1}️⃣ 🏢 ${loc} | 📐 ${sz} ${szUnit} | 💰 ${pr}`;
+                    const inv = p.inventoryId || {};
+                    const unit = inv.unitNo || inv.unitNumber || p.unitNo || 'TBD';
+                    const project = inv.projectName || p.sector || 'Prime Location';
+                    const sz = p.size || inv.size?.value || 'Standard Size';
+                    const szUnit = p.sizeUnit || inv.size?.unit || 'Sq.Ft.';
+                    
+                    let pr = 'Price on call';
+                    if (!lead.hidePrice && !lead.hidePrices) {
+                        pr = p.price || (inv.price?.value ? `₹${(inv.price.value / 10000000).toFixed(2)} Cr` : 'On Request');
+                    }
+
+                    let unitStr = '';
+                    // If hideUnit is not true, and unit is available, display it
+                    if (!lead.hideUnit && !lead.hideUnitNumber && unit !== 'TBD' && unit !== '') {
+                        unitStr = `#${unit} | `;
+                    }
+
+                    return `${i + 1}️⃣ 🏢 ${unitStr}${project} | 📐 ${sz} ${szUnit} | 💰 ${pr}`;
                 }).join('\n');
 
             case 'matchListDetailed':
