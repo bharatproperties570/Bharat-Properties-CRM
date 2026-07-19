@@ -862,14 +862,18 @@ async function resolveMetaComponents(templateId, recipient, meta, registryMappin
         ...recipient,
         fullName: recipient.name || 'Broker',
         firstName: (recipient.name || 'Broker').split(' ')[0],
-        matchedProperties: [{
+    };
+
+    // Preserve multiple properties if they exist, otherwise fallback to meta single object
+    if (!enrichedContext.matchedProperties || enrichedContext.matchedProperties.length === 0) {
+        enrichedContext.matchedProperties = [{
             inventoryId: meta.inventoryId,
             projectName: meta.title,
             sector: meta.location,
             price: meta.price,
             size: meta.features?.[0] || ''
-        }]
-    };
+        }];
+    }
     const resolvedMap = (await import("../services/VariableResolutionService.js")).default.resolveForLeads(enrichedContext, registryMapping);
 
     // 2. Build Components Sequentially
