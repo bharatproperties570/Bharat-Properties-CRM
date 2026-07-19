@@ -670,7 +670,9 @@ class WhatsAppService {
 
             return { success: true, data: response.data };
         } catch (err) {
-            const detail = err.response?.data?.error?.message || err.message;
+            console.error('[WhatsApp/Meta] ❌ FULL METADATA ERROR:', JSON.stringify(err.response?.data, null, 2));
+            const metaError = err.response?.data?.error;
+            const detail = metaError?.error_user_msg || metaError?.message || err.message;
             console.error('[WhatsApp/Meta] ❌ SUBMIT TEMPLATE ERROR:', detail);
             return { success: false, error: detail };
         }
