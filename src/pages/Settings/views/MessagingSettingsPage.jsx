@@ -267,7 +267,7 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
                     <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '8px' }}>Footer <span style={{ fontWeight: 400 }}>• Optional</span></label>
                     <input type="text" placeholder="Add a short line of text to the bottom..." value={templateData.footer} onChange={e => setTemplateData({ ...templateData, footer: e.target.value })} style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-color)', borderRadius: '8px', fontSize: '0.9rem' }} maxLength={60} />
                     <div style={{ display: 'flex', justifyContent: 'flex-end', fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                        {templateData.footer.length}/60
+                        {(templateData.footer || '').length}/60
                     </div>
                 </div>
 
