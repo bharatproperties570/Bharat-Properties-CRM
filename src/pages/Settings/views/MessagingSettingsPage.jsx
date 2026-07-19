@@ -899,6 +899,25 @@ const MessagingSettingsPage = () => {
         }
     };
 
+    const handleDirectMetaSubmit = async (template) => {
+        setIsSyncing(true);
+        const toastId = toast.loading('Submitting template to Meta for review...');
+        try {
+            const savedData = {
+                ...template,
+                body: template.body || template.content || '',
+            };
+            await whatsappService.submitTemplateToMeta(savedData);
+            toast.success('Successfully submitted to Meta!', { id: toastId });
+            handleSyncFromMeta(); // Sync to update status to PENDING
+        } catch (err) {
+            toast.error(err.response?.data?.error || err.message, { id: toastId });
+            console.error(err);
+        } finally {
+            setIsSyncing(false);
+        }
+    };
+
     const handleDelete = (templateId) => {
         Swal.fire({
             title: 'Are you sure?',
