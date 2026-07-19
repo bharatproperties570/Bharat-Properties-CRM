@@ -645,7 +645,6 @@ Bharat Properties
         systemContext: ['deal_match', 'deal_match_modal'],
         category: 'UTILITY',
         language: 'en',
-        status: 'APPROVED',
         content: `Dear {{first_name}},\n\nWe have identified a property that aligns with your criteria.\n\nProject: {{project_name}}\nLocation: {{property_location}}\nPrice: {{property_price}}\n\nPlease let us know if you would like to schedule a viewing or require further details.\n\nRegards,\n{{agent_name}}\nBharat Properties`,
         tags: ['Deal Match', 'Utility']
     },
@@ -655,7 +654,6 @@ Bharat Properties
         name: 'Drip Day 7 - Virtual Tour',
         category: 'MARKETING',
         language: 'en',
-        status: 'APPROVED',
         content: `Hello {{first_name}} 👋,\nTake a VIP Virtual Tour of our Sample Flat right from your phone! 📱\nClick here to watch: [Video Link]\nLet me know what you think! - {{agent_name}}`
     },
     {
@@ -663,7 +661,6 @@ Bharat Properties
         name: 'Drip Day 14 - Scarcity Offer',
         category: 'MARKETING',
         language: 'en',
-        status: 'APPROVED',
         content: `Hi {{first_name}}! ⏳ Just 3 corner-units left in Phase 1. If you book a site visit this weekend, we will arrange a complimentary cab pick-up. 🚖 Reply "YES" to claim.`
     },
     {
@@ -671,7 +668,6 @@ Bharat Properties
         name: 'Post-Sales - Welcome Home',
         category: 'UTILITY',
         language: 'en',
-        status: 'APPROVED',
         content: `Congratulations {{first_name}}! 🎊 Welcome to the Bharat Properties family. We have successfully registered your booking. Here is a link to your Next Steps and Payment Schedule document: [Doc Link]. Please reach out if you need any assistance!`
     },
     {
@@ -679,7 +675,6 @@ Bharat Properties
         name: 'Post-Sales - Month 1 Construction',
         category: 'UTILITY',
         language: 'en',
-        status: 'APPROVED',
         content: `Hi {{first_name}}, hope you are doing great! 🏗️ Here is the Month 1 construction update for your future home. The foundation work is 80% complete! See live photos here: [Photos Link]`
     },
     {
@@ -687,7 +682,6 @@ Bharat Properties
         name: 'Referral - Infinite Marketing Loop',
         category: 'MARKETING',
         language: 'en',
-        status: 'APPROVED',
         content: `Hello {{first_name}}! 🌟 We hope you are excited about your new investment. Did you know you can earn rewards? Refer a friend using your unique link: [Referral Link]. If they book, YOU get a free modular kitchen upgrade! 🎁 Share it today!`
     }
 ];
