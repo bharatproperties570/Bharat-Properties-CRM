@@ -581,7 +581,13 @@ class WhatsAppService {
                     format: templateData.headerType
                 };
                 if (templateData.headerType === 'TEXT' && templateData.headerText) {
-                    headerComp.text = templateData.headerText;
+                    let hText = templateData.headerText;
+                    const hMatches = hText.match(/\{\{([^}]+)\}\}/g);
+                    if (hMatches && hMatches.length > 0) {
+                        hText = hText.replace(/\{\{([^}]+)\}\}/g, '{{1}}');
+                        headerComp.example = { header_text: ["Example Header"] };
+                    }
+                    headerComp.text = hText;
                 } else if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(templateData.headerType) && templateData.headerFile) {
                     const fileHandle = await this._uploadMediaToMeta(templateData.headerFile, metaConfig);
                     headerComp.example = { header_handle: [fileHandle] };
@@ -591,10 +597,22 @@ class WhatsAppService {
 
             // Add Body
             if (templateData.body) {
-                payload.components.push({
-                    type: 'BODY',
-                    text: templateData.body
-                });
+                let bodyText = templateData.body;
+                const bMatches = bodyText.match(/\{\{([^}]+)\}\}/g);
+                const bodyComp = { type: 'BODY' };
+                
+                if (bMatches && bMatches.length > 0) {
+                    let varCount = 1;
+                    const examples = [];
+                    bodyText = bodyText.replace(/\{\{([^}]+)\}\}/g, () => {
+                        examples.push("Dummy_Data_" + varCount);
+                        return `{{${varCount++}}}`;
+                    });
+                    bodyComp.example = { body_text: [examples] };
+                }
+                bodyComp.text = bodyText;
+                
+                payload.components.push(bodyComp);
             }
 
             // Add Footer
