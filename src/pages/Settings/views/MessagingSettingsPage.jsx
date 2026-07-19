@@ -1228,6 +1228,16 @@ const MessagingSettingsPage = () => {
                                                     onClick={() => setActiveDropdown(null)} 
                                                 />
                                                 <div style={{ position: 'absolute', right: '0', top: '32px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '8px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)', zIndex: 10, width: '220px', padding: '4px 0', textAlign: 'left' }}>
+                                                    {templateType === 'whatsapp' && row.status !== 'APPROVED' && row.status !== 'PENDING' && (
+                                                        <div 
+                                                            style={{ padding: '10px 16px', fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', color: '#10b981', fontWeight: 600 }}
+                                                            onClick={() => { setActiveDropdown(null); handleDirectMetaSubmit(row); }}
+                                                            onMouseEnter={(e) => e.currentTarget.style.background = '#d1fae5'}
+                                                            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                                                        >
+                                                            <i className="fab fa-whatsapp" style={{ width: '16px', textAlign: 'center' }}></i> Submit to Meta
+                                                        </div>
+                                                    )}
                                                     <div 
                                                         style={{ padding: '10px 16px', fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--text-main)', fontWeight: 600 }}
                                                         onClick={() => { setActiveDropdown(null); handleEdit(row); }}
