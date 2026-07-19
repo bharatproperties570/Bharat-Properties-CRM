@@ -1195,7 +1195,18 @@ const MessagingSettingsPage = () => {
                         {templatesToDisplay.length > 0 ? templatesToDisplay.map((row, i) => (
                             <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
                                 <td style={{ padding: '16px 12px', fontWeight: 600, color: 'var(--primary-color)' }}>{row.name}</td>
-                                <td style={{ padding: '16px 12px' }}><span style={{ color: '#22c55e', fontWeight: 600 }}>Active</span></td>
+                                <td style={{ padding: '16px 12px' }}>
+                                    <span style={{ 
+                                        color: row.status === 'APPROVED' ? '#22c55e' : (row.status === 'REJECTED' ? '#ef4444' : (row.status === 'PENDING' ? '#eab308' : '#3b82f6')), 
+                                        fontWeight: 600,
+                                        background: row.status === 'APPROVED' ? '#f0fdf4' : (row.status === 'REJECTED' ? '#fef2f2' : (row.status === 'PENDING' ? '#fefce8' : '#eff6ff')),
+                                        padding: '4px 8px',
+                                        borderRadius: '4px',
+                                        fontSize: '0.75rem'
+                                    }}>
+                                        {row.status ? row.status : 'Local'}
+                                    </span>
+                                </td>
                                 <td style={{ padding: '16px 12px' }}>05/02/2026</td>
                                 <td style={{ padding: '16px 12px' }}><span style={{ background: 'var(--bg-light)', padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem' }}>{row.tags ? row.tags[0] : 'Property'}</span></td>
                                 <td style={{ padding: '16px 12px' }}>Bharat Properties</td>
