@@ -450,17 +450,58 @@ class WhatsAppService {
             });
 
             // Map Meta's structure to our CRM's structure
-            const metaTemplates = response.data.data.map(tpl => ({
-                id: tpl.id,
-                name: tpl.name,
-                language: tpl.language,
-                category: tpl.category,
-                status: tpl.status, // e.g. APPROVED, REJECTED, PENDING
-                body: tpl.components?.find(c => c.type === 'BODY')?.text || '',
-                rawComponents: tpl.components, // Store raw for variable inference
-                variableMapping: {}, // Empty by default
-                systemContext: [] // Empty by default
-            }));
+            const metaTemplates = response.data.data.map(tpl => {
+                const headerComp = tpl.components?.find(c => c.type === 'HEADER');
+                const footerComp = tpl.components?.find(c => c.type === 'FOOTER');
+                const buttonsComp = tpl.components?.find(c => c.type === 'BUTTONS');
+
+                let headerType = 'NONE';
+                let headerText = '';
+                if (headerComp) {
+                    headerType = headerComp.format; // TEXT, IMAGE, VIDEO, DOCUMENT
+                    if (headerType === 'TEXT') {
+                        headerText = headerComp.text || '';
+                    }
+                }
+
+                let crmButtons = [];
+                if (buttonsComp && buttonsComp.buttons) {
+                    crmButtons = buttonsComp.buttons.map(b => {
+                        if (b.type === 'URL') {
+                            return { type: 'URL', text: b.text, url: b.url, url_type: b.example ? 'DYNAMIC' : 'STATIC' };
+                        }
+                        if (b.type === 'PHONE_NUMBER') {
+                            return { type: 'PHONE', text: b.text, phone_number: b.phone_number, country_code: '' }; 
+                        }
+                        if (b.type === 'COPY_CODE') {
+                            return { type: 'COPY_CODE', text: b.text, example: b.example };
+                        }
+                        if (b.type === 'FLOW') {
+                            return { type: 'FLOW', text: b.text, flow_id: b.flow_id };
+                        }
+                        if (b.type === 'voice_call' || b.type === 'VOICE_CALL') {
+                            return { type: 'VOICE_CALL', text: b.text, ttl_minutes: b.ttl_minutes || '10080' };
+                        }
+                        return { type: 'QUICK_REPLY', text: b.text };
+                    });
+                }
+
+                return {
+                    id: tpl.id,
+                    name: tpl.name,
+                    language: tpl.language,
+                    category: tpl.category,
+                    status: tpl.status, // e.g. APPROVED, REJECTED, PENDING
+                    body: tpl.components?.find(c => c.type === 'BODY')?.text || '',
+                    headerType,
+                    headerText,
+                    footer: footerComp?.text || '',
+                    buttons: crmButtons,
+                    rawComponents: tpl.components, // Store raw for variable inference
+                    variableMapping: {}, // Empty by default
+                    systemContext: [] // Empty by default
+                };
+            });
 
             return { success: true, data: metaTemplates };
         } catch (err) {
@@ -511,16 +552,23 @@ class WhatsAppService {
         }
 
         try {
-            const url = `${META_GRAPH_BASE}/${metaConfig.businessId}/message_templates`;
+            let url = `${META_GRAPH_BASE}/${metaConfig.businessId}/message_templates`;
             
+            const isEdit = !!templateData.id && String(templateData.id).length > 8 && /^\d+$/.test(String(templateData.id)); // Meta IDs are long numbers
+
             // Build Cloud API payload. Note: We only construct the basic BODY for now.
             // Full enterprise payload requires HEADER, FOOTER, BUTTONS mappings.
             const payload = {
-                name: templateData.name.toLowerCase().replace(/[^a-z0-9_]/g, '_'), // Meta requires lower_case_snake
-                language: templateData.language || 'en_US',
                 category: templateData.category || 'MARKETING',
                 components: []
             };
+
+            if (isEdit) {
+                url = `${META_GRAPH_BASE}/${templateData.id}`;
+            } else {
+                payload.name = templateData.name.toLowerCase().replace(/[^a-z0-9_]/g, '_'); // Meta requires lower_case_snake
+                payload.language = templateData.language || 'en_US';
+            }
             
             if (templateData.subCategory) payload.allow_category_change = true;
             if (templateData.flowId) payload.flow_id = templateData.flowId;
