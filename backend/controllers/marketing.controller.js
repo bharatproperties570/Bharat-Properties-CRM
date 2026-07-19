@@ -1385,8 +1385,7 @@ export const executeDispatch = async (payload, user) => {
 
             try {
                 const templatesSetting = await SystemSetting.findOne({ key: 'crm_whatsapp_templates' }).lean();
-                // The UI assigns 'deal_match' for this functionality
-                const expectedContext = 'deal_match';
+                const expectedContext = matchContext === 'perfect' ? 'lead_match_full' : 'lead_match_short';
                 const matchTemplate = templatesSetting?.value?.find(t => t.systemContext?.includes(expectedContext));
                 
                 let res;
