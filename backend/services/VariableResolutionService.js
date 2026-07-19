@@ -361,19 +361,59 @@ class VariableResolutionService {
                 }
                 return lead.matchedProperties.map((p, i) => {
                     const inv = p.inventoryId || {};
-                    const unit = inv.unitNo || inv.unitNumber || 'TBD';
-                    const project = inv.projectName || 'Premium Project';
-                    const sz = inv.size?.value || 'N/A';
-                    const szUnit = inv.size?.unit || 'Sq.Ft.';
-                    const pr = inv.price?.value ? `₹${(inv.price.value / 10000000).toFixed(2)} Cr` : 'On Request';
+                    const unit = inv.unitNo || inv.unitNumber || p.unitNo || 'TBD';
+                    const project = inv.projectName || p.sector || 'Premium Project';
+                    const sz = p.size || inv.size?.value || 'Standard Size';
+                    const szUnit = p.sizeUnit || inv.size?.unit || 'Sq.Ft.';
                     
-                    let mapsLink = '';
-                    if (inv.latitude && inv.longitude) {
-                        mapsLink = `\n📍 View Location: https://www.google.com/maps?q=${inv.latitude},${inv.longitude}`;
+                    let pr = 'Price on call';
+                    if (!lead.hidePrice && !lead.hidePrices) {
+                        pr = p.price || (inv.price?.value ? `₹${(inv.price.value / 10000000).toFixed(2)} Cr` : 'On Request');
                     }
 
-                    return `${i + 1}️⃣ #${unit} | ${project} | ${sz} ${szUnit} | ${pr}${mapsLink}`;
-                }).join('\n\n');
+                    const category = inv.category || p.category || 'N/A';
+                    const subCategory = inv.subCategory || p.subCategory || 'N/A';
+                    const road = inv.road || p.road || 'N/A';
+                    const direction = inv.direction || p.direction || 'N/A';
+                    const facing = inv.facing || p.facing || 'N/A';
+                    const buildupType = inv.buildupType || p.buildupType || '';
+                    
+                    let mapsLink = 'N/A';
+                    if (inv.latitude && inv.longitude) {
+                        mapsLink = `https://www.google.com/maps?q=${inv.latitude},${inv.longitude}`;
+                    } else if (inv.googleMapsLink) {
+                        mapsLink = inv.googleMapsLink;
+                    }
+
+                    let lines = [];
+                    // Header (Unit & Project)
+                    if (!lead.hideUnit && !lead.hideUnitNumber && unit !== 'TBD' && unit !== '') {
+                        lines.push(unit);
+                    }
+                    lines.push(project);
+                    lines.push(''); // Blank line
+                    
+                    // Specs
+                    lines.push(`${sz} ${szUnit}`);
+                    lines.push(category);
+                    lines.push(subCategory);
+                    lines.push(road);
+                    lines.push(direction);
+                    lines.push(facing);
+                    if (buildupType) {
+                        lines.push(buildupType);
+                    }
+                    lines.push(''); // Blank line
+                    
+                    // Location
+                    lines.push(mapsLink);
+                    lines.push(''); // Blank line
+                    
+                    // Price
+                    lines.push(`💰 *Expected Price* ${pr}`);
+
+                    return lines.join('\n');
+                }).join('\n\n---------------------------\n\n');
 
             default:
                 // Try deep access for custom fields
