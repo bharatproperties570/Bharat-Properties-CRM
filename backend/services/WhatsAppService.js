@@ -564,9 +564,22 @@ class WhatsAppService {
                     if (btn.type === 'URL') {
                         mappedBtn.type = 'URL';
                         mappedBtn.url = btn.url || 'https://www.example.com';
+                        if (btn.url_type === 'DYNAMIC') {
+                            mappedBtn.example = ["custom_path"]; // Meta requires an example for the {{1}} variable
+                        }
+                    } else if (btn.type === 'VOICE_CALL') {
+                        mappedBtn.type = 'voice_call';
+                        if (btn.ttl_minutes) {
+                            mappedBtn.ttl_minutes = parseInt(btn.ttl_minutes, 10);
+                        }
                     } else if (btn.type === 'PHONE') {
                         mappedBtn.type = 'PHONE_NUMBER';
-                        mappedBtn.phone_number = btn.phone_number || '+919999999999';
+                        mappedBtn.phone_number = (btn.country_code || '+91') + (btn.phone_number || '9999999999');
+                    } else if (btn.type === 'FLOW') {
+                        mappedBtn.type = 'FLOW';
+                        mappedBtn.flow_id = btn.flow_id || '123456789';
+                        mappedBtn.flow_action = 'NAVIGATE';
+                        mappedBtn.navigate_screen = 'Default_Screen';
                     } else if (btn.type === 'COPY_CODE') {
                         mappedBtn.type = 'COPY_CODE';
                         mappedBtn.example = btn.example || 'OFFER20'; 

@@ -288,7 +288,9 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
                                     <select value={btn.type} onChange={e => updateButton(i, 'type', e.target.value)} style={{ padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', flex: 1 }}>
                                         <option value="QUICK_REPLY">Custom (Quick Reply)</option>
                                         <option value="URL">Visit website</option>
+                                        <option value="VOICE_CALL">Call on WhatsApp</option>
                                         <option value="PHONE">Call phone number</option>
+                                        <option value="FLOW">Complete flow</option>
                                         <option value="COPY_CODE">Copy offer code</option>
                                     </select>
                                     <input type="text" placeholder="Button text" value={btn.text} onChange={e => updateButton(i, 'text', e.target.value)} style={{ flex: 2, padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }} />
@@ -297,34 +299,62 @@ const MessagingTemplateModal = ({ isOpen, onClose, channelType, initialData, onS
                                     </button>
                                 </div>
                                 {btn.type === 'URL' && (
-                                    <input 
-                                        type="text" 
-                                        placeholder="Website URL (e.g. https://www.example.com)" 
-                                        value={btn.url || ''} 
-                                        onChange={e => updateButton(i, 'url', e.target.value)} 
-                                        onBlur={e => {
-                                            let val = e.target.value.trim();
-                                            if (val && !val.startsWith('http://') && !val.startsWith('https://')) {
-                                                val = 'https://' + val;
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                        <select value={btn.url_type || 'STATIC'} onChange={e => updateButton(i, 'url_type', e.target.value)} style={{ padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', flex: 1 }}>
+                                            <option value="STATIC">Static</option>
+                                            <option value="DYNAMIC">Dynamic</option>
+                                        </select>
+                                        <input 
+                                            type="text" 
+                                            placeholder="Website URL (e.g. https://www.example.com)" 
+                                            value={btn.url || ''} 
+                                            onChange={e => updateButton(i, 'url', e.target.value)} 
+                                            onBlur={e => {
+                                                let val = e.target.value.trim();
+                                                if (val && !val.startsWith('http://') && !val.startsWith('https://')) {
+                                                    val = 'https://' + val;
+                                                }
+                                                if (btn.url_type === 'DYNAMIC' && !val.includes('{{1}}')) {
+                                                    val += '{{1}}';
+                                                }
                                                 updateButton(i, 'url', val);
-                                            }
-                                        }}
-                                        style={{ width: '100%', padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }} 
-                                    />
+                                            }}
+                                            style={{ flex: 3, padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }} 
+                                        />
+                                    </div>
+                                )}
+                                {btn.type === 'VOICE_CALL' && (
+                                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                        <label style={{ fontSize: '0.85rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Active for:</label>
+                                        <select value={btn.ttl_minutes || '10080'} onChange={e => updateButton(i, 'ttl_minutes', e.target.value)} style={{ padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', flex: 1 }}>
+                                            <option value="1440">1 day</option>
+                                            <option value="4320">3 days</option>
+                                            <option value="10080">7 days</option>
+                                        </select>
+                                    </div>
                                 )}
                                 {btn.type === 'PHONE' && (
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                        <select value={btn.country_code || '+91'} onChange={e => updateButton(i, 'country_code', e.target.value)} style={{ padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem', flex: 1 }}>
+                                            <option value="+1">US (+1)</option>
+                                            <option value="+44">UK (+44)</option>
+                                            <option value="+91">India (+91)</option>
+                                        </select>
+                                        <input 
+                                            type="text" 
+                                            placeholder="Phone number (e.g. 9876543210)" 
+                                            value={btn.phone_number || ''} 
+                                            onChange={e => updateButton(i, 'phone_number', e.target.value.replace(/\D/g, ''))} 
+                                            style={{ flex: 3, padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }} 
+                                        />
+                                    </div>
+                                )}
+                                {btn.type === 'FLOW' && (
                                     <input 
                                         type="text" 
-                                        placeholder="Phone number (e.g. +919876543210)" 
-                                        value={btn.phone_number || ''} 
-                                        onChange={e => updateButton(i, 'phone_number', e.target.value)} 
-                                        onBlur={e => {
-                                            let val = e.target.value.trim();
-                                            if (val && !val.startsWith('+')) {
-                                                val = '+' + val.replace(/\D/g, ''); // keep only numbers
-                                                updateButton(i, 'phone_number', val);
-                                            }
-                                        }}
+                                        placeholder="Flow ID (e.g. 123456789)" 
+                                        value={btn.flow_id || ''} 
+                                        onChange={e => updateButton(i, 'flow_id', e.target.value)} 
                                         style={{ width: '100%', padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.85rem' }} 
                                     />
                                 )}
