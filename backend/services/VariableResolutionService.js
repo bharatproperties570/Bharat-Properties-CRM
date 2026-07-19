@@ -336,23 +336,33 @@ class VariableResolutionService {
                 }
                 return lead.matchedProperties.map((p, i) => {
                     const inv = p.inventoryId || {};
-                    const unit = inv.unitNo || inv.unitNumber || p.unitNo || 'TBD';
-                    const project = inv.projectName || p.sector || 'Prime Location';
+                    const unit = p.unitNo || inv.unitNo || inv.unitNumber || 'TBD';
+                    
+                    // project name could be in p.projectName (from meta), or inv.projectName
+                    // if p.sector is an ObjectId (string length 24 hex), ignore it.
+                    let sectorName = typeof p.sector === 'string' && /^[a-fA-F0-9]{24}$/.test(p.sector) ? '' : p.sector;
+                    let pName = p.projectName || inv.projectName || sectorName || 'Project';
+                    if (typeof pName === 'string' && /^[a-fA-F0-9]{24}$/.test(pName)) pName = 'Premium Project';
+
                     const sz = p.size || inv.size?.value || 'Standard Size';
                     const szUnit = p.sizeUnit || inv.size?.unit || 'Sq.Ft.';
                     
                     let pr = 'Price on call';
                     if (!lead.hidePrice && !lead.hidePrices) {
-                        pr = p.price || (inv.price?.value ? `₹${(inv.price.value / 10000000).toFixed(2)} Cr` : 'On Request');
+                        const rawPrice = p.price || inv.price?.value || inv.price;
+                        if (rawPrice && !isNaN(rawPrice)) {
+                            pr = `₹${(Number(rawPrice) / 10000000).toFixed(2)} Cr`;
+                        } else {
+                            pr = rawPrice || 'On Request';
+                        }
                     }
 
                     let unitStr = '';
-                    // If hideUnit is not true, and unit is available, display it
                     if (!lead.hideUnit && !lead.hideUnitNumber && unit !== 'TBD' && unit !== '') {
                         unitStr = `#${unit} | `;
                     }
 
-                    return `${i + 1}️⃣ 🏢 ${unitStr}${project} | 📐 ${sz} ${szUnit} | 💰 ${pr}`;
+                    return `${i + 1}️⃣ 🏢 ${unitStr}${pName} | 📐 ${sz} ${szUnit} | 💰 ${pr}`;
                 }).join('\n');
 
             case 'matchListDetailed':
@@ -361,14 +371,23 @@ class VariableResolutionService {
                 }
                 return lead.matchedProperties.map((p, i) => {
                     const inv = p.inventoryId || {};
-                    const unit = inv.unitNo || inv.unitNumber || p.unitNo || 'TBD';
-                    const project = inv.projectName || p.sector || 'Premium Project';
+                    const unit = p.unitNo || inv.unitNo || inv.unitNumber || 'TBD';
+                    
+                    let sectorName = typeof p.sector === 'string' && /^[a-fA-F0-9]{24}$/.test(p.sector) ? '' : p.sector;
+                    let pName = p.projectName || inv.projectName || sectorName || 'Premium Project';
+                    if (typeof pName === 'string' && /^[a-fA-F0-9]{24}$/.test(pName)) pName = 'Premium Project';
+
                     const sz = p.size || inv.size?.value || 'Standard Size';
                     const szUnit = p.sizeUnit || inv.size?.unit || 'Sq.Ft.';
                     
                     let pr = 'Price on call';
                     if (!lead.hidePrice && !lead.hidePrices) {
-                        pr = p.price || (inv.price?.value ? `₹${(inv.price.value / 10000000).toFixed(2)} Cr` : 'On Request');
+                        const rawPrice = p.price || inv.price?.value || inv.price;
+                        if (rawPrice && !isNaN(rawPrice)) {
+                            pr = `₹${(Number(rawPrice) / 10000000).toFixed(2)} Cr`;
+                        } else {
+                            pr = rawPrice || 'On Request';
+                        }
                     }
 
                     const category = inv.category || p.category || 'N/A';
