@@ -976,8 +976,9 @@ const MessagingSettingsPage = () => {
                         await whatsappService.submitTemplateToMeta(savedData);
                         toast.success('Successfully submitted to Meta!', { id: toastId });
                     } catch (err) {
-                        console.warn('Backend Meta Submission Endpoint missing, falling back to local CRM store:', err);
-                        toast.error('Meta API integration incomplete. Saved locally only.');
+                        console.warn('Meta Submission Error:', err);
+                        const errorMessage = err.response?.data?.error || err.message || 'Meta API integration incomplete. Saved locally only.';
+                        toast.error(errorMessage);
                     }
                 }
 
