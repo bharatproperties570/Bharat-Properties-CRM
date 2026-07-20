@@ -453,6 +453,10 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
         whatsapp_app: false
     });
     const [hidePrice, setHidePrice] = useState(false);
+    const [hideUnit, setHideUnit] = useState(false);
+    const [hideLocation, setHideLocation] = useState(false);
+    const [marketingTemplates, setMarketingTemplates] = useState([]);
+    const [selectedTemplateId, setSelectedTemplateId] = useState('');
     const [channelSchedules, setChannelSchedules] = useState({
         whatsapp: '',
         email: '',
@@ -525,6 +529,16 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
         }, 1000);
         return () => clearInterval(timer);
     }, []);
+
+    useEffect(() => {
+        if (isOpen) {
+            api.get('/system-settings/key/crm_whatsapp_templates').then(res => {
+                const tmpls = res.data?.data?.value || [];
+                const filtered = tmpls.filter(t => t.systemContext?.includes('lead_match_full') || t.systemContext?.includes('lead_match_short'));
+                setMarketingTemplates(filtered);
+            }).catch(console.error);
+        }
+    }, [isOpen]);
 
     const [projectData, setProjectData] = useState({});
     const [cities, setCities] = useState([]);
@@ -1090,6 +1104,11 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
 
                 // Final cleanup: Ensure no objects left in transformedData before sending
                 const finalLeadPayload = normalizeRefs(transformedData);
+                
+                // Do not override stage on manual edit; let StageEngine handle stage progression via activities
+                if (mode === 'edit') {
+                    delete finalLeadPayload.stage;
+                }
 
                 if (mode === 'edit' && initialData?._id) {
                     response = await api.put(`/leads/${initialData._id}`, finalLeadPayload);
@@ -1211,9 +1230,19 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                     await api.post('marketing/send-manual', {
                                         leadId, dealIds, toggles: { whatsapp: true },
                                         scheduledAt: channelSchedules?.whatsapp || undefined,
-                                        hidePrice, matchContext: isFallback ? 'top' : 'perfect'
+                                        hidePrice, hideUnit, hideLocation, templateId: selectedTemplateId || undefined, matchContext: isFallback ? 'top' : 'perfect'
                                     });
                                 } catch(e) { console.error('WA API error', e); }
+                            }
+                            // WhatsApp App (Deep Link)
+                            if (blastChannels.whatsapp_app) {
+                                try {
+                                    await api.post('marketing/send-manual', {
+                                        leadId, dealIds, toggles: { whatsapp_app: true },
+                                        scheduledAt: channelSchedules?.whatsapp_app || undefined,
+                                        hidePrice, hideUnit, hideLocation, templateId: selectedTemplateId || undefined, matchContext: isFallback ? 'top' : 'perfect'
+                                    });
+                                } catch(e) { console.error('WA App error', e); }
                             }
                             // Email
                             if (blastChannels.email) {
@@ -1221,7 +1250,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                     await api.post('marketing/send-manual', {
                                         leadId, dealIds, toggles: { email: true },
                                         scheduledAt: channelSchedules?.email || undefined,
-                                        hidePrice, matchContext: isFallback ? 'top' : 'perfect'
+                                        hidePrice, hideUnit, hideLocation, templateId: selectedTemplateId || undefined, matchContext: isFallback ? 'top' : 'perfect'
                                     });
                                 } catch(e) { console.error('Email error', e); }
                             }
@@ -1231,7 +1260,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                     await api.post('marketing/send-manual', {
                                         leadId, dealIds, toggles: { sms: true },
                                         scheduledAt: channelSchedules?.sms || undefined,
-                                        hidePrice, matchContext: isFallback ? 'top' : 'perfect'
+                                        hidePrice, hideUnit, hideLocation, templateId: selectedTemplateId || undefined, matchContext: isFallback ? 'top' : 'perfect'
                                     });
                                 } catch(e) { console.error('SMS error', e); }
                             }
@@ -1866,6 +1895,13 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                 channelAvailability={channelAvailability}
                                 hidePrice={hidePrice}
                                 setHidePrice={setHidePrice}
+                                hideUnit={hideUnit}
+                                setHideUnit={setHideUnit}
+                                hideLocation={hideLocation}
+                                setHideLocation={setHideLocation}
+                                marketingTemplates={marketingTemplates}
+                                selectedTemplateId={selectedTemplateId}
+                                setSelectedTemplateId={setSelectedTemplateId}
                                 channelSchedules={channelSchedules}
                                 setChannelSchedules={setChannelSchedules}
                             />
@@ -1887,6 +1923,13 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                                 channelAvailability={channelAvailability}
                                 hidePrice={hidePrice}
                                 setHidePrice={setHidePrice}
+                                hideUnit={hideUnit}
+                                setHideUnit={setHideUnit}
+                                hideLocation={hideLocation}
+                                setHideLocation={setHideLocation}
+                                marketingTemplates={marketingTemplates}
+                                selectedTemplateId={selectedTemplateId}
+                                setSelectedTemplateId={setSelectedTemplateId}
                                 channelSchedules={channelSchedules}
                                 setChannelSchedules={setChannelSchedules}
                             />
@@ -2336,6 +2379,13 @@ const SystemSection = React.memo(function SystemSection({
     channelAvailability,
     hidePrice,
     setHidePrice,
+    hideUnit,
+    setHideUnit,
+    hideLocation,
+    setHideLocation,
+    marketingTemplates,
+    selectedTemplateId,
+    setSelectedTemplateId,
     channelSchedules,
     setChannelSchedules
 }) {
@@ -2427,6 +2477,63 @@ const SystemSection = React.memo(function SystemSection({
                 <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                         <label style={{ fontSize: '0.85rem', color: isDark ? '#e2e8f0' : '#334155', fontWeight: 600, display: 'block' }}>Auto-Send Matched Deals</label>
+                        <select 
+                            value={selectedTemplateId}
+                            onChange={(e) => setSelectedTemplateId(e.target.value)}
+                            style={{
+                                background: 'transparent',
+                                border: `1px solid ${isDark ? '#475569' : '#cbd5e1'}`,
+                                color: isDark ? '#94a3b8' : '#64748b',
+                                fontSize: '0.7rem',
+                                padding: '2px 8px',
+                                borderRadius: '12px',
+                                outline: 'none',
+                                cursor: 'pointer',
+                                fontWeight: 600
+                            }}
+                        >
+                            <option value="">Auto-Select Template</option>
+                            <option value="free_text">No Template (Active Chat Session Only)</option>
+                            {marketingTemplates.map(t => (
+                                <option key={t.id || t.name} value={t.id || t.name}>{t.name} ({t.systemContext?.includes('full') ? 'Full' : 'Short'})</option>
+                            ))}
+                        </select>
+                        <button 
+                            type="button" 
+                            onClick={() => setHideLocation(!hideLocation)}
+                            style={{
+                                background: 'transparent',
+                                border: `1px solid ${hideLocation ? '#10b981' : (isDark ? '#475569' : '#cbd5e1')}`,
+                                color: hideLocation ? '#10b981' : (isDark ? '#94a3b8' : '#64748b'),
+                                fontSize: '0.7rem',
+                                padding: '2px 8px',
+                                borderRadius: '12px',
+                                cursor: 'pointer',
+                                fontWeight: 600,
+                                transition: 'all 0.2s',
+                                display: 'flex', alignItems: 'center', gap: '4px'
+                            }}>
+                            <i className={`fas ${hideLocation ? 'fa-eye-slash' : 'fa-eye'}`}></i>
+                            {hideLocation ? 'Loc Hidden' : 'Hide Loc'}
+                        </button>
+                        <button 
+                            type="button" 
+                            onClick={() => setHideUnit(!hideUnit)}
+                            style={{
+                                background: 'transparent',
+                                border: `1px solid ${hideUnit ? '#f59e0b' : (isDark ? '#475569' : '#cbd5e1')}`,
+                                color: hideUnit ? '#f59e0b' : (isDark ? '#94a3b8' : '#64748b'),
+                                fontSize: '0.7rem',
+                                padding: '2px 8px',
+                                borderRadius: '12px',
+                                cursor: 'pointer',
+                                fontWeight: 600,
+                                transition: 'all 0.2s',
+                                display: 'flex', alignItems: 'center', gap: '4px'
+                            }}>
+                            <i className={`fas ${hideUnit ? 'fa-eye-slash' : 'fa-eye'}`}></i>
+                            {hideUnit ? 'Unit Hidden' : 'Hide Unit'}
+                        </button>
                         <button 
                             type="button" 
                             onClick={() => setHidePrice(!hidePrice)}
@@ -2602,6 +2709,13 @@ const RequirementSection = React.memo(function RequirementSection({
     channelAvailability,
     hidePrice,
     setHidePrice,
+    hideUnit,
+    setHideUnit,
+    hideLocation,
+    setHideLocation,
+    marketingTemplates,
+    selectedTemplateId,
+    setSelectedTemplateId,
     channelSchedules,
     setChannelSchedules
 }) {

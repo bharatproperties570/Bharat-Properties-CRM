@@ -139,6 +139,10 @@ export default function CommunicationPage() {
                         else if (pl==='whatsapp'||t==='whatsapp')             via = 'WhatsApp';
                         else if (pl==='rcs')                                  via = 'RCS';
                         else if (t==='email' || pl==='email')                 via = 'Email';
+                        else if (t==='marketing') {
+                            if (act.details?.results?.some(r => r.channel === 'whatsapp')) via = 'WhatsApp';
+                            else if (act.details?.results?.some(r => r.channel === 'email')) via = 'Email';
+                        }
                     }
 
                     // 3. Content & Metadata

@@ -1,5 +1,5 @@
 console.log('[DEBUG] src/App.jsx module evaluated');
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, Suspense, lazy } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from './utils/queryClient';
 import { isWeb, safeWindow, getPathname } from './utils/platform';
@@ -29,6 +29,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import PublicLeadForm from './pages/Public/PublicLeadForm';
 import PublicDealForm from './pages/Public/PublicDealForm';
 import PublicFeedbackForm from './pages/Public/PublicFeedbackForm';
+const MatchBrochure = lazy(() => import('./pages/Public/MatchBrochure'));
 import CaptureFormPage from './pages/Public/CaptureFormPage';
 import CallModal from './components/CallModal'; // Import CallModal
 import CallResolutionModal from './components/CallResolutionModal';
@@ -82,6 +83,7 @@ const AppContent = () => {
         if (path.startsWith('/public/deal/')) return 'public-deal-form';
         if (path.startsWith('/public/feedback/')) return 'public-feedback-form';
         if (path.startsWith('/capture/')) return 'deal-capture';
+        if (path.startsWith('/matches/')) return 'public-match-brochure';
         if (path === '/forgot-password') return 'forgot-password';
         if (path.startsWith('/reset-password/')) return 'reset-password';
         if (path === '/settings') return 'settings';
@@ -200,6 +202,8 @@ const AppContent = () => {
                     setCurrentView('reset-password');
                 } else if (path === '/marketing-overview') {
                     setCurrentView('marketing-overview');
+                } else if (path.startsWith('/matches/')) {
+                    setCurrentView('public-match-brochure');
                 } else {
                     setCurrentView('dashboard');
                 }
@@ -247,6 +251,18 @@ const AppContent = () => {
                     <PublicDealForm slug={slug} />
                 </Suspense>
                 {isWeb && <PublicChatWidget />}
+            </>
+        );
+    }
+
+    if (currentView === 'public-match-brochure') {
+        const fallback = <div style={{ textAlign: 'center', padding: '100px' }}>Loading Match Data...</div>;
+        const token = isWeb ? safeWindow.location.pathname.split('/').pop() : 'default';
+        return (
+            <>
+                <Suspense fallback={fallback}>
+                    <MatchBrochure token={token} />
+                </Suspense>
             </>
         );
     }

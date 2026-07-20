@@ -217,6 +217,11 @@ const SendMessageModal = ({
         if (!templateId) return;
 
         const fetchPreview = async () => {
+            if (templateId === 'free_text') {
+                setMessageBody('Free Text Mode: A nicely formatted list of properties will be sent directly as a session message (no Meta templates).');
+                if (channel === 'WHATSAPP') setWhatsappComponents([]);
+                return;
+            }
             try {
                 // If it's SMS or RCS, we could still do local or rely on backend. For 100% enterprise, we send all to backend.
                 // However, SMS/RCS templates might not be fully supported by the new backend method if we only wired whatsappService.previewTemplate.
@@ -444,8 +449,25 @@ const SendMessageModal = ({
                             <button type="button" onClick={() => setChannel('SMS')} style={channelBtnStyle(channel === 'SMS')}>
                                 <i className="fas fa-comment-alt"></i> SMS
                             </button>
-                            <button type="button" onClick={() => { setChannel('WHATSAPP'); loadWhatsAppTemplates(); }} style={channelBtnStyle(channel === 'WHATSAPP')}>
+                            <button type="button" onClick={() => { setChannel('WHATSAPP'); loadWhatsAppTemplates(); }} style={{ ...channelBtnStyle(channel === 'WHATSAPP'), position: 'relative' }}>
                                 <i className="fab fa-whatsapp"></i> WhatsApp
+                                {/* Highlighted Green Dot with Pulse Animation */}
+                                <div style={{ 
+                                    position: 'absolute', top: '8px', right: '12px', width: '10px', height: '10px', 
+                                    background: '#22c55e', borderRadius: '50%', border: '2px solid #fff',
+                                    boxShadow: '0 0 0 0 rgba(34, 197, 94, 0.7)',
+                                    animation: 'pulse-green 2s infinite'
+                                }} title="WhatsApp Active">
+                                    <style>
+                                        {`
+                                            @keyframes pulse-green {
+                                                0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
+                                                70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
+                                                100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+                                            }
+                                        `}
+                                    </style>
+                                </div>
                             </button>
                             <button type="button" onClick={() => setChannel('RCS')} style={channelBtnStyle(channel === 'RCS')}>
                                 <i className="fas fa-comment-dots"></i> RCS
@@ -583,6 +605,7 @@ const SendMessageModal = ({
                                         disabled={isLoadingWhatsApp}
                                     >
                                         <option value="">-- {isLoadingWhatsApp ? 'Loading...' : 'Choose a WhatsApp Template'} --</option>
+                                        <option value="free_text">No Template (Active Chat Session Only)</option>
                                         {whatsappTemplates.map(t => (
                                             <option key={t.id || t.name} value={t.name}>{t.name} ({t.language})</option>
                                         ))}

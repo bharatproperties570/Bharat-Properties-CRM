@@ -9,6 +9,7 @@ import { paginate } from "../utils/pagination.js";
 import smsService from "../src/modules/sms/sms.service.js";
 import SmsLog from "../src/modules/sms/smsLog.model.js";
 import { runFullLeadEnrichment } from "../src/utils/enrichmentEngine.js";
+import LeadScoringService from "../src/services/LeadScoringService.js";
 import { autoAssign } from "../src/services/DistributionService.js";
 import { createNotification } from "./notification.controller.js";
 import { syncDocumentsToInventory } from "../utils/sync.js";
@@ -33,7 +34,7 @@ const LOOKUP_CACHE_MAX = 500;
 // Helper to resolve lookup (Find or Create)
 const resolveLookup = async (type, value, createIfMissing = true) => {
     if (!value) return null;
-    if (mongoose.Types.ObjectId.isValid(value)) return new mongoose.Types.ObjectId(value.toString());
+    if (mongoose.Types.ObjectId.isValid(value) && /^[0-9a-fA-F]{24}$/.test(String(value))) return new mongoose.Types.ObjectId(value.toString());
 
     const cacheKey = `${type}:${String(value).toLowerCase()}`;
     if (_lookupResolveCache.has(cacheKey)) return _lookupResolveCache.get(cacheKey);
@@ -890,9 +891,10 @@ export const addLead = async (req, res, next) => {
         const lead = await Lead.create(data);
         console.log("[DEBUG] Lead created successfully:", lead._id);
 
-        // Auto-run Enrichment (wrapped in try-catch to prevent crash if ReferenceError/Enrichment fails)
+        // Auto-run Enrichment & Scoring (wrapped in try-catch to prevent crash)
         try {
             await runFullLeadEnrichment(lead._id);
+            await LeadScoringService.computeAndSave(lead._id);
         } catch (enrichError) {
             console.error("[ENRICHMENT ERROR] Failed in addLead:", enrichError.message);
         }
@@ -1024,11 +1026,19 @@ export const updateLead = async (req, res, next) => {
                 // Resolve current stage to a string label
                 let currentStageStr = 'Incoming';
                 if (existing.stage) {
-                    const existingLookup = await Lookup.findById(existing.stage).select('lookup_value').lean();
-                    currentStageStr = existingLookup?.lookup_value || 'Incoming';
+                    if (mongoose.Types.ObjectId.isValid(existing.stage) && String(existing.stage).length === 24) {
+                        const existingLookup = await Lookup.findById(existing.stage).select('lookup_value').lean();
+                        currentStageStr = existingLookup?.lookup_value || String(existing.stage);
+                    } else {
+                        currentStageStr = String(existing.stage);
+                    }
                 }
-                const newLookup = await Lookup.findById(updateData.stage).select('lookup_value').lean();
-                const newStageStr = newLookup?.lookup_value || String(updateData.stage);
+                
+                let newStageStr = String(updateData.stage);
+                if (updateData.stage && mongoose.Types.ObjectId.isValid(updateData.stage) && /^[a-fA-F0-9]{24}$/.test(String(updateData.stage))) {
+                    const newLookup = await Lookup.findById(updateData.stage).select('lookup_value').lean();
+                    newStageStr = newLookup?.lookup_value || newStageStr;
+                }
 
                 if (currentStageStr !== newStageStr) {
                     requiresHistoryUpdate = true;
@@ -1151,9 +1161,10 @@ export const updateLead = async (req, res, next) => {
                     mobile: finalLead.mobile 
                 });
             }
-            // Auto-run Enrichment (wrapped in try-catch)
+            // Auto-run Enrichment & Scoring (wrapped in try-catch)
             try {
                 await runFullLeadEnrichment(finalLead._id);
+                await LeadScoringService.computeAndSave(finalLead._id);
             } catch (enrichError) {
                 console.error("[ENRICHMENT ERROR] Failed in updateLead:", enrichError.message);
             }

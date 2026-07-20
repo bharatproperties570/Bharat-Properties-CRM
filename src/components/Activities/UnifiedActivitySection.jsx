@@ -788,7 +788,13 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                             {unifiedTimeline
                                 .filter(item => {
-                                    const matchesType = timelineFilter === 'all' || (item.type || '').toLowerCase().includes(timelineFilter);
+                                    const isMarketingMatch = (item.type || '').toLowerCase() === 'marketing' && 
+                                                             item.details?.results?.some(r => r.channel === timelineFilter);
+                                    
+                                    const matchesType = timelineFilter === 'all' || 
+                                                        (item.type || '').toLowerCase().includes(timelineFilter) ||
+                                                        isMarketingMatch;
+                                                        
                                     const matchesUser = userFilter === 'all' || item.actor === userFilter;
                                     const matchesTag = tagFilter === 'all' || (item.tags && item.tags.includes(tagFilter));
                                     return matchesType && matchesUser && matchesTag;
@@ -893,6 +899,22 @@ const UnifiedActivitySection = ({ entityId, entityType, entityData, onActivitySa
                                                         {item.description}
                                                     </div>
                                                 )}
+
+                                                {/* Render WhatsApp Message Payload from Marketing Dispatch */}
+                                                {item.type?.toLowerCase() === 'marketing' && item.details?.results?.map((res, idx) => (
+                                                    res.channel === 'whatsapp' && res.messageContent && (
+                                                        <div key={idx} className="whatsapp-chat-container" style={{ marginTop: '12px' }}>
+                                                            <div className="wa-bubble wa-outgoing">
+                                                                <div className="wa-bubble-content" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                                                                    {res.messageContent}
+                                                                </div>
+                                                                <div className="wa-bubble-time">
+                                                                    <i className={`fas fa-check-double wa-check ${res.status === 'success' ? 'text-blue-500' : ''}`} style={{ marginLeft: '4px', color: res.status === 'success' ? '#3b82f6' : '#94a3b8' }}></i>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    )
+                                                ))}
 
                                                 {/* Call Recording Integration */}
                                                 {(item.type === 'call' && item.metadata?.details?.recordingUrl) && (

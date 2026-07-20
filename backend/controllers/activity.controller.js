@@ -1411,7 +1411,7 @@ export const getMessagingActivities = async (req, res) => {
 
         // 1. Optimized Combined Query
         // 🚀 Senior Profession: Filter at DB level to reduce memory footprint
-        const messagingTypes = ['WhatsApp', 'whatsapp', 'Call', 'call', 'Email', 'email', 'SMS', 'sms', 'Voice', 'voice', 'Messaging'];
+        const messagingTypes = ['WhatsApp', 'whatsapp', 'Call', 'call', 'Email', 'email', 'SMS', 'sms', 'Voice', 'voice', 'Messaging', 'Marketing', 'marketing'];
         const query = {
             $and: [
                 { type: { $in: messagingTypes } },
@@ -1426,9 +1426,10 @@ export const getMessagingActivities = async (req, res) => {
 
         if (channel !== 'all') {
             if (channel === 'Voice') query.type = { $in: ['Voice', 'voice', 'Call', 'call'] };
-            else if (channel === 'Email') query.type = { $in: ['Email', 'email'] };
-            else if (channel === 'WhatsApp') query.type = { $in: ['WhatsApp', 'whatsapp'] };
-            else if (channel === 'SMS') query.type = { $in: ['SMS', 'sms', 'Messaging'] };
+            else if (channel === 'Email') query.type = { $in: ['Email', 'email', 'Marketing', 'marketing'] };
+            else if (channel === 'WhatsApp') query.type = { $in: ['WhatsApp', 'whatsapp', 'Marketing', 'marketing'] };
+            else if (channel === 'SMS') query.type = { $in: ['SMS', 'sms', 'Marketing', 'marketing'] };
+            else query.type = channel;
         }
 
         // Fetch larger batch for grouping but limited to manageable size
@@ -1502,14 +1503,19 @@ export const getMessagingActivities = async (req, res) => {
             const via = ['Call', 'Voice', 'call', 'voice'].includes(a.type) ? 'Voice' : (['Email', 'email'].includes(a.type) ? 'Email' : (['WhatsApp', 'whatsapp'].includes(a.type) || a.details?.platform === 'WhatsApp' ? 'WhatsApp' : 'SMS'));
             const key = `${identifier}_${via}`;
 
+            const isOutbound = (a.details?.direction || '').toLowerCase() === 'outbound' || (a.subject||'').toLowerCase().includes('outgoing') || ['Sent', 'Delivered'].includes(a.outcome || a.status);
+            const prefix = isOutbound ? 'You: ' : 'Customer: ';
+            let baseSnippet = a.description || a.subject || '';
+            const snippet = (baseSnippet.startsWith('You: ') || baseSnippet.startsWith('Customer: ')) ? baseSnippet : prefix + baseSnippet;
+
             if (!conversationsMap.has(key) || new Date(a.createdAt) > new Date(conversationsMap.get(key).timestamp)) {
                 conversationsMap.set(key, {
                     _id: a._id,
                     type: a.type,
                     via,
                     subject: a.subject,
-                    description: a.description,
-                    snippet: a.description || a.subject,
+                    description: snippet,
+                    snippet: snippet,
                     entityType: a.entityType,
                     entityId: a.entityId,
                     participant: getParticipantName(identifier, a.entityId, a.participants?.[0]?.name),
@@ -1544,14 +1550,27 @@ export const getMessagingActivities = async (req, res) => {
         rawConversations.forEach(c => {
             const phone = normalizePhone(c.phoneNumber);
             const key = `${phone}_WhatsApp`;
-            if (!conversationsMap.has(key) || new Date(c.updatedAt) > new Date(conversationsMap.get(key).timestamp)) {
+            const existingActivity = conversationsMap.get(key);
+
+            if (!existingActivity || new Date(c.updatedAt) > new Date(existingActivity.timestamp)) {
                 const lastMsg = c.messages?.[c.messages.length - 1];
+                let snippet = 'Conversation started';
+                
+                if (lastMsg) {
+                    const prefix = lastMsg.role === 'user' ? 'Customer: ' : 'You: ';
+                    snippet = prefix + (lastMsg.content || '');
+                } else if (existingActivity) {
+                    // Preserve the real activity snippet if the conversation itself lacks message history
+                    snippet = existingActivity.snippet || existingActivity.description || 'Conversation started';
+                }
+
                 conversationsMap.set(key, {
-                    _id: c._id, type: 'WhatsApp', via: 'WhatsApp', subject: 'AI Bot Conversation',
-                    description: lastMsg?.content || 'Conversation started', snippet: lastMsg?.content || 'Conversation started',
+                    _id: c._id, type: 'WhatsApp', via: 'WhatsApp', subject: 'WhatsApp Chat',
+                    description: snippet, snippet: snippet,
                     entityType: c.lead ? 'Lead' : 'Contact', entityId: c.lead || c.contact,
-                    participant: getParticipantName(phone, c.lead || c.contact), phone, phoneNumber: phone,
-                    isMatched: !!(c.lead || c.contact), outcome: 'Active', timestamp: c.updatedAt, date: c.updatedAt,
+                    participant: existingActivity?.participant || getParticipantName(phone, c.lead || c.contact), 
+                    phone, phoneNumber: phone,
+                    isMatched: !!(c.lead || c.contact), outcome: c.status || 'Active', timestamp: c.updatedAt, date: c.updatedAt,
                     thread: []
                 });
             }
@@ -1639,12 +1658,21 @@ export const getThreadHistory = async (req, res) => {
         ]);
 
         // 2. Unify and Sort
-        let thread = activities.map(a => ({
-            sender: (a.details?.direction || '').toLowerCase().includes('in') ? 'customer' : 'agent',
-            text: a.description || a.subject,
-            time: a.createdAt,
-            metadata: a.details?.attachment ? { attachment: a.details.attachment } : null
-        }));
+        let thread = activities.map(a => {
+            let text = a.description || a.subject;
+            if (a.type?.toLowerCase() === 'marketing' && a.details?.results) {
+                const waRes = a.details.results.find(r => r.channel === 'whatsapp');
+                if (waRes && waRes.messageContent) {
+                    text = waRes.messageContent;
+                }
+            }
+            return {
+                sender: (a.details?.direction || '').toLowerCase().includes('in') ? 'customer' : 'agent',
+                text: text,
+                time: a.createdAt,
+                metadata: a.details?.attachment ? { attachment: a.details.attachment } : null
+            };
+        });
 
         if (conversations.length > 0) {
             const aiMsgs = conversations.flatMap(c => (c.messages || []).map(m => ({

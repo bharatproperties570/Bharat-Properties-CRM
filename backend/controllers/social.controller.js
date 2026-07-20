@@ -127,22 +127,27 @@ export const sendWhatsAppMessage = async (req, res, next) => {
                 console.log(`[WhatsApp/Debug] Raw Components:`, JSON.stringify(templateDef.components, null, 2));
                 templateDef.components.forEach(compDef => {
                     if (compDef.type === 'BODY') {
-                        const bodyMatches = compDef.text.match(/{{(\d+)}}/g) || [];
-                        const uniqueVars = new Set(bodyMatches.map(m => m.match(/\d+/)[0]));
-                        const bodyVarCount = uniqueVars.size;
+                        const bodyMatches = compDef.text.match(/{{([a-zA-Z0-9_]+)}}/g) || [];
+                        const uniqueVars = Array.from(new Set(bodyMatches.map(m => m.match(/[a-zA-Z0-9_]+/)[0])));
+                        const bodyVarCount = uniqueVars.length;
                         const bodyParams = templateComponents.slice(currentVarIndex, currentVarIndex + bodyVarCount);
                         console.log(`[WhatsApp/Debug] Body Matches:`, bodyMatches);
                         console.log(`[WhatsApp/Debug] Body Vars found: ${bodyVarCount}, parameters provided: ${bodyParams.length}`);
                         if (bodyParams.length > 0) {
                             components.push({
                                 type: 'body',
-                                parameters: bodyParams.map(val => ({ type: 'text', text: val }))
+                                parameters: bodyParams.map((val, idx) => ({ 
+                                    type: 'text', 
+                                    parameter_name: uniqueVars[idx],
+                                    text: val?.text !== undefined ? val.text : val 
+                                }))
                             });
                             currentVarIndex += bodyVarCount;
                         }
                     } else if (compDef.type === 'BUTTONS') {
                         compDef.buttons?.forEach((btn, btnIdx) => {
-                            if (btn.url && btn.url.includes('{{1}}')) {
+                            if (btn.url && /{{([a-zA-Z0-9_]+)}}/.test(btn.url)) {
+                                const urlVarMatch = btn.url.match(/{{([a-zA-Z0-9_]+)}}/)[1];
                                 const btnParam = templateComponents[currentVarIndex];
                                 console.log(`[WhatsApp/Debug] Button URL Var found at index ${btnIdx}, param: ${btnParam}`);
                                 if (btnParam) {
@@ -150,7 +155,10 @@ export const sendWhatsAppMessage = async (req, res, next) => {
                                         type: 'button',
                                         sub_type: 'url',
                                         index: btnIdx,
-                                        parameters: [{ type: 'text', text: btnParam }]
+                                        parameters: [{ 
+                                            type: 'text', 
+                                            text: btnParam?.text !== undefined ? btnParam.text : btnParam 
+                                        }]
                                     });
                                     currentVarIndex++;
                                 }

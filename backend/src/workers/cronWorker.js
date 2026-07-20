@@ -36,13 +36,15 @@ export const cronWorker = new Worker('cronQueue', async (job) => {
             .filter(l => ['closed won', 'closed lost', 'won', 'lost', 'dormant'].includes((l.lookup_value || '').toLowerCase()))
             .map(l => l._id);
 
-        // Fetch leads that are still open
-        const activeLeads = await Lead.find({ stage: { $nin: closedStageIds } }).populate('stage', 'lookup_value');
+        // Fetch leads that are still open using an Enterprise-grade Cursor to prevent memory leaks
+        const activeLeadsCursor = Lead.find({ stage: { $nin: closedStageIds } })
+            .populate('stage', 'lookup_value')
+            .cursor();
 
         const now = new Date();
         let updatedCount = 0;
 
-        for (const lead of activeLeads) {
+        for await (const lead of activeLeadsCursor) {
             let penaltyToAdd = 0;
             const auditNotes = [];
 

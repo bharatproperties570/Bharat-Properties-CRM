@@ -887,7 +887,13 @@ async function resolveMetaComponents(templateId, recipient, meta, registryMappin
                 const parameters = [];
                 matches.forEach(() => {
                     const val = resolvedMap[String(globalVarIndex)] || '—';
-                    parameters.push({ type: 'text', text: String(val) });
+                    let valStr = String(val);
+                    // Meta API forbids newlines and tabs in template parameters
+                    valStr = valStr.replace(/\n/g, '  |  ').replace(/\t/g, ' ').replace(/\s{5,}/g, '    ');
+                    if (valStr.length > 1000) {
+                        valStr = valStr.substring(0, 995) + '...';
+                    }
+                    parameters.push({ type: 'text', text: valStr });
                     globalVarIndex++;
                 });
                 components.push({ type: 'body', parameters });
@@ -1336,7 +1342,7 @@ export const getVariableRegistry = async (req, res) => {
 
 // Define the logic that actually runs the dispatch
 export const executeDispatch = async (payload, user) => {
-    const { dealIds, leadIds, toggles, hidePrice, matchContext } = payload;
+    const { dealIds, leadIds, toggles, hidePrice, hideUnit, hideLocation, templateId, matchContext } = payload;
     
     const finalDealIds = Array.isArray(dealIds) ? dealIds : [];
     const finalLeadIds = Array.isArray(leadIds) ? leadIds : [];
@@ -1354,10 +1360,44 @@ export const executeDispatch = async (payload, user) => {
     for (const dId of finalDealIds) {
         let propertyData = await Inventory.findOne({ _id: dId, ...visibilityFilter }).lean();
         if (!propertyData) {
-            propertyData = await Deal.findOne({ _id: dId, ...visibilityFilter }).lean();
+            propertyData = await Deal.findOne({ _id: dId, ...visibilityFilter }).populate('inventoryId').lean();
         }
         if (propertyData) populatedDeals.push(propertyData);
     }
+
+    // --- PRE-RESOLVE LOOKUPS FOR VARIABLES ---
+    const Lookup = (await import('../models/Lookup.js')).default;
+    for (const pd of populatedDeals) {
+        const base = pd.inventoryId || pd;
+        
+        const resolveLookupSafely = async (val) => {
+            if (!val) return null;
+            const strVal = val.toString();
+            if (/^[a-fA-F0-9]{24}$/.test(strVal)) {
+                const lkup = await Lookup.findById(strVal).lean();
+                if (lkup) return lkup.lookup_value || lkup.name || lkup.label;
+            }
+            return null;
+        };
+
+        if (pd.subCategory) {
+            const val = await resolveLookupSafely(pd.subCategory);
+            if (val) pd.subCategory = { lookup_value: val };
+        }
+        if (base.subCategory) {
+            const val = await resolveLookupSafely(base.subCategory);
+            if (val) base.subCategory = { lookup_value: val };
+        }
+        
+        if (base.sizeLabel) {
+            const val = await resolveLookupSafely(base.sizeLabel);
+            if (val) base.sizeLabel = val;
+        } else if (base.sizeConfig) {
+            const val = await resolveLookupSafely(base.sizeConfig);
+            if (val && !base.sizeLabel) base.sizeLabel = val;
+        }
+    }
+    // ------------------------------------------
 
     if (populatedDeals.length === 0) return { success: false, message: 'No properties found.' };
 
@@ -1378,6 +1418,11 @@ export const executeDispatch = async (payload, user) => {
             // Enrich lead with properties for VariableResolutionService
             const enrichedLead = { 
                 ...lead, 
+                hidePrice,
+                hideUnit,
+                hideLocation,
+                templateId,
+                matchContext,
                 matchedProperties: populatedDeals.map(p => ({ inventoryId: p })) 
             };
 
@@ -1389,10 +1434,17 @@ export const executeDispatch = async (payload, user) => {
 
             try {
                 const templatesSetting = await SystemSetting.findOne({ key: 'crm_whatsapp_templates' }).lean();
-                const expectedContext = matchContext === 'perfect' ? 'lead_match_full' : 'lead_match_short';
-                const matchTemplate = templatesSetting?.value?.find(t => t.systemContext?.includes(expectedContext));
+                let matchTemplate;
+                if (templateId && templateId !== 'free_text') {
+                    matchTemplate = templatesSetting?.value?.find(t => t.id === templateId || t.name === templateId);
+                }
+                if (!matchTemplate && templateId !== 'free_text') {
+                    const expectedContext = matchContext === 'perfect' ? 'lead_match_full' : 'lead_match_short';
+                    matchTemplate = templatesSetting?.value?.find(t => t.systemContext?.includes(expectedContext));
+                }
                 
                 let res;
+                let textPayload = '';
                 if (matchTemplate) {
                     const templateId = matchTemplate.name || matchTemplate.id;
                     const language = matchTemplate.language || 'en';
@@ -1412,14 +1464,40 @@ export const executeDispatch = async (payload, user) => {
                         mapping
                     );
 
-                    console.log(`[ManualDispatch/WA] Context resolved '${expectedContext}' -> Dispatching '${templateId}'`);
+                    console.log(`[ManualDispatch/WA] Dispatching '${templateId}'`);
+                    textPayload = `[Template: ${templateId}] Payload: ${JSON.stringify(personalizedComponents)}`;
                     res = await waService.sendTemplate(mobile, templateId, language, personalizedComponents);
                 } else {
                     const resolvedParams = (await import("../services/VariableResolutionService.js")).default.resolveForLeads(enrichedLead, mapping);
                     let message = `Hi ${resolvedParams["1"] || 'Customer'} 👋\n\nBased on your requirement, here are a few suitable options:\n\n${resolvedParams["2"] || 'Property matches below:'}`;
+                    
+                    let agentName = user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : null;
+                    let agentMobile = user?.mobile || user?.phone;
+                    
+                    if (user && user._id && (!agentMobile || !agentName)) {
+                        const fullUser = await mongoose.model('User').findById(user._id || user.id).lean();
+                        if (fullUser) {
+                            agentMobile = fullUser.mobile || fullUser.phone;
+                            agentName = `${fullUser.firstName || ''} ${fullUser.lastName || ''}`.trim();
+                        }
+                    }
+                    
+                    message += `\n\nBest Regards,`;
+                    if (agentName) message += `\n${agentName}`;
+                    message += `\nBharat Properties`;
+                    
+                    if (agentMobile) {
+                        message += `\n📞 ${agentMobile}`;
+                    }
+                    
+                    textPayload = message; // Capture the final message
                     res = await (await import("../services/WhatsAppService.js")).default.sendMessage(mobile, message);
                 }
-                matchResults.push({ channel: 'whatsapp', status: res.success ? 'success' : 'failed' });
+                matchResults.push({ 
+                    channel: 'whatsapp', 
+                    status: res.success ? 'success' : 'failed',
+                    messageContent: textPayload // Include actual message sent
+                });
             } catch (err) { matchResults.push({ channel: 'whatsapp', status: 'failed', error: err.message }); }
         }
 
@@ -1454,7 +1532,13 @@ export const executeDispatch = async (payload, user) => {
                 performedAt: new Date(),
                 status: 'Completed',
                 description: `Dispatched details to ${lead.fullName || lead.firstName} via ${matchResults.filter(r => r.status === 'success').map(r => r.channel).join(', ') || 'none'}`,
-                details: { results: matchResults, toggles, matchedCount: populatedDeals.length, hidePrice },
+                details: { 
+                    results: matchResults, 
+                    toggles, 
+                    matchedCount: populatedDeals.length, 
+                    hidePrice,
+                    phoneNumber: lead.mobile || lead.phones?.[0]?.number || lead.phones?.[0] // Add phone number for thread fetching
+                },
                 performedBy: user?.firstName || 'System',
                 assignedTo: user?._id
             });
@@ -1469,7 +1553,7 @@ export const executeDispatch = async (payload, user) => {
 export const sendManualMatch = async (req, res) => {
     console.log('[ManualDispatch] Incoming Request:', { body: req.body, user: req.user?._id });
     try {
-        let { dealId, leadId, dealIds, leadIds, toggles, hidePrice, matchContext, scheduledAt } = req.body;
+        let { dealId, leadId, dealIds, leadIds, toggles, hidePrice, hideUnit, hideLocation, templateId, matchContext, scheduledAt } = req.body;
         
         // Normalize to arrays
         const finalDealIds = Array.isArray(dealIds) ? dealIds : (dealId ? [dealId] : []);
@@ -1489,6 +1573,9 @@ export const sendManualMatch = async (req, res) => {
                     dealIds: finalDealIds,
                     toggles: toggles || {},
                     hidePrice: hidePrice || false,
+                    hideUnit: hideUnit || false,
+                    hideLocation: hideLocation || false,
+                    templateId: templateId || null,
                     matchContext: matchContext || 'perfect',
                     scheduledAt: new Date(scheduledAt),
                     status: 'pending'
@@ -1498,16 +1585,47 @@ export const sendManualMatch = async (req, res) => {
         }
         
         // Execute immediately
-        const payload = { dealIds: finalDealIds, leadIds: finalLeadIds, toggles, hidePrice, matchContext };
+        const payload = { dealIds: finalDealIds, leadIds: finalLeadIds, toggles, hidePrice, hideUnit, hideLocation, templateId, matchContext };
         const result = await executeDispatch(payload, req.user);
         
         if (!result.success) {
             return res.status(400).json(result);
         }
+        
+        return res.json(result);
+    } catch (err) {
+        console.error('[ManualDispatch] Error:', err);
+        return res.status(500).json({ success: false, error: err.message });
+    }
+};
 
-        res.json(result);
-    } catch (error) {
-        console.error('[ManualDispatch] FATAL ERROR:', error);
-        res.status(500).json({ success: false, error: error.message });
+import crypto from 'crypto';
+import SharedMatch from '../models/SharedMatch.js';
+
+export const generateMatchLink = async (req, res) => {
+    try {
+        const { dealIds, leadId } = req.body;
+        
+        if (!dealIds || !Array.isArray(dealIds) || dealIds.length === 0) {
+            return res.status(400).json({ success: false, error: 'At least one Deal ID is required.' });
+        }
+
+        const token = crypto.randomBytes(4).toString('hex'); // E.g., '1a2b3c4d'
+        
+        const sharedMatch = await SharedMatch.create({
+            token,
+            leadId: leadId || null,
+            dealIds,
+            createdBy: req.user._id
+        });
+
+        // Construct the full URL
+        const baseUrl = process.env.VITE_APP_URL || 'http://localhost:5173';
+        const matchUrl = `${baseUrl}/matches/${token}`;
+
+        return res.json({ success: true, url: matchUrl, token });
+    } catch (err) {
+        console.error('[MarketingController] generateMatchLink error:', err);
+        return res.status(500).json({ success: false, error: 'Failed to generate match link' });
     }
 };

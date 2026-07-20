@@ -16,7 +16,7 @@ export const emailTemplates = [
         visibility: 'Owned by everyone',
         tags: ['Leads', 'Priority'],
         subject: '🔥 Exclusive Selection: Top property matches for you!',
-        content: `Dear {{first_name}},<br><br>Based on our latest market analysis, we have identified these <strong>Top Property Matches</strong> that perfectly align with your requirements.<br><br>{{property_list}}<br><br>These properties are currently seeing high interest. Would you like to schedule a priority visit this weekend?<br><br>Best regards,<br>{{agent_name}}`,
+        content: `Dear {{first_name}},<br><br>Based on our latest market analysis, we have identified these <strong>Top Property Matches</strong> that perfectly align with your requirements.<br><br>{{property_list_default}}<br><br>These properties are currently seeing high interest. Would you like to schedule a priority visit this weekend?<br><br>Best regards,<br>{{agent_name}}`,
         shared: true
     },
     {
@@ -25,8 +25,8 @@ export const emailTemplates = [
         author: 'Bharat Properties',
         visibility: 'Owned by everyone',
         tags: ['Site Visit'],
-        subject: '✅ Confirmed: Your Property Visit for {{property_list}}',
-        content: `Hello {{first_name}},<br><br>Your site visit has been successfully scheduled. Here are the details:<br><br>📍 <strong>Location:</strong> {{property_list}}<br>📅 <strong>Date & Time:</strong> [Insert Selection]<br>👤 <strong>Assigned Executive:</strong> {{agent_name}}<br><br>We recommend arriving 5 minutes early. If you need a pickup or directions, please reply to this email or call us directly.<br><br>Looking forward to showing you your potential future home!<br><br>Best regards,<br>{{agent_name}}`,
+        subject: '✅ Confirmed: Your Property Visit for {{property_list_default}}',
+        content: `Hello {{first_name}},<br><br>Your site visit has been successfully scheduled. Here are the details:<br><br>📍 <strong>Location:</strong> {{property_list_default}}<br>📅 <strong>Date & Time:</strong> [Insert Selection]<br>👤 <strong>Assigned Executive:</strong> {{agent_name}}<br><br>We recommend arriving 5 minutes early. If you need a pickup or directions, please reply to this email or call us directly.<br><br>Looking forward to showing you your potential future home!<br><br>Best regards,<br>{{agent_name}}`,
         shared: true
     },
     {
@@ -35,8 +35,8 @@ export const emailTemplates = [
         author: 'Bharat Properties',
         visibility: 'Owned by everyone',
         tags: ['Follow-up'],
-        subject: '🏠 Thoughts on your recent visit? | Next steps for {{property_list}}',
-        content: `Dear {{first_name}},<br><br>It was a pleasure meeting you during our visit to <strong>{{property_list}}</strong> today. We would love to hear your thoughts on the property.<br><br>Did the unit meet your expectations, or would you like to explore other options in a similar range?<br><br><strong>Next Steps:</strong> We can initiate the negotiation process if you liked this unit, or I can share 2-3 alternative listings by tomorrow morning.<br><br>Waiting for your feedback.<br><br>Best regards,<br>{{agent_name}}`,
+        subject: '🏠 Thoughts on your recent visit? | Next steps for {{property_list_default}}',
+        content: `Dear {{first_name}},<br><br>It was a pleasure meeting you during our visit to <strong>{{property_list_default}}</strong> today. We would love to hear your thoughts on the property.<br><br>Did the unit meet your expectations, or would you like to explore other options in a similar range?<br><br><strong>Next Steps:</strong> We can initiate the negotiation process if you liked this unit, or I can share 2-3 alternative listings by tomorrow morning.<br><br>Waiting for your feedback.<br><br>Best regards,<br>{{agent_name}}`,
         shared: true
     },
     {
@@ -374,7 +374,7 @@ Bharat Properties
 
 As discussed, I've curated a portfolio of *{{properties_count}} premium properties* specifically matching your requirements. 🏠💼
 
-{{property_list}}
+{{property_list_default}}
 
 I'd love to discuss these further and schedule visits for your top choices.
 

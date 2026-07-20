@@ -8,7 +8,8 @@ import {
     submitLeadForm,
     getPublicSettings,
     getAvailableUnits,
-    getGoogleReviews
+    getGoogleReviews,
+    getMatchBrochure
 } from "../controllers/public.controller.js";
 import { verifyApiKey } from "../middleware/apiKey.middleware.js";
 import * as parsingRuleController from '../src/modules/parsing/parsingRule.controller.js';
@@ -23,6 +24,7 @@ const router = express.Router();
 
 // Truly Public (No API Key Required)
 router.get("/parsing-rules", parsingRuleController.getRules);
+router.get("/matches/:token", getMatchBrochure);
 
 // Apply API Key verification to all other public routes
 router.use(verifyApiKey);

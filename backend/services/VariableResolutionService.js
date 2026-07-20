@@ -336,16 +336,44 @@ class VariableResolutionService {
                 }
                 return lead.matchedProperties.map((p, i) => {
                     const inv = p.inventoryId || {};
-                    const unit = p.unitNo || inv.unitNo || inv.unitNumber || 'TBD';
+                    const base = (inv.inventoryId && typeof inv.inventoryId === 'object') ? inv.inventoryId : inv;
+                    const unit = p.unitNo || inv.unitNo || base.unitNo || base.unitNumber || 'TBD';
                     
-                    // project name could be in p.projectName (from meta), or inv.projectName
-                    // if p.sector is an ObjectId (string length 24 hex), ignore it.
-                    let sectorName = typeof p.sector === 'string' && /^[a-fA-F0-9]{24}$/.test(p.sector) ? '' : p.sector;
-                    let pName = p.projectName || inv.projectName || sectorName || 'Project';
+                    let sectorName = typeof p.sector === 'string' && /^[a-fA-F0-9]{24}$/.test(p.sector) ? '' : (p.sector || inv.sector || base.sector);
+                    let pName = p.projectName || inv.projectName || base.projectName || sectorName || 'Project';
                     if (typeof pName === 'string' && /^[a-fA-F0-9]{24}$/.test(pName)) pName = 'Premium Project';
 
-                    const sz = p.size || inv.size?.value || 'Standard Size';
-                    const szUnit = p.sizeUnit || inv.size?.unit || 'Sq.Ft.';
+                    let sz = 'Standard Size';
+                    if (inv.sizeLabel) sz = inv.sizeLabel;
+                    else if (base.sizeLabel) sz = base.sizeLabel;
+                    else if (inv.sizeConfig?.lookup_value || inv.sizeConfig?.name || inv.sizeConfig?.label) sz = inv.sizeConfig.lookup_value || inv.sizeConfig.name || inv.sizeConfig.label;
+                    else if (base.sizeConfig?.lookup_value || base.sizeConfig?.name || base.sizeConfig?.label) sz = base.sizeConfig.lookup_value || base.sizeConfig.name || base.sizeConfig.label;
+                    else if (typeof inv.sizeConfig === 'string' && !/^[a-fA-F0-9]{24}$/.test(inv.sizeConfig)) sz = inv.sizeConfig;
+                    else if (typeof base.sizeConfig === 'string' && !/^[a-fA-F0-9]{24}$/.test(base.sizeConfig)) sz = base.sizeConfig;
+                    else if (p.size) sz = p.size;
+                    else if (inv.size?.value) sz = inv.size.value;
+                    else if (base.size?.value) sz = base.size.value;
+                    else if (inv.size && typeof inv.size !== 'object') sz = inv.size;
+                    else if (base.size && typeof base.size !== 'object') sz = base.size;
+
+                    if (sz === 'Standard Size' || !sz) {
+                        let subCat = inv.subCategory || base.subCategory;
+                        if (subCat) {
+                            sz = typeof subCat === 'object' ? (subCat.lookup_value || subCat.name || subCat.label) : subCat;
+                        }
+                        if (!sz) sz = 'Standard Size';
+                    }
+                    console.log(`[DEBUG] Deal ${unit} sz=${sz} (inv.sizeLabel=${inv.sizeLabel}, base.sizeLabel=${base.sizeLabel})`);
+
+                    let szUnit = '';
+                    if (!inv.sizeLabel && !base.sizeLabel && sz !== inv.subCategory && sz !== base.subCategory && typeof sz === 'number') {
+                        szUnit = p.sizeUnit || inv.size?.unit || base.size?.unit || inv.sizeUnit || base.sizeUnit || 'Sq.Ft.';
+                    } else if (sz && !sz.toString().toLowerCase().includes('bhk') && !sz.toString().toLowerCase().includes('sq')) {
+                        szUnit = p.sizeUnit || inv.sizeUnit || base.sizeUnit || '';
+                    }
+                    if (sz && (sz.toString().toLowerCase() === 'plot' || sz.toString().toLowerCase() === 'standard size')) {
+                        szUnit = '';
+                    }
                     
                     let pr = 'Price on call';
                     if (!lead.hidePrice && !lead.hidePrices) {
@@ -362,8 +390,11 @@ class VariableResolutionService {
                         unitStr = `#${unit} | `;
                     }
 
+                    if (lead.templateId === 'free_text') {
+                        return `${i + 1}️⃣ 🏢 ${unitStr}${pName}\n   📐 ${sz} ${szUnit}\n   💰 ${pr}`;
+                    }
                     return `${i + 1}️⃣ 🏢 ${unitStr}${pName} | 📐 ${sz} ${szUnit} | 💰 ${pr}`;
-                }).join('\n');
+                }).join(lead.templateId === 'free_text' ? '\n\n' : '\n');
 
             case 'matchListDetailed':
                 if (!lead.matchedProperties || !Array.isArray(lead.matchedProperties)) {
@@ -371,14 +402,43 @@ class VariableResolutionService {
                 }
                 return lead.matchedProperties.map((p, i) => {
                     const inv = p.inventoryId || {};
-                    const unit = p.unitNo || inv.unitNo || inv.unitNumber || 'TBD';
+                    const base = (inv.inventoryId && typeof inv.inventoryId === 'object') ? inv.inventoryId : inv;
+                    const unit = p.unitNo || inv.unitNo || base.unitNo || base.unitNumber || 'TBD';
                     
-                    let sectorName = typeof p.sector === 'string' && /^[a-fA-F0-9]{24}$/.test(p.sector) ? '' : p.sector;
-                    let pName = p.projectName || inv.projectName || sectorName || 'Premium Project';
+                    let sectorName = typeof p.sector === 'string' && /^[a-fA-F0-9]{24}$/.test(p.sector) ? '' : (p.sector || inv.sector || base.sector);
+                    let pName = p.projectName || inv.projectName || base.projectName || sectorName || 'Premium Project';
                     if (typeof pName === 'string' && /^[a-fA-F0-9]{24}$/.test(pName)) pName = 'Premium Project';
 
-                    const sz = p.size || inv.size?.value || 'Standard Size';
-                    const szUnit = p.sizeUnit || inv.size?.unit || 'Sq.Ft.';
+                    let sz = 'Standard Size';
+                    if (inv.sizeLabel) sz = inv.sizeLabel;
+                    else if (base.sizeLabel) sz = base.sizeLabel;
+                    else if (inv.sizeConfig?.lookup_value || inv.sizeConfig?.name || inv.sizeConfig?.label) sz = inv.sizeConfig.lookup_value || inv.sizeConfig.name || inv.sizeConfig.label;
+                    else if (base.sizeConfig?.lookup_value || base.sizeConfig?.name || base.sizeConfig?.label) sz = base.sizeConfig.lookup_value || base.sizeConfig.name || base.sizeConfig.label;
+                    else if (typeof inv.sizeConfig === 'string' && !/^[a-fA-F0-9]{24}$/.test(inv.sizeConfig)) sz = inv.sizeConfig;
+                    else if (typeof base.sizeConfig === 'string' && !/^[a-fA-F0-9]{24}$/.test(base.sizeConfig)) sz = base.sizeConfig;
+                    else if (p.size) sz = p.size;
+                    else if (inv.size?.value) sz = inv.size.value;
+                    else if (base.size?.value) sz = base.size.value;
+                    else if (inv.size && typeof inv.size !== 'object') sz = inv.size;
+                    else if (base.size && typeof base.size !== 'object') sz = base.size;
+
+                    if (sz === 'Standard Size' || !sz) {
+                        let subCat = inv.subCategory || base.subCategory;
+                        if (subCat) {
+                            sz = typeof subCat === 'object' ? (subCat.lookup_value || subCat.name || subCat.label) : subCat;
+                        }
+                        if (!sz) sz = 'Standard Size';
+                    }
+
+                    let szUnit = '';
+                    if (!inv.sizeLabel && !base.sizeLabel && sz !== inv.subCategory && sz !== base.subCategory && typeof sz === 'number') {
+                        szUnit = p.sizeUnit || inv.size?.unit || base.size?.unit || inv.sizeUnit || base.sizeUnit || 'Sq.Ft.';
+                    } else if (sz && !sz.toString().toLowerCase().includes('bhk') && !sz.toString().toLowerCase().includes('sq')) {
+                        szUnit = p.sizeUnit || inv.sizeUnit || base.sizeUnit || '';
+                    }
+                    if (sz && (sz.toString().toLowerCase() === 'plot' || sz.toString().toLowerCase() === 'standard size')) {
+                        szUnit = '';
+                    }
                     
                     let pr = 'Price on call';
                     if (!lead.hidePrice && !lead.hidePrices) {
@@ -425,8 +485,10 @@ class VariableResolutionService {
                     lines.push(''); // Blank line
                     
                     // Location
-                    lines.push(mapsLink);
-                    lines.push(''); // Blank line
+                    if (!lead.hideLocation) {
+                        lines.push(mapsLink);
+                        lines.push(''); // Blank line
+                    }
                     
                     // Price
                     lines.push(`💰 *Expected Price* ${pr}`);

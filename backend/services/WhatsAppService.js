@@ -231,8 +231,8 @@ class WhatsAppService {
             console.log(`[WhatsApp/Meta] ✅ TEMPLATE SUCCESS: ${templateName} sent to ${toNumber}. ID: ${msgId}`);
             return { success: true, messageId: msgId, provider: 'meta', template: templateName };
         } catch (err) {
-            const detail = err.response?.data?.error?.message || err.message;
-            console.error(`[WhatsApp/Meta] ❌ TEMPLATE ERROR for ${toNumber}:`, detail);
+            const detail = err.response?.data || err.message;
+            console.error(`[WhatsApp/Meta] ❌ TEMPLATE ERROR for ${toNumber}:`, JSON.stringify(detail, null, 2));
             return { success: false, error: detail, provider: 'meta' };
         }
     }

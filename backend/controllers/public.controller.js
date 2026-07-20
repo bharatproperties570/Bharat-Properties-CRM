@@ -447,6 +447,36 @@ export const getListings = async (req, res) => {
     }
 };
 
+import SharedMatch from '../models/SharedMatch.js';
+
+export const getMatchBrochure = async (req, res) => {
+    try {
+        const { token } = req.params;
+        const match = await SharedMatch.findOne({ token })
+            .populate('leadId', 'firstName lastName requirement intent location')
+            .populate({
+                path: 'dealIds',
+                populate: [
+                    { path: 'images' },
+                    { path: 'address.locality' },
+                    { path: 'subCategory' },
+                    { path: 'sizeConfig' }
+                ]
+            })
+            .populate('createdBy', 'firstName lastName mobile phone email profileImage')
+            .lean();
+
+        if (!match) {
+            return res.status(404).json({ success: false, message: 'Match link not found or expired.' });
+        }
+
+        return res.json({ success: true, data: match });
+    } catch (error) {
+        console.error("Error fetching match brochure:", error);
+        res.status(500).json({ success: false, message: "Server error." });
+    }
+};
+
 // 2. Fetch all published projects
 export const getProjects = async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');

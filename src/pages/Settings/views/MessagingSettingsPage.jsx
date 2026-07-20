@@ -719,7 +719,6 @@ const VariableRegistryTab = () => {
                             { var: '{{property_location}}', desc: 'Property Location / Address', ctx: 'Property' },
                             
                             // Dynamic / Match Data
-                            { var: '{{property_list}}', desc: 'Standard matched property list', ctx: 'Match' },
                             { var: '{{property_list_default}}', desc: 'Formatted list of matched properties', ctx: 'Match' },
                             { var: '{{property_list_detailed}}', desc: 'Detailed list with specs & pricing', ctx: 'Match' },
                             { var: '{{requirement_summary}}', desc: 'Summary of what customer is looking for', ctx: 'Match' },

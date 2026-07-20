@@ -58,9 +58,16 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
 
                 if (waRes.status === 'fulfilled') {
                     const waData = waRes.value?.data?.value;
-                    if (waData && (waData.token || waData.apiKey || waData.phoneId || waData.active)) {
+                    if (waData && (waData.token || waData.apiKey || waData.phoneId || waData.active || waData.phoneNumberId)) {
                         avail.whatsapp = true;
                     }
+                }
+                
+                // Fetch templates
+                const tmplRes = await systemSettingsAPI.getByKey('crm_whatsapp_templates').catch(() => null);
+                if (tmplRes?.data?.value) {
+                    const filtered = tmplRes.data.value.filter(t => t.systemContext?.includes('lead_match_full') || t.systemContext?.includes('lead_match_short'));
+                    setMarketingTemplates(filtered);
                 }
                 
                 if (emailRes.status === 'fulfilled') {
@@ -228,6 +235,10 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
     const [selectedProperties, setSelectedProperties] = useState([]);
     
     const [hidePrice, setHidePrice] = useState(false);
+    const [hideUnit, setHideUnit] = useState(false);
+    const [hideLocation, setHideLocation] = useState(false);
+    const [marketingTemplates, setMarketingTemplates] = useState([]);
+    const [selectedTemplateId, setSelectedTemplateId] = useState('');
     const { currentUser } = useUserContext();
 
     // 2. Pre-parse Lead Context (Simplified for display only)
@@ -386,6 +397,34 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
         return { score, fields: checks };
     }, [lead]);
 
+    const prepareQuickFill = () => {
+        if (!lead || !selectedProperties || selectedProperties.length === 0) return;
+        setShowQuickFill(true);
+    };
+
+    const [isGeneratingLink, setIsGeneratingLink] = useState(false);
+    const handleGenerateLink = async () => {
+        if (selectedProperties.length === 0) return toast.error("Select properties first.");
+        setIsGeneratingLink(true);
+        try {
+            const res = await api.post('/marketing/generate-match-link', {
+                dealIds: selectedProperties.map(p => p.dealId || p._id || p.id),
+                leadId: lead._id
+            });
+            if (res.data && res.data.success) {
+                await navigator.clipboard.writeText(res.data.url);
+                toast.success('Match link generated and copied to clipboard!');
+            } else {
+                toast.error(res.data?.error || 'Failed to generate link.');
+            }
+        } catch (err) {
+            console.error('Error generating match link:', err);
+            toast.error('Error generating link.');
+        } finally {
+            setIsGeneratingLink(false);
+        }
+    };
+
     const handleSaveProfile = async () => {
         if (!lead?._id) return;
         setSavingProfile(true);
@@ -462,7 +501,12 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             const res = await api.post('marketing/send-manual', {
                 leadId: lead._id,
                 dealIds,
-                toggles: { whatsapp: true, email: false, sms: false }
+                toggles: { whatsapp: true, email: false, sms: false },
+                hidePrice,
+                hideUnit,
+                hideLocation,
+                templateId: selectedTemplateId || undefined,
+                matchContext: 'perfect'
             });
 
             if (res.data?.success) {
@@ -696,7 +740,10 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                             toggles: { [ch]: true },
                             scheduledAt: channelSchedules?.[ch] || undefined,
                             hidePrice,
-                            matchContext: portfolioDetailLevel.includes('short') ? 'top' : 'perfect'
+                            hideUnit,
+                            hideLocation,
+                            templateId: selectedTemplateId || undefined,
+                            matchContext: 'perfect'
                         }).catch(e => console.error(`[Dispatch] Error on ${ch}:`, e))
                     );
                 }
@@ -1518,21 +1565,30 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                             {selectedItems.length} Selected
                         </div>
                         <select 
-                            value={portfolioDetailLevel}
-                            onChange={(e) => setPortfolioDetailLevel(e.target.value)}
+                            value={selectedTemplateId}
+                            onChange={(e) => setSelectedTemplateId(e.target.value)}
                             style={{
                                 background: '#1e293b', color: '#fff', border: '1px solid #475569', 
                                 padding: '4px 12px', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 600,
                                 outline: 'none', cursor: 'pointer'
                             }}
                         >
-                            <option value="full_details">Full Details</option>
-                            <option value="short_details">Short Details</option>
-                            <option value="full_extended">Full Details (with Loc & Unit)</option>
-                            <option value="short_extended">Short Details (with Unit)</option>
+                            <option value="">Auto-Select Template</option>
+                            <option value="free_text">No Template (Active Chat Session Only)</option>
+                            {marketingTemplates.map(t => (
+                                <option key={t.id || t.name} value={t.id || t.name}>{t.name} ({t.systemContext?.includes('full') ? 'Full' : 'Short'})</option>
+                            ))}
                         </select>
                         <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', color: '#cbd5e1', cursor: 'pointer', fontWeight: 600 }}>
-                            <input type="checkbox" checked={hidePrice} onChange={(e) => setHidePrice(e.target.checked)} style={{ accentColor: '#6366f1', width: '16px', height: '16px', cursor: 'pointer' }} />
+                            <input type="checkbox" checked={hideLocation} onChange={(e) => setHideLocation(e.target.checked)} style={{ accentColor: '#10b981', width: '16px', height: '16px', cursor: 'pointer' }} />
+                            Hide Loc
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', color: '#cbd5e1', cursor: 'pointer', fontWeight: 600 }}>
+                            <input type="checkbox" checked={hideUnit} onChange={(e) => setHideUnit(e.target.checked)} style={{ accentColor: '#f59e0b', width: '16px', height: '16px', cursor: 'pointer' }} />
+                            Hide Unit
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', color: '#cbd5e1', cursor: 'pointer', fontWeight: 600 }}>
+                            <input type="checkbox" checked={hidePrice} onChange={(e) => setHidePrice(e.target.checked)} style={{ accentColor: '#ef4444', width: '16px', height: '16px', cursor: 'pointer' }} />
                             Hide Price
                         </label>
                     </div>
@@ -1555,6 +1611,13 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                         outline: blastChannels[ch] ? `2px solid ${ch === 'whatsapp' ? '#059669' : ch === 'email' ? '#2563eb' : '#7c3aed'}` : 'none'
                                     }}>
                                     <i className={`fa${ch==='whatsapp'?'b':'s'} fa-${ch==='whatsapp'?'whatsapp':ch==='email'?'envelope':'comment-dots'}`}></i> {ch === 'whatsapp' ? 'WA API' : ch.toUpperCase()}
+                                    {ch === 'whatsapp' && (
+                                        <div style={{
+                                            width: '8px', height: '8px', background: '#4ade80', borderRadius: '50%',
+                                            marginLeft: '4px', boxShadow: '0 0 0 0 rgba(74, 222, 128, 0.7)',
+                                            animation: 'pulse-green 2s infinite'
+                                        }} title="WhatsApp Active"></div>
+                                    )}
                                 </button>
                                 {blastChannels[ch] && (
                                     <div style={{ display: 'flex', gap: '4px' }}>
@@ -1612,6 +1675,22 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                         </button>
 
                         <div style={{ width: '1px', height: '24px', background: '#475569', margin: '0 8px' }}></div>
+
+                        <button 
+                            className="btn-primary"
+                            onClick={handleGenerateLink}
+                            disabled={isGeneratingLink}
+                            style={{ 
+                                padding: '8px 16px', borderRadius: '20px', background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)', 
+                                color: '#fff', border: 'none', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer',
+                                opacity: (isGeneratingLink) ? 0.7 : 1, transition: 'all 0.2s', boxShadow: '0 4px 15px rgba(59, 130, 246, 0.4)'
+                            }}
+                            onMouseOver={(e) => { if(!isGeneratingLink) e.currentTarget.style.transform = 'translateY(-2px)'; }}
+                            onMouseOut={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                        >
+                            {isGeneratingLink ? <i className="fas fa-circle-notch fa-spin"></i> : <i className="fas fa-link"></i>}
+                            Copy Match Link
+                        </button>
 
                         <button 
                             className="btn-primary"
