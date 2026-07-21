@@ -860,8 +860,8 @@ async function resolveMetaComponents(templateId, recipient, meta, registryMappin
     // 1. Resolve all possible variables for this recipient
     const enrichedContext = {
         ...recipient,
-        fullName: recipient.name || 'Broker',
-        firstName: (recipient.name || 'Broker').split(' ')[0],
+        fullName: recipient.firstName ? `${recipient.firstName} ${recipient.lastName || ''}`.trim() : (recipient.name || 'Customer'),
+        firstName: recipient.firstName || (recipient.name ? recipient.name.split(' ')[0] : 'Customer'),
     };
 
     // Preserve multiple properties if they exist, otherwise fallback to meta single object
@@ -882,7 +882,9 @@ async function resolveMetaComponents(templateId, recipient, meta, registryMappin
 
     templateDef.components.forEach(compDef => {
         if (compDef.type === 'BODY') {
-            const matches = compDef.text.match(/{{(\d+)}}/g) || [];
+            // ENTERPRISE FIX: Match actual {{n}} pattern (2 curly braces)
+            // and count ONLY the variables actually present in the template text
+            const matches = (compDef.text || '').match(/{{\d+}}/g) || [];
             if (matches.length > 0) {
                 const parameters = [];
                 matches.forEach(() => {
@@ -921,6 +923,7 @@ async function resolveMetaComponents(templateId, recipient, meta, registryMappin
         }
     });
 
+    console.log(`[resolveMetaComponents] "${templateId}" → ${globalVarIndex - 1} var(s) resolved across ${components.length} component(s).`);
     return components;
 }
 
