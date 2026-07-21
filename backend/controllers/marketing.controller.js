@@ -907,12 +907,20 @@ async function resolveMetaComponents(templateId, recipient, meta, registryMappin
             compDef.buttons?.forEach((btn, btnIdx) => {
                 const hasDynVar = btn.url && /\{\{\d+\}\}/.test(btn.url);
                 if (hasDynVar) {
-                    // Generate a signed site visit link for the lead
-                    const siteVisitToken = resolvedMap['siteVisitToken'] || resolvedMap['site_visit_token'] || 'visit';
+                    const namedMap = VariableResolutionService.resolveNamed(enrichedContext);
+                    let siteVisitToken = namedMap['siteVisitToken'] || namedMap['site_visit_token'] || 'visit';
+
+                    // Anti-phishing fix: Meta strictly prohibits domains or tokens with dots 
+                    // in the dynamic URL parameter for buttons, as it looks like phishing.
+                    // Replace JWT dots with hyphens.
+                    if (typeof siteVisitToken === 'string' && siteVisitToken.includes('.')) {
+                        siteVisitToken = siteVisitToken.replace(/\./g, '-');
+                    }
+
                     components.push({
                         type: 'button',
                         sub_type: 'url',
-                        index: btnIdx,
+                        index: String(btnIdx),
                         parameters: [{ type: 'text', text: String(siteVisitToken) }]
                     });
                 }

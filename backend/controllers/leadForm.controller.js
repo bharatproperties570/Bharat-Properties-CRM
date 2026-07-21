@@ -108,7 +108,8 @@ export const submitForm = async (req, res) => {
 
         if (refToken) {
             try {
-                const decoded = jwt.verify(refToken, process.env.JWT_SECRET || 'crm_secret_key');
+                const normalizedToken = refToken.includes("-") ? refToken.replace(/-/g, ".") : refToken;
+                const decoded = jwt.verify(normalizedToken, process.env.JWT_SECRET || 'crm_secret_key');
                 if (decoded && decoded.leadId) {
                     leadId = decoded.leadId;
                 }
