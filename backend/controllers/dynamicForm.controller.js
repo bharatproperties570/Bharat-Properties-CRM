@@ -44,7 +44,8 @@ export const getDynamicOptions = async (req, res, next) => {
 
         if (source === 'projects') {
             const Project = mongoose.model('Project');
-            const projects = await Project.find({ isPublished: true }).select('name projectName').lean();
+            // User requested to show ALL projects in the Site Visit dropdown, not just published ones
+            const projects = await Project.find({}).select('name projectName').lean();
             options = projects.map(p => p.name || p.projectName);
         } else if (source === 'users') {
             const User = mongoose.model('User');

@@ -12,6 +12,7 @@ const PublicLeadForm = ({ slug }) => {
 
     // 🚀 ENTERPRISE TWEAK: Default to Light Mode (White Screen) as requested
     const [isDarkMode, setIsDarkMode] = useState(false);
+    const [showPropertyFields, setShowPropertyFields] = useState(false);
 
     useEffect(() => {
         const fetchForm = async () => {
@@ -351,8 +352,16 @@ const PublicLeadForm = ({ slug }) => {
                 <form onSubmit={handleSubmit} className="form-section">
                     {formConfig.sections.map(section => {
                         // 🧠 AGGRESSIVE SMART HIDING:
-                        // We hide any field that looks like Name, Mobile, or Email if we have pre-fill data.
+                        const isPropertySection = section.fields.some(f => ['f_project', 'f_block', 'f_unitNo'].includes(f.id));
+                        
                         const visibleFields = section.fields.filter(field => {
+                            if (!preFillLead && !['f_project', 'f_block', 'f_unitNo'].includes(field.id)) return true;
+                            
+                            // Check if it's a property field
+                            if (['f_project', 'f_block', 'f_unitNo'].includes(field.id)) {
+                                return showPropertyFields;
+                            }
+
                             if (!preFillLead) return true;
                             
                             const label = (field.label || '').toLowerCase();
@@ -366,7 +375,7 @@ const PublicLeadForm = ({ slug }) => {
                             return !(isName || isMobile || isEmail);
                         });
 
-                        if (visibleFields.length === 0) return null;
+                        if (visibleFields.length === 0 && !isPropertySection) return null;
 
                         return (
                             <div key={section.id} style={{ marginBottom: '50px' }}>
@@ -433,6 +442,33 @@ const PublicLeadForm = ({ slug }) => {
                                         </div>
                                     ))}
                                 </div>
+                                
+                                {isPropertySection && !showPropertyFields && (
+                                    <div style={{ marginTop: '30px', textAlign: 'center' }}>
+                                        <button 
+                                            type="button" 
+                                            onClick={() => setShowPropertyFields(true)}
+                                            style={{
+                                                background: 'transparent',
+                                                border: '2px dashed rgba(201, 146, 26, 0.5)',
+                                                color: '#c9921a',
+                                                padding: '14px 24px',
+                                                borderRadius: '16px',
+                                                fontSize: '0.95rem',
+                                                fontWeight: 700,
+                                                cursor: 'pointer',
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: '8px',
+                                                transition: 'all 0.2s ease'
+                                            }}
+                                            onMouseOver={(e) => { e.currentTarget.style.background = 'rgba(201, 146, 26, 0.05)'; e.currentTarget.style.borderColor = '#c9921a'; }}
+                                            onMouseOut={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'rgba(201, 146, 26, 0.5)'; }}
+                                        >
+                                            <i className="fas fa-plus-circle"></i> Add Specific Property Details (Optional)
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         );
                     })}
