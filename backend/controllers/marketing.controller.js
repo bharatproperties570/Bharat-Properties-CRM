@@ -901,29 +901,36 @@ async function resolveMetaComponents(templateId, recipient, meta, registryMappin
                 components.push({ type: 'body', parameters });
             }
         } else if (compDef.type === 'BUTTONS') {
+            // ✅ CRITICAL FIX: Meta button's {{1}} is INDEPENDENT of body's {{n}} counter.
+            // It always starts at index 1 within the button itself, not the global counter.
+            // We MUST send a separate 'button' component for every dynamic URL button.
             compDef.buttons?.forEach((btn, btnIdx) => {
-                if (btn.url && btn.url.includes('{{1}}')) {
-                    const val = resolvedMap[String(globalVarIndex)] || 'token';
+                const hasDynVar = btn.url && /\{\{\d+\}\}/.test(btn.url);
+                if (hasDynVar) {
+                    // Generate a signed site visit link for the lead
+                    const siteVisitToken = resolvedMap['siteVisitToken'] || resolvedMap['site_visit_token'] || 'visit';
                     components.push({
                         type: 'button',
                         sub_type: 'url',
                         index: btnIdx,
-                        parameters: [{ type: 'text', text: String(val) }]
+                        parameters: [{ type: 'text', text: String(siteVisitToken) }]
                     });
-                    globalVarIndex++;
                 }
             });
-        } else if (compDef.type === 'HEADER' && compDef.format === 'TEXT' && compDef.text.includes('{{1}}')) {
-            const val = resolvedMap[String(globalVarIndex)] || 'Update';
-            components.push({
-                type: 'header',
-                parameters: [{ type: 'text', text: String(val) }]
-            });
-            globalVarIndex++;
+        } else if (compDef.type === 'HEADER' && compDef.format === 'TEXT' && /\{\{\d+\}\}/.test(compDef.text)) {
+            const headerVars = (compDef.text.match(/{{\d+}}/g) || []);
+            if (headerVars.length > 0) {
+                const parameters = headerVars.map(() => {
+                    const val = resolvedMap[String(globalVarIndex)] || 'Update';
+                    globalVarIndex++;
+                    return { type: 'text', text: String(val).substring(0, 200) };
+                });
+                components.push({ type: 'header', parameters });
+            }
         }
     });
 
-    console.log(`[resolveMetaComponents] "${templateId}" → ${globalVarIndex - 1} var(s) resolved across ${components.length} component(s).`);
+    console.log(`[resolveMetaComponents] "${templateId}" → ${globalVarIndex - 1} body var(s), ${components.length} total component(s) built.`);
     return components;
 }
 

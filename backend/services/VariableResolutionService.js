@@ -82,6 +82,30 @@ class VariableResolutionService {
             "property_list_default": this.extractValue(lead, 'matchListDefault'),
             "property_list_detailed": this.extractValue(lead, 'matchListDetailed'),
             "portal_link": "https://crm.bharatproperties.co",
+            // Button URL token — only the dynamic suffix ({{1}}) for URL buttons
+            // Template base URL is defined in Meta, we only provide the token part
+            "siteVisitToken": (() => {
+                try {
+                    const leadId = lead.id || lead._id;
+                    if (!leadId) return 'visit';
+                    return jwt.sign(
+                        { leadId: String(leadId), source: 'wa_match_centre' },
+                        process.env.JWT_SECRET || 'crm_secret_key',
+                        { expiresIn: '30d' }
+                    );
+                } catch(e) { return 'visit'; }
+            })(),
+            "site_visit_token": (() => {
+                try {
+                    const leadId = lead.id || lead._id;
+                    if (!leadId) return 'visit';
+                    return jwt.sign(
+                        { leadId: String(leadId), source: 'wa_match_centre' },
+                        process.env.JWT_SECRET || 'crm_secret_key',
+                        { expiresIn: '30d' }
+                    );
+                } catch(e) { return 'visit'; }
+            })(),
 
             // Inject Runtime Custom Data
             ...customOverrides
