@@ -580,7 +580,7 @@ export const getLeads = async (req, res, next) => {
         // 🚀 SENIOR OPTIMIZATION: Conditionally apply projection for compact views (Mobile List)
         let projection = null;
         if (view === 'compact') {
-            projection = '_id firstName lastName mobile email stage status source owner assignment projectName locArea locCity budgetMax budgetMin budget requirement subType sizeType project createdAt updatedAt intent_index leadScore location isAtRisk atRiskReason consecutiveFailedContacts';
+            projection = '_id firstName lastName mobile email stage status source owner assignment projectName locArea locCity budgetMax budgetMin budget requirement subType sizeType project createdAt updatedAt intent_index leadScore location isAtRisk atRiskReason consecutiveFailedContacts contactDetails';
         }
 
         // Enable population for key fields (Use lean population for list view)
