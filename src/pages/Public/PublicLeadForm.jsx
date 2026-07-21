@@ -82,6 +82,40 @@ const PublicLeadForm = ({ slug }) => {
         fetchForm();
     }, [slug]);
 
+    // 🚀 CASCADING DROPDOWNS: Fetch Blocks when Project changes
+    useEffect(() => {
+        const fetchBlocks = async () => {
+            if (!formData['f_project']) {
+                setDynamicOptions(prev => ({ ...prev, 'f_block': [], 'f_unitNo': [] }));
+                return;
+            }
+            try {
+                const res = await api.get(`/deal-forms/public/inventory/blocks?projectName=${encodeURIComponent(formData['f_project'])}`);
+                setDynamicOptions(prev => ({ ...prev, 'f_block': res.data.data }));
+            } catch (e) {
+                console.error("Failed to fetch blocks", e);
+            }
+        };
+        fetchBlocks();
+    }, [formData['f_project']]);
+
+    // 🚀 CASCADING DROPDOWNS: Fetch Units when Block changes
+    useEffect(() => {
+        const fetchUnits = async () => {
+            if (!formData['f_project'] || !formData['f_block']) {
+                setDynamicOptions(prev => ({ ...prev, 'f_unitNo': [] }));
+                return;
+            }
+            try {
+                const res = await api.get(`/deal-forms/public/inventory/units?projectName=${encodeURIComponent(formData['f_project'])}&block=${encodeURIComponent(formData['f_block'])}`);
+                setDynamicOptions(prev => ({ ...prev, 'f_unitNo': res.data.data }));
+            } catch (e) {
+                console.error("Failed to fetch units", e);
+            }
+        };
+        fetchUnits();
+    }, [formData['f_project'], formData['f_block']]);
+
     useEffect(() => {
         const originalOverflow = document.body.style.overflow;
         const originalHeight = document.body.style.height;
@@ -94,7 +128,17 @@ const PublicLeadForm = ({ slug }) => {
     }, []);
 
     const handleInputChange = (fieldId, value) => {
-        setFormData({ ...formData, [fieldId]: value });
+        setFormData(prev => {
+            const newData = { ...prev, [fieldId]: value };
+            // Cascading clear logic
+            if (fieldId === 'f_project') {
+                newData['f_block'] = '';
+                newData['f_unitNo'] = [];
+            } else if (fieldId === 'f_block') {
+                newData['f_unitNo'] = [];
+            }
+            return newData;
+        });
     };
 
     const handleSubmit = async (e) => {
