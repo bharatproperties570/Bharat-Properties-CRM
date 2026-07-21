@@ -439,53 +439,16 @@ const PublicLeadForm = ({ slug }) => {
                                                 {field.label} {field.required && <span style={{ color: '#ef4444' }}>*</span>}
                                             </label>
 
-                                            {field.type === 'multi-select' ? (
-                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
-                                                    {(dynamicOptions[field.id] || field.options || []).length > 0 ? (
-                                                        (dynamicOptions[field.id] || field.options || []).map(opt => {
-                                                            const isSelected = (formData[field.id] || []).includes(opt);
-                                                            return (
-                                                                <div 
-                                                                    key={opt}
-                                                                    onClick={() => {
-                                                                        const currentSelected = formData[field.id] || [];
-                                                                        if (isSelected) {
-                                                                            handleInputChange(field.id, currentSelected.filter(item => item !== opt));
-                                                                        } else {
-                                                                            handleInputChange(field.id, [...currentSelected, opt]);
-                                                                        }
-                                                                    }}
-                                                                    style={{
-                                                                        padding: '10px 18px',
-                                                                        borderRadius: '12px',
-                                                                        cursor: 'pointer',
-                                                                        fontSize: '0.95rem',
-                                                                        fontWeight: 700,
-                                                                        border: `2px solid ${isSelected ? '#c9921a' : 'transparent'}`,
-                                                                        background: isSelected ? 'rgba(201, 146, 26, 0.15)' : (isDarkMode ? '#1e293b' : '#f1f5f9'),
-                                                                        color: isSelected ? '#c9921a' : (isDarkMode ? '#e2e8f0' : '#1e293b'),
-                                                                        transition: 'all 0.2s ease',
-                                                                        userSelect: 'none'
-                                                                    }}
-                                                                >
-                                                                    {opt}
-                                                                </div>
-                                                            );
-                                                        })
-                                                    ) : (
-                                                        <div style={{ color: isDarkMode ? '#94a3b8' : '#64748b', fontSize: '0.95rem', fontStyle: 'italic', padding: '10px 0' }}>
-                                                            {field.id === 'f_unitNo' && !formData['f_block'] ? 'Select a block first to view units' : 'No options available'}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            ) : field.type === 'select' ? (
+                                            {field.type === 'select' || field.type === 'multi-select' ? (
                                                 <select
                                                     required={field.required}
-                                                    value={formData[field.id] || ''}
-                                                    onChange={e => handleInputChange(field.id, e.target.value)}
+                                                    multiple={field.type === 'multi-select'}
+                                                    value={formData[field.id] !== undefined ? formData[field.id] : (field.type === 'multi-select' ? [] : '')}
+                                                    onChange={e => handleInputChange(field.id, field.type === 'multi-select' ? Array.from(e.target.selectedOptions, option => option.value) : e.target.value)}
                                                     className="form-control"
+                                                    style={{ height: field.type === 'multi-select' ? '120px' : '64px' }}
                                                 >
-                                                    <option value="" disabled>Select Option</option>
+                                                    <option value="" disabled={field.type === 'multi-select'}>Select Option</option>
                                                     {(dynamicOptions[field.id] || field.options || []).map(opt => <option key={opt} value={opt}>{opt}</option>)}
                                                 </select>
                                             ) : field.type === 'radio' ? (
