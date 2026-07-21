@@ -439,12 +439,12 @@ const PublicLeadForm = ({ slug }) => {
                                                 <select
                                                     required={field.required}
                                                     multiple={field.type === 'multi-select'}
-                                                    value={formData[field.id] || ''}
+                                                    value={formData[field.id] !== undefined ? formData[field.id] : (field.type === 'multi-select' ? [] : '')}
                                                     onChange={e => handleInputChange(field.id, field.type === 'multi-select' ? Array.from(e.target.selectedOptions, option => option.value) : e.target.value)}
                                                     className="form-control"
                                                     style={{ height: field.type === 'multi-select' ? 'auto' : '64px' }}
                                                 >
-                                                    <option value="">Select Option</option>
+                                                    <option value="" disabled={field.type === 'multi-select'}>Select Option</option>
                                                     {(dynamicOptions[field.id] || field.options || []).map(opt => <option key={opt} value={opt}>{opt}</option>)}
                                                 </select>
                                             ) : field.type === 'radio' ? (
