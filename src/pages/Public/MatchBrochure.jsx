@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import './MatchBrochure.css';
-import { renderValue, resolveLookup } from '../../../utils/helper';
-import { numberToIndianWords } from '../../../utils/numberToWords';
+import { renderValue } from '../../utils/renderUtils';
+import { numberToIndianWords } from '../../utils/numberToWords';
 
 const MatchBrochure = ({ token }) => {
     const [matchData, setMatchData] = useState(null);
