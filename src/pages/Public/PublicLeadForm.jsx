@@ -443,7 +443,7 @@ const PublicLeadForm = ({ slug }) => {
                                                 <select
                                                     required={field.required}
                                                     multiple={field.type === 'multi-select'}
-                                                    value={formData[field.id] !== undefined ? formData[field.id] : (field.type === 'multi-select' ? [] : '')}
+                                                    value={field.type === 'multi-select' ? (Array.isArray(formData[field.id]) ? formData[field.id] : []) : (formData[field.id] || '')}
                                                     onChange={e => handleInputChange(field.id, field.type === 'multi-select' ? Array.from(e.target.selectedOptions, option => option.value) : e.target.value)}
                                                     className="form-control"
                                                     style={{ height: field.type === 'multi-select' ? '120px' : '64px' }}
