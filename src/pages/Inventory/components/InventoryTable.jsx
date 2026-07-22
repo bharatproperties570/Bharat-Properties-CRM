@@ -217,8 +217,7 @@ const InventoryTable = ({
                                         <div style={{ fontSize: '0.72rem', fontWeight: 800, color: isDark ? 'var(--gold)' : '#2563eb', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                             <i className="fas fa-expand-arrows-alt" style={{ fontSize: '0.65rem' }}></i>
                                             {(() => {
-                                                const sizeStr = item.totalLandAreaText || 
-                                                                resolveInventoryLookup(item.sizeConfig, 'Size') || 
+                                                const sizeStr = resolveInventoryLookup(item.sizeConfig, 'Size') || 
                                                                 resolveInventoryLookup(item.sizeType, 'PropertyType') ||
                                                                 resolveInventoryLookup(item.sizeLabel, 'Size') ||
                                                                 resolveInventoryLookup(item.sizeLabel, 'PropertyType') ||
