@@ -13,12 +13,12 @@ class ErrorBoundary extends React.Component {
     componentDidCatch(error, errorInfo) {
         console.error("Uncaught error:", error, errorInfo);
         
-        // Auto-recover from chunk load errors (Vercel deployments)
+        // Auto-recover from chunk load errors (Vite HMR / Vercel deployments)
         const errString = (error?.message || error?.name || '').toLowerCase();
         if (errString.includes('chunkloaderror') || errString.includes('dynamically imported module') || errString.includes('importing a module script failed')) {
-            const hasReloaded = typeof sessionStorage !== 'undefined' && sessionStorage.getItem('chunk_reload');
+            const hasReloaded = typeof sessionStorage !== 'undefined' && sessionStorage.getItem('chunk_reload_2');
             if (!hasReloaded) {
-                if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('chunk_reload', 'true');
+                if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('chunk_reload_2', 'true');
                 window.location.href = window.location.origin + window.location.pathname + '?v=' + new Date().getTime();
                 return;
             }
@@ -53,6 +53,9 @@ class ErrorBoundary extends React.Component {
                                             localStorage.removeItem(key);
                                         }
                                     });
+                                }
+                                if (typeof sessionStorage !== 'undefined') {
+                                    sessionStorage.removeItem('chunk_reload');
                                 }
                                 // Force hard reload bypassing cache
                                 window.location.href = window.location.origin + window.location.pathname + '?v=' + new Date().getTime();

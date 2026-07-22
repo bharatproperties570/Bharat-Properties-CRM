@@ -26,6 +26,7 @@ const ProjectSchema = new mongoose.Schema({
     possessionDate: Date,
 
     parkingType: { type: mongoose.Schema.Types.Mixed },
+    zoneName: { type: mongoose.Schema.Types.Mixed },
     unitType: { type: mongoose.Schema.Types.Mixed },
     approvedBank: String,
 

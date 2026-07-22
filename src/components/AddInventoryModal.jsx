@@ -62,8 +62,17 @@ const AddInventoryModal = ({ isOpen, onClose, onSave, initialProject = null, pro
         handleAddBuiltupRow,
         handleRemoveBuiltupRow,
         updateBuiltupRow,
+        handleAddLandRow,
+        handleRemoveLandRow,
+        updateLandRow,
         handleFurnishedItemKeyDown,
-        removeFurnishedItem
+        removeFurnishedItem,
+        clearPolygon,
+        activateDrawing,
+        finishDrawing,
+        drawingPointsCount,
+        autoDetectLandmarks,
+        isDetectingLandmarks
     } = useInventoryForm(
         isOpen,
         initialProject,
@@ -186,13 +195,14 @@ const AddInventoryModal = ({ isOpen, onClose, onSave, initialProject = null, pro
                         <div style={{ width: '100%', margin: '0 auto' }}>
                             {activeTab === 'Unit' && (
                                 <InventoryUnitSection 
-                                    formData={formData} setFormData={setFormData} allProjects={allProjects} masterFields={masterFields} subCategories={subCategories} builtUpTypes={builtUpTypes} sizes={sizes} duplicateWarning={duplicateWarning} isCheckingDuplicate={isCheckingDuplicate} isBlocked={isBlocked} handleProjectChange={handleProjectChange} updateBuiltupRow={updateBuiltupRow} handleAddBuiltupRow={handleAddBuiltupRow} handleRemoveBuiltupRow={handleRemoveBuiltupRow} currentFurnishedItem={currentFurnishedItem} setCurrentFurnishedItem={setCurrentFurnishedItem} handleFurnishedItemKeyDown={handleFurnishedItemKeyDown} removeFurnishedItem={removeFurnishedItem} setIsAddSizeModalOpen={setIsAddSizeModalOpen} customSelectStyle={customSelectStyle} customSelectStyleDisabled={customSelectStyleDisabled} inputStyle={inputStyle} labelStyle={labelStyle} sectionStyle={sectionStyle}
+                                    formData={formData} setFormData={setFormData} allProjects={allProjects} masterFields={masterFields} subCategories={subCategories} builtUpTypes={builtUpTypes} sizes={sizes} duplicateWarning={duplicateWarning} isCheckingDuplicate={isCheckingDuplicate} isBlocked={isBlocked} handleProjectChange={handleProjectChange} updateBuiltupRow={updateBuiltupRow} handleAddBuiltupRow={handleAddBuiltupRow} handleRemoveBuiltupRow={handleRemoveBuiltupRow} handleAddLandRow={handleAddLandRow} handleRemoveLandRow={handleRemoveLandRow} updateLandRow={updateLandRow} currentFurnishedItem={currentFurnishedItem} setCurrentFurnishedItem={setCurrentFurnishedItem} handleFurnishedItemKeyDown={handleFurnishedItemKeyDown} removeFurnishedItem={removeFurnishedItem} setIsAddSizeModalOpen={setIsAddSizeModalOpen} customSelectStyle={customSelectStyle} customSelectStyleDisabled={customSelectStyleDisabled} inputStyle={inputStyle} labelStyle={labelStyle} sectionStyle={sectionStyle}
                                 />
                             )}
                             {activeTab === 'Location' && (
                                 <InventoryLocationSection 
-                                    formData={formData} setFormData={setFormData} mapRef={mapRef} searchInputRef={searchInputRef} disabledAddressFields={disabledAddressFields} inputStyle={inputStyle} sectionStyle={sectionStyle}
+                                    formData={formData} setFormData={setFormData} mapRef={mapRef} searchInputRef={searchInputRef} disabledAddressFields={disabledAddressFields} inputStyle={inputStyle} sectionStyle={sectionStyle} clearPolygon={clearPolygon} activateDrawing={activateDrawing} finishDrawing={finishDrawing} drawingPointsCount={drawingPointsCount} autoDetectLandmarks={autoDetectLandmarks} isDetectingLandmarks={isDetectingLandmarks}
                                 />
+
                             )}
                             {activeTab === 'Owner' && (
                                 <InventoryOwnerSection 

@@ -433,25 +433,27 @@ const PublicLeadForm = ({ slug }) => {
                                 </div>
 
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '32px' }}>
-                                    {visibleFields.map(field => (
+                                    {visibleFields.map(field => {
+                                        const fieldType = field.id === 'f_unitNo' ? 'multi-select' : field.type;
+                                        return (
                                         <div key={field.id}>
                                             <label className="form-label">
                                                 {field.label} {field.required && <span style={{ color: '#ef4444' }}>*</span>}
                                             </label>
 
-                                            {field.type === 'select' || field.type === 'multi-select' ? (
+                                            {fieldType === 'select' || fieldType === 'multi-select' ? (
                                                 <select
                                                     required={field.required}
-                                                    multiple={field.type === 'multi-select'}
-                                                    value={field.type === 'multi-select' ? (Array.isArray(formData[field.id]) ? formData[field.id] : []) : (formData[field.id] || '')}
-                                                    onChange={e => handleInputChange(field.id, field.type === 'multi-select' ? Array.from(e.target.selectedOptions, option => option.value) : e.target.value)}
+                                                    multiple={fieldType === 'multi-select'}
+                                                    value={fieldType === 'multi-select' ? (Array.isArray(formData[field.id]) ? formData[field.id] : []) : (formData[field.id] || '')}
+                                                    onChange={e => handleInputChange(field.id, fieldType === 'multi-select' ? Array.from(e.target.selectedOptions, option => option.value) : e.target.value)}
                                                     className="form-control"
-                                                    style={{ height: field.type === 'multi-select' ? '120px' : '64px' }}
+                                                    style={{ height: fieldType === 'multi-select' ? '120px' : '64px' }}
                                                 >
-                                                    <option value="" disabled={field.type === 'multi-select'}>Select Option</option>
+                                                    <option value="" disabled={fieldType === 'multi-select'}>Select Option</option>
                                                     {(dynamicOptions[field.id] || field.options || []).map(opt => <option key={opt} value={opt}>{opt}</option>)}
                                                 </select>
-                                            ) : field.type === 'radio' ? (
+                                            ) : fieldType === 'radio' ? (
                                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px' }}>
                                                     {(dynamicOptions[field.id] || field.options || []).map(opt => (
                                                         <label key={opt} style={{ 
@@ -488,7 +490,8 @@ const PublicLeadForm = ({ slug }) => {
                                                 />
                                             )}
                                         </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                                 
                                 {isPropertySection && !showPropertyFields && (

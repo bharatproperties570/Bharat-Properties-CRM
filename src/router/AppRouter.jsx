@@ -6,19 +6,19 @@ const DashboardPage = lazy(() => import('../pages/Dashboard/DashboardPage')); //
 const ContactsPage = lazy(() => import('../pages/Contacts/ContactsPage'));
 const LeadsPage = lazy(() => import('../pages/Leads/LeadsPage'));
 // FormsPage removed
-const DealsPage = lazy(() => import('../pages/Deals/DealsPage'));
+const DealsPage = lazy(() => import('../pages/Deals/DealsPageV2'));
 const LeadAnalyticsPage = lazy(() => import('../pages/Leads/LeadAnalyticsPage'));
 const CompanyPage = lazy(() => import('../pages/Company/CompanyPage'));
 const AccountPage = lazy(() => import('../pages/Account/AccountPage'));
 const ActivitiesPage = lazy(() => import('../pages/Activities/ActivitiesPage'));
 const BookingPage = lazy(() => import('../pages/Booking/BookingPage'));
-const InventoryPage = lazy(() => import('../pages/Inventory/InventoryPage'));
+const InventoryPage = lazy(() => import('../pages/Inventory/InventoryPageV2'));
 const InventoryDetailPage = lazy(() => import('../pages/Inventory/InventoryDetailPage'));
 const InventoryMatchingPage = lazy(() => import('../pages/Inventory/views/InventoryMatchingPage'));
 const InventoryAnalyticsPage = lazy(() => import('../pages/Inventory/InventoryAnalyticsPage'));
 const MarketingOverviewPage = lazy(() => import('../pages/Marketing/MarketingOverviewPage'));
 const ProfilePage = lazy(() => import('../pages/Profile/ProfilePage'));
-const ProjectsPage = lazy(() => import('../pages/Projects/ProjectsPage'));
+const ProjectsPage = lazy(() => import('../pages/Projects/ProjectsPageV2'));
 const ReportsPage = lazy(() => import('../pages/Reports/ReportsPage'));
 const WizardPage = lazy(() => import('../pages/Wizard/WizardPage'));
 const SettingsPage = lazy(() => import('../pages/Settings/SettingsPage'));

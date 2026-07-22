@@ -349,7 +349,11 @@ const ProjectDetailPage = ({ projectId, onBack, onNavigate, onEditProject }) => 
                             </div>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                                 <DetailItem label="Total Blocks" value={project.totalBlocks} />
-                                <DetailItem label="Parking" value={project.parkingType || 'Covered'} />
+                                {project.zoneName ? (
+                                    <DetailItem label="Zone Name" value={getLookupValue('ZoneName', project.zoneName) || project.zoneName} />
+                                ) : (
+                                    <DetailItem label="Parking" value={project.parkingType || 'Covered'} />
+                                )}
                             </div>
                         </div>
                     </div>

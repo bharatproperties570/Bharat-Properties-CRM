@@ -1184,18 +1184,19 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
 
                 // BACKGROUND AUTO-MATCH & OMNICHANNEL DISPATCH
                 const activeChannels = Object.keys(blastChannels).filter(k => blastChannels[k]);
-                if (mode === 'add' && activeChannels.length > 0 && response?.data?.lead?._id) {
+                const savedLead = response?.data?.lead || response?.data?.data;
+                if (activeChannels.length > 0 && savedLead?._id) {
                     setIsBlasting(true);
-                    const leadId = response.data.lead._id;
-                    const leadObj = response.data.lead;
+                    const leadId = savedLead._id;
+                    const leadObj = savedLead;
                     const loadToast = toast.loading(`Matching & Dispatching via ${activeChannels.length} channel(s)...`);
                     
                     try {
-                        const matchRes = await api.get('deals/match', { params: { leadId } });
+                        const matchRes = await api.get('deals/match', { params: { leadId, showOtherCities: true, budgetFlexibility: 30, sizeFlexibility: 30 } });
                         if (matchRes.data?.success && matchRes.data?.data?.length > 0) {
                             let isFallback = false;
                             let matches = matchRes.data.data.filter(d => 
-                                (d.score >= 100 || d.rawScore >= 100 || d.matchPercentage >= 100)
+                                (d.score >= 50 || d.rawScore >= 50 || d.matchPercentage >= 50)
                             );
                             
                             if (matches.length === 0) {

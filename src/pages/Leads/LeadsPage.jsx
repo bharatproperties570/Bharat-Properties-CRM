@@ -343,7 +343,7 @@ function LeadsPage({ onAddActivity, onEdit, onNavigate }) {
                         lastActivityDate: lead.lastActivityAt || lead.updatedAt,
                         activities: lead.activities || [],
                         stage: lead.stage,
-                        stageLabel: resolveLeadLookup(lead.stage, 'Stage') || "Incoming",
+                        stageLabel: resolveLeadLookup(lead.stage, 'Stage') || "New",
                         status: lead.status,
                         statusLabel: resolveLeadLookup(lead.status, 'Status') || "New",
                         statusFallback: (typeof lead.status === 'object' && lead.status) ? lead.status : { label: "New", class: "new" },
@@ -2013,7 +2013,7 @@ const LeadCard = React.memo(function LeadCard({
                         {renderValue(getLookupValue('Status', lead.status), null) || (typeof lead.statusFallback === 'object' ? lead.statusFallback.label : lead.statusFallback) || 'New'}
                     </span>
                     {(() => {
-                        const stageName = String(liveBackendScore?.stage || renderValue(getLookupValue('Stage', lead.stage), null) || 'Incoming');
+                        const stageName = String(liveBackendScore?.stage || renderValue(getLookupValue('Stage', lead.stage), null) || 'New');
                         const c = getBadgeColor(stageName);
                         return (
                             <span style={{

@@ -254,8 +254,17 @@ export const useActivityForm = (isOpen, onClose, onSave, initialData) => {
                     newErrors.completionResult = 'Result is required';
                 }
             } else if (formData.activityType === 'Meeting') {
-                if (!formData.meetingOutcomeStatus) newErrors.meetingOutcomeStatus = 'Status is required';
-                if (!formData.completionResult) newErrors.completionResult = 'Result is required';
+                if (!formData.meetingOutcomeStatus) {
+                    newErrors.meetingOutcomeStatus = 'Status is required';
+                } else if (formData.meetingOutcomeStatus === 'Conducted') {
+                    if (!formData.visitedProperties || formData.visitedProperties.length === 0) {
+                        if (!formData.completionResult) newErrors.completionResult = 'Result is required';
+                    } else {
+                        formData.visitedProperties.forEach((item, index) => {
+                            if (!item.result) newErrors[`prop_${index}_result`] = 'Result is required';
+                        });
+                    }
+                }
             } else if (formData.activityType === 'Email') {
                 if (!formData.mailStatus) newErrors.mailStatus = 'Status is required';
             } else if (formData.activityType === 'Site Visit') {

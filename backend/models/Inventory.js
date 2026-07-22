@@ -129,6 +129,23 @@ const InventorySchema = new mongoose.Schema({
         value: { type: Number },
         unit: { type: String, default: 'Sq.Ft.' }
     },
+    registryArea: {
+        value: { type: Number },
+        unit: { type: String, default: 'Sq.Ft.' }
+    },
+    gpsArea: {
+        value: { type: Number },
+        unit: { type: String, default: 'Sq.Ft.' }
+    },
+    registryAreaAcres: { type: Number },
+    registryAreaKanals: { type: Number },
+    registryAreaMarlas: { type: Number },
+    gpsAreaAcres: { type: Number },
+    gpsAreaKanals: { type: Number },
+    gpsAreaMarlas: { type: Number },
+    soilType: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
+    currentCrop: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
+    kmlFileUrl: { type: String },
     carpetArea: {
         value: { type: Number },
         unit: { type: String, default: 'Sq.Ft.' }
@@ -158,6 +175,12 @@ const InventorySchema = new mongoose.Schema({
         pincode: { type: mongoose.Schema.Types.Mixed },
         country: { type: mongoose.Schema.Types.Mixed, ref: 'Lookup', default: 'India' }
     },
+    nearbyLandmarks: [{
+        name: String,
+        type: { type: String }, // 'hospital', 'school', 'transit_station'
+        distance: Number, // in meters
+        rating: Number
+    }],
 
     // Ownership & Association
     owners: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Contact' }],
@@ -179,6 +202,11 @@ const InventorySchema = new mongoose.Schema({
         type: { type: String, enum: ['Point'] },
         coordinates: { type: [Number] }
     },
+    geoPolygon: {
+        type: { type: String, enum: ['Polygon'] },
+        coordinates: { type: [[[Number]]] }
+    },
+    gpsPerimeter: { type: Number }, // in meters or feet
 
     // Documents & Media
     inventoryDocuments: [{
@@ -315,6 +343,12 @@ InventorySchema.pre('save', async function (next) {
         if (this.sizeConfig !== undefined && !isObjectId(this.sizeConfig)) {
             this.sizeConfig = await resolveLookupLocal('Size', this.sizeConfig);
         }
+        if (this.soilType !== undefined && !isObjectId(this.soilType)) {
+            this.soilType = await resolveLookupLocal('SoilType', this.soilType);
+        }
+        if (this.currentCrop !== undefined && !isObjectId(this.currentCrop)) {
+            this.currentCrop = await resolveLookupLocal('CurrentCrop', this.currentCrop);
+        }
 
         // --- Address Sanitization ---
         if (this.address) {
@@ -434,6 +468,11 @@ InventorySchema.pre('findOneAndUpdate', async function (next) {
                 { field: 'facing', type: 'Facing' },
                 { field: 'direction', type: 'Direction' },
                 { field: 'orientation', type: 'Orientation' },
+                { field: 'possessionStatus', type: 'PossessionStatus' },
+                { field: 'furnishType', type: 'FurnishType' },
+                { field: 'country', type: 'Country' },
+                { field: 'soilType', type: 'SoilType' },
+                { field: 'currentCrop', type: 'CurrentCrop' },
                 { field: 'roadWidth', type: 'RoadWidth' },
                 { field: 'sizeConfig', type: 'Size' },
                 { field: 'builtupType', type: 'BuiltupType' }

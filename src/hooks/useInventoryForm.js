@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { parseShareToMarlas, formatMarlas } from '../utils/landCalculations';
 import { api } from '../utils/api';
 import toast from 'react-hot-toast';
 
@@ -19,6 +20,11 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
         facing: '',
         roadWidth: '',
         ownership: '',
+        waterSource: '',
+        waterLevel: '',
+        waterPumpType: '',
+        numberOfOwner: '',
+        frontOnRoad: '',
         builtupDetails: [
             {
                 floor: 'Ground Floor',
@@ -28,6 +34,10 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
                 totalArea: ''
             }
         ],
+        landDetails: [
+            { khewatNo: '', killaNo: '', share: '', calculatedMarlas: 0 }
+        ],
+        totalLandAreaText: '',
         occupationDate: '',
         ageOfConstruction: '',
         possessionStatus: '',
@@ -71,6 +81,8 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
     const [duplicateWarning, setDuplicateWarning] = useState(false);
     const [isBlocked, setIsBlocked] = useState(false);
     const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
+    const [isDetectingLandmarks, setIsDetectingLandmarks] = useState(false);
+    const [drawingPointsCount, setDrawingPointsCount] = useState(0);
     const [ownerSearch, setOwnerSearch] = useState('');
     const [searchResults, setSearchResults] = useState([]);
     const [showOwnerResults, setShowOwnerResults] = useState(false);
@@ -83,6 +95,12 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
     const searchInputRef = useRef(null);
     const googleMapRef = useRef(null);
     const markerRef = useRef(null);
+    const drawingManagerRef = useRef(null); // kept for compat but unused now
+    const polygonRef = useRef(null);
+    const customPolylineRef = useRef(null);   // preview polyline while drawing
+    const customPointsRef = useRef([]);        // array of LatLng points clicked
+    const customTempMarkersRef = useRef([]);   // small dot markers at each click point
+    const clickListenerRef = useRef(null);     // the active map click listener
 
     // Initial project setup
     useEffect(() => {
@@ -153,6 +171,15 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
                 builtupDetails: (property.builtupDetails && property.builtupDetails.length > 0) 
                     ? property.builtupDetails.map(d => ({...d})) 
                     : [{ floor: 'Ground Floor', cluster: '', length: '', width: '', totalArea: '' }],
+                landDetails: (property.landDetails && property.landDetails.length > 0)
+                    ? property.landDetails.map(d => ({ ...d }))
+                    : [{ khewatNo: '', killaNo: '', share: '', calculatedMarlas: 0 }],
+                totalLandAreaText: property.totalLandAreaText || '',
+                waterSource: resolveField(property.waterSource, 'WaterSource'),
+                waterLevel: resolveField(property.waterLevel, 'WaterLevel'),
+                waterPumpType: resolveField(property.waterPumpType, 'WaterPumpType'),
+                frontOnRoad: resolveField(property.frontOnRoad, 'FrontOnRoad'),
+                numberOfOwner: property.numberOfOwner || '',
                 owners: property.owners || [],
                 address: {
                     ...prev.address,
@@ -173,6 +200,26 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
              // Reset form for new entry if needed (or keep defaults)
         }
     }, [property, isOpen, getLookupValue]);
+
+    // Agricultural Auto-Titling for Unit No
+    useEffect(() => {
+        if (formData.category === 'Agricultural' && formData.totalLandAreaText) {
+            const areaParts = formData.totalLandAreaText.split(' ');
+            let acre = 0, kanal = 0;
+            // Expected format: "X Acre Y Kanal Z Marla"
+            if (areaParts.length >= 4) {
+                acre = areaParts[0];
+                kanal = areaParts[2];
+            }
+            const subCatText = formData.subCategory || '';
+            const unitNo = `${acre} Acre ${kanal} Kanal ${subCatText}`.trim();
+            
+            // Only update if it actually changed to avoid infinite re-renders
+            if (formData.unitNo !== unitNo) {
+                setFormData(prev => ({ ...prev, unitNo }));
+            }
+        }
+    }, [formData.category, formData.totalLandAreaText, formData.subCategory, formData.unitNo]);
 
     // Real-time Duplicate Check
     useEffect(() => {
@@ -230,31 +277,69 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
         const fetchAddressFromCoordinates = (lat, lng) => {
             if (!window.google || !window.google.maps) return;
             const geocoder = new window.google.maps.Geocoder();
-            geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+            geocoder.geocode({ location: { lat, lng } }, async (results, status) => {
                 if (status === "OK" && results[0]) {
                     const addressComponents = results[0].address_components;
                     const getComponent = (type) => {
                         const comp = addressComponents.find(c => c.types.includes(type));
                         return comp ? comp.long_name : '';
                     };
-
-                    const newState = getComponent('administrative_area_level_1');
-                    const newCity = getComponent('administrative_area_level_2');
+                    const newStateName = getComponent('administrative_area_level_1');
+                    const newCityName = getComponent('administrative_area_level_2');
                     const newZip = getComponent('postal_code');
                     const newStreet = `${getComponent('route')} ${getComponent('street_number')}`.trim();
-                    const newLocation = getComponent('sublocality') || getComponent('neighborhood');
+                    const newLocationName = getComponent('sublocality') || getComponent('neighborhood');
                     const newArea = getComponent('sublocality_level_1') || getComponent('sublocality_level_2');
+
+                    let resolvedCountryId = '';
+                    let resolvedStateId = '';
+                    let resolvedCityId = '';
+                    let resolvedLocId = '';
+
+                    try {
+                        const countryRes = await api.get("/lookups?lookup_type=Country&limit=10");
+                        const countryObj = (countryRes.data.data || []).find(c => c.lookup_value === 'India');
+                        if (countryObj) {
+                            resolvedCountryId = countryObj._id;
+                            
+                            if (newStateName) {
+                                const stateRes = await api.get(`/lookups?lookup_type=State&parent_lookup_id=${resolvedCountryId}&limit=100`);
+                                const stateObj = (stateRes.data.data || []).find(s => s.lookup_value.toLowerCase() === newStateName.toLowerCase());
+                                if (stateObj) {
+                                    resolvedStateId = stateObj._id;
+
+                                    if (newCityName) {
+                                        const cityRes = await api.get(`/lookups?lookup_type=City&parent_lookup_id=${resolvedStateId}&limit=100`);
+                                        const cityObj = (cityRes.data.data || []).find(c => c.lookup_value.toLowerCase() === newCityName.toLowerCase());
+                                        if (cityObj) {
+                                            resolvedCityId = cityObj._id;
+
+                                            if (newLocationName) {
+                                                const locRes = await api.get(`/lookups?lookup_type=Location&parent_lookup_id=${resolvedCityId}&limit=200`);
+                                                const locObj = (locRes.data.data || []).find(l => l.lookup_value.toLowerCase() === newLocationName.toLowerCase() || newLocationName.toLowerCase().includes(l.lookup_value.toLowerCase()));
+                                                if (locObj) {
+                                                    resolvedLocId = locObj._id;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } catch (err) {
+                        console.error("Error resolving address IDs:", err);
+                    }
 
                     setFormData(prev => ({
                         ...prev,
                         address: {
                             ...prev.address,
-                            state: newState || prev.address.state,
-                            city: newCity || prev.address.city,
-                            country: 'India',
+                            state: resolvedStateId || newStateName || prev.address.state,
+                            city: resolvedCityId || newCityName || prev.address.city,
+                            country: resolvedCountryId || 'India',
                             zip: newZip || prev.address.zip,
                             street: newStreet || prev.address.street,
-                            location: newLocation || prev.address.location,
+                            location: resolvedLocId || newLocationName || prev.address.location,
                             area: newArea || prev.address.area
                         }
                     }));
@@ -262,83 +347,125 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
             });
         };
 
-        const timer = setTimeout(() => {
-            if (window.google && mapRef.current) {
-                const defaultCenter = {
-                    lat: formData.latitude ? parseFloat(formData.latitude) : 28.6139,
-                    lng: formData.longitude ? parseFloat(formData.longitude) : 77.2090
-                };
+        const initMap = () => {
+            if (!mapRef.current || !window.google || !window.google.maps) return;
 
-                if (!googleMapRef.current) {
-                    googleMapRef.current = new window.google.maps.Map(mapRef.current, {
-                        center: defaultCenter,
-                        zoom: 13,
-                        mapTypeControl: false,
-                        fullscreenControl: false,
-                        streetViewControl: false
-                    });
-                } else {
-                    googleMapRef.current.setCenter(defaultCenter);
+            const defaultCenter = {
+                lat: formData.latitude ? parseFloat(formData.latitude) : 28.6139,
+                lng: formData.longitude ? parseFloat(formData.longitude) : 77.2090
+            };
+
+            // If the DOM container changed (tab switch destroyed it), reset all refs
+            try {
+                if (googleMapRef.current && googleMapRef.current.getDiv() !== mapRef.current) {
+                    googleMapRef.current = null;
+                    markerRef.current = null;
+                    drawingManagerRef.current = null;
+                    polygonRef.current = null;
                 }
-
-                if (!markerRef.current) {
-                    markerRef.current = new window.google.maps.Marker({
-                        position: defaultCenter,
-                        map: googleMapRef.current,
-                        draggable: true,
-                        animation: window.google.maps.Animation.DROP,
-                        title: "Property Location"
-                    });
-
-                    markerRef.current.addListener('dragend', (event) => {
-                        const newLat = event.latLng.lat();
-                        const newLng = event.latLng.lng();
-                        setFormData(prev => ({
-                            ...prev,
-                            latitude: newLat.toFixed(6),
-                            longitude: newLng.toFixed(6)
-                        }));
-                        fetchAddressFromCoordinates(newLat, newLng);
-                    });
-                } else {
-                    markerRef.current.setPosition(defaultCenter);
-                }
-
-                if (searchInputRef.current) {
-                    const autocomplete = new window.google.maps.places.Autocomplete(searchInputRef.current, {
-                        types: ['geocode'],
-                        componentRestrictions: { country: 'in' },
-                    });
-
-                    autocomplete.bindTo("bounds", googleMapRef.current);
-
-                    autocomplete.addListener('place_changed', () => {
-                        const place = autocomplete.getPlace();
-                        if (!place.geometry || !place.geometry.location) return;
-
-                        if (place.geometry.viewport) {
-                            googleMapRef.current.fitBounds(place.geometry.viewport);
-                        } else {
-                            googleMapRef.current.setCenter(place.geometry.location);
-                            googleMapRef.current.setZoom(17);
-                        }
-
-                        markerRef.current.setPosition(place.geometry.location);
-
-                        setFormData(prev => ({
-                            ...prev,
-                            locationSearch: place.formatted_address,
-                            latitude: place.geometry.location.lat().toFixed(6),
-                            longitude: place.geometry.location.lng().toFixed(6)
-                        }));
-                        fetchAddressFromCoordinates(place.geometry.location.lat(), place.geometry.location.lng());
-                    });
-                }
+            } catch (e) {
+                googleMapRef.current = null;
+                markerRef.current = null;
+                drawingManagerRef.current = null;
+                polygonRef.current = null;
             }
-        }, 100);
 
-        return () => clearTimeout(timer);
-    }, [isOpen, activeTab, formData.latitude, formData.longitude]);
+            if (!googleMapRef.current) {
+                googleMapRef.current = new window.google.maps.Map(mapRef.current, {
+                    center: defaultCenter,
+                    zoom: 15,
+                    mapTypeControl: true,
+                    mapTypeControlOptions: {
+                        style: window.google.maps.MapTypeControlStyle.HORIZONTAL_BAR,
+                        position: window.google.maps.ControlPosition.TOP_RIGHT,
+                        mapTypeIds: ['roadmap', 'satellite', 'hybrid']
+                    },
+                    fullscreenControl: true,
+                    streetViewControl: false
+                });
+            } else {
+                googleMapRef.current.setCenter(defaultCenter);
+            }
+
+            if (!markerRef.current) {
+                markerRef.current = new window.google.maps.Marker({
+                    position: defaultCenter,
+                    map: googleMapRef.current,
+                    draggable: true,
+                    animation: window.google.maps.Animation.DROP,
+                    title: "Property Location"
+                });
+                markerRef.current.addListener('dragend', (event) => {
+                    const newLat = event.latLng.lat();
+                    const newLng = event.latLng.lng();
+                    setFormData(prev => ({
+                        ...prev,
+                        latitude: newLat.toFixed(6),
+                        longitude: newLng.toFixed(6)
+                    }));
+                    fetchAddressFromCoordinates(newLat, newLng);
+                });
+            } else {
+                markerRef.current.setPosition(defaultCenter);
+            }
+
+            // ---- Custom Click-Based Polygon Drawing ----
+            // (No DrawingManager used — works reliably inside modals)
+
+            // Restore existing geoPolygon if editing
+            if (formData.geoPolygon && formData.geoPolygon.coordinates && formData.geoPolygon.coordinates[0] && !polygonRef.current) {
+                const paths = formData.geoPolygon.coordinates[0].map(c => ({ lat: c[1], lng: c[0] }));
+                polygonRef.current = new window.google.maps.Polygon({
+                    paths,
+                    fillColor: '#3b82f6', fillOpacity: 0.3, strokeWeight: 2.5, strokeColor: '#2563eb', editable: false
+                });
+                polygonRef.current.setMap(googleMapRef.current);
+                const bounds = new window.google.maps.LatLngBounds();
+                paths.forEach(p => bounds.extend(p));
+                googleMapRef.current.fitBounds(bounds);
+            }
+
+            // Search box Autocomplete
+            if (searchInputRef.current && window.google.maps.places) {
+                const autocomplete = new window.google.maps.places.Autocomplete(searchInputRef.current, {
+                    types: ['geocode'],
+                    componentRestrictions: { country: 'in' },
+                });
+                autocomplete.bindTo("bounds", googleMapRef.current);
+                autocomplete.addListener('place_changed', () => {
+                    const place = autocomplete.getPlace();
+                    if (!place.geometry || !place.geometry.location) return;
+                    if (place.geometry.viewport) {
+                        googleMapRef.current.fitBounds(place.geometry.viewport);
+                    } else {
+                        googleMapRef.current.setCenter(place.geometry.location);
+                        googleMapRef.current.setZoom(17);
+                    }
+                    markerRef.current.setPosition(place.geometry.location);
+                    setFormData(prev => ({
+                        ...prev,
+                        locationSearch: place.formatted_address,
+                        latitude: place.geometry.location.lat().toFixed(6),
+                        longitude: place.geometry.location.lng().toFixed(6)
+                    }));
+                    fetchAddressFromCoordinates(place.geometry.location.lat(), place.geometry.location.lng());
+                });
+            }
+        };
+
+        // If Maps already loaded (e.g., user was on Location tab before), init immediately.
+        // Otherwise, wait for the callback event dispatched by __onGoogleMapsReady.
+        if (window.__googleMapsReady) {
+            // Small rAF to ensure DOM node (mapRef) is fully rendered
+            requestAnimationFrame(() => initMap());
+        } else {
+            window.addEventListener('google-maps-ready', initMap, { once: true });
+        }
+
+        return () => {
+            window.removeEventListener('google-maps-ready', initMap);
+        };
+    }, [isOpen, activeTab]);
 
     const handleProjectChange = async (e) => {
         const name = e.target.value;
@@ -523,6 +650,19 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
             payload.inventoryImages = await uploadFiles(payload.inventoryImages, 'Image');
             payload.inventoryVideos = await uploadFiles(payload.inventoryVideos, 'Video');
 
+            if (payload.kmlFile) {
+                try {
+                    const uploadData = new FormData();
+                    uploadData.append('file', payload.kmlFile);
+                    const res = await api.post('/upload', uploadData);
+                    if (res.data && res.data.success) {
+                        payload.kmlFileUrl = res.data.url;
+                    }
+                } catch (err) { console.error('KML upload error:', err); }
+                delete payload.kmlFile;
+                delete payload.kmlFileName;
+            }
+
             const transformedData = {
                 ...payload,
                 category: getLookupId('Category', payload.category),
@@ -535,6 +675,8 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
                 direction: getLookupId('Direction', payload.direction),
                 roadWidth: getLookupId('Road Width', payload.roadWidth),
                 builtupType: getLookupId('BuiltupType', payload.builtupType),
+                soilType: getLookupId('SoilType', payload.soilType),
+                currentCrop: getLookupId('CurrentCrop', payload.currentCrop),
                 team: (typeof payload.team === 'object' && payload.team !== null) ? (payload.team._id || payload.team.id) : (payload.team || null),
                 assignedTo: (typeof payload.assignedTo === 'object' && payload.assignedTo !== null) ? (payload.assignedTo._id || payload.assignedTo.id) : (payload.assignedTo || null),
                 projectId: (typeof payload.projectId === 'object' && payload.projectId !== null) ? (payload.projectId._id || payload.projectId.id) : (payload.projectId || null),
@@ -611,6 +753,37 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
         });
     };
 
+    const handleAddLandRow = () => setFormData(prev => ({
+        ...prev,
+        landDetails: [...(prev.landDetails || []), { khewatNo: '', killaNo: '', share: '', calculatedMarlas: 0 }]
+    }));
+
+    const handleRemoveLandRow = (index) => setFormData(prev => {
+        const newRows = (prev.landDetails || []).filter((_, i) => i !== index);
+        const totalMarlas = newRows.reduce((acc, row) => acc + (row.calculatedMarlas || 0), 0);
+        return {
+            ...prev,
+            landDetails: newRows,
+            totalLandAreaText: formatMarlas(totalMarlas)
+        };
+    });
+
+    const updateLandRow = (index, field, value) => {
+        setFormData(prev => {
+            const newRows = [...(prev.landDetails || [])];
+            newRows[index] = { ...newRows[index], [field]: value };
+            if (field === 'share') {
+                newRows[index].calculatedMarlas = parseShareToMarlas(value);
+            }
+            const totalMarlas = newRows.reduce((acc, row) => acc + (row.calculatedMarlas || 0), 0);
+            return {
+                ...prev,
+                landDetails: newRows,
+                totalLandAreaText: formatMarlas(totalMarlas)
+            };
+        });
+    };
+
     const handleFurnishedItemKeyDown = (e) => {
         if (e.key === 'Enter') {
             e.preventDefault();
@@ -631,6 +804,235 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
         const newItems = currentItems.filter(item => item !== itemToRemove);
         setFormData(prev => ({ ...prev, furnishedItems: newItems.join(', ') }));
     };
+
+    const autoDetectLandmarks = useCallback(async () => {
+        try {
+            if (!window.google || !window.google.maps || !window.google.maps.places) {
+                toast.error("Google Maps Places API is not fully loaded. Please wait or refresh.");
+                return;
+            }
+            if (!window.google.maps.geometry || !window.google.maps.geometry.spherical) {
+                toast.error("Google Maps Geometry API is missing.");
+                return;
+            }
+            if (!formData.latitude || !formData.longitude) {
+                toast.error("Please set the property location on the map first.");
+                return;
+            }
+
+            const lat = parseFloat(formData.latitude);
+            const lng = parseFloat(formData.longitude);
+            if (isNaN(lat) || isNaN(lng)) {
+                toast.error("Invalid coordinates on map.");
+                return;
+            }
+
+            setIsDetectingLandmarks(true);
+            // PlacesService MUST receive the real mounted map div or a live Map instance.
+            // Using document.createElement('div') causes internal Google Maps crashes.
+            const mapInstance = googleMapRef.current;
+            if (!mapInstance) {
+                toast.error("Please open the Location tab and wait for the map to load first.");
+                setIsDetectingLandmarks(false);
+                return;
+            }
+            const center = new window.google.maps.LatLng(lat, lng);
+            const service = new window.google.maps.places.PlacesService(mapInstance);
+
+            
+            const typesToSearch = ['hospital', 'school', 'transit_station', 'shopping_mall'];
+            let detected = [];
+
+            const searchNearby = (type) => {
+                return new Promise((resolve) => {
+                    service.nearbySearch({
+                        location: center,
+                        radius: 5000,
+                        type: type
+                    }, (results, status) => {
+                        resolve({ results, status, type });
+                    });
+                });
+            };
+
+            for (const type of typesToSearch) {
+                try {
+                    const { results, status } = await searchNearby(type);
+                    if (status === window.google.maps.places.PlacesServiceStatus.OK && results && results.length > 0) {
+                        const topResults = results.slice(0, 2);
+                        topResults.forEach(r => {
+                            if (!r.geometry || !r.geometry.location) return;
+                            try {
+                                const distance = window.google.maps.geometry.spherical.computeDistanceBetween(center, r.geometry.location);
+                                detected.push({
+                                    name: r.name,
+                                    type: type,
+                                    rating: r.rating || 0,
+                                    distance: Math.round(distance)
+                                });
+                            } catch (err) {
+                                console.error("Error calculating distance:", err);
+                            }
+                        });
+                    }
+                } catch (err) {
+                    console.error(`Error searching ${type}:`, err);
+                }
+            }
+
+            detected.sort((a, b) => a.distance - b.distance);
+            setFormData(prev => ({ ...prev, nearbyLandmarks: detected }));
+            setIsDetectingLandmarks(false);
+            
+            if (detected.length > 0) {
+                toast.success(`Detected ${detected.length} nearby amenities!`);
+            } else {
+                toast.error("No major amenities found within 5km.");
+            }
+
+        } catch (error) {
+            console.error("AI Landmark Detection Error:", error);
+            toast.error("Failed to detect landmarks. Maps API might be restricted.");
+            setIsDetectingLandmarks(false);
+        }
+    }, [formData.latitude, formData.longitude]);
+
+    const clearDrawingState = () => {
+        // Remove click listener
+        if (clickListenerRef.current) {
+            window.google.maps.event.removeListener(clickListenerRef.current);
+            clickListenerRef.current = null;
+        }
+        // Remove preview polyline
+        if (customPolylineRef.current) {
+            customPolylineRef.current.setMap(null);
+            customPolylineRef.current = null;
+        }
+        // Remove temp dot markers
+        customTempMarkersRef.current.forEach(m => m.setMap(null));
+        customTempMarkersRef.current = [];
+        // Reset points
+        customPointsRef.current = [];
+        setDrawingPointsCount(0);
+    };
+
+    const computeAndSavePolygon = (points) => {
+        if (!window.google || !window.google.maps || !window.google.maps.geometry) return;
+        const map = googleMapRef.current;
+        if (!map) return;
+
+        // Remove existing polygon
+        if (polygonRef.current) { polygonRef.current.setMap(null); polygonRef.current = null; }
+
+        const path = new window.google.maps.MVCArray(points);
+        polygonRef.current = new window.google.maps.Polygon({
+            paths: points,
+            fillColor: '#3b82f6',
+            fillOpacity: 0.25,
+            strokeWeight: 2.5,
+            strokeColor: '#2563eb',
+            editable: false,
+            zIndex: 2
+        });
+        polygonRef.current.setMap(map);
+
+        const areaSqMeters = window.google.maps.geometry.spherical.computeArea(path);
+        const perimeterMeters = window.google.maps.geometry.spherical.computeLength(path);
+        const totalMarlas = Math.round(areaSqMeters / 25.29285);
+        const acres = Math.floor(totalMarlas / 160);
+        const rem1 = totalMarlas % 160;
+        const kanals = Math.floor(rem1 / 20);
+        const marlas = Math.round(rem1 % 20);
+        const coords = points.map(p => [p.lng(), p.lat()]);
+        coords.push([...coords[0]]); // close ring
+
+        setFormData(prev => ({
+            ...prev,
+            gpsAreaAcres: acres,
+            gpsAreaKanals: kanals,
+            gpsAreaMarlas: marlas,
+            geoPolygon: { type: 'Polygon', coordinates: [coords] },
+            gpsPerimeter: perimeterMeters.toFixed(2)
+        }));
+        toast.success(`Area calculated: ${acres}A ${kanals}K ${marlas}M`);
+    };
+
+    const clearPolygon = useCallback(() => {
+        clearDrawingState();
+        if (polygonRef.current) {
+            polygonRef.current.setMap(null);
+            polygonRef.current = null;
+        }
+        setFormData(prev => ({
+            ...prev,
+            geoPolygon: null,
+            gpsAreaAcres: '',
+            gpsAreaKanals: '',
+            gpsAreaMarlas: '',
+            gpsPerimeter: ''
+        }));
+    }, []);
+
+    const activateDrawing = useCallback(() => {
+        const map = googleMapRef.current;
+        if (!map) {
+            toast.error('Please go to Location tab and wait for the map to load first.');
+            return;
+        }
+
+        // Reset any previous drawing session
+        clearDrawingState();
+        if (polygonRef.current) { polygonRef.current.setMap(null); polygonRef.current = null; }
+
+        // Attach click listener to map
+        clickListenerRef.current = map.addListener('click', (e) => {
+            const point = e.latLng;
+            customPointsRef.current.push(point);
+            const count = customPointsRef.current.length;
+            setDrawingPointsCount(count);
+
+            // Add a small dot marker at clicked point
+            const dotMarker = new window.google.maps.Marker({
+                position: point,
+                map: map,
+                icon: {
+                    path: window.google.maps.SymbolPath.CIRCLE,
+                    scale: count === 1 ? 8 : 5,
+                    fillColor: count === 1 ? '#ef4444' : '#2563eb',
+                    fillOpacity: 1,
+                    strokeColor: '#fff',
+                    strokeWeight: 2
+                },
+                title: count === 1 ? 'Start Point' : `Point ${count}`,
+                zIndex: 10
+            });
+            customTempMarkersRef.current.push(dotMarker);
+
+            // Update live preview polyline
+            if (customPolylineRef.current) {
+                customPolylineRef.current.setMap(null);
+            }
+            const previewPath = [...customPointsRef.current, customPointsRef.current[0]];
+            customPolylineRef.current = new window.google.maps.Polyline({
+                path: previewPath,
+                geodesic: true,
+                strokeColor: '#f59e0b',
+                strokeOpacity: 0.9,
+                strokeWeight: 2.5,
+                map: map
+            });
+        });
+    }, []);
+
+    const finishDrawing = useCallback(() => {
+        const points = customPointsRef.current;
+        if (points.length < 3) {
+            toast.error('Please click at least 3 points on the map to form a polygon.');
+            return;
+        }
+        clearDrawingState();
+        computeAndSavePolygon(points);
+    }, []);
 
     return {
         formData, setFormData,
@@ -653,7 +1055,16 @@ export const useInventoryForm = (isOpen, initialProject, property, allProjects, 
         handleAddBuiltupRow,
         handleRemoveBuiltupRow,
         updateBuiltupRow,
+        handleAddLandRow,
+        handleRemoveLandRow,
+        updateLandRow,
         handleFurnishedItemKeyDown,
-        removeFurnishedItem
+        removeFurnishedItem,
+        clearPolygon,
+        activateDrawing,
+        finishDrawing,
+        drawingPointsCount,
+        autoDetectLandmarks,
+        isDetectingLandmarks
     };
 };

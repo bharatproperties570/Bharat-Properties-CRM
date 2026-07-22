@@ -110,8 +110,16 @@ export const PropertyConfigProvider = ({ children }) => {
         facings: [],
         roadWidths: [],
         directions: [],
+        waterSources: [],
+        waterLevels: [],
+        waterPumpTypes: [],
+        frontOnRoads: [],
+        soilTypes: [],
+        currentCrops: [],
+        numberOfOwners: [],
         unitTypes: [],
         relations: [],
+        zoneNames: [],
         floorLevels: [
             'Basement', 'Ground Floor', 'First Floor', 'Second Floor', 'Third Floor', 'Top Floor'
         ],
@@ -445,8 +453,8 @@ export const PropertyConfigProvider = ({ children }) => {
                         name: 'Introduction / First Contact',
                         outcomes: [
                             { label: 'Connected', score: 10, stage: 'Prospect' },
-                            { label: 'Not Reachable', score: -2, stage: 'New' },
-                            { label: 'Wrong Number', score: -10, stage: 'New' },
+                            { label: 'Not Reachable', score: -2, stage: 'Incoming' },
+                            { label: 'Wrong Number', score: -10, stage: 'Incoming' },
                             { label: 'Callback Requested', score: 5, stage: 'Prospect' },
                             { label: 'Busy', score: 0, stage: 'Prospect' },
                         ]
@@ -454,26 +462,26 @@ export const PropertyConfigProvider = ({ children }) => {
                     {
                         name: 'Requirement Gathering',
                         outcomes: [
-                            { label: 'Requirements Shared', score: 15, stage: 'Qualified', requiredForms: ['Requirement Form'] },
+                            { label: 'Requirements Shared', score: 15, stage: 'Prospect', requiredForms: ['Requirement Form'] },
                             { label: 'Partial Info', score: 8, stage: 'Prospect', requiredForms: ['Requirement Form'] },
-                            { label: 'Refused to Share', score: -5, stage: 'New', requiredForms: ['Requirement Form'] },
+                            { label: 'Refused to Share', score: -5, stage: 'Incoming', requiredForms: ['Requirement Form'] },
                             { label: 'Rescheduled', score: 0, stage: 'Prospect', requiredForms: ['Requirement Form'] },
                         ]
                     },
                     {
                         name: 'Follow-up',
                         outcomes: [
-                            { label: 'Still Interested', score: 10, stage: 'Qualified' },
+                            { label: 'Still Interested', score: 10, stage: 'Prospect' },
                             { label: 'Ready for Visit', score: 20, stage: 'Opportunity' },
                             { label: 'Negotiation Mode', score: 12, stage: 'Negotiation', requiredForms: ['Offer Form'] },
-                            { label: 'Lost Interest', score: -10, stage: 'Dormant' },
-                            { label: 'No Response', score: -5, stage: 'Dormant' },
+                            { label: 'Lost Interest', score: -10, stage: 'Closed (Lost)' },
+                            { label: 'No Response', score: -5, stage: 'Closed (Lost)' },
                         ]
                     },
                     {
                         name: 'Negotiation',
                         outcomes: [
-                            { label: 'Offer Accepted', score: 50, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Offer Accepted', score: 50, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
                             { label: 'Offer Rejected', score: -20, stage: 'Negotiation', requiredForms: ['Offer Form'] },
                             { label: 'Counter Offer Made', score: 10, stage: 'Negotiation', requiredForms: ['Offer Form'] },
                             { label: 'Decision Pending', score: 0, stage: 'Negotiation', requiredForms: ['Offer Form'] },
@@ -484,18 +492,18 @@ export const PropertyConfigProvider = ({ children }) => {
                         outcomes: [
                             { label: 'Liked Property', score: 25, stage: 'Opportunity' },
                             { label: 'Disliked - Price', score: -5, stage: 'Negotiation', requiredForms: ['Quotation Form'] },
-                            { label: 'Disliked - Location', score: -5, stage: 'Qualified' },
+                            { label: 'Disliked - Location', score: -5, stage: 'Prospect' },
                             { label: 'Thinking / Hold', score: 0, stage: 'Opportunity' },
-                            { label: 'Booking Request', score: 40, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Booking Request', score: 40, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
                         ]
                     },
                     {
                         name: 'Payment Reminder',
                         outcomes: [
-                            { label: 'Payment Promised', score: 5, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
-                            { label: 'Already Paid', score: 0, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
-                            { label: 'Dispute', score: -10, stage: 'Booked', requiredForms: ['Offer Form'] },
-                            { label: 'Extension Requested', score: -2, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Payment Promised', score: 5, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Already Paid', score: 0, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Dispute', score: -10, stage: 'Negotiation', requiredForms: ['Offer Form'] },
+                            { label: 'Extension Requested', score: -2, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
                         ]
                     },
                     // ── NEW CALL PURPOSES ────────────────────────────────────────
@@ -504,9 +512,9 @@ export const PropertyConfigProvider = ({ children }) => {
                         outcomes: [
                             { label: 'Confirmed – Will Come', score: 18, stage: 'Opportunity' },
                             { label: 'Rescheduled to New Date', score: 5, stage: 'Opportunity' },
-                            { label: 'Cancelled – No Reason', score: -8, stage: 'Qualified' },
-                            { label: 'Cancelled – Going to Competitor', score: -20, stage: 'Closed Lost' },
-                            { label: 'Not Reachable', score: -3, stage: 'Qualified' },
+                            { label: 'Cancelled – No Reason', score: -8, stage: 'Prospect' },
+                            { label: 'Cancelled – Going to Competitor', score: -20, stage: 'Closed (Lost)' },
+                            { label: 'Not Reachable', score: -3, stage: 'Prospect' },
                             { label: 'Coming with Family Now', score: 25, stage: 'Opportunity' },
                         ]
                     },
@@ -516,10 +524,10 @@ export const PropertyConfigProvider = ({ children }) => {
                             { label: 'Self-Funded / Cash Ready', score: 30, stage: 'Negotiation' },
                             { label: 'Loan Pre-approved', score: 25, stage: 'Opportunity' },
                             { label: 'Loan Applied – Awaiting Approval', score: 15, stage: 'Opportunity' },
-                            { label: 'Needs Loan Assistance from Us', score: 10, stage: 'Qualified' },
-                            { label: 'Cannot Arrange Finance', score: -25, stage: 'Closed Lost' },
-                            { label: 'Selling Existing Property First', score: -15, stage: 'Dormant' },
-                            { label: 'EMI Affordable – Wants Calculator', score: 8, stage: 'Qualified' },
+                            { label: 'Needs Loan Assistance from Us', score: 10, stage: 'Prospect' },
+                            { label: 'Cannot Arrange Finance', score: -25, stage: 'Closed (Lost)' },
+                            { label: 'Selling Existing Property First', score: -15, stage: 'Closed (Lost)' },
+                            { label: 'EMI Affordable – Wants Calculator', score: 8, stage: 'Prospect' },
                         ]
                     },
                     {
@@ -528,18 +536,18 @@ export const PropertyConfigProvider = ({ children }) => {
                             { label: 'CP Confirmed Visit for Client', score: 20, stage: 'Opportunity' },
                             { label: 'CP Needs More Inventory Options', score: 0, stage: 'Prospect' },
                             { label: 'Commission Dispute', score: -5, stage: 'Prospect' },
-                            { label: 'CP Submitted New Leads', score: 10, stage: 'New' },
-                            { label: 'CP Dropped the Deal', score: -15, stage: 'Qualified' },
-                            { label: 'CP Redirecting to Another Project', score: -10, stage: 'Qualified' },
+                            { label: 'CP Submitted New Leads', score: 10, stage: 'Incoming' },
+                            { label: 'CP Dropped the Deal', score: -15, stage: 'Prospect' },
+                            { label: 'CP Redirecting to Another Project', score: -10, stage: 'Prospect' },
                         ]
                     },
                     {
                         name: 'Token / Booking Confirmation Call',
                         outcomes: [
-                            { label: 'Token Amount Confirmed', score: 50, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
-                            { label: 'Cheque Ready – Date Confirmed', score: 40, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
-                            { label: 'Transfer in Process', score: 20, stage: 'Booked', requiredForms: ['Offer Form'] },
-                            { label: 'Backing Out', score: -50, stage: 'Closed Lost' },
+                            { label: 'Token Amount Confirmed', score: 50, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Cheque Ready – Date Confirmed', score: 40, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Transfer in Process', score: 20, stage: 'Negotiation', requiredForms: ['Offer Form'] },
+                            { label: 'Backing Out', score: -50, stage: 'Closed (Lost)' },
                             { label: 'Wants Agreement First', score: 5, stage: 'Negotiation', requiredForms: ['Offer Form'] },
                             { label: 'Price Renegotiation Before Token', score: -10, stage: 'Negotiation', requiredForms: ['Offer Form'] },
                         ]
@@ -549,41 +557,41 @@ export const PropertyConfigProvider = ({ children }) => {
                         outcomes: [
                             { label: 'Owner Agreed to Price', score: 35, stage: 'Negotiation', requiredForms: ['Offer Form'] },
                             { label: 'Owner Reduced Price', score: 30, stage: 'Negotiation', requiredForms: ['Quotation Form'] },
-                            { label: 'Owner Not Selling', score: -40, stage: 'Closed Lost' },
+                            { label: 'Owner Not Selling', score: -40, stage: 'Closed (Lost)' },
                             { label: 'Property Still Available', score: 10, stage: 'Opportunity' },
                             { label: 'Owner Wants 15 Days to Decide', score: -5, stage: 'Negotiation', requiredForms: ['Offer Form'] },
                             { label: 'Owner Wants All-Cash Payment Only', score: -10, stage: 'Negotiation', requiredForms: ['Offer Form'] },
-                            { label: 'Owner Ready for Token', score: 45, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Owner Ready for Token', score: 45, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
                         ]
                     },
                     {
                         name: 'Agreement / Registry Reminder Call',
                         outcomes: [
-                            { label: 'Agreement Date Fixed', score: 10, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
-                            { label: 'Client Delaying Signing', score: -10, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
-                            { label: 'Documents Ready', score: 8, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
-                            { label: 'Lawyer Query from Client', score: 0, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
-                            { label: 'Cancellation Requested', score: -60, stage: 'Closed Lost' },
-                            { label: 'Re-negotiation on Terms', score: -15, stage: 'Booked', requiredForms: ['Offer Form'] },
+                            { label: 'Agreement Date Fixed', score: 10, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Client Delaying Signing', score: -10, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Documents Ready', score: 8, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Lawyer Query from Client', score: 0, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Cancellation Requested', score: -60, stage: 'Closed (Lost)' },
+                            { label: 'Re-negotiation on Terms', score: -15, stage: 'Negotiation', requiredForms: ['Offer Form'] },
                         ]
                     },
                     {
                         name: 'Cold / Database Call',
                         outcomes: [
                             { label: 'Interested – Wants Details', score: 10, stage: 'Prospect' },
-                            { label: 'Call Back Later', score: 3, stage: 'New' },
-                            { label: 'Do Not Call', score: -15, stage: 'Closed Lost' },
-                            { label: 'Wants WhatsApp Instead', score: 2, stage: 'New' },
-                            { label: 'Already Bought Elsewhere', score: -5, stage: 'Closed Lost' },
+                            { label: 'Call Back Later', score: 3, stage: 'Incoming' },
+                            { label: 'Do Not Call', score: -15, stage: 'Closed (Lost)' },
+                            { label: 'Wants WhatsApp Instead', score: 2, stage: 'Incoming' },
+                            { label: 'Already Bought Elsewhere', score: -5, stage: 'Closed (Lost)' },
                             { label: 'Can Refer Someone', score: 5, stage: 'Prospect' },
                         ]
                     },
                     {
                         name: 'Existing Customer / Referral Call',
                         outcomes: [
-                            { label: 'Referral Name Shared', score: 20, stage: 'New' },
+                            { label: 'Referral Name Shared', score: 20, stage: 'Incoming' },
                             { label: 'Interested in Another Unit', score: 30, stage: 'Prospect' },
-                            { label: 'Not Happy – Complaint', score: -20, stage: 'New' },
+                            { label: 'Not Happy – Complaint', score: -20, stage: 'Incoming' },
                             { label: 'Positive Feedback Given', score: 10, stage: 'Prospect' },
                             { label: 'Wants to Rent Out Property', score: 5, stage: 'Prospect' },
                         ]
@@ -600,10 +608,10 @@ export const PropertyConfigProvider = ({ children }) => {
                         name: 'Project Brochure / E-Catalogue Send',
                         outcomes: [
                             { label: 'Opened + Clicked', score: 12, stage: 'Prospect' },
-                            { label: 'Opened – No Response', score: 4, stage: 'New' },
-                            { label: 'Delivered – Not Opened', score: 1, stage: 'New' },
-                            { label: 'Bounced', score: -2, stage: 'New' },
-                            { label: 'Replied with Query', score: 15, stage: 'Qualified' },
+                            { label: 'Opened – No Response', score: 4, stage: 'Incoming' },
+                            { label: 'Delivered – Not Opened', score: 1, stage: 'Incoming' },
+                            { label: 'Bounced', score: -2, stage: 'Incoming' },
+                            { label: 'Replied with Query', score: 15, stage: 'Prospect' },
                             { label: 'Forwarded to Family', score: 18, stage: 'Opportunity' },
                         ]
                     },
@@ -623,26 +631,26 @@ export const PropertyConfigProvider = ({ children }) => {
                             { label: 'Accepted Price – Wants to Meet', score: 25, stage: 'Negotiation', requiredForms: ['Quotation Form'] },
                             { label: 'Counter-Offered in Reply', score: 15, stage: 'Negotiation', requiredForms: ['Offer Form'] },
                             { label: 'Too High – Replied Negatively', score: -10, stage: 'Negotiation', requiredForms: ['Quotation Form'] },
-                            { label: 'No Response After Price', score: -5, stage: 'Dormant', requiredForms: ['Quotation Form'] },
+                            { label: 'No Response After Price', score: -5, stage: 'Closed (Lost)', requiredForms: ['Quotation Form'] },
                             { label: 'Wants Legal Charges Clarification', score: 12, stage: 'Negotiation', requiredForms: ['Offer Form'] },
                         ]
                     },
                     {
                         name: 'Legal Document / Agreement Send',
                         outcomes: [
-                            { label: 'Signed – Returned via Email', score: 50, stage: 'Closed', requiredForms: ['Booking Form', 'KYC Form'] },
-                            { label: 'Lawyer Reviewing', score: 10, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
-                            { label: 'Queries Raised', score: 5, stage: 'Booked', requiredForms: ['Offer Form'] },
+                            { label: 'Signed – Returned via Email', score: 50, stage: 'Closed (Won)', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Lawyer Reviewing', score: 10, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Queries Raised', score: 5, stage: 'Negotiation', requiredForms: ['Offer Form'] },
                             { label: 'Rejected Agreement Terms', score: -20, stage: 'Negotiation', requiredForms: ['Offer Form'] },
-                            { label: 'Requesting Amendments', score: -5, stage: 'Booked', requiredForms: ['Offer Form'] },
+                            { label: 'Requesting Amendments', score: -5, stage: 'Negotiation', requiredForms: ['Offer Form'] },
                         ]
                     },
                     {
                         name: 'Welcome / Thank You Email',
                         outcomes: [
-                            { label: 'Replied Positively', score: 10, stage: 'Closed' },
-                            { label: 'Referred New Lead', score: 25, stage: 'New' },
-                            { label: 'Raised Post-Booking Concern', score: -5, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Replied Positively', score: 10, stage: 'Closed (Won)' },
+                            { label: 'Referred New Lead', score: 25, stage: 'Incoming' },
+                            { label: 'Raised Post-Booking Concern', score: -5, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
                         ]
                     },
                     {
@@ -650,17 +658,17 @@ export const PropertyConfigProvider = ({ children }) => {
                         outcomes: [
                             { label: 'Replied – Wants to Visit Now', score: 20, stage: 'Opportunity' },
                             { label: 'Called Back After Email', score: 15, stage: 'Prospect' },
-                            { label: 'Opened – No Action', score: 2, stage: 'New' },
-                            { label: 'Unsubscribed', score: -3, stage: 'Closed Lost' },
+                            { label: 'Opened – No Action', score: 2, stage: 'Incoming' },
+                            { label: 'Unsubscribed', score: -3, stage: 'Closed (Lost)' },
                         ]
                     },
                     {
                         name: 'Payment Due Reminder',
                         outcomes: [
-                            { label: 'Payment Confirmed Reply', score: 15, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
-                            { label: '10 Day Extension Requested', score: -3, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
-                            { label: 'Dispute on Amount', score: -15, stage: 'Booked', requiredForms: ['Offer Form'] },
-                            { label: 'No Response', score: -8, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Payment Confirmed Reply', score: 15, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: '10 Day Extension Requested', score: -3, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Dispute on Amount', score: -15, stage: 'Negotiation', requiredForms: ['Offer Form'] },
+                            { label: 'No Response', score: -8, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
                         ]
                     },
                 ]
@@ -676,7 +684,7 @@ export const PropertyConfigProvider = ({ children }) => {
                         outcomes: [
                             { label: 'Very Interested', score: 30, stage: 'Opportunity', requiredForms: ['Site Visit Form'] },
                             { label: 'Somewhat Interested', score: 15, stage: 'Opportunity', requiredForms: ['Site Visit Form'] },
-                            { label: 'Not Interested', score: -20, stage: 'Dormant' },
+                            { label: 'Not Interested', score: -20, stage: 'Closed (Lost)' },
                             { label: 'Price Issue', score: -10, stage: 'Negotiation', requiredForms: ['Quotation Form'] },
                         ]
                     },
@@ -692,7 +700,7 @@ export const PropertyConfigProvider = ({ children }) => {
                     {
                         name: 'Unit Selection',
                         outcomes: [
-                            { label: 'Unit Blocked', score: 50, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Unit Blocked', score: 50, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
                             { label: 'Unit Not Available', score: -5, stage: 'Opportunity', requiredForms: ['Site Visit Form'] },
                             { label: 'Changed Preference', score: 0, stage: 'Opportunity', requiredForms: ['Site Visit Form'] },
                             { label: 'Thinking', score: 5, stage: 'Opportunity', requiredForms: ['Site Visit Form'] },
@@ -702,8 +710,8 @@ export const PropertyConfigProvider = ({ children }) => {
                         name: 'Competitor Comparison',
                         outcomes: [
                             { label: 'Favors Us', score: 20, stage: 'Opportunity', requiredForms: ['Site Visit Form'] },
-                            { label: 'Favors Competitor', score: -20, stage: 'New' },
-                            { label: 'Undecided', score: 0, stage: 'Qualified', requiredForms: ['Site Visit Form'] },
+                            { label: 'Favors Competitor', score: -20, stage: 'Incoming' },
+                            { label: 'Undecided', score: 0, stage: 'Prospect', requiredForms: ['Site Visit Form'] },
                         ]
                     },
                     // ── NEW SITE VISIT PURPOSES ──────────────────────────────────
@@ -711,9 +719,9 @@ export const PropertyConfigProvider = ({ children }) => {
                         name: 'Virtual Tour / Video Call Visit',
                         outcomes: [
                             { label: 'Liked – Wants Physical Visit Now', score: 20, stage: 'Opportunity', requiredForms: ['Site Visit Form'] },
-                            { label: 'Needs More Areas Shown', score: 8, stage: 'Qualified', requiredForms: ['Site Visit Form'] },
+                            { label: 'Needs More Areas Shown', score: 8, stage: 'Prospect', requiredForms: ['Site Visit Form'] },
                             { label: 'Not Convinced – Wants In-Person', score: 0, stage: 'Prospect' },
-                            { label: 'Wants Visit Recording', score: 10, stage: 'Qualified', requiredForms: ['Site Visit Form'] },
+                            { label: 'Wants Visit Recording', score: 10, stage: 'Prospect', requiredForms: ['Site Visit Form'] },
                             { label: 'Lost Interest After Tour', score: -10, stage: 'Prospect' },
                         ]
                     },
@@ -723,38 +731,38 @@ export const PropertyConfigProvider = ({ children }) => {
                             { label: 'Very Impressed with Sample Flat', score: 30, stage: 'Opportunity', requiredForms: ['Site Visit Form'] },
                             { label: 'Liked Amenities – Price Concern', score: 10, stage: 'Negotiation', requiredForms: ['Quotation Form'] },
                             { label: 'Wants Second Visit with Spouse', score: 25, stage: 'Opportunity', requiredForms: ['Site Visit Form'] },
-                            { label: 'Project Looks Incomplete / Delay Fear', score: -15, stage: 'Qualified', requiredForms: ['Site Visit Form'] },
+                            { label: 'Project Looks Incomplete / Delay Fear', score: -15, stage: 'Prospect', requiredForms: ['Site Visit Form'] },
                             { label: 'Requested Legal Documents', score: 20, stage: 'Negotiation', requiredForms: ['Offer Form'] },
-                            { label: 'Ready to Block Unit Today', score: 50, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Ready to Block Unit Today', score: 50, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
                         ]
                     },
                     {
                         name: 'Construction Site Visit',
                         outcomes: [
                             { label: 'Satisfied with Progress', score: 20, stage: 'Opportunity', requiredForms: ['Site Visit Form'] },
-                            { label: 'Concerns about Delivery Timeline', score: -10, stage: 'Qualified', requiredForms: ['Site Visit Form'] },
+                            { label: 'Concerns about Delivery Timeline', score: -10, stage: 'Prospect', requiredForms: ['Site Visit Form'] },
                             { label: 'Appreciated Build Quality', score: 25, stage: 'Opportunity', requiredForms: ['Site Visit Form'] },
-                            { label: 'Poor Site Condition – Concerned', score: -20, stage: 'Qualified', requiredForms: ['Site Visit Form'] },
+                            { label: 'Poor Site Condition – Concerned', score: -20, stage: 'Prospect', requiredForms: ['Site Visit Form'] },
                             { label: 'Wants to Visit Again in 3 Months', score: 5, stage: 'Prospect' },
                         ]
                     },
                     {
                         name: 'Possession / Ready-to-Move Visit',
                         outcomes: [
-                            { label: 'Fully Satisfied – Ready to Register', score: 60, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
-                            { label: 'Minor Snags – Acceptable', score: 30, stage: 'Booked', requiredForms: ['Offer Form'] },
-                            { label: 'Major Issues – Needs Fixing First', score: -10, stage: 'Booked', requiredForms: ['Offer Form'] },
-                            { label: 'Not Satisfied – Withdrawing', score: -40, stage: 'Closed Lost' },
-                            { label: 'Snagging List Submitted', score: 10, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Fully Satisfied – Ready to Register', score: 60, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Minor Snags – Acceptable', score: 30, stage: 'Negotiation', requiredForms: ['Offer Form'] },
+                            { label: 'Major Issues – Needs Fixing First', score: -10, stage: 'Negotiation', requiredForms: ['Offer Form'] },
+                            { label: 'Not Satisfied – Withdrawing', score: -40, stage: 'Closed (Lost)' },
+                            { label: 'Snagging List Submitted', score: 10, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
                         ]
                     },
                     {
                         name: 'Neighborhood / Locality Tour',
                         outcomes: [
                             { label: 'Loved the Locality', score: 18, stage: 'Opportunity', requiredForms: ['Site Visit Form'] },
-                            { label: 'Connectivity Issues Concern', score: -5, stage: 'Qualified', requiredForms: ['Site Visit Form'] },
+                            { label: 'Connectivity Issues Concern', score: -5, stage: 'Prospect', requiredForms: ['Site Visit Form'] },
                             { label: 'School / Hospital Proximity Liked', score: 12, stage: 'Opportunity', requiredForms: ['Site Visit Form'] },
-                            { label: 'Area Not Suitable', score: -20, stage: 'Qualified', requiredForms: ['Site Visit Form'] },
+                            { label: 'Area Not Suitable', score: -20, stage: 'Prospect', requiredForms: ['Site Visit Form'] },
                             { label: 'Wants to Compare with Another Area', score: 3, stage: 'Prospect' },
                         ]
                     },
@@ -763,8 +771,8 @@ export const PropertyConfigProvider = ({ children }) => {
                         outcomes: [
                             { label: 'Ready to Make an Offer', score: 45, stage: 'Negotiation', requiredForms: ['Offer Form'] },
                             { label: 'Price Negotiation After Inspection', score: 20, stage: 'Negotiation', requiredForms: ['Offer Form'] },
-                            { label: 'Renovation Required – Considering', score: 10, stage: 'Qualified', requiredForms: ['Site Visit Form'] },
-                            { label: 'Property Doesn\'t Match Description', score: -25, stage: 'Qualified', requiredForms: ['Site Visit Form'] },
+                            { label: 'Renovation Required – Considering', score: 10, stage: 'Prospect', requiredForms: ['Site Visit Form'] },
+                            { label: 'Property Doesn\'t Match Description', score: -25, stage: 'Prospect', requiredForms: ['Site Visit Form'] },
                             { label: 'Owner Possessive / Not Flexible', score: -10, stage: 'Negotiation', requiredForms: ['Offer Form'] },
                             { label: 'Title / Legal Check Requested', score: 15, stage: 'Negotiation', requiredForms: ['Offer Form'] },
                         ]
@@ -772,9 +780,9 @@ export const PropertyConfigProvider = ({ children }) => {
                     {
                         name: 'Pre-Launch / Soft Launch Visit',
                         outcomes: [
-                            { label: 'Booked at Pre-Launch Price', score: 70, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Booked at Pre-Launch Price', score: 70, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
                             { label: 'Interested – Will Decide at Launch', score: 20, stage: 'Opportunity', requiredForms: ['Site Visit Form'] },
-                            { label: 'Price Already High at Pre-Launch', score: -5, stage: 'Qualified', requiredForms: ['Quotation Form'] },
+                            { label: 'Price Already High at Pre-Launch', score: -5, stage: 'Prospect', requiredForms: ['Quotation Form'] },
                             { label: 'Bringing Investor Friends', score: 30, stage: 'Prospect' },
                         ]
                     },
@@ -789,9 +797,9 @@ export const PropertyConfigProvider = ({ children }) => {
                     {
                         name: 'Initial Consultation',
                         outcomes: [
-                            { label: 'Qualified', score: 15, stage: 'Qualified', requiredForms: ['Meetings Form'] },
+                            { label: 'Qualified', score: 15, stage: 'Prospect', requiredForms: ['Meetings Form'] },
                             { label: 'Need More Time', score: 5, stage: 'Prospect' },
-                            { label: 'Not Qualified', score: -10, stage: 'Dormant' },
+                            { label: 'Not Qualified', score: -10, stage: 'Closed (Lost)' },
                             { label: 'Rescheduled', score: 0, stage: 'Prospect' },
                         ]
                     },
@@ -799,66 +807,66 @@ export const PropertyConfigProvider = ({ children }) => {
                         name: 'Project Presentation',
                         outcomes: [
                             { label: 'Impressed', score: 20, stage: 'Opportunity', requiredForms: ['Meetings Form'] },
-                            { label: 'Neutral', score: 5, stage: 'Qualified' },
-                            { label: 'Skeptical', score: -5, stage: 'Qualified' },
+                            { label: 'Neutral', score: 5, stage: 'Prospect' },
+                            { label: 'Skeptical', score: -5, stage: 'Prospect' },
                             { label: 'Requested Site Visit', score: 25, stage: 'Opportunity', requiredForms: ['Meetings Form'] },
                         ]
                     },
                     {
                         name: 'Price Negotiation',
                         outcomes: [
-                            { label: 'Deal Closed', score: 100, stage: 'Booked' },
+                            { label: 'Deal Closed', score: 100, stage: 'Negotiation' },
                             { label: 'Stalemate', score: 0, stage: 'Negotiation', requiredForms: ['Offer Form'] },
                             { label: 'Discount Approved', score: 10, stage: 'Negotiation', requiredForms: ['Offer Form'] },
-                            { label: 'Walk-away', score: -50, stage: 'Closed Lost' },
+                            { label: 'Walk-away', score: -50, stage: 'Closed (Lost)' },
                         ]
                     },
                     {
                         name: 'Document Collection',
                         outcomes: [
-                            { label: 'All Collected', score: 10, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
-                            { label: 'Partial', score: 5, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
-                            { label: 'Pending', score: 0, stage: 'Booked', requiredForms: ['Offer Form'] },
-                            { label: 'Issues Found', score: -5, stage: 'Booked', requiredForms: ['Offer Form'] },
+                            { label: 'All Collected', score: 10, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Partial', score: 5, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Pending', score: 0, stage: 'Negotiation', requiredForms: ['Offer Form'] },
+                            { label: 'Issues Found', score: -5, stage: 'Negotiation', requiredForms: ['Offer Form'] },
                         ]
                     },
                     {
                         name: 'Final Closing',
                         outcomes: [
-                            { label: 'Signed', score: 100, stage: 'Closed' },
+                            { label: 'Signed', score: 100, stage: 'Closed (Won)' },
                             { label: 'Reviewing Draft', score: 10, stage: 'Negotiation', requiredForms: ['Offer Form'] },
                             { label: 'Postponed', score: -5, stage: 'Negotiation', requiredForms: ['Offer Form'] },
-                            { label: 'Cancelled', score: -50, stage: 'Closed Lost' },
+                            { label: 'Cancelled', score: -50, stage: 'Closed (Lost)' },
                         ]
                     },
                     // ── NEW MEETING PURPOSES ─────────────────────────────────────
                     {
                         name: 'Token / Booking Meeting',
                         outcomes: [
-                            { label: 'Token Received – Deal Locked', score: 80, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
-                            { label: 'Cheque Given – Clearing Pending', score: 50, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
-                            { label: 'Part Token Only', score: 30, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Token Received – Deal Locked', score: 80, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Cheque Given – Clearing Pending', score: 50, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Part Token Only', score: 30, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
                             { label: 'Changed Mind at Last Minute', score: -50, stage: 'Negotiation', requiredForms: ['Offer Form'] },
-                            { label: 'Token Tomorrow – Confirmed', score: 40, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Token Tomorrow – Confirmed', score: 40, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
                         ]
                     },
                     {
                         name: 'Agreement Signing Meeting',
                         outcomes: [
-                            { label: 'Agreement Signed', score: 100, stage: 'Closed' },
-                            { label: 'Co-Applicant Signature Pending', score: 30, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
-                            { label: 'Legal Clause Dispute', score: -10, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Agreement Signed', score: 100, stage: 'Closed (Won)' },
+                            { label: 'Co-Applicant Signature Pending', score: 30, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Legal Clause Dispute', score: -10, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
                             { label: 'Refused to Sign', score: -50, stage: 'Negotiation', requiredForms: ['Offer Form'] },
-                            { label: 'Stamp Duty Discussion', score: 5, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Stamp Duty Discussion', score: 5, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
                         ]
                     },
                     {
                         name: 'Home Loan / Bank Coordination Meeting',
                         outcomes: [
-                            { label: 'Loan Sanctioned', score: 40, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
-                            { label: 'Documents Submitted to Bank', score: 20, stage: 'Booked', requiredForms: ['Offer Form'] },
+                            { label: 'Loan Sanctioned', score: 40, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Documents Submitted to Bank', score: 20, stage: 'Negotiation', requiredForms: ['Offer Form'] },
                             { label: 'Loan Rejected', score: -30, stage: 'Negotiation', requiredForms: ['Meetings Form'] },
-                            { label: 'In-Principle Approval Done', score: 25, stage: 'Booked', requiredForms: ['Offer Form'] },
+                            { label: 'In-Principle Approval Done', score: 25, stage: 'Negotiation', requiredForms: ['Offer Form'] },
                             { label: 'Awaiting CIBIL Check', score: 5, stage: 'Negotiation', requiredForms: ['Offer Form'] },
                             { label: 'Trying Another Bank', score: 10, stage: 'Negotiation', requiredForms: ['Offer Form'] },
                         ]
@@ -866,10 +874,10 @@ export const PropertyConfigProvider = ({ children }) => {
                     {
                         name: 'Investor / Bulk Deal Meeting',
                         outcomes: [
-                            { label: 'Multi-Unit Deal Agreed', score: 100, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Multi-Unit Deal Agreed', score: 100, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
                             { label: 'Wants Detailed ROI Sheet', score: 20, stage: 'Opportunity', requiredForms: ['Meetings Form'] },
                             { label: 'Shortlisted 3 Units – Decision Pending', score: 35, stage: 'Negotiation', requiredForms: ['Offer Form'] },
-                            { label: 'ROI Not Satisfactory', score: -20, stage: 'Qualified', requiredForms: ['Meetings Form'] },
+                            { label: 'ROI Not Satisfactory', score: -20, stage: 'Prospect', requiredForms: ['Meetings Form'] },
                             { label: 'Will Bring CA / Advisor Next Time', score: 15, stage: 'Opportunity', requiredForms: ['Meetings Form'] },
                             { label: 'Wants Exclusive Pre-Launch Price', score: 25, stage: 'Opportunity', requiredForms: ['Quotation Form'] },
                         ]
@@ -878,7 +886,7 @@ export const PropertyConfigProvider = ({ children }) => {
                         name: 'Vastu / Architecture Consultation Meeting',
                         outcomes: [
                             { label: 'Vastu Expert Approved Property', score: 30, stage: 'Opportunity', requiredForms: ['Meetings Form'] },
-                            { label: 'Vastu Expert Rejected – Client Listening', score: -25, stage: 'Qualified', requiredForms: ['Meetings Form'] },
+                            { label: 'Vastu Expert Rejected – Client Listening', score: -25, stage: 'Prospect', requiredForms: ['Meetings Form'] },
                             { label: 'Another Unit Requested (Vastu Complaint)', score: 5, stage: 'Opportunity', requiredForms: ['Meetings Form'] },
                             { label: 'Modifications Feasible per Architect', score: 15, stage: 'Opportunity', requiredForms: ['Meetings Form'] },
                         ]
@@ -886,21 +894,21 @@ export const PropertyConfigProvider = ({ children }) => {
                     {
                         name: 'NRI Client Meeting',
                         outcomes: [
-                            { label: 'Booking Confirmed – POA Given', score: 80, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
-                            { label: 'POA Authority Setup in Progress', score: 40, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Booking Confirmed – POA Given', score: 80, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'POA Authority Setup in Progress', score: 40, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
                             { label: 'Comparing 3 Projects – India Trip Limited', score: 20, stage: 'Opportunity', requiredForms: ['Meetings Form'] },
                             { label: 'Wants USD-equivalent Pricing', score: 15, stage: 'Negotiation', requiredForms: ['Offer Form'] },
                             { label: 'Decision at Next India Trip', score: 5, stage: 'Prospect' },
-                            { label: 'Investing in Dubai Instead', score: -30, stage: 'Closed Lost' },
+                            { label: 'Investing in Dubai Instead', score: -30, stage: 'Closed (Lost)' },
                         ]
                     },
                     {
                         name: 'Post-Complaint Resolution Meeting',
                         outcomes: [
-                            { label: 'Issue Resolved – Client Happy', score: 20, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
-                            { label: 'Client Still Angry – Threat of Legal', score: -30, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
-                            { label: 'Compensation Agreed', score: 5, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
-                            { label: 'Client Cancelling Deal', score: -60, stage: 'Closed Lost' },
+                            { label: 'Issue Resolved – Client Happy', score: 20, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Client Still Angry – Threat of Legal', score: -30, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Compensation Agreed', score: 5, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Client Cancelling Deal', score: -60, stage: 'Closed (Lost)' },
                             { label: 'Referral Despite Complaint', score: 30, stage: 'Prospect' },
                         ]
                     },
@@ -909,7 +917,7 @@ export const PropertyConfigProvider = ({ children }) => {
                         outcomes: [
                             { label: 'CP Committed to Push Project', score: 15, stage: 'Prospect' },
                             { label: 'Co-Brokerage Agreement Signed', score: 20, stage: 'Prospect' },
-                            { label: 'CP Already Tied with Competitor', score: -10, stage: 'New' },
+                            { label: 'CP Already Tied with Competitor', score: -10, stage: 'Incoming' },
                             { label: 'CP Brought 3 Leads Same Day', score: 35, stage: 'Prospect' },
                             { label: 'Commission Rate Negotiated', score: 5, stage: 'Prospect' },
                         ]
@@ -925,10 +933,10 @@ export const PropertyConfigProvider = ({ children }) => {
                     {
                         name: 'Document Preparation',
                         outcomes: [
-                            { label: 'All Documents Ready', score: 10, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
-                            { label: 'Partial – 2 More Pending', score: 3, stage: 'Booked', requiredForms: ['Offer Form'] },
-                            { label: 'Client Not Sharing', score: -5, stage: 'Booked', requiredForms: ['Offer Form'] },
-                            { label: 'Documents Sent for Verification', score: 8, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'All Documents Ready', score: 10, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Partial – 2 More Pending', score: 3, stage: 'Negotiation', requiredForms: ['Offer Form'] },
+                            { label: 'Client Not Sharing', score: -5, stage: 'Negotiation', requiredForms: ['Offer Form'] },
+                            { label: 'Documents Sent for Verification', score: 8, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
                         ]
                     },
                     {
@@ -936,17 +944,17 @@ export const PropertyConfigProvider = ({ children }) => {
                         outcomes: [
                             { label: 'Title Clear', score: 20, stage: 'Negotiation', requiredForms: ['Offer Form'] },
                             { label: 'Minor Encumbrance – Resolvable', score: 5, stage: 'Negotiation', requiredForms: ['Offer Form'] },
-                            { label: 'Title Dispute Found', score: -40, stage: 'Closed Lost' },
+                            { label: 'Title Dispute Found', score: -40, stage: 'Closed (Lost)' },
                             { label: 'Additional Documents Requested from Owner', score: 0, stage: 'Negotiation', requiredForms: ['Offer Form'] },
                         ]
                     },
                     {
                         name: 'Loan File Processing',
                         outcomes: [
-                            { label: 'File Submitted', score: 10, stage: 'Booked', requiredForms: ['Offer Form'] },
-                            { label: 'Sanction Letter Received', score: 40, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'File Submitted', score: 10, stage: 'Negotiation', requiredForms: ['Offer Form'] },
+                            { label: 'Sanction Letter Received', score: 40, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
                             { label: 'File Rejected – Reapplication', score: -15, stage: 'Negotiation' },
-                            { label: 'Additional Documents Requested by Bank', score: 2, stage: 'Booked', requiredForms: ['Offer Form'] },
+                            { label: 'Additional Documents Requested by Bank', score: 2, stage: 'Negotiation', requiredForms: ['Offer Form'] },
                         ]
                     },
                     {
@@ -961,20 +969,20 @@ export const PropertyConfigProvider = ({ children }) => {
                     {
                         name: 'Agreement Draft Preparation',
                         outcomes: [
-                            { label: 'Draft Ready – Sent to Client', score: 10, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
-                            { label: 'Client Requested Changes', score: 0, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Draft Ready – Sent to Client', score: 10, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Client Requested Changes', score: 0, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
                             { label: 'Legal Issue in Draft', score: -5, stage: 'Negotiation', requiredForms: ['Offer Form'] },
-                            { label: 'Final Version Approved', score: 15, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Final Version Approved', score: 15, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
                         ]
                     },
                     {
                         name: 'Stamp Duty / Registration Coordination',
                         outcomes: [
-                            { label: 'Registration Date Confirmed', score: 20, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
-                            { label: 'Awaiting State Limit Slots', score: 2, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
-                            { label: 'Stamp Duty Paid', score: 15, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
-                            { label: 'Client Postponing Registry', score: -10, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
-                            { label: 'Registration Completed', score: 100, stage: 'Closed' },
+                            { label: 'Registration Date Confirmed', score: 20, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Awaiting State Limit Slots', score: 2, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Stamp Duty Paid', score: 15, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Client Postponing Registry', score: -10, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Registration Completed', score: 100, stage: 'Closed (Won)' },
                         ]
                     },
                     {
@@ -995,10 +1003,10 @@ export const PropertyConfigProvider = ({ children }) => {
                     {
                         name: 'Snag List / Possession Inspection Task',
                         outcomes: [
-                            { label: 'Snag List Cleared', score: 20, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
-                            { label: '8+ Issues – Developer Working', score: 5, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
-                            { label: 'Major Civil Defects', score: -10, stage: 'Booked', requiredForms: ['Booking Form', 'KYC Form'] },
-                            { label: 'Possession Given', score: 50, stage: 'Closed' },
+                            { label: 'Snag List Cleared', score: 20, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: '8+ Issues – Developer Working', score: 5, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Major Civil Defects', score: -10, stage: 'Negotiation', requiredForms: ['Booking Form', 'KYC Form'] },
+                            { label: 'Possession Given', score: 50, stage: 'Closed (Won)' },
                         ]
                     },
                 ]
@@ -1118,7 +1126,7 @@ export const PropertyConfigProvider = ({ children }) => {
             { stage: 'Prospect', order: 1, requiredActivity: 'Introduction / Call', icon: 'fa-user' },
             { stage: 'Opportunity', order: 2, requiredActivity: 'Requirement Gathering / Site Visit', icon: 'fa-fire' },
             { stage: 'Negotiation', order: 3, requiredActivity: 'Negotiation Call', icon: 'fa-comments-dollar' },
-            { stage: 'Closed', order: 4, requiredActivity: 'Agreement Signed / Booking', icon: 'fa-trophy' },
+            { stage: 'Closed (Won)', order: 4, requiredActivity: 'Agreement Signed / Booking', icon: 'fa-trophy' },
         ]
     });
     const updateSequenceConfig = useCallback((changes) => setSequenceConfig(prev => ({ ...prev, ...changes })), [setSequenceConfig]);
@@ -1534,7 +1542,9 @@ export const PropertyConfigProvider = ({ children }) => {
                 'Status', 'State', 'City', 'Location', 'Area', 'Pincode', 'Tehsil', 'PostOffice', 'Country',
                 'Source', 'Stage', 'Title', 'Requirement', 'SubRequirement', 'Budget', 'Campaign', 'SubSource',
                 'TransactionType', 'FundingType', 'FurnishingStatus', 'Timeline', 'PossessionStatus',
-                'DocumentCategory', 'Document-Category', 'DocumentType', 'Document-Type'
+                'DocumentCategory', 'Document-Category', 'DocumentType', 'Document-Type',
+                'WaterSource', 'WaterLevel', 'WaterPumpType', 'FrontOnRoad', 'NumberOfOwner', 'ZoneName', 'FloorLevel', 'FloorPlan',
+                'SoilType', 'CurrentCrop'
             ];
             const response = await api.get(`/lookups?lookup_type=${requiredTypes.join(',')}`);
             const resBody = response.data;
@@ -1575,7 +1585,15 @@ export const PropertyConfigProvider = ({ children }) => {
                 facings: getValues('Facing'),
                 directions: getValues('Direction'),
                 roadWidths: getValues('RoadWidth'),
+                waterSources: getValues('WaterSource'),
+                waterLevels: getValues('WaterLevel'),
+                waterPumpTypes: getValues('WaterPumpType'),
+                frontOnRoads: getValues('FrontOnRoad'),
+                numberOfOwners: getValues('NumberOfOwner'),
                 unitTypes: getValues('UnitType'),
+                zoneNames: getValues('ZoneName'),
+                soilTypes: getValues('SoilType'),
+                currentCrops: getValues('CurrentCrop'),
                 pincodes: getValues('Pincode'), // Added Pincode sync
                 titles: helperGet(newLookups, 'Title') || [],
                 relations: helperGet(newLookups, 'Relation')?.map(l => ({
@@ -1659,7 +1677,16 @@ export const PropertyConfigProvider = ({ children }) => {
                         foundKeys.add(setting.key);
                         switch (setting.key) {
                             case 'propertyConfig': setPropertyConfig(setting.value, true); break;
-                            case 'masterFields': setMasterFields(setting.value, true); break;
+                            case 'masterFields': 
+                                setMasterFields(prev => {
+                                    const merged = { ...prev, ...setting.value };
+                                    const lookupKeys = ['facings', 'directions', 'roadWidths', 'waterSources', 'waterLevels', 'waterPumpTypes', 'frontOnRoads', 'unitTypes', 'relations', 'zoneNames', 'numberOfOwners', 'floorLevels', 'floorPlans', 'soilTypes', 'currentCrops'];
+                                    lookupKeys.forEach(k => {
+                                        if (prev[k] && prev[k].length > 0) merged[k] = prev[k];
+                                    });
+                                    return merged;
+                                }, true); 
+                                break;
                             case 'projectMasterFields': 
                                 setProjectMasterFields({
                                     ...defaultProjectMasterFields,
@@ -1914,8 +1941,18 @@ export const PropertyConfigProvider = ({ children }) => {
             facings: 'Facing',
             directions: 'Direction',
             roadWidths: 'RoadWidth',
+            waterSources: 'WaterSource',
+            waterLevels: 'WaterLevel',
+            waterPumpTypes: 'WaterPumpType',
+            frontOnRoads: 'FrontOnRoad',
             unitTypes: 'UnitType',
-            relations: 'Relation'
+            relations: 'Relation',
+            zoneNames: 'ZoneName',
+            numberOfOwners: 'NumberOfOwner',
+            floorLevels: 'FloorLevel',
+            floorPlans: 'FloorPlan',
+            soilTypes: 'SoilType',
+            currentCrops: 'CurrentCrop'
         };
 
         const lookupType = fieldToLookupType[field];

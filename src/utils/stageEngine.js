@@ -18,7 +18,7 @@ export const STAGE_PIPELINE = [
     {
         id: 'incoming',
         label: 'Incoming',
-        subStages: ['Incoming', 'New', 'Inbound'],
+        subStages: ['Incoming', 'Incoming', 'Inbound'],
         isTerminal: false,
         bucket: 'fresh',
         probability: 10,
@@ -28,7 +28,7 @@ export const STAGE_PIPELINE = [
     {
         id: 'prospect',
         label: 'Prospect',
-        subStages: ['Prospect', 'Qualified', 'Warm'],
+        subStages: ['Prospect', 'Prospect', 'Warm'],
         isTerminal: false,
         bucket: 'prospect',
         probability: 20,
@@ -48,7 +48,7 @@ export const STAGE_PIPELINE = [
     {
         id: 'negotiation',
         label: 'Negotiation',
-        subStages: ['Negotiation', 'Booked', 'Under Review'],
+        subStages: ['Negotiation', 'Negotiation', 'Under Review'],
         isTerminal: false,
         bucket: 'negotiation',
         probability: 65,
@@ -239,26 +239,26 @@ export const computeStage = (activityType, purpose, outcome, stageMappingRules =
 export const STAGE_MAP = {
     // ─── CALL: Introduction / First Contact ────────────────────────────────
     'Call|Introduction / First Contact|Connected':                     'Prospect',
-    'Call|Introduction / First Contact|Not Reachable':                 'New',
-    'Call|Introduction / First Contact|Wrong Number':                  'New',
+    'Call|Introduction / First Contact|Not Reachable':                 'Incoming',
+    'Call|Introduction / First Contact|Wrong Number':                  'Incoming',
     'Call|Introduction / First Contact|Callback Requested':            'Prospect',
     'Call|Introduction / First Contact|Busy':                          'Prospect',
 
     // ─── CALL: Requirement Gathering ───────────────────────────────────────
-    'Call|Requirement Gathering|Requirements Shared':                  'Qualified',
+    'Call|Requirement Gathering|Requirements Shared':                  'Prospect',
     'Call|Requirement Gathering|Partial Info':                         'Prospect',
-    'Call|Requirement Gathering|Refused to Share':                     'New',
+    'Call|Requirement Gathering|Refused to Share':                     'Incoming',
     'Call|Requirement Gathering|Rescheduled':                          'Prospect',
 
     // ─── CALL: Follow-up ───────────────────────────────────────────────────
-    'Call|Follow-up|Still Interested':                                 'Qualified',
+    'Call|Follow-up|Still Interested':                                 'Prospect',
     'Call|Follow-up|Ready for Visit':                                  'Opportunity',
     'Call|Follow-up|Negotiation Mode':                                 'Negotiation',
-    'Call|Follow-up|Lost Interest':                                    'Dormant',
-    'Call|Follow-up|No Response':                                      'Dormant',
+    'Call|Follow-up|Lost Interest':                                    'Closed (Lost)',
+    'Call|Follow-up|No Response':                                      'Closed (Lost)',
 
     // ─── CALL: Negotiation ─────────────────────────────────────────────────
-    'Call|Negotiation|Offer Accepted':                                 'Booked',
+    'Call|Negotiation|Offer Accepted':                                 'Negotiation',
     'Call|Negotiation|Offer Rejected':                                 'Negotiation',
     'Call|Negotiation|Counter Offer Made':                             'Negotiation',
     'Call|Negotiation|Decision Pending':                               'Negotiation',
@@ -266,87 +266,87 @@ export const STAGE_MAP = {
     // ─── CALL: Post-Visit Feedback ─────────────────────────────────────────
     'Call|Post-Visit Feedback|Liked Property':                         'Opportunity',
     'Call|Post-Visit Feedback|Disliked - Price':                       'Negotiation',
-    'Call|Post-Visit Feedback|Disliked - Location':                    'Qualified',
+    'Call|Post-Visit Feedback|Disliked - Location':                    'Prospect',
     'Call|Post-Visit Feedback|Thinking / Hold':                        'Opportunity',
-    'Call|Post-Visit Feedback|Booking Request':                        'Booked',
+    'Call|Post-Visit Feedback|Booking Request':                        'Negotiation',
 
     // ─── CALL: Payment Reminder ────────────────────────────────────────────
-    'Call|Payment Reminder|Payment Promised':                          'Booked',
-    'Call|Payment Reminder|Already Paid':                              'Booked',
-    'Call|Payment Reminder|Dispute':                                   'Booked',
-    'Call|Payment Reminder|Extension Requested':                       'Booked',
+    'Call|Payment Reminder|Payment Promised':                          'Negotiation',
+    'Call|Payment Reminder|Already Paid':                              'Negotiation',
+    'Call|Payment Reminder|Dispute':                                   'Negotiation',
+    'Call|Payment Reminder|Extension Requested':                       'Negotiation',
 
     // ─── CALL: Site Visit Confirmation Call ────────────────────────────────
     'Call|Site Visit Confirmation Call|Confirmed – Will Come':         'Opportunity',
     'Call|Site Visit Confirmation Call|Rescheduled to New Date':       'Opportunity',
-    'Call|Site Visit Confirmation Call|Cancelled – No Reason':         'Qualified',
-    'Call|Site Visit Confirmation Call|Cancelled – Going to Competitor': 'Closed Lost',
-    'Call|Site Visit Confirmation Call|Not Reachable':                 'Qualified',
+    'Call|Site Visit Confirmation Call|Cancelled – No Reason':         'Prospect',
+    'Call|Site Visit Confirmation Call|Cancelled – Going to Competitor': 'Closed (Lost)',
+    'Call|Site Visit Confirmation Call|Not Reachable':                 'Prospect',
     'Call|Site Visit Confirmation Call|Coming with Family Now':        'Opportunity',
 
     // ─── CALL: Loan / Finance Discussion Call ──────────────────────────────
     'Call|Loan / Finance Discussion Call|Self-Funded / Cash Ready':    'Negotiation',
     'Call|Loan / Finance Discussion Call|Loan Pre-approved':           'Opportunity',
     'Call|Loan / Finance Discussion Call|Loan Applied – Awaiting Approval': 'Opportunity',
-    'Call|Loan / Finance Discussion Call|Needs Loan Assistance from Us': 'Qualified',
-    'Call|Loan / Finance Discussion Call|Cannot Arrange Finance':      'Closed Lost',
-    'Call|Loan / Finance Discussion Call|Selling Existing Property First': 'Dormant',
-    'Call|Loan / Finance Discussion Call|EMI Affordable – Wants Calculator': 'Qualified',
+    'Call|Loan / Finance Discussion Call|Needs Loan Assistance from Us': 'Prospect',
+    'Call|Loan / Finance Discussion Call|Cannot Arrange Finance':      'Closed (Lost)',
+    'Call|Loan / Finance Discussion Call|Selling Existing Property First': 'Closed (Lost)',
+    'Call|Loan / Finance Discussion Call|EMI Affordable – Wants Calculator': 'Prospect',
 
     // ─── CALL: CP / Channel Partner Coordination Call ──────────────────────
     'Call|CP / Channel Partner Coordination Call|CP Confirmed Visit for Client': 'Opportunity',
     'Call|CP / Channel Partner Coordination Call|CP Needs More Inventory Options': 'Prospect',
     'Call|CP / Channel Partner Coordination Call|Commission Dispute':  'Prospect',
-    'Call|CP / Channel Partner Coordination Call|CP Submitted New Leads': 'New',
-    'Call|CP / Channel Partner Coordination Call|CP Dropped the Deal': 'Qualified',
-    'Call|CP / Channel Partner Coordination Call|CP Redirecting to Another Project': 'Qualified',
+    'Call|CP / Channel Partner Coordination Call|CP Submitted New Leads': 'Incoming',
+    'Call|CP / Channel Partner Coordination Call|CP Dropped the Deal': 'Prospect',
+    'Call|CP / Channel Partner Coordination Call|CP Redirecting to Another Project': 'Prospect',
 
     // ─── CALL: Token / Booking Confirmation Call ───────────────────────────
-    'Call|Token / Booking Confirmation Call|Token Amount Confirmed':   'Booked',
-    'Call|Token / Booking Confirmation Call|Cheque Ready – Date Confirmed': 'Booked',
-    'Call|Token / Booking Confirmation Call|Transfer in Process':      'Booked',
-    'Call|Token / Booking Confirmation Call|Backing Out':              'Closed Lost',
+    'Call|Token / Booking Confirmation Call|Token Amount Confirmed':   'Negotiation',
+    'Call|Token / Booking Confirmation Call|Cheque Ready – Date Confirmed': 'Negotiation',
+    'Call|Token / Booking Confirmation Call|Transfer in Process':      'Negotiation',
+    'Call|Token / Booking Confirmation Call|Backing Out':              'Closed (Lost)',
     'Call|Token / Booking Confirmation Call|Wants Agreement First':    'Negotiation',
     'Call|Token / Booking Confirmation Call|Price Renegotiation Before Token': 'Negotiation',
 
     // ─── CALL: Owner / Landlord Call ───────────────────────────────────────
     'Call|Owner / Landlord Call|Owner Agreed to Price':                'Negotiation',
     'Call|Owner / Landlord Call|Owner Reduced Price':                  'Negotiation',
-    'Call|Owner / Landlord Call|Owner Not Selling':                    'Closed Lost',
+    'Call|Owner / Landlord Call|Owner Not Selling':                    'Closed (Lost)',
     'Call|Owner / Landlord Call|Property Still Available':             'Opportunity',
     'Call|Owner / Landlord Call|Owner Wants 15 Days to Decide':        'Negotiation',
     'Call|Owner / Landlord Call|Owner Wants All-Cash Payment Only':    'Negotiation',
-    'Call|Owner / Landlord Call|Owner Ready for Token':                'Booked',
+    'Call|Owner / Landlord Call|Owner Ready for Token':                'Negotiation',
 
     // ─── CALL: Agreement / Registry Reminder Call ──────────────────────────
-    'Call|Agreement / Registry Reminder Call|Agreement Date Fixed':    'Booked',
-    'Call|Agreement / Registry Reminder Call|Client Delaying Signing': 'Booked',
-    'Call|Agreement / Registry Reminder Call|Documents Ready':         'Booked',
-    'Call|Agreement / Registry Reminder Call|Lawyer Query from Client': 'Booked',
-    'Call|Agreement / Registry Reminder Call|Cancellation Requested':  'Closed Lost',
-    'Call|Agreement / Registry Reminder Call|Re-negotiation on Terms': 'Booked',
+    'Call|Agreement / Registry Reminder Call|Agreement Date Fixed':    'Negotiation',
+    'Call|Agreement / Registry Reminder Call|Client Delaying Signing': 'Negotiation',
+    'Call|Agreement / Registry Reminder Call|Documents Ready':         'Negotiation',
+    'Call|Agreement / Registry Reminder Call|Lawyer Query from Client': 'Negotiation',
+    'Call|Agreement / Registry Reminder Call|Cancellation Requested':  'Closed (Lost)',
+    'Call|Agreement / Registry Reminder Call|Re-negotiation on Terms': 'Negotiation',
 
     // ─── CALL: Cold / Database Call ────────────────────────────────────────
     'Call|Cold / Database Call|Interested – Wants Details':            'Prospect',
-    'Call|Cold / Database Call|Call Back Later':                       'New',
-    'Call|Cold / Database Call|Do Not Call':                           'Closed Lost',
-    'Call|Cold / Database Call|Wants WhatsApp Instead':                'New',
-    'Call|Cold / Database Call|Already Bought Elsewhere':              'Closed Lost',
+    'Call|Cold / Database Call|Call Back Later':                       'Incoming',
+    'Call|Cold / Database Call|Do Not Call':                           'Closed (Lost)',
+    'Call|Cold / Database Call|Wants WhatsApp Instead':                'Incoming',
+    'Call|Cold / Database Call|Already Bought Elsewhere':              'Closed (Lost)',
     'Call|Cold / Database Call|Can Refer Someone':                     'Prospect',
 
     // ─── CALL: Existing Customer / Referral Call ───────────────────────────
-    'Call|Existing Customer / Referral Call|Referral Name Shared':     'New',
+    'Call|Existing Customer / Referral Call|Referral Name Shared':     'Incoming',
     'Call|Existing Customer / Referral Call|Interested in Another Unit': 'Prospect',
-    'Call|Existing Customer / Referral Call|Not Happy – Complaint':    'New',
+    'Call|Existing Customer / Referral Call|Not Happy – Complaint':    'Incoming',
     'Call|Existing Customer / Referral Call|Positive Feedback Given':  'Prospect',
     'Call|Existing Customer / Referral Call|Wants to Rent Out Property': 'Prospect',
 
     // ─── EMAIL: Project Brochure / E-Catalogue Send ────────────────────────
     'Email|Project Brochure / E-Catalogue Send|Opened + Clicked':      'Prospect',
-    'Email|Project Brochure / E-Catalogue Send|Opened – No Response':  'New',
-    'Email|Project Brochure / E-Catalogue Send|Delivered – Not Opened': 'New',
-    'Email|Project Brochure / E-Catalogue Send|Bounced':               'New',
-    'Email|Project Brochure / E-Catalogue Send|Replied with Query':    'Qualified',
+    'Email|Project Brochure / E-Catalogue Send|Opened – No Response':  'Incoming',
+    'Email|Project Brochure / E-Catalogue Send|Delivered – Not Opened': 'Incoming',
+    'Email|Project Brochure / E-Catalogue Send|Bounced':               'Incoming',
+    'Email|Project Brochure / E-Catalogue Send|Replied with Query':    'Prospect',
     'Email|Project Brochure / E-Catalogue Send|Forwarded to Family':   'Opportunity',
 
     // ─── EMAIL: Floor Plan / Site Map Share ────────────────────────────────
@@ -360,37 +360,37 @@ export const STAGE_MAP = {
     'Email|Quotation / Price Sheet Send|Accepted Price – Wants to Meet': 'Negotiation',
     'Email|Quotation / Price Sheet Send|Counter-Offered in Reply':     'Negotiation',
     'Email|Quotation / Price Sheet Send|Too High – Replied Negatively': 'Negotiation',
-    'Email|Quotation / Price Sheet Send|No Response After Price':       'Dormant',
+    'Email|Quotation / Price Sheet Send|No Response After Price':       'Closed (Lost)',
     'Email|Quotation / Price Sheet Send|Wants Legal Charges Clarification': 'Negotiation',
 
     // ─── EMAIL: Legal Document / Agreement Send ────────────────────────────
-    'Email|Legal Document / Agreement Send|Signed – Returned via Email': 'Closed',
-    'Email|Legal Document / Agreement Send|Lawyer Reviewing':          'Booked',
-    'Email|Legal Document / Agreement Send|Queries Raised':            'Booked',
+    'Email|Legal Document / Agreement Send|Signed – Returned via Email': 'Closed (Won)',
+    'Email|Legal Document / Agreement Send|Lawyer Reviewing':          'Negotiation',
+    'Email|Legal Document / Agreement Send|Queries Raised':            'Negotiation',
     'Email|Legal Document / Agreement Send|Rejected Agreement Terms':  'Negotiation',
-    'Email|Legal Document / Agreement Send|Requesting Amendments':     'Booked',
+    'Email|Legal Document / Agreement Send|Requesting Amendments':     'Negotiation',
 
     // ─── EMAIL: Welcome / Thank You Email ──────────────────────────────────
-    'Email|Welcome / Thank You Email|Replied Positively':              'Closed',
-    'Email|Welcome / Thank You Email|Referred New Lead':               'Closed',
-    'Email|Welcome / Thank You Email|Raised Post-Booking Concern':     'Booked',
+    'Email|Welcome / Thank You Email|Replied Positively':              'Closed (Won)',
+    'Email|Welcome / Thank You Email|Referred New Lead':               'Closed (Won)',
+    'Email|Welcome / Thank You Email|Raised Post-Booking Concern':     'Negotiation',
 
     // ─── EMAIL: Festival / Offer Campaign Email ────────────────────────────
     'Email|Festival / Offer Campaign Email|Replied – Wants to Visit Now': 'Opportunity',
     'Email|Festival / Offer Campaign Email|Called Back After Email':   'Prospect',
-    'Email|Festival / Offer Campaign Email|Opened – No Action':        'New',
-    'Email|Festival / Offer Campaign Email|Unsubscribed':              'Closed Lost',
+    'Email|Festival / Offer Campaign Email|Opened – No Action':        'Incoming',
+    'Email|Festival / Offer Campaign Email|Unsubscribed':              'Closed (Lost)',
 
     // ─── EMAIL: Payment Due Reminder ───────────────────────────────────────
-    'Email|Payment Due Reminder|Payment Confirmed Reply':              'Booked',
-    'Email|Payment Due Reminder|10 Day Extension Requested':           'Booked',
-    'Email|Payment Due Reminder|Dispute on Amount':                    'Booked',
-    'Email|Payment Due Reminder|No Response':                          'Booked',
+    'Email|Payment Due Reminder|Payment Confirmed Reply':              'Negotiation',
+    'Email|Payment Due Reminder|10 Day Extension Requested':           'Negotiation',
+    'Email|Payment Due Reminder|Dispute on Amount':                    'Negotiation',
+    'Email|Payment Due Reminder|No Response':                          'Negotiation',
 
     // ─── SITE VISIT: First Visit (Solo) ────────────────────────────────────
     'Site Visit|First Visit (Solo)|Very Interested':                   'Opportunity',
     'Site Visit|First Visit (Solo)|Somewhat Interested':               'Opportunity',
-    'Site Visit|First Visit (Solo)|Not Interested':                    'Dormant',
+    'Site Visit|First Visit (Solo)|Not Interested':                    'Closed (Lost)',
     'Site Visit|First Visit (Solo)|Price Issue':                       'Negotiation',
 
     // ─── SITE VISIT: Re-Visit (With Family) ────────────────────────────────
@@ -400,171 +400,171 @@ export const STAGE_MAP = {
     'Site Visit|Re-Visit (With Family)|Need Consensus':                'Opportunity',
 
     // ─── SITE VISIT: Unit Selection ────────────────────────────────────────
-    'Site Visit|Unit Selection|Unit Blocked':                          'Booked',
+    'Site Visit|Unit Selection|Unit Blocked':                          'Negotiation',
     'Site Visit|Unit Selection|Unit Not Available':                    'Opportunity',
     'Site Visit|Unit Selection|Changed Preference':                    'Opportunity',
     'Site Visit|Unit Selection|Thinking':                              'Opportunity',
 
     // ─── SITE VISIT: Competitor Comparison ─────────────────────────────────
     'Site Visit|Competitor Comparison|Favors Us':                      'Opportunity',
-    'Site Visit|Competitor Comparison|Favors Competitor':              'New',
-    'Site Visit|Competitor Comparison|Undecided':                      'Qualified',
+    'Site Visit|Competitor Comparison|Favors Competitor':              'Incoming',
+    'Site Visit|Competitor Comparison|Undecided':                      'Prospect',
 
     // ─── SITE VISIT: Virtual Tour / Video Call Visit ───────────────────────
     'Site Visit|Virtual Tour / Video Call Visit|Liked – Wants Physical Visit Now': 'Opportunity',
-    'Site Visit|Virtual Tour / Video Call Visit|Needs More Areas Shown': 'Qualified',
+    'Site Visit|Virtual Tour / Video Call Visit|Needs More Areas Shown': 'Prospect',
     'Site Visit|Virtual Tour / Video Call Visit|Not Convinced – Wants In-Person': 'Prospect',
-    'Site Visit|Virtual Tour / Video Call Visit|Wants Visit Recording': 'Qualified',
+    'Site Visit|Virtual Tour / Video Call Visit|Wants Visit Recording': 'Prospect',
     'Site Visit|Virtual Tour / Video Call Visit|Lost Interest After Tour': 'Prospect',
 
     // ─── SITE VISIT: Developer / Builder Showroom Visit ────────────────────
     'Site Visit|Developer / Builder Showroom Visit|Very Impressed with Sample Flat': 'Opportunity',
     'Site Visit|Developer / Builder Showroom Visit|Liked Amenities – Price Concern': 'Negotiation',
     'Site Visit|Developer / Builder Showroom Visit|Wants Second Visit with Spouse': 'Opportunity',
-    'Site Visit|Developer / Builder Showroom Visit|Project Looks Incomplete / Delay Fear': 'Qualified',
+    'Site Visit|Developer / Builder Showroom Visit|Project Looks Incomplete / Delay Fear': 'Prospect',
     'Site Visit|Developer / Builder Showroom Visit|Requested Legal Documents': 'Negotiation',
-    'Site Visit|Developer / Builder Showroom Visit|Ready to Block Unit Today': 'Booked',
+    'Site Visit|Developer / Builder Showroom Visit|Ready to Block Unit Today': 'Negotiation',
 
     // ─── SITE VISIT: Construction Site Visit ───────────────────────────────
     'Site Visit|Construction Site Visit|Satisfied with Progress':      'Opportunity',
-    'Site Visit|Construction Site Visit|Concerns about Delivery Timeline': 'Qualified',
+    'Site Visit|Construction Site Visit|Concerns about Delivery Timeline': 'Prospect',
     'Site Visit|Construction Site Visit|Appreciated Build Quality':    'Opportunity',
-    'Site Visit|Construction Site Visit|Poor Site Condition – Concerned': 'Qualified',
+    'Site Visit|Construction Site Visit|Poor Site Condition – Concerned': 'Prospect',
     'Site Visit|Construction Site Visit|Wants to Visit Again in 3 Months': 'Prospect',
 
     // ─── SITE VISIT: Possession / Ready-to-Move Visit ──────────────────────
-    'Site Visit|Possession / Ready-to-Move Visit|Fully Satisfied – Ready to Register': 'Booked',
-    'Site Visit|Possession / Ready-to-Move Visit|Minor Snags – Acceptable': 'Booked',
-    'Site Visit|Possession / Ready-to-Move Visit|Major Issues – Needs Fixing First': 'Booked',
-    'Site Visit|Possession / Ready-to-Move Visit|Not Satisfied – Withdrawing': 'Closed Lost',
-    'Site Visit|Possession / Ready-to-Move Visit|Snagging List Submitted': 'Booked',
+    'Site Visit|Possession / Ready-to-Move Visit|Fully Satisfied – Ready to Register': 'Negotiation',
+    'Site Visit|Possession / Ready-to-Move Visit|Minor Snags – Acceptable': 'Negotiation',
+    'Site Visit|Possession / Ready-to-Move Visit|Major Issues – Needs Fixing First': 'Negotiation',
+    'Site Visit|Possession / Ready-to-Move Visit|Not Satisfied – Withdrawing': 'Closed (Lost)',
+    'Site Visit|Possession / Ready-to-Move Visit|Snagging List Submitted': 'Negotiation',
 
     // ─── SITE VISIT: Neighborhood / Locality Tour ──────────────────────────
     'Site Visit|Neighborhood / Locality Tour|Loved the Locality':      'Opportunity',
-    'Site Visit|Neighborhood / Locality Tour|Connectivity Issues Concern': 'Qualified',
+    'Site Visit|Neighborhood / Locality Tour|Connectivity Issues Concern': 'Prospect',
     'Site Visit|Neighborhood / Locality Tour|School / Hospital Proximity Liked': 'Opportunity',
-    'Site Visit|Neighborhood / Locality Tour|Area Not Suitable':        'Qualified',
+    'Site Visit|Neighborhood / Locality Tour|Area Not Suitable':        'Prospect',
     'Site Visit|Neighborhood / Locality Tour|Wants to Compare with Another Area': 'Prospect',
 
     // ─── SITE VISIT: Resale Property Inspection ────────────────────────────
     'Site Visit|Resale Property Inspection|Ready to Make an Offer':    'Negotiation',
     'Site Visit|Resale Property Inspection|Price Negotiation After Inspection': 'Negotiation',
-    "Site Visit|Resale Property Inspection|Renovation Required – Considering": 'Qualified',
-    "Site Visit|Resale Property Inspection|Property Doesn't Match Description": 'Qualified',
+    "Site Visit|Resale Property Inspection|Renovation Required – Considering": 'Prospect',
+    "Site Visit|Resale Property Inspection|Property Doesn't Match Description": 'Prospect',
     'Site Visit|Resale Property Inspection|Owner Possessive / Not Flexible': 'Negotiation',
     'Site Visit|Resale Property Inspection|Title / Legal Check Requested': 'Negotiation',
 
     // ─── SITE VISIT: Pre-Launch / Soft Launch Visit ────────────────────────
-    'Site Visit|Pre-Launch / Soft Launch Visit|Booked at Pre-Launch Price': 'Booked',
+    'Site Visit|Pre-Launch / Soft Launch Visit|Booked at Pre-Launch Price': 'Negotiation',
     'Site Visit|Pre-Launch / Soft Launch Visit|Interested – Will Decide at Launch': 'Opportunity',
-    'Site Visit|Pre-Launch / Soft Launch Visit|Price Already High at Pre-Launch': 'Qualified',
+    'Site Visit|Pre-Launch / Soft Launch Visit|Price Already High at Pre-Launch': 'Prospect',
     'Site Visit|Pre-Launch / Soft Launch Visit|Bringing Investor Friends': 'Prospect',
 
     // ─── MEETING: Initial Consultation ─────────────────────────────────────
-    'Meeting|Initial Consultation|Qualified':                          'Qualified',
+    'Meeting|Initial Consultation|Qualified':                          'Prospect',
     'Meeting|Initial Consultation|Need More Time':                     'Prospect',
-    'Meeting|Initial Consultation|Not Qualified':                      'Dormant',
+    'Meeting|Initial Consultation|Not Qualified':                      'Closed (Lost)',
     'Meeting|Initial Consultation|Rescheduled':                        'Prospect',
 
     // ─── MEETING: Project Presentation ─────────────────────────────────────
     'Meeting|Project Presentation|Impressed':                          'Opportunity',
-    'Meeting|Project Presentation|Neutral':                            'Qualified',
-    'Meeting|Project Presentation|Skeptical':                          'Qualified',
+    'Meeting|Project Presentation|Neutral':                            'Prospect',
+    'Meeting|Project Presentation|Skeptical':                          'Prospect',
     'Meeting|Project Presentation|Requested Site Visit':               'Opportunity',
 
     // ─── MEETING: Price Negotiation ────────────────────────────────────────
-    'Meeting|Price Negotiation|Deal Closed':                           'Booked',
+    'Meeting|Price Negotiation|Deal Closed':                           'Negotiation',
     'Meeting|Price Negotiation|Stalemate':                             'Negotiation',
     'Meeting|Price Negotiation|Discount Approved':                     'Negotiation',
-    'Meeting|Price Negotiation|Walk-away':                             'Closed Lost',
+    'Meeting|Price Negotiation|Walk-away':                             'Closed (Lost)',
 
     // ─── MEETING: Document Collection ──────────────────────────────────────
-    'Meeting|Document Collection|All Collected':                       'Booked',
-    'Meeting|Document Collection|Partial':                             'Booked',
-    'Meeting|Document Collection|Pending':                             'Booked',
-    'Meeting|Document Collection|Issues Found':                        'Booked',
+    'Meeting|Document Collection|All Collected':                       'Negotiation',
+    'Meeting|Document Collection|Partial':                             'Negotiation',
+    'Meeting|Document Collection|Pending':                             'Negotiation',
+    'Meeting|Document Collection|Issues Found':                        'Negotiation',
 
     // ─── MEETING: Final Closing ─────────────────────────────────────────────
-    'Meeting|Final Closing|Signed':                                    'Closed',
+    'Meeting|Final Closing|Signed':                                    'Closed (Won)',
     'Meeting|Final Closing|Reviewing Draft':                           'Negotiation',
     'Meeting|Final Closing|Postponed':                                 'Negotiation',
-    'Meeting|Final Closing|Cancelled':                                 'Closed Lost',
+    'Meeting|Final Closing|Cancelled':                                 'Closed (Lost)',
 
     // ─── MEETING: Token / Booking Meeting ──────────────────────────────────
-    'Meeting|Token / Booking Meeting|Token Received – Deal Locked':    'Booked',
-    'Meeting|Token / Booking Meeting|Cheque Given – Clearing Pending': 'Booked',
-    'Meeting|Token / Booking Meeting|Part Token Only':                 'Booked',
+    'Meeting|Token / Booking Meeting|Token Received – Deal Locked':    'Negotiation',
+    'Meeting|Token / Booking Meeting|Cheque Given – Clearing Pending': 'Negotiation',
+    'Meeting|Token / Booking Meeting|Part Token Only':                 'Negotiation',
     'Meeting|Token / Booking Meeting|Changed Mind at Last Minute':     'Negotiation',
-    'Meeting|Token / Booking Meeting|Token Tomorrow – Confirmed':      'Booked',
+    'Meeting|Token / Booking Meeting|Token Tomorrow – Confirmed':      'Negotiation',
 
     // ─── MEETING: Agreement Signing Meeting ────────────────────────────────
-    'Meeting|Agreement Signing Meeting|Agreement Signed':              'Closed',
-    'Meeting|Agreement Signing Meeting|Co-Applicant Signature Pending': 'Booked',
-    'Meeting|Agreement Signing Meeting|Legal Clause Dispute':          'Booked',
+    'Meeting|Agreement Signing Meeting|Agreement Signed':              'Closed (Won)',
+    'Meeting|Agreement Signing Meeting|Co-Applicant Signature Pending': 'Negotiation',
+    'Meeting|Agreement Signing Meeting|Legal Clause Dispute':          'Negotiation',
     'Meeting|Agreement Signing Meeting|Refused to Sign':               'Negotiation',
-    'Meeting|Agreement Signing Meeting|Stamp Duty Discussion':         'Booked',
+    'Meeting|Agreement Signing Meeting|Stamp Duty Discussion':         'Negotiation',
 
     // ─── MEETING: Home Loan / Bank Coordination Meeting ────────────────────
-    'Meeting|Home Loan / Bank Coordination Meeting|Loan Sanctioned':   'Booked',
-    'Meeting|Home Loan / Bank Coordination Meeting|Documents Submitted to Bank': 'Booked',
+    'Meeting|Home Loan / Bank Coordination Meeting|Loan Sanctioned':   'Negotiation',
+    'Meeting|Home Loan / Bank Coordination Meeting|Documents Submitted to Bank': 'Negotiation',
     'Meeting|Home Loan / Bank Coordination Meeting|Loan Rejected':     'Negotiation',
-    'Meeting|Home Loan / Bank Coordination Meeting|In-Principle Approval Done': 'Booked',
+    'Meeting|Home Loan / Bank Coordination Meeting|In-Principle Approval Done': 'Negotiation',
     'Meeting|Home Loan / Bank Coordination Meeting|Awaiting CIBIL Check': 'Negotiation',
     'Meeting|Home Loan / Bank Coordination Meeting|Trying Another Bank': 'Negotiation',
 
     // ─── MEETING: Investor / Bulk Deal Meeting ─────────────────────────────
-    'Meeting|Investor / Bulk Deal Meeting|Multi-Unit Deal Agreed':     'Booked',
+    'Meeting|Investor / Bulk Deal Meeting|Multi-Unit Deal Agreed':     'Negotiation',
     'Meeting|Investor / Bulk Deal Meeting|Wants Detailed ROI Sheet':   'Opportunity',
     'Meeting|Investor / Bulk Deal Meeting|Shortlisted 3 Units – Decision Pending': 'Negotiation',
-    'Meeting|Investor / Bulk Deal Meeting|ROI Not Satisfactory':        'Qualified',
+    'Meeting|Investor / Bulk Deal Meeting|ROI Not Satisfactory':        'Prospect',
     'Meeting|Investor / Bulk Deal Meeting|Will Bring CA / Advisor Next Time': 'Opportunity',
     'Meeting|Investor / Bulk Deal Meeting|Wants Exclusive Pre-Launch Price': 'Opportunity',
 
     // ─── MEETING: Vastu / Architecture Consultation ────────────────────────
     'Meeting|Vastu / Architecture Consultation Meeting|Vastu Expert Approved Property': 'Opportunity',
-    'Meeting|Vastu / Architecture Consultation Meeting|Vastu Expert Rejected – Client Listening': 'Qualified',
+    'Meeting|Vastu / Architecture Consultation Meeting|Vastu Expert Rejected – Client Listening': 'Prospect',
     'Meeting|Vastu / Architecture Consultation Meeting|Another Unit Requested (Vastu Complaint)': 'Opportunity',
     'Meeting|Vastu / Architecture Consultation Meeting|Modifications Feasible per Architect': 'Opportunity',
 
     // ─── MEETING: NRI Client Meeting ───────────────────────────────────────
-    'Meeting|NRI Client Meeting|Booking Confirmed – POA Given':        'Booked',
-    'Meeting|NRI Client Meeting|POA Authority Setup in Progress':      'Booked',
+    'Meeting|NRI Client Meeting|Booking Confirmed – POA Given':        'Negotiation',
+    'Meeting|NRI Client Meeting|POA Authority Setup in Progress':      'Negotiation',
     'Meeting|NRI Client Meeting|Comparing 3 Projects – India Trip Limited': 'Opportunity',
     'Meeting|NRI Client Meeting|Wants USD-equivalent Pricing':         'Negotiation',
     'Meeting|NRI Client Meeting|Decision at Next India Trip':          'Prospect',
-    'Meeting|NRI Client Meeting|Investing in Dubai Instead':           'Closed Lost',
+    'Meeting|NRI Client Meeting|Investing in Dubai Instead':           'Closed (Lost)',
 
     // ─── MEETING: Post-Complaint Resolution Meeting ────────────────────────
-    'Meeting|Post-Complaint Resolution Meeting|Issue Resolved – Client Happy': 'Booked',
-    'Meeting|Post-Complaint Resolution Meeting|Client Still Angry – Threat of Legal': 'Booked',
-    'Meeting|Post-Complaint Resolution Meeting|Compensation Agreed':   'Booked',
-    'Meeting|Post-Complaint Resolution Meeting|Client Cancelling Deal': 'Closed Lost',
+    'Meeting|Post-Complaint Resolution Meeting|Issue Resolved – Client Happy': 'Negotiation',
+    'Meeting|Post-Complaint Resolution Meeting|Client Still Angry – Threat of Legal': 'Negotiation',
+    'Meeting|Post-Complaint Resolution Meeting|Compensation Agreed':   'Negotiation',
+    'Meeting|Post-Complaint Resolution Meeting|Client Cancelling Deal': 'Closed (Lost)',
     'Meeting|Post-Complaint Resolution Meeting|Referral Despite Complaint': 'Prospect',
 
     // ─── MEETING: Channel Partner / Broker Meeting ─────────────────────────
     'Meeting|Channel Partner / Broker Meeting|CP Committed to Push Project': 'Prospect',
     'Meeting|Channel Partner / Broker Meeting|Co-Brokerage Agreement Signed': 'Prospect',
-    'Meeting|Channel Partner / Broker Meeting|CP Already Tied with Competitor': 'New',
+    'Meeting|Channel Partner / Broker Meeting|CP Already Tied with Competitor': 'Incoming',
     'Meeting|Channel Partner / Broker Meeting|CP Brought 3 Leads Same Day': 'Prospect',
     'Meeting|Channel Partner / Broker Meeting|Commission Rate Negotiated': 'Prospect',
 
     // ─── TASK: Document Preparation ────────────────────────────────────────
-    'Task|Document Preparation|All Documents Ready':                   'Booked',
-    'Task|Document Preparation|Partial – 2 More Pending':              'Booked',
-    'Task|Document Preparation|Client Not Sharing':                    'Booked',
-    'Task|Document Preparation|Documents Sent for Verification':       'Booked',
+    'Task|Document Preparation|All Documents Ready':                   'Negotiation',
+    'Task|Document Preparation|Partial – 2 More Pending':              'Negotiation',
+    'Task|Document Preparation|Client Not Sharing':                    'Negotiation',
+    'Task|Document Preparation|Documents Sent for Verification':       'Negotiation',
 
     // ─── TASK: Legal / Title Verification ──────────────────────────────────
     'Task|Legal / Title Verification|Title Clear':                     'Negotiation',
     'Task|Legal / Title Verification|Minor Encumbrance – Resolvable':  'Negotiation',
-    'Task|Legal / Title Verification|Title Dispute Found':             'Closed Lost',
+    'Task|Legal / Title Verification|Title Dispute Found':             'Closed (Lost)',
     'Task|Legal / Title Verification|Additional Documents Requested from Owner': 'Negotiation',
 
     // ─── TASK: Loan File Processing ────────────────────────────────────────
-    'Task|Loan File Processing|File Submitted':                        'Booked',
-    'Task|Loan File Processing|Sanction Letter Received':              'Booked',
+    'Task|Loan File Processing|File Submitted':                        'Negotiation',
+    'Task|Loan File Processing|Sanction Letter Received':              'Negotiation',
     'Task|Loan File Processing|File Rejected – Reapplication':         'Negotiation',
-    'Task|Loan File Processing|Additional Documents Requested by Bank': 'Booked',
+    'Task|Loan File Processing|Additional Documents Requested by Bank': 'Negotiation',
 
     // ─── TASK: Inventory Blocking / Holding ────────────────────────────────
     'Task|Inventory Blocking / Holding|Unit Blocked Successfully':     'Negotiation',
@@ -573,17 +573,17 @@ export const STAGE_MAP = {
     'Task|Inventory Blocking / Holding|Unit Released – Client Not Committed': 'Opportunity',
 
     // ─── TASK: Agreement Draft Preparation ─────────────────────────────────
-    'Task|Agreement Draft Preparation|Draft Ready – Sent to Client':   'Booked',
-    'Task|Agreement Draft Preparation|Client Requested Changes':       'Booked',
+    'Task|Agreement Draft Preparation|Draft Ready – Sent to Client':   'Negotiation',
+    'Task|Agreement Draft Preparation|Client Requested Changes':       'Negotiation',
     'Task|Agreement Draft Preparation|Legal Issue in Draft':           'Negotiation',
-    'Task|Agreement Draft Preparation|Final Version Approved':         'Booked',
+    'Task|Agreement Draft Preparation|Final Version Approved':         'Negotiation',
 
     // ─── TASK: Stamp Duty / Registration Coordination ──────────────────────
-    'Task|Stamp Duty / Registration Coordination|Registration Date Confirmed': 'Booked',
-    'Task|Stamp Duty / Registration Coordination|Awaiting State Limit Slots': 'Booked',
-    'Task|Stamp Duty / Registration Coordination|Stamp Duty Paid':     'Booked',
-    'Task|Stamp Duty / Registration Coordination|Client Postponing Registry': 'Booked',
-    'Task|Stamp Duty / Registration Coordination|Registration Completed': 'Closed',
+    'Task|Stamp Duty / Registration Coordination|Registration Date Confirmed': 'Negotiation',
+    'Task|Stamp Duty / Registration Coordination|Awaiting State Limit Slots': 'Negotiation',
+    'Task|Stamp Duty / Registration Coordination|Stamp Duty Paid':     'Negotiation',
+    'Task|Stamp Duty / Registration Coordination|Client Postponing Registry': 'Negotiation',
+    'Task|Stamp Duty / Registration Coordination|Registration Completed': 'Closed (Won)',
 
     // ─── TASK: CRM Data / Reporting Task ───────────────────────────────────
     'Task|CRM Data / Reporting Task|Completed On-Time':                'Prospect',
@@ -595,10 +595,10 @@ export const STAGE_MAP = {
     'Task|Follow-up / Reminder Set|Not Scheduled':                     'Prospect',
 
     // ─── TASK: Snag List / Possession Inspection ───────────────────────────
-    'Task|Snag List / Possession Inspection Task|Snag List Cleared':   'Booked',
-    'Task|Snag List / Possession Inspection Task|8+ Issues – Developer Working': 'Booked',
-    'Task|Snag List / Possession Inspection Task|Major Civil Defects':  'Booked',
-    'Task|Snag List / Possession Inspection Task|Possession Given':    'Closed',
+    'Task|Snag List / Possession Inspection Task|Snag List Cleared':   'Negotiation',
+    'Task|Snag List / Possession Inspection Task|8+ Issues – Developer Working': 'Negotiation',
+    'Task|Snag List / Possession Inspection Task|Major Civil Defects':  'Negotiation',
+    'Task|Snag List / Possession Inspection Task|Possession Given':    'Closed (Won)',
 };
 
 /**
@@ -750,8 +750,8 @@ export const flattenOutcomeMappings = (activityMasterFields = {}) => {
             for (const out of (purp.outcomes || [])) {
                 const mapKey = `${act.name}|${purp.name}|${out.label}`;
 
-                // ── Stage: STAGE_MAP always wins over stale localStorage ──────
-                const stageName = STAGE_MAP[mapKey] || out.stage || 'Incoming';
+                // ── Stage: User configuration (out.stage) wins over default STAGE_MAP ──────
+                const stageName = out.stage || STAGE_MAP[mapKey] || 'Incoming';
 
                 // ── Forms: REQUIRED_FORMS_MAP merges with stored (same pattern) ─
                 const storedForms = Array.isArray(out.requiredForms)

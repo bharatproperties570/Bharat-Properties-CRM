@@ -14,12 +14,26 @@
     <!-- Google Maps API (Replace YOUR_API_KEY with your actual Google Maps API Key) -->
     <!-- Libraries: places is required for Autocomplete -->
     <script async defer
-        src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBd2gdMJVt5C_tgYqWoRbBiatzmevYdB9U&libraries=places,geometry"></script>
+        src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBd2gdMJVt5C_tgYqWoRbBiatzmevYdB9U&libraries=places,geometry,drawing&v=weekly&callback=__onGoogleMapsReady"></script>
+
+    <script>
+        // Fired by Google Maps API once it's 100% loaded
+        function __onGoogleMapsReady() {
+            window.__googleMapsReady = true;
+            window.dispatchEvent(new Event('google-maps-ready'));
+        }
+    </script>
 </head>
 
 <body>
     <script>
         window.onerror = function (message, source, lineno, colno, error) {
+            // Suppress cross-origin errors from 3rd party scripts (Google Maps, etc.)
+            // These appear as "Script error." with source ":0" and are not actionable.
+            if (message === 'Script error.' || (source === '' && lineno === 0 && colno === 0) || (typeof message === 'string' && message.includes('Importing a module script failed'))) {
+                console.warn('[Suppressed HMR / Dynamic Import Error]:', message);
+                return true; // Suppress global red banner for Vite HMR chunk reload
+            }
             const errorDiv = document.createElement('div');
             errorDiv.style.position = 'fixed';
             errorDiv.style.top = '0';

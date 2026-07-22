@@ -130,6 +130,7 @@ const DEFAULT_FORM_DATA = {
 
     // Bank & Approvals
     parkingType: 'Open Parking',
+    zoneName: '',
     approvedBank: 'Punjab & Sind Bank',
 
     // System Details
@@ -198,6 +199,8 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
         propertyConfig: propertyConfigFromContext,
         projectMasterFields: masterFieldsFromContext,
         projectAmenities,
+        masterFields,
+        lookups,
         getLookupId,
         getLookupValue: getLookupValueFromContext
     } = usePropertyConfig();
@@ -208,14 +211,55 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
 
     // Real-time Duplicate Check
 
-
-
+    // Comprehensive State
+    const [formData, setFormData] = useState(DEFAULT_FORM_DATA);
 
     const projectMasterFieldsSafe = masterFieldsFromContext || {};
+
+    const isAgriculture = useMemo(() => {
+        if (!formData.category) return false;
+        if (Array.isArray(formData.category)) {
+            return formData.category.some(cat => {
+                const s = String(cat).toLowerCase();
+                return s === 'agriculture' || s === 'agricultural';
+            });
+        }
+        const s = String(formData.category).toLowerCase();
+        return s === 'agriculture' || s === 'agricultural';
+    }, [formData.category]);
+
+    const hasNonAgriculture = useMemo(() => {
+        if (!formData.category || formData.category.length === 0) return true;
+        if (Array.isArray(formData.category)) {
+            return formData.category.some(cat => {
+                const s = String(cat).toLowerCase();
+                return s !== 'agriculture' && s !== 'agricultural';
+            });
+        }
+        const s = String(formData.category).toLowerCase();
+        return s !== 'agriculture' && s !== 'agricultural';
+    }, [formData.category]);
+
+
+    const zoneOptions = useMemo(() => {
+        if (masterFields && masterFields.zoneNames && masterFields.zoneNames.length > 0) {
+            return masterFields.zoneNames;
+        }
+        if (projectMasterFieldsSafe && projectMasterFieldsSafe.zoneNames && projectMasterFieldsSafe.zoneNames.length > 0) {
+            return projectMasterFieldsSafe.zoneNames;
+        }
+        if (lookups && lookups.ZoneName) {
+            return lookups.ZoneName.map(l => l.lookup_value);
+        }
+        return [];
+    }, [masterFields, projectMasterFieldsSafe, lookups]);
+
     const [companies, setCompanies] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [activeTab, setActiveTab] = useState(initialTab || 'Basic');
     const [currentTime, setCurrentTime] = useState(new Date());
+    const [amenityTab, setAmenityTab] = useState('Basic');
+    const [amenitySearch, setAmenitySearch] = useState('');
 
     // Fetch Companies
     useEffect(() => {
@@ -239,46 +283,81 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
     const fetchAddressFromCoordinates = (lat, lng) => {
         if (!window.google || !window.google.maps) return;
         const geocoder = new window.google.maps.Geocoder();
-        geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+        geocoder.geocode({ location: { lat, lng } }, async (results, status) => {
             if (status === "OK" && results[0]) {
                 const place = results[0];
-                let newState = '';
-                let newCity = '';
+                let newStateName = '';
+                let newCityName = '';
                 let newZip = '';
                 let newStreet = '';
-                let newLocation = '';
+                let newLocationName = '';
 
                 place.address_components.forEach(component => {
                     const types = component.types;
-                    if (types.includes('administrative_area_level_1')) newState = component.long_name;
-                    if (types.includes('administrative_area_level_2') || types.includes('locality')) newCity = component.long_name;
+                    if (types.includes('administrative_area_level_1')) newStateName = component.long_name;
+                    if (types.includes('administrative_area_level_2') || types.includes('locality')) newCityName = component.long_name;
                     if (types.includes('postal_code')) newZip = component.long_name;
-                    if (types.includes('sublocality') || types.includes('neighborhood')) newLocation = component.long_name;
+                    if (types.includes('sublocality') || types.includes('neighborhood')) newLocationName = component.long_name;
                     if (types.includes('route') || types.includes('street_number')) newStreet += component.long_name + ' ';
                 });
+
+                let resolvedCountryId = '';
+                let resolvedStateId = '';
+                let resolvedCityId = '';
+                let resolvedLocId = '';
+
+                try {
+                    const countryRes = await api.get("/lookups?lookup_type=Country&limit=10");
+                    const countryObj = (countryRes.data.data || []).find(c => c.lookup_value === 'India');
+                    if (countryObj) {
+                        resolvedCountryId = countryObj._id;
+                        
+                        if (newStateName) {
+                            const stateRes = await api.get(`/lookups?lookup_type=State&parent_lookup_id=${resolvedCountryId}&limit=100`);
+                            const stateObj = (stateRes.data.data || []).find(s => s.lookup_value.toLowerCase() === newStateName.toLowerCase());
+                            if (stateObj) {
+                                resolvedStateId = stateObj._id;
+
+                                if (newCityName) {
+                                    const cityRes = await api.get(`/lookups?lookup_type=City&parent_lookup_id=${resolvedStateId}&limit=100`);
+                                    const cityObj = (cityRes.data.data || []).find(c => c.lookup_value.toLowerCase() === newCityName.toLowerCase());
+                                    if (cityObj) {
+                                        resolvedCityId = cityObj._id;
+
+                                        if (newLocationName) {
+                                            const locRes = await api.get(`/lookups?lookup_type=Location&parent_lookup_id=${resolvedCityId}&limit=200`);
+                                            const locObj = (locRes.data.data || []).find(l => l.lookup_value.toLowerCase() === newLocationName.toLowerCase() || newLocationName.toLowerCase().includes(l.lookup_value.toLowerCase()));
+                                            if (locObj) {
+                                                resolvedLocId = locObj._id;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.error("Error resolving address IDs:", err);
+                }
 
                 setFormData(prev => ({
                     ...prev,
                     locationSearch: place.formatted_address,
                     address: {
                         ...prev.address,
-                        state: newState || prev.address.state,
-                        city: newCity || prev.address.city,
-                        country: 'India',
+                        state: resolvedStateId || newStateName || prev.address.state,
+                        city: resolvedCityId || newCityName || prev.address.city,
+                        country: resolvedCountryId || 'India',
                         pincode: newZip || prev.address.pincode,
                         street: newStreet.trim() || prev.address.street,
-                        location: newLocation || prev.address.location
+                        location: resolvedLocId || newLocationName || prev.address.location
                     }
                 }));
             }
         });
     };
-    const [amenityTab, setAmenityTab] = useState('Basic');
-    const [amenitySearch, setAmenitySearch] = useState('');
 
     // Current Time for Header
-
-
     useEffect(() => {
         const timer = setInterval(() => setCurrentTime(new Date()), 1000);
         return () => clearInterval(timer);
@@ -302,8 +381,7 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
         });
     }
 
-    // Comprehensive State
-    const [formData, setFormData] = useState(DEFAULT_FORM_DATA);
+
 
     // Real-time Duplicate Check
     useEffect(() => {
@@ -477,22 +555,42 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
 
                     // Helper to ensure we get a string value from a lookup or object
                     const safeString = (type, val) => {
-                        const result = getLookupValueFromContext(type, val);
-                        if (result && typeof result === 'object') {
-                            return result.lookup_value || result.name || result.label || result.value || String(result);
+                        if (!val) return '';
+                        if (typeof val === 'string') return val;
+                        try {
+                            const result = getLookupValueFromContext ? getLookupValueFromContext(type, val) : null;
+                            if (result && typeof result === 'object') {
+                                return result.lookup_value || result.name || result.label || result.value || String(result);
+                            }
+                            if (result && typeof result === 'string') return result;
+                            if (typeof val === 'object') {
+                                return val.lookup_value || val.name || val.label || val.value || val._id || val.id || String(val);
+                            }
+                        } catch (e) {
+                            console.warn("safeString lookup error:", e);
                         }
-                        return result || '';
+                        return String(val || '');
                     };
+
+                    const toArray = (val) => {
+                        if (!val) return [];
+                        if (Array.isArray(val)) return val;
+                        return [val];
+                    };
+
+                    const catArr = toArray(projectToEdit.category)
+                        .map(c => safeString('Category', c)).filter(v => v && typeof v === 'string');
+                    const subCatArr = toArray(projectToEdit.subCategory)
+                        .map(s => safeString('SubCategory', s)).filter(v => v && typeof v === 'string');
 
                     setFormData(() => ({
                         ...DEFAULT_FORM_DATA, // Use defaults for missing fields
                         ...projectToEdit,
-                        category: (Array.isArray(projectToEdit.category) ? projectToEdit.category : [])
-                            .map(c => safeString('Category', c)).filter(v => v && typeof v === 'string'),
-                        subCategory: (Array.isArray(projectToEdit.subCategory) ? projectToEdit.subCategory : [])
-                            .map(s => safeString('SubCategory', s)).filter(v => v && typeof v === 'string'),
+                        category: catArr.length > 0 ? catArr : ['Residential'],
+                        subCategory: subCatArr,
                         status: safeString('ProjectStatus', projectToEdit.status),
                         parkingType: safeString('ParkingType', projectToEdit.parkingType),
+                        zoneName: safeString('ZoneName', projectToEdit.zoneName) || projectToEdit.zoneName || '',
                         blocks: normalizedBlocks.map(b => ({
                             ...(typeof b === 'object' ? b : { name: String(b) }),
                             name: (b && typeof b === 'object') ? (b.name || '') : String(b || '')
@@ -505,7 +603,6 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
                     }));
                 } catch (err) {
                     console.error("Critical error mapping project to edit form:", err, projectToEdit);
-                    toast.error("Error loading project data. Some fields may be missing.");
                     setFormData({ ...DEFAULT_FORM_DATA, ...projectToEdit });
                 }
             } else {
@@ -651,7 +748,8 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
                 category: formData.category.map(c => getLookupId('Category', c)).filter(Boolean),
                 subCategory: formData.subCategory.map(s => getLookupId('SubCategory', s)).filter(Boolean),
                 status: getLookupId('ProjectStatus', formData.status) || formData.status,
-                parkingType: getLookupId('ParkingType', formData.parkingType) || formData.parkingType
+                parkingType: getLookupId('ParkingType', formData.parkingType) || formData.parkingType,
+                zoneName: getLookupId('ZoneName', formData.zoneName) || formData.zoneName
             };
 
             let response;
@@ -829,66 +927,85 @@ function AddProjectModal({ isOpen, onClose, onSave, initialTab = 'Basic', projec
                             {[0, 1, 2, 3, 4, 5, 10, 15, 20, 25, 50].map(n => <option key={n} value={n}>{n}</option>)}
                         </select>
                     </div>
-                    <div>
-                        <label style={labelStyle}>Total Floors</label>
-                        <select style={customSelectStyle} value={formData.totalFloors} onChange={e => setFormData({ ...formData, totalFloors: e.target.value })}>
-                            {[0, 1, 2, 3, 4, 5, 10, 15, 20, 30, 50].map(n => <option key={n} value={n}>{n}</option>)}
-                        </select>
-                    </div>
+                    {hasNonAgriculture && (
+                        <div>
+                            <label style={labelStyle}>Total Floors</label>
+                            <select style={customSelectStyle} value={formData.totalFloors} onChange={e => setFormData({ ...formData, totalFloors: e.target.value })}>
+                                {[0, 1, 2, 3, 4, 5, 10, 15, 20, 30, 50].map(n => <option key={n} value={n}>{n}</option>)}
+                            </select>
+                        </div>
+                    )}
                     <div>
                         <label style={labelStyle}>Total Units</label>
                         <select style={customSelectStyle} value={formData.totalUnits} onChange={e => setFormData({ ...formData, totalUnits: e.target.value })}>
                             {[0, 10, 50, 100, 200, 500, 1000].map(n => <option key={n} value={n}>{n}</option>)}
                         </select>
                     </div>
+                    {isAgriculture && (
+                        <div>
+                            <label style={labelStyle}>Zone</label>
+                            <select style={customSelectStyle} value={formData.zoneName || ''} onChange={e => setFormData({ ...formData, zoneName: e.target.value })}>
+                                <option value="">---Select Zone---</option>
+                                {zoneOptions.map(zone => (
+                                    <option key={typeof zone === 'object' ? (zone._id || zone.id) : zone} value={typeof zone === 'object' ? (zone._id || zone.id) : zone}>
+                                        {renderValue(zone)}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
                 </div>
 
-                <div className="grid-2-col gap-24 mt-24">
-                    <div>
-                        <label style={labelStyle}>Current Status</label>
-                        <select style={customSelectStyle} value={formData.status} onChange={e => setFormData({ ...formData, status: e.target.value })}>
-                            <option value="">---Select Status---</option>
-                            {(projectMasterFieldsSafe.projectStatuses || []).map(status => (
-                                <option key={typeof status === 'object' ? (status._id || status.id) : status} value={typeof status === 'object' ? (status._id || status.id) : status}>
-                                    {renderValue(status)}
-                                </option>
-                            ))}
-                        </select>
+                {hasNonAgriculture && (
+                    <div className="grid-2-col gap-24 mt-24">
+                        <div>
+                            <label style={labelStyle}>Current Status</label>
+                            <select style={customSelectStyle} value={formData.status} onChange={e => setFormData({ ...formData, status: e.target.value })}>
+                                <option value="">---Select Status---</option>
+                                {(projectMasterFieldsSafe.projectStatuses || []).map(status => (
+                                    <option key={typeof status === 'object' ? (status._id || status.id) : status} value={typeof status === 'object' ? (status._id || status.id) : status}>
+                                        {renderValue(status)}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label style={labelStyle}>Parking Type</label>
+                            <select style={customSelectStyle} value={formData.parkingType} onChange={e => setFormData({ ...formData, parkingType: e.target.value })}>
+                                <option value="">---Select Parking---</option>
+                                {(projectMasterFieldsSafe.parkingTypes || []).map(type => (
+                                    <option key={typeof type === 'object' ? (type._id || type.id) : type} value={typeof type === 'object' ? (type._id || type.id) : type}>
+                                        {renderValue(type)}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
                     </div>
-                    <div>
-                        <label style={labelStyle}>Parking Type</label>
-                        <select style={customSelectStyle} value={formData.parkingType} onChange={e => setFormData({ ...formData, parkingType: e.target.value })}>
-                            <option value="">---Select Parking---</option>
-                            {(projectMasterFieldsSafe.parkingTypes || []).map(type => (
-                                <option key={typeof type === 'object' ? (type._id || type.id) : type} value={typeof type === 'object' ? (type._id || type.id) : type}>
-                                    {renderValue(type)}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-                </div>
+                )}
             </div>
 
             {/* Timeline */}
-            <div style={sectionStyle}>
-                <h4 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <i className="fas fa-calendar-alt" style={{ color: '#ec4899' }}></i> Timeline
-                </h4>
-                <div className="grid-3-col gap-24">
-                    <div>
-                        <label style={labelStyle}>Launch Date</label>
-                        <input type="date" style={inputStyle} value={formData.launchDate || '2026-01-24'} onChange={(e) => setFormData({ ...formData, launchDate: e.target.value })} />
-                    </div>
-                    <div>
-                        <label style={labelStyle}>Expected Completion</label>
-                        <input type="date" style={inputStyle} value={formData.expectedCompletionDate || '2026-01-24'} onChange={(e) => setFormData({ ...formData, expectedCompletionDate: e.target.value })} />
-                    </div>
-                    <div>
-                        <label style={labelStyle}>Possession Date</label>
-                        <input type="date" style={inputStyle} value={formData.possessionDate || '2026-01-24'} onChange={(e) => setFormData({ ...formData, possessionDate: e.target.value })} />
+            {hasNonAgriculture && (
+                <div style={sectionStyle}>
+                    <h4 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <i className="fas fa-calendar-alt" style={{ color: '#ec4899' }}></i> Timeline
+                    </h4>
+                    <div className="grid-3-col gap-24">
+                        <div>
+                            <label style={labelStyle}>Launch Date</label>
+                            <input type="date" style={inputStyle} value={formData.launchDate || '2026-01-24'} onChange={(e) => setFormData({ ...formData, launchDate: e.target.value })} />
+                        </div>
+                        <div>
+                            <label style={labelStyle}>Expected Completion</label>
+                            <input type="date" style={inputStyle} value={formData.expectedCompletionDate || '2026-01-24'} onChange={(e) => setFormData({ ...formData, expectedCompletionDate: e.target.value })} />
+                        </div>
+                        <div>
+                            <label style={labelStyle}>Possession Date</label>
+                            <input type="date" style={inputStyle} value={formData.possessionDate || '2026-01-24'} onChange={(e) => setFormData({ ...formData, possessionDate: e.target.value })} />
+                        </div>
                     </div>
                 </div>
-            </div>
+            )}
 
             {/* System Details (Updated with MultiSelect & Assign) */}
             <div style={{ background: '#f8fafc', padding: '24px', borderRadius: '16px', border: '1px solid #e2e8f0', marginBottom: '24px' }}>

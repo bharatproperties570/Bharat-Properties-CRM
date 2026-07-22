@@ -16,6 +16,9 @@ const InventoryUnitSection = ({
     updateBuiltupRow,
     handleAddBuiltupRow,
     handleRemoveBuiltupRow,
+    handleAddLandRow,
+    handleRemoveLandRow,
+    updateLandRow,
     currentFurnishedItem,
     setCurrentFurnishedItem,
     handleFurnishedItemKeyDown,
@@ -228,6 +231,198 @@ const InventoryUnitSection = ({
                     </div>
                 </div>
             </div>
+
+            {/* Land Details (Agricultural Only) */}
+            {formData.category === 'Agricultural' && (
+                <div style={sectionStyle}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                        <h4 style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b', margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <i className="fas fa-seedling" style={{ color: '#22c55e' }}></i> Land Details
+                        </h4>
+                    </div>
+
+                    <div style={{ marginBottom: '16px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1.5fr 40px', gap: '16px', paddingBottom: '12px', borderBottom: '1px solid #e2e8f0' }}>
+                            <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#64748b' }}>Khewat No.</div>
+                            <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#64748b' }}>Killa No.</div>
+                            <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#64748b' }}>Share</div>
+                            <div></div>
+                            <div></div>
+                        </div>
+
+                        {(formData.landDetails || []).map((row, idx) => (
+                            <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1.5fr 40px', gap: '16px', alignItems: 'center', marginTop: '16px' }}>
+                                <input type="text" style={inputStyle} value={row.khewatNo} onChange={e => updateLandRow(idx, 'khewatNo', e.target.value)} />
+                                <input type="text" style={inputStyle} value={row.killaNo} onChange={e => updateLandRow(idx, 'killaNo', e.target.value)} />
+                                <input type="text" style={inputStyle} value={row.share} onChange={e => updateLandRow(idx, 'share', e.target.value)} placeholder="e.g. 1/3" />
+                                <div style={{ fontSize: '0.9rem', color: '#334155', fontWeight: 500 }}>
+                                    {row.calculatedMarlas > 0 ? (
+                                        (() => {
+                                            const totalMarlas = row.calculatedMarlas;
+                                            const acres = Math.floor(totalMarlas / 160);
+                                            const rem1 = totalMarlas % 160;
+                                            const kanals = Math.floor(rem1 / 20);
+                                            const marlas = Math.round(rem1 % 20);
+                                            return `${acres} Acre ${kanals} Kanal ${marlas} Marla`;
+                                        })()
+                                    ) : '0 Acre 0 Kanal 0 Marla'}
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                                    {idx === (formData.landDetails || []).length - 1 ? (
+                                        <button type="button" onClick={handleAddLandRow} style={{ width: '32px', height: '32px', background: '#10b981', color: '#fff', border: '1px solid #059669', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                            <i className="fas fa-plus"></i>
+                                        </button>
+                                    ) : (
+                                        <button type="button" onClick={() => handleRemoveLandRow(idx)} style={{ width: '32px', height: '32px', background: '#f1f5f9', color: '#0f172a', border: '1px solid #cbd5e1', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                            <i className="fas fa-times"></i>
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+
+                        <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px dashed #e2e8f0', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                            {/* Registry Area Display */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                                <span style={{ fontSize: '0.9rem', fontWeight: 600, color: '#475569', minWidth: '150px' }}>REGISTRY AREA</span>
+                                <span style={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b', background: '#f8fafc', padding: '4px 12px', borderRadius: '4px', border: '1px solid #e2e8f0' }}>
+                                    {formData.totalLandAreaText || '0 Acre 0 Kanal 0 Marla'}
+                                </span>
+                            </div>
+
+                            {/* GPS Area Input */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                                <span style={{ fontSize: '0.9rem', fontWeight: 600, color: '#475569', minWidth: '150px' }}>GPS AREA (Actual)</span>
+                                <div style={{ display: 'flex', gap: '12px' }}>
+                                    <input type="number" style={{ ...inputStyle, width: '100px' }} placeholder="Acres" value={formData.gpsAreaAcres || ''} onChange={e => setFormData(prev => ({ ...prev, gpsAreaAcres: e.target.value }))} />
+                                    <input type="number" style={{ ...inputStyle, width: '100px' }} placeholder="Kanals" value={formData.gpsAreaKanals || ''} onChange={e => setFormData(prev => ({ ...prev, gpsAreaKanals: e.target.value }))} />
+                                    <input type="number" style={{ ...inputStyle, width: '100px' }} placeholder="Marlas" value={formData.gpsAreaMarlas || ''} onChange={e => setFormData(prev => ({ ...prev, gpsAreaMarlas: e.target.value }))} />
+                                </div>
+                            </div>
+
+                            {/* Map File Upload */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginTop: '8px' }}>
+                                <span style={{ fontSize: '0.9rem', fontWeight: 600, color: '#475569', minWidth: '150px' }}>PLOT MAP FILE</span>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
+                                    <label style={{ cursor: 'pointer', background: '#3b82f6', color: 'white', padding: '6px 16px', borderRadius: '4px', fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <i className="fas fa-upload"></i> Upload .KML / .GeoJSON
+                                        <input type="file" accept=".kml,.geojson" style={{ display: 'none' }} onChange={(e) => {
+                                            const file = e.target.files[0];
+                                            if (file) setFormData(prev => ({ ...prev, kmlFile: file, kmlFileName: file.name }));
+                                        }} />
+                                    </label>
+                                    {formData.kmlFileName && <span style={{ fontSize: '0.85rem', color: '#10b981', fontWeight: 500 }}><i className="fas fa-check-circle"></i> {formData.kmlFileName} attached</span>}
+                                </div>
+                            </div>
+
+                            {/* Area Mismatch Warning Logic */}
+                            {(() => {
+                                const registryTotalMarlas = (formData.landDetails || []).reduce((acc, row) => acc + (Number(row.calculatedMarlas) || 0), 0);
+                                const gpsTotalMarlas = (Number(formData.gpsAreaAcres || 0) * 160) + (Number(formData.gpsAreaKanals || 0) * 20) + Number(formData.gpsAreaMarlas || 0);
+                                
+                                if (registryTotalMarlas > 0 && gpsTotalMarlas > 0) {
+                                    const diff = Math.abs(registryTotalMarlas - gpsTotalMarlas);
+                                    const diffPercentage = (diff / registryTotalMarlas) * 100;
+                                    if (diffPercentage > 5) {
+                                        return (
+                                            <div style={{ marginTop: '12px', padding: '12px 16px', background: '#fef2f2', border: '1px solid #f87171', borderRadius: '8px', display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+                                                <i className="fas fa-exclamation-triangle" style={{ color: '#ef4444', marginTop: '2px' }}></i>
+                                                <div>
+                                                    <h5 style={{ margin: 0, color: '#b91c1c', fontSize: '0.9rem', fontWeight: 700 }}>Area Mismatch Warning</h5>
+                                                    <p style={{ margin: '4px 0 0 0', color: '#991b1b', fontSize: '0.85rem' }}>
+                                                        The GPS Area differs from the Registry Area by <strong>{diffPercentage.toFixed(1)}%</strong>. Mismatches greater than 5% could indicate boundary disputes or registry errors. Please verify.
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        );
+                                    }
+                                }
+                                return null;
+                            })()}
+                        </div>
+
+                        <div className="grid-3-col gap-16" style={{ marginTop: '32px' }}>
+                            <div>
+                                <label style={labelStyle}>Water Source</label>
+                                <select style={customSelectStyle} value={formData.waterSource || ''} onChange={e => setFormData(prev => ({ ...prev, waterSource: e.target.value }))}>
+                                    <option value="">Select Water Source</option>
+                                    {(masterFields?.waterSources || []).map(r => {
+                                        const val = typeof r === 'object' ? (r.lookup_value || r.name) : r;
+                                        const id = typeof r === 'object' ? (r._id || r.id) : r;
+                                        return <option key={id} value={val}>{val}</option>;
+                                    })}
+                                </select>
+                            </div>
+                            <div>
+                                <label style={labelStyle}>Soil Type</label>
+                                <select style={customSelectStyle} value={formData.soilType || ''} onChange={e => setFormData(prev => ({ ...prev, soilType: e.target.value }))}>
+                                    <option value="">Select Soil Type</option>
+                                    {(masterFields?.soilTypes || []).map(r => {
+                                        const val = typeof r === 'object' ? (r.lookup_value || r.name) : r;
+                                        const id = typeof r === 'object' ? (r._id || r.id) : r;
+                                        return <option key={id} value={val}>{val}</option>;
+                                    })}
+                                </select>
+                            </div>
+                            <div>
+                                <label style={labelStyle}>Current Crop</label>
+                                <select style={customSelectStyle} value={formData.currentCrop || ''} onChange={e => setFormData(prev => ({ ...prev, currentCrop: e.target.value }))}>
+                                    <option value="">Select Current Crop</option>
+                                    {(masterFields?.currentCrops || []).map(r => {
+                                        const val = typeof r === 'object' ? (r.lookup_value || r.name) : r;
+                                        const id = typeof r === 'object' ? (r._id || r.id) : r;
+                                        return <option key={id} value={val}>{val}</option>;
+                                    })}
+                                </select>
+                            </div>
+                            <div>
+                                <label style={labelStyle}>Water Level</label>
+                                <select style={customSelectStyle} value={formData.waterLevel || ''} onChange={e => setFormData(prev => ({ ...prev, waterLevel: e.target.value }))}>
+                                    <option value="">Select Water Level</option>
+                                    {(masterFields?.waterLevels || []).map(r => {
+                                        const val = typeof r === 'object' ? (r.lookup_value || r.name) : r;
+                                        const id = typeof r === 'object' ? (r._id || r.id) : r;
+                                        return <option key={id} value={val}>{val}</option>;
+                                    })}
+                                </select>
+                            </div>
+                            <div>
+                                <label style={labelStyle}>Water Pump Type</label>
+                                <select style={customSelectStyle} value={formData.waterPumpType || ''} onChange={e => setFormData(prev => ({ ...prev, waterPumpType: e.target.value }))}>
+                                    <option value="">Select Pump Type</option>
+                                    {(masterFields?.waterPumpTypes || []).map(r => {
+                                        const val = typeof r === 'object' ? (r.lookup_value || r.name) : r;
+                                        const id = typeof r === 'object' ? (r._id || r.id) : r;
+                                        return <option key={id} value={val}>{val}</option>;
+                                    })}
+                                </select>
+                            </div>
+                            <div>
+                                <label style={labelStyle}>No. of Owner</label>
+                                <select style={customSelectStyle} value={formData.numberOfOwner || ''} onChange={e => setFormData(prev => ({ ...prev, numberOfOwner: e.target.value }))}>
+                                    <option value="">Select No. of Owner</option>
+                                    {(masterFields?.numberOfOwners || []).map(r => {
+                                        const val = typeof r === 'object' ? (r.lookup_value || r.name) : r;
+                                        const id = typeof r === 'object' ? (r._id || r.id) : r;
+                                        return <option key={id} value={val}>{val}</option>;
+                                    })}
+                                </select>
+                            </div>
+                            <div>
+                                <label style={labelStyle}>Front on Road</label>
+                                <select style={customSelectStyle} value={formData.frontOnRoad || ''} onChange={e => setFormData(prev => ({ ...prev, frontOnRoad: e.target.value }))}>
+                                    <option value="">Select Front on Road</option>
+                                    {(masterFields?.frontOnRoads || []).map(r => {
+                                        const val = typeof r === 'object' ? (r.lookup_value || r.name) : r;
+                                        const id = typeof r === 'object' ? (r._id || r.id) : r;
+                                        return <option key={id} value={val}>{val}</option>;
+                                    })}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Orientation & Features */}
             <div style={sectionStyle}>

@@ -90,11 +90,14 @@ if (typeof window !== 'undefined' && window.location && window.location.hostname
 const finalProd = isProd || hostProdOverride;
 
 // URL Resolution Priority:
-// 1. Local dev: VITE_API_URL (localhost:4000)
-// 2. Production: STABLE_TUNNEL_URL directly (skip Vercel proxy — saves 1 hop)
+// 1. Production: STABLE_TUNNEL_URL directly
+// 2. Web Dev (Browser): '/api' (relies on Vite proxy to route to backend)
+// 3. Mobile/SSR Dev: FINAL_VITE_API_URL or localhost fallback
 const tempApiUrl = finalProd
-    ? STABLE_TUNNEL_URL           // Always direct to backend in production
-    : (isLocalhost ? 'http://localhost:4000/api' : (FINAL_VITE_API_URL || STABLE_TUNNEL_URL));
+    ? STABLE_TUNNEL_URL
+    : (typeof window !== 'undefined' && window.location && window.location.hostname 
+        ? '/api' 
+        : (FINAL_VITE_API_URL || 'http://localhost:4000/api'));
 
 export const API_BASE_URL = typeof tempApiUrl === 'string' ? tempApiUrl : String(tempApiUrl || '');
 

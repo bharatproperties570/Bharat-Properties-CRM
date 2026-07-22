@@ -158,7 +158,32 @@ const ConversationThread = ({ messages, participantName, onClose, onSendMessage 
                                         )}
                                     </div>
                                 )}
-                                {msg.text}
+                                {(() => {
+                                    const templateMatch = msg.text?.match(/\[Template:\s*(.+?)\]\s*Payload:\s*(.*)/i);
+                                    if (templateMatch) {
+                                        try {
+                                            const payload = JSON.parse(templateMatch[2]);
+                                            const bodyComponent = payload.find(c => c.type === 'body');
+                                            if (bodyComponent && bodyComponent.parameters) {
+                                                return (
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                                        <div style={{ fontSize: '0.7rem', fontWeight: 700, opacity: 0.7, textTransform: 'uppercase' }}>
+                                                            <i className="fas fa-bolt"></i> Auto-Match Sent
+                                                        </div>
+                                                        <div style={{ fontSize: '0.9rem', lineHeight: '1.4' }}>
+                                                            Hi {bodyComponent.parameters[0]?.text},<br/><br/>
+                                                            Here are the top properties matching your requirements:<br/><br/>
+                                                            <div style={{ whiteSpace: 'pre-wrap' }}>
+                                                                {bodyComponent.parameters[1]?.text?.split(' | ').join('\n')}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            }
+                                        } catch (e) {}
+                                    }
+                                    return <div style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</div>;
+                                })()}
                             </div>
                             <div className="message-time">
                                 {new Date(msg.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}

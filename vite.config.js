@@ -17,7 +17,7 @@ export default defineConfig(({ mode }) => {
             'process.env': env
         },
         optimizeDeps: {
-            include: [],
+            include: ['@googlemaps/markerclusterer'],
             esbuildOptions: {
                 loader: {
                     '.js': 'jsx',

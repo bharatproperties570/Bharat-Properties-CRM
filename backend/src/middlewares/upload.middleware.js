@@ -25,7 +25,11 @@ const ALLOWED_MIME_TYPES = {
     'application/zip': ['.zip'],
     'application/x-zip-compressed': ['.zip'],
     'application/x-zip': ['.zip'],
-    'application/octet-stream': ['.zip', '.csv', '.txt']
+    'application/octet-stream': ['.zip', '.csv', '.txt'],
+    // GIS / Maps
+    'application/vnd.google-earth.kml+xml': ['.kml'],
+    'application/geo+json': ['.geojson'],
+    'application/json': ['.geojson']
 };
 
 import os from 'os';
