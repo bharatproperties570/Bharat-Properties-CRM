@@ -115,82 +115,108 @@ export const sendWhatsAppMessage = async (req, res, next) => {
         // 1. Dispatch via Service
         let result;
         if (templateId) {
-            // 🚀 SENIOR PROFESSIONAL: Fetch template definition to intelligently route variables
             const templates = await WhatsAppService.getTemplates();
             const templateDef = templates.find(t => t.name === templateId);
             
             const components = [];
-            let currentVarIndex = 0;
+
+            // ✅ SENIOR FIX: Build a named-param lookup map from templateComponents.
+            // Frontend now sends full objects: { type, parameter_name, text }
+            // We build a map for O(1) lookup by parameter_name.
+            const namedParamMap = {};
+            const plainTextList = [];
+            if (Array.isArray(templateComponents) && templateComponents.length > 0) {
+                templateComponents.forEach(item => {
+                    if (item && typeof item === 'object' && item.parameter_name) {
+                        namedParamMap[item.parameter_name] = item.text || '';
+                    } else {
+                        plainTextList.push(typeof item === 'string' ? item : (item?.text || ''));
+                    }
+                });
+            }
+            console.log(`[WhatsApp/Debug] Named param map:`, namedParamMap);
 
             if (templateDef) {
                 console.log(`[WhatsApp/Debug] Template Definition found for: ${templateId}`);
-                console.log(`[WhatsApp/Debug] Raw Components:`, JSON.stringify(templateDef.components, null, 2));
+                let plainIdx = 0;
                 templateDef.components.forEach(compDef => {
                     if (compDef.type === 'BODY') {
-                        const bodyMatches = compDef.text.match(/{{([a-zA-Z0-9_]+)}}/g) || [];
-                        const uniqueVars = Array.from(new Set(bodyMatches.map(m => m.match(/[a-zA-Z0-9_]+/)[0])));
-                        const bodyVarCount = uniqueVars.length;
-                        const bodyParams = templateComponents.slice(currentVarIndex, currentVarIndex + bodyVarCount);
-                        console.log(`[WhatsApp/Debug] Body Matches:`, bodyMatches);
-                        console.log(`[WhatsApp/Debug] Body Vars found: ${bodyVarCount}, parameters provided: ${bodyParams.length}`);
-                        if (bodyParams.length > 0) {
-                            components.push({
-                                type: 'body',
-                                parameters: bodyParams.map((val, idx) => ({ 
-                                    type: 'text', 
-                                    parameter_name: uniqueVars[idx],
-                                    text: val?.text !== undefined ? val.text : val 
-                                }))
+                        const bodyMatches = (compDef.text || '').match(/{{([a-zA-Z0-9_]+)}}/g) || [];
+                        const uniqueVars = Array.from(new Set(bodyMatches.map(m => m.replace(/[{}]/g, '').trim())));
+                        console.log(`[WhatsApp/Debug] Body vars needed:`, uniqueVars);
+                        if (uniqueVars.length > 0) {
+                            const parameters = uniqueVars.map(varName => {
+                                let textVal;
+                                if (namedParamMap[varName] !== undefined) {
+                                    textVal = namedParamMap[varName];
+                                } else if (plainTextList.length > plainIdx) {
+                                    textVal = plainTextList[plainIdx++];
+                                } else {
+                                    textVal = '—';
+                                }
+                                const param = { type: 'text', text: String(textVal) };
+                                if (!/^\d+$/.test(varName)) param.parameter_name = varName;
+                                return param;
                             });
-                            currentVarIndex += bodyVarCount;
+                            components.push({ type: 'body', parameters });
                         }
                     } else if (compDef.type === 'BUTTONS') {
                         compDef.buttons?.forEach((btn, btnIdx) => {
                             if (btn.url && /{{([a-zA-Z0-9_]+)}}/.test(btn.url)) {
-                                const urlVarMatch = btn.url.match(/{{([a-zA-Z0-9_]+)}}/)[1];
-                                const btnParam = templateComponents[currentVarIndex];
-                                console.log(`[WhatsApp/Debug] Button URL Var found at index ${btnIdx}, param: ${btnParam}`);
-                                if (btnParam) {
-                                    components.push({
-                                        type: 'button',
-                                        sub_type: 'url',
-                                        index: btnIdx,
-                                        parameters: [{ 
-                                            type: 'text', 
-                                            text: btnParam?.text !== undefined ? btnParam.text : btnParam 
-                                        }]
-                                    });
-                                    currentVarIndex++;
+                                const urlVarName = btn.url.match(/{{([a-zA-Z0-9_]+)}}/)[1];
+                                let btnTokenVal = namedParamMap[urlVarName] || namedParamMap['siteVisitToken'] || namedParamMap['site_visit_token'] || plainTextList[plainIdx] || 'visit';
+                                if (typeof btnTokenVal === 'string' && btnTokenVal.includes('.')) {
+                                    btnTokenVal = btnTokenVal.replace(/\./g, '-');
                                 }
+                                components.push({
+                                    type: 'button',
+                                    sub_type: 'url',
+                                    index: String(btnIdx),
+                                    parameters: [{ type: 'text', text: String(btnTokenVal) }]
+                                });
                             }
                         });
+                    } else if (compDef.type === 'HEADER' && compDef.format === 'TEXT') {
+                        const headerMatches = (compDef.text || '').match(/{{([a-zA-Z0-9_]+)}}/g) || [];
+                        if (headerMatches.length > 0) {
+                            const parameters = headerMatches.map(match => {
+                                const varName = match.replace(/[{}]/g, '').trim();
+                                const textVal = namedParamMap[varName] || plainTextList[plainIdx] || 'Update';
+                                const param = { type: 'text', text: String(textVal).substring(0, 200) };
+                                if (!/^\d+$/.test(varName)) param.parameter_name = varName;
+                                return param;
+                            });
+                            components.push({ type: 'header', parameters });
+                        }
                     }
                 });
             } else {
                 console.warn(`[WhatsApp/Debug] Template Definition NOT FOUND for: ${templateId}`);
+                if (Array.isArray(templateComponents) && templateComponents.length > 0) {
+                    components.push({ 
+                        type: 'body', 
+                        parameters: templateComponents.map(item => {
+                            const param = { type: 'text', text: typeof item === 'string' ? item : (item?.text || '') };
+                            if (item?.parameter_name) param.parameter_name = item.parameter_name;
+                            return param;
+                        })
+                    });
+                }
             }
 
-            // Fallback for Header Media
+            // Header Media override
             if (mediaUrl) {
                 const hType = type === 'image' ? 'image' : (type === 'document' ? 'document' : 'video');
-                components.push({
-                    type: 'header',
-                    parameters: [{ type: hType, [hType]: { link: mediaUrl } }]
-                });
-            }
-
-            // Absolute Fallback if intelligence loop added nothing
-            if (components.length === 0 && Array.isArray(templateComponents) && templateComponents.length > 0) {
-                components.push({ 
-                    type: 'body', 
-                    parameters: templateComponents.map(val => ({ type: 'text', text: val })) 
-                });
+                const existingHeaderIdx = components.findIndex(c => c.type === 'header');
+                const headerComp = { type: 'header', parameters: [{ type: hType, [hType]: { link: mediaUrl } }] };
+                if (existingHeaderIdx >= 0) components[existingHeaderIdx] = headerComp;
+                else components.push(headerComp);
             }
 
             console.log(`[WhatsApp/Debug] Final Components for ${templateId}:`, JSON.stringify(components, null, 2));
             result = await WhatsAppService.sendTemplate(mobile, templateId, language || 'en_US', components);
             
-            // If template send failed (e.g. unknown template), fallback to text if message exists
+            // Plain text fallback if template send failed and message body exists
             if (!result.success && message) {
                 console.log(`[SocialController] Template send failed, falling back to text for ${mobile}`);
                 result = await WhatsAppService.sendMessage(mobile, message);

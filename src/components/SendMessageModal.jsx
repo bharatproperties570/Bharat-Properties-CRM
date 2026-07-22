@@ -307,11 +307,10 @@ const SendMessageModal = ({
                     mobile: recipients[0]?.phone || recipients[0]?.mobile,
                     message: messageBody,
                     templateId,
-                    // 🚀 SENIOR PROFESSIONAL: Best effort delivery. 
-                    // Even if modified, we send the resolved components. 
-                    // Meta will reject if the body doesn't match the template pattern, 
-                    // and our backend will fallback to a plain text message anyway.
-                    templateComponents: templateId ? whatsappComponents.map(c => c.text) : [],
+                    // ✅ SENIOR FIX: Pass full component objects (with parameter_name + text).
+                    // Previously only c.text was passed, discarding parameter_name entirely.
+                    // Backend needs { type, parameter_name, text } to build correct Meta payload.
+                    templateComponents: templateId ? whatsappComponents : [],
                     language: templateLanguage,
                     mediaUrl: attachment?.url,
                     filename: attachment?.name,
