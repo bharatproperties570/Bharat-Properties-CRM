@@ -906,7 +906,12 @@ async function resolveMetaComponents(templateId, recipient, meta, registryMappin
                     if (valStr.length > 1000) {
                         valStr = valStr.substring(0, 995) + '...';
                     }
-                    parameters.push({ type: 'text', text: valStr });
+                    
+                    const paramObj = { type: 'text', text: valStr };
+                    if (!/^\d+$/.test(varName)) {
+                        paramObj.parameter_name = varName;
+                    }
+                    parameters.push(paramObj);
                 });
                 components.push({ type: 'body', parameters });
             }
@@ -942,13 +947,21 @@ async function resolveMetaComponents(templateId, recipient, meta, registryMappin
                 const parameters = headerVars.map((match) => {
                     const varName = match.replace(/[{}]/g, '');
                     let val;
+                    let isNamed = false;
+                    
                     if (/^\d+$/.test(varName)) {
                         val = resolvedMap[String(globalVarIndex)] || 'Update';
                         globalVarIndex++;
                     } else {
                         val = namedMap[varName] || 'Update';
+                        isNamed = true;
                     }
-                    return { type: 'text', text: String(val).substring(0, 200) };
+                    
+                    const paramObj = { type: 'text', text: String(val).substring(0, 200) };
+                    if (isNamed) {
+                        paramObj.parameter_name = varName;
+                    }
+                    return paramObj;
                 });
                 components.push({ type: 'header', parameters });
             }
