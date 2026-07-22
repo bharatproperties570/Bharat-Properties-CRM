@@ -543,9 +543,11 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
 
             {/* ─── OMNICHANNEL DISPATCH BAR ─── */}
             {selectedLeads.length > 0 && (
-                <div className="no-scrollbar" style={{ position: 'fixed', bottom: '28px', left: '50%', transform: 'translateX(-50%)', background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)', padding: '16px 24px', borderRadius: '20px', display: 'flex', alignItems: 'center', gap: '16px', boxShadow: isDark ? '0 25px 50px -12px rgba(0,0,0,0.8)' : '0 20px 40px -10px rgba(0,0,0,0.1)', zIndex: 1000, border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.05)', backdropFilter: 'blur(16px)', width: 'max-content', maxWidth: '96vw', overflowX: 'auto', flexWrap: 'nowrap' }}>
+                <div className="no-scrollbar" style={{ position: 'fixed', bottom: '28px', left: '50%', transform: 'translateX(-50%)', background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)', padding: '16px 24px', borderRadius: '20px', display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: '16px', boxShadow: isDark ? '0 25px 50px -12px rgba(0,0,0,0.8)' : '0 20px 40px -10px rgba(0,0,0,0.1)', zIndex: 1000, border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.05)', backdropFilter: 'blur(16px)', width: 'max-content', maxWidth: '96vw', overflowX: 'auto', flexWrap: 'nowrap' }}>
                     
-                    {/* Selected Count */}
+                    {/* TOP ROW: Count + Channels */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px', justifyContent: 'space-between' }}>
+                        {/* Selected Count */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingRight: '16px', borderRight: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.1)' }}>
                         <div style={{ width: '32px', height: '32px', borderRadius: '10px', background: '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: '0.9rem', color: '#fff', boxShadow: '0 4px 10px rgba(59, 130, 246, 0.3)' }}>{selectedLeads.length}</div>
                         <span style={{ color: txt, fontWeight: 700, fontSize: '0.95rem' }}>leads</span>
@@ -620,8 +622,10 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                             <i className="fas fa-comment"></i> WA App
                         </button>
                     </div>
+                    </div> {/* End Top Row */}
 
-                    <div style={{ width: '1px', height: '32px', background: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)', margin: '0 8px' }}></div>
+                    {/* BOTTOM ROW: Options + Dispatch */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px', justifyContent: 'space-between', paddingTop: '12px', borderTop: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.1)' }}>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexShrink: 0 }}>
                         <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, color: txt, whiteSpace: 'nowrap' }}>
@@ -637,9 +641,6 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                             Hide Unit
                         </label>
                     </div>
-
-                    <div style={{ width: '1px', height: '32px', background: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)', margin: '0 8px' }}></div>
-
                     {/* Submit & Cancel */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                         <button 
@@ -661,6 +662,7 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                             <i className="fas fa-times"></i>
                         </button>
                     </div>
+                    </div> {/* End Bottom Row */}
                 </div>
             )}
 
