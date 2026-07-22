@@ -1457,8 +1457,12 @@ export const executeDispatch = async (payload, user) => {
                     matchTemplate = templatesSetting?.value?.find(t => t.id === templateId || t.name === templateId);
                 }
                 if (!matchTemplate && templateId !== 'free_text') {
-                    const expectedContext = matchContext === 'perfect' ? 'lead_match_full' : 'lead_match_short';
-                    matchTemplate = templatesSetting?.value?.find(t => t.systemContext?.includes(expectedContext));
+                    const expectedContext = matchContext === 'perfect' ? 'deal_match_modal' : 'deal_match';
+                    matchTemplate = templatesSetting?.value?.find(t => 
+                        t.systemContext?.includes(expectedContext) || 
+                        t.systemContext?.includes('lead_match_full') || 
+                        t.systemContext?.includes('deal_match') // broad fallback
+                    );
                 }
                 
                 let res;
