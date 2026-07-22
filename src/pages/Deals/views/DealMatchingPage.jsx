@@ -550,7 +550,7 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                     {/* Channels & Schedulers */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                         {['whatsapp', 'email', 'sms'].map(ch => (
-                            <div key={ch} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            <div key={ch} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: blastChannels[ch] ? (isDark ? 'rgba(255,255,255,0.05)' : '#f8fafc') : 'transparent', padding: blastChannels[ch] ? '4px' : '0', borderRadius: '24px', border: blastChannels[ch] ? `1px solid ${brd}` : 'none' }}>
                                 <button 
                                     onClick={() => setBlastChannels(prev => ({...prev, [ch]: !prev[ch]}))}
                                     style={{ 
