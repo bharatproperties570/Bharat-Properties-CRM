@@ -164,14 +164,14 @@ export const emailTemplates = [
       </div>
     </div>
 
-    {{property_list_detailed}}
+    {{property_list_dtl}}
 
     <div style="background: #fefce8; border: 1px solid #fde68a; border-radius: 10px; padding: 14px 16px; margin-bottom: 20px;">
       <div style="font-size: 10px; font-weight: 700; color: #92400e; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">📊 Availability Status</div>
       <div style="font-size: 15px; font-weight: 800; color: #78350f; word-break: break-word;">{{lead_stage}}</div>
     </div>
 
-    {{property_list_detailed}}
+    {{property_list_dtl}}
 
     <!-- Why This Property -->
     <div style="background: linear-gradient(135deg, #faf5ff, #ede9fe); border: 1px solid #ddd6fe; border-radius: 12px; padding: 20px 24px; margin-bottom: 20px;">
@@ -357,7 +357,7 @@ I found a *{{property_category}}* that matches your requirement perfectly!
 💰 *Price:* ₹{{property_price}}
 ✨ *Highlights:* {{property_list_default}}
 
-🔗 View Details: {{property_list_detailed}}
+🔗 View Details: {{property_list_dtl}}
 
 This property is getting high interest. Would you like to schedule a visit this weekend?
 
@@ -690,37 +690,37 @@ export const smsTemplates = [
     {
         id: 1,
         name: 'Property Alert',
-        body: 'Hi {{first_name}}, New {{property_category}} available in {{property_location}}! Size: {{property_size}}, Price: Rs{{property_price}}. Visit: {{property_list_detailed}}. Call {{agent_mobile}} - Bharat Properties',
+        body: 'Hi {{first_name}}, New {{property_category}} available in {{property_location}}! Size: {{property_size}}, Price: Rs{{property_price}}. Visit: {{property_list_dtl}}. Call {{agent_mobile}} - Bharat Properties',
         tags: ['Property', 'Alert']
     },
     {
         id: 2,
         name: 'Site Visit Confirmation',
-        body: 'Hi {{first_name}}, Your site visit for {{property_category}} at {{property_location}} is confirmed for {{property_size}}. Agent {{property_price}} will meet you. Call {{property_list_detailed}} for changes. - Bharat Properties',
+        body: 'Hi {{first_name}}, Your site visit for {{property_category}} at {{property_location}} is confirmed for {{property_size}}. Agent {{property_price}} will meet you. Call {{property_list_dtl}} for changes. - Bharat Properties',
         tags: ['Site Visit', 'Confirmation']
     },
     {
         id: 3,
         name: 'Quick Follow-up',
-        body: 'Hi {{first_name}}, Following up on {{property_category}} in {{property_location}}. Still interested? We have {{property_size}} similar options. Reply YES or call {{property_price}} - {{property_list_detailed}}, Bharat Properties',
+        body: 'Hi {{first_name}}, Following up on {{property_category}} in {{property_location}}. Still interested? We have {{property_size}} similar options. Reply YES or call {{property_price}} - {{property_list_dtl}}, Bharat Properties',
         tags: ['Follow-up']
     },
     {
         id: 4,
         name: 'Document Reminder',
-        body: 'Hi {{first_name}}, Reminder: Please submit {{property_category}} for {{property_location}} booking by {{property_size}}. WhatsApp docs to {{property_price}} or email {{property_list_detailed}}. - Bharat Properties',
+        body: 'Hi {{first_name}}, Reminder: Please submit {{property_category}} for {{property_location}} booking by {{property_size}}. WhatsApp docs to {{property_price}} or email {{property_list_dtl}}. - Bharat Properties',
         tags: ['Documentation', 'Reminder']
     },
     {
         id: 5,
         name: 'Payment Due',
-        body: 'Hi {{first_name}}, Payment reminder for {{property_category}}: Rs{{property_location}} due on {{property_size}}. Pay via {{property_price}}. Confirm at {{property_list_detailed}}. Thank you! - Bharat Properties',
+        body: 'Hi {{first_name}}, Payment reminder for {{property_category}}: Rs{{property_location}} due on {{property_size}}. Pay via {{property_price}}. Confirm at {{property_list_dtl}}. Thank you! - Bharat Properties',
         tags: ['Payment', 'Reminder']
     },
     {
         id: 6,
         name: 'Price Drop Alert',
-        body: 'PRICE DROP! {{first_name}} in {{property_category}} now Rs{{property_location}} (was Rs{{property_size}}). Save Rs{{property_price}}! Limited time. Call {{property_list_detailed}} NOW - {{agent_mobile}}, Bharat Properties',
+        body: 'PRICE DROP! {{first_name}} in {{property_category}} now Rs{{property_location}} (was Rs{{property_size}}). Save Rs{{property_price}}! Limited time. Call {{property_list_dtl}} NOW - {{agent_mobile}}, Bharat Properties',
         tags: ['Price Drop', 'Urgent']
     },
     {
@@ -732,13 +732,13 @@ export const smsTemplates = [
     {
         id: 8,
         name: 'Deal Closure',
-        body: 'Congratulations {{first_name}}! Your {{property_category}} booking in {{property_location}} is confirmed. Booking ID: {{property_size}}. Next steps: {{property_price}}. Contact {{property_list_detailed}} - Bharat Properties',
+        body: 'Congratulations {{first_name}}! Your {{property_category}} booking in {{property_location}} is confirmed. Booking ID: {{property_size}}. Next steps: {{property_price}}. Contact {{property_list_dtl}} - Bharat Properties',
         tags: ['Closure', 'Confirmation']
     },
     {
         id: 9,
         name: 'Exclusive Offer',
-        body: 'EXCLUSIVE for you {{first_name}}! {{property_category}} in {{property_location}} - {{property_size}} match! Rs{{property_price}}, {{property_list_detailed}}. Book visit: {{agent_mobile}}. Offer ends {{due_date}} - Bharat Properties',
+        body: 'EXCLUSIVE for you {{first_name}}! {{property_category}} in {{property_location}} - {{property_size}} match! Rs{{property_price}}, {{property_list_dtl}}. Book visit: {{agent_mobile}}. Offer ends {{due_date}} - Bharat Properties',
         tags: ['Offer', 'Exclusive']
     },
     {
@@ -810,7 +810,7 @@ export const rcsTemplates = [
         body: 'Discover Your Dream Home 🏠\n\n{{first_name}} in {{property_category}}\n\nSize: {{property_location}}\nPrice: ₹{{property_size}}\nHighlights: {{property_price}}\n\nExclusive viewing slots available!',
         media: { type: 'image', url: 'property_image_url' },
         buttons: [
-            { type: 'URL', text: 'View Details', url: '{{property_list_detailed}}' },
+            { type: 'URL', text: 'View Details', url: '{{property_list_dtl}}' },
             { type: 'PHONE', text: 'Call Agent', phone: '{{agent_mobile}}' },
             { type: 'REPLY', text: 'Book Visit', reply: 'BOOK_VISIT' }
         ],
@@ -823,7 +823,7 @@ export const rcsTemplates = [
         media: { type: 'image', url: 'project_banner_url' },
         buttons: [
             { type: 'URL', text: 'View Brochure', url: '{{property_price}}' },
-            { type: 'PHONE', text: 'Call Now', phone: '{{property_list_detailed}}' },
+            { type: 'PHONE', text: 'Call Now', phone: '{{property_list_dtl}}' },
             { type: 'REPLY', text: 'Get Price List', reply: 'PRICE_LIST' }
         ],
         tags: ['Launch', 'Marketing']
@@ -831,7 +831,7 @@ export const rcsTemplates = [
     {
         id: 3,
         name: 'Site Visit Invitation',
-        body: 'Your Property Viewing Awaits! 🗓️\n\n{{first_name}} in {{property_category}}\n\nAvailable Slots:\n• {{property_location}}\n• {{property_size}}\n• {{property_price}}\n\nAgent {{property_list_detailed}} will accompany you.',
+        body: 'Your Property Viewing Awaits! 🗓️\n\n{{first_name}} in {{property_category}}\n\nAvailable Slots:\n• {{property_location}}\n• {{property_size}}\n• {{property_price}}\n\nAgent {{property_list_dtl}} will accompany you.',
         media: { type: 'image', url: 'property_exterior_url' },
         buttons: [
             { type: 'REPLY', text: 'Slot 1', reply: 'SLOT_1' },
@@ -849,7 +849,7 @@ export const rcsTemplates = [
         buttons: [
             { type: 'URL', text: 'Start Virtual Tour', url: '{{property_price}}' },
             { type: 'REPLY', text: 'Book Physical Visit', reply: 'PHYSICAL_VISIT' },
-            { type: 'PHONE', text: 'Speak to Agent', phone: '{{property_list_detailed}}' }
+            { type: 'PHONE', text: 'Speak to Agent', phone: '{{property_list_dtl}}' }
         ],
         tags: ['Virtual Tour', 'Technology']
     },
@@ -873,7 +873,7 @@ export const rcsTemplates = [
         buttons: [
             { type: 'URL', text: 'Pay Online', url: '{{property_price}}' },
             { type: 'REPLY', text: 'Payment Done', reply: 'PAID' },
-            { type: 'PHONE', text: 'Call Support', phone: '{{property_list_detailed}}' }
+            { type: 'PHONE', text: 'Call Support', phone: '{{property_list_dtl}}' }
         ],
         tags: ['Payment', 'Reminder']
     },
@@ -883,7 +883,7 @@ export const rcsTemplates = [
         body: '🔥 EXCLUSIVE MATCH!\n\n{{first_name}}, we found your perfect property!\n\n{{property_category}} in {{property_location}}\nMatch Score: {{property_size}}%\n\nPrice: ₹{{property_price}}\n\n⚡ High demand - Act fast!',
         media: { type: 'image', url: 'property_highlight_url' },
         buttons: [
-            { type: 'URL', text: 'Full Details', url: '{{property_list_detailed}}' },
+            { type: 'URL', text: 'Full Details', url: '{{property_list_dtl}}' },
             { type: 'REPLY', text: 'Book Visit Today', reply: 'BOOK_NOW' },
             { type: 'REPLY', text: 'See Similar', reply: 'SIMILAR' },
             { type: 'PHONE', text: 'Call {{agent_mobile}}', phone: '{{agent_mobile}}' }
@@ -898,14 +898,14 @@ export const rcsTemplates = [
         buttons: [
             { type: 'URL', text: 'View All Reviews', url: '{{property_price}}' },
             { type: 'REPLY', text: 'Start My Journey', reply: 'START' },
-            { type: 'PHONE', text: 'Talk to Expert', phone: '{{property_list_detailed}}' }
+            { type: 'PHONE', text: 'Talk to Expert', phone: '{{property_list_dtl}}' }
         ],
         tags: ['Testimonial', 'Trust Building']
     },
     {
         id: 9,
         name: 'Price Comparison',
-        body: 'Smart Investment Alert 📊\n\n{{first_name}} in {{property_category}}\n\nOur Price: ₹{{property_location}}\nMarket Avg: ₹{{property_size}}\nYou Save: ₹{{property_price}}\n\nROI Potential: {{property_list_detailed}}%',
+        body: 'Smart Investment Alert 📊\n\n{{first_name}} in {{property_category}}\n\nOur Price: ₹{{property_location}}\nMarket Avg: ₹{{property_size}}\nYou Save: ₹{{property_price}}\n\nROI Potential: {{property_list_dtl}}%',
         media: { type: 'image', url: 'price_comparison_chart' },
         buttons: [
             { type: 'URL', text: 'Detailed Analysis', url: '{{agent_mobile}}' },
@@ -935,7 +935,7 @@ export const rcsTemplates = [
         body: 'Property Match Found 🏠\n\nDear {{first_name}},\n\nWe found a unit in {{project_name}} matching your requirements.\n\nLocation: {{property_location}}\nPrice: {{property_price}}\n\nPlease review and let us know your thoughts.',
         media: { type: 'image', url: 'property_exterior_url' },
         buttons: [
-            { type: 'URL', text: 'View Details', url: '{{property_list_detailed}}' },
+            { type: 'URL', text: 'View Details', url: '{{property_list_dtl}}' },
             { type: 'REPLY', text: 'Interested', reply: 'INTERESTED' },
             { type: 'PHONE', text: 'Call Agent', phone: '{{agent_mobile}}' }
         ],

@@ -114,7 +114,7 @@ function MarketingTab({ dealId, deal, onRefresh }) {
                 case 'property_list_default':
                 case 'matchListDefault':
                     return `1️⃣ 🏢 ${meta.title || 'Project'} | 📐 ${meta.features?.[0] || 'Size'} | 💰 ${meta.price || 'Price'}`;
-                case 'property_list_detailed':
+                case 'property_list_dtl':
                 case 'matchListDetailed':
                     return `1️⃣ 🏢 ${meta.title}\n📍 ${meta.location}\n💰 ${meta.price}\n📐 ${meta.features?.[0]}\n📝 ${meta.description}`;
                 case 'projectName': return meta.title || '';
