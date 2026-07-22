@@ -1243,10 +1243,10 @@ const MessagingSettingsPage = () => {
                                         {activeDropdown === row.id && (
                                             <>
                                                 <div 
-                                                    style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9 }} 
+                                                    style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9998 }} 
                                                     onClick={() => setActiveDropdown(null)} 
                                                 />
-                                                <div style={{ position: 'absolute', right: '0', top: '32px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '8px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)', zIndex: 10, width: '220px', padding: '4px 0', textAlign: 'left' }}>
+                                                <div style={{ position: 'absolute', right: '0', top: i >= templatesToDisplay.length - 2 && templatesToDisplay.length > 2 ? 'auto' : '32px', bottom: i >= templatesToDisplay.length - 2 && templatesToDisplay.length > 2 ? '32px' : 'auto', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '8px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)', zIndex: 9999, width: '220px', padding: '4px 0', textAlign: 'left' }}>
                                                     {templateType === 'whatsapp' && row.status !== 'APPROVED' && row.status !== 'PENDING' && (
                                                         <div 
                                                             style={{ padding: '10px 16px', fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', color: '#10b981', fontWeight: 600 }}
