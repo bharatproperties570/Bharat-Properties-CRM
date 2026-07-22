@@ -190,10 +190,12 @@ export const resolveMessageTemplate = async (template, channel, recipient, prope
         'property_list': propertyListDefault,
         'property_list_default': propertyListDefault,
         'property_list_detailed': propertyListDetailed,
+        'property_list_dtl': propertyListDetailed,   // ✅ Alias: renamed for Meta 20-char limit
         'requirement_summary': (recipient?.requirement || recipient?.requirementType) ? `Looking for ${recipient?.requirement || recipient?.requirementType} in ${locationResolved || recipient?.location || 'our area'} budget ${recipient?.budgetMin || recipient?.budget || ''}` : 'Your property requirement',
         'properties_count': properties?.length || 0,
         
         'customer_name': recipient?.firstName || recipient?.name?.split(' ')[0] || 'customer',
+        'full_name': recipient?.name || recipient?.firstName || 'customer',      // ✅ common named var
         'match_percentage': '95'
     };
 
