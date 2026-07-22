@@ -255,7 +255,7 @@ export const PropertyConfigProvider = ({ children }) => {
         }
     });
 
-    const projectMasterFields = useSystemSetting('projectMasterFields', defaultProjectMasterFields);
+    const [projectMasterFields, setProjectMasterFields] = useSystemSetting('projectMasterFields', defaultProjectMasterFields);
 
     const [projectAmenities, setProjectAmenities] = useSystemSetting('projectAmenities', {
         'Basic': [
