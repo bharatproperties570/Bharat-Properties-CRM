@@ -80,7 +80,7 @@ class VariableResolutionService {
             "site_visit_link": this.extractValue(lead, 'siteVisitLink'),
             "feedback_link": this.extractValue(lead, 'feedbackLink'),
             "property_list_default": this.extractValue(lead, 'matchListDefault'),
-            "property_list_detailed": this.extractValue(lead, 'matchListDetailed'),
+            "property_list_dtl": this.extractValue(lead, 'matchListDetailed'),
             "portal_link": "https://crm.bharatproperties.co",
             // Button URL token — only the dynamic suffix ({{1}}) for URL buttons
             // Template base URL is defined in Meta, we only provide the token part
