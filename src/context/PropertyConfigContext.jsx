@@ -114,8 +114,9 @@ export const PropertyConfigProvider = ({ children }) => {
         waterLevels: [],
         waterPumpTypes: [],
         frontOnRoads: [],
-        soilTypes: [],
-        currentCrops: [],
+        soilTypes: ['Sandy', 'Clay', 'Silt', 'Loam'],
+        currentCrops: ['Wheat', 'Rice', 'Sugarcane', 'Cotton', 'Mustard', 'Maize', 'None'],
+        ownerships: ['Freehold', 'Leasehold', 'Co-operative Society', 'Power of Attorney'],
         numberOfOwners: [],
         unitTypes: [],
         relations: [],
@@ -254,7 +255,7 @@ export const PropertyConfigProvider = ({ children }) => {
         }
     });
 
-    const [projectMasterFields, setProjectMasterFields] = useSystemSetting('projectMasterFields', defaultProjectMasterFields);
+    const projectMasterFields = useSystemSetting('projectMasterFields', defaultProjectMasterFields);
 
     const [projectAmenities, setProjectAmenities] = useSystemSetting('projectAmenities', {
         'Basic': [
@@ -1594,6 +1595,7 @@ export const PropertyConfigProvider = ({ children }) => {
                 zoneNames: getValues('ZoneName'),
                 soilTypes: getValues('SoilType'),
                 currentCrops: getValues('CurrentCrop'),
+                ownerships: getValues('Ownership'),
                 pincodes: getValues('Pincode'), // Added Pincode sync
                 titles: helperGet(newLookups, 'Title') || [],
                 relations: helperGet(newLookups, 'Relation')?.map(l => ({

@@ -497,10 +497,11 @@ const InventoryUnitSection = ({
                         <label style={labelStyle}>Ownership</label>
                         <select style={customSelectStyle} value={formData.ownership} onChange={e => setFormData(prev => ({ ...prev, ownership: e.target.value }))}>
                             <option value="">Select Ownership</option>
-                            <option>Freehold</option>
-                            <option>Leasehold</option>
-                            <option>Co-operative Society</option>
-                            <option>Power of Attorney</option>
+                            {(masterFields?.ownerships || []).map((own, i) => {
+                                const ownName = typeof own === 'object' ? own.name : own;
+                                const ownVal = typeof own === 'object' ? (own._id || own.id || ownName) : ownName;
+                                return <option key={ownVal || i} value={ownName}>{ownName}</option>;
+                            })}
                         </select>
                     </div>
                 </div>

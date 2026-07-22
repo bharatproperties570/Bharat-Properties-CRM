@@ -1245,7 +1245,7 @@ const PropertySettingsPage = () => {
                             <div style={{ width: '280px', borderRight: '1px solid var(--border-color)', background: 'var(--bg-light)', display: 'flex', flexDirection: 'column' }}>
                                 <div style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.85rem' }}>Field Name</div>
                                 <div style={{ overflowY: 'auto', flex: 1 }}>
-                                    {masterFields && ['facings', 'roadWidths', 'directions', 'waterSources', 'waterLevels', 'waterPumpTypes', 'frontOnRoads', 'numberOfOwners', 'unitTypes', 'relations', 'floorLevels', 'floorPlans', 'zoneNames', 'soilTypes', 'currentCrops']
+                                    {masterFields && ['facings', 'roadWidths', 'directions', 'waterSources', 'waterLevels', 'waterPumpTypes', 'frontOnRoads', 'numberOfOwners', 'unitTypes', 'relations', 'floorLevels', 'floorPlans', 'zoneNames', 'soilTypes', 'currentCrops', 'ownerships']
                                         .map(field => (
                                             <div key={field} onClick={() => setActiveOrientationField(field)} style={{ padding: '16px', cursor: 'pointer', fontWeight: activeOrientationField === field ? 700 : 500, color: activeOrientationField === field ? '#2563eb' : 'var(--text-main)', background: activeOrientationField === field ? 'var(--bg-card)' : 'transparent', borderLeft: activeOrientationField === field ? '4px solid #2563eb' : '4px solid transparent', textTransform: 'capitalize' }}>
                                                 {field === 'zoneNames' ? 'Zone' : field.replace(/([A-Z])/g, ' $1').trim()}
