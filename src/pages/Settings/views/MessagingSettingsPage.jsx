@@ -1035,36 +1035,38 @@ const MessagingSettingsPage = () => {
             // Re-use the save logic (it handles DB persist and deal_match logic)
             // But we don't submit to meta again just for context update
             let updatedList;
-            setAllTemplates(prev => {
-                const currentList = prev[templateType];
-                
-                // ENFORCEMENT LOGIC: 1-to-1 mapping for deal_match
-                let sanitizedList = [...currentList];
-                if (updatedData.systemContext?.includes('deal_match')) {
-                    let strippedCount = 0;
-                    sanitizedList = sanitizedList.map(t => {
-                        if (t.id !== template.id && t.systemContext?.includes('deal_match')) {
-                            strippedCount++;
-                            return {
-                                ...t,
-                                systemContext: t.systemContext.filter(ctx => ctx !== 'deal_match')
-                            };
-                        }
-                        return t;
-                    });
-                    if (strippedCount > 0) {
-                        setTimeout(() => {
-                            toast.success(`Deal Match context was removed from ${strippedCount} other template(s).`);
-                        }, 500);
+            
+            // Compute the new list synchronously to pass to both state and DB
+            const currentList = allTemplates[templateType] || [];
+            let sanitizedList = [...currentList];
+            
+            // ENFORCEMENT LOGIC: 1-to-1 mapping for deal_match
+            if (updatedData.systemContext?.includes('deal_match')) {
+                let strippedCount = 0;
+                sanitizedList = sanitizedList.map(t => {
+                    if (t.id !== template.id && t.systemContext?.includes('deal_match')) {
+                        strippedCount++;
+                        return {
+                            ...t,
+                            systemContext: t.systemContext.filter(ctx => ctx !== 'deal_match')
+                        };
                     }
+                    return t;
+                });
+                if (strippedCount > 0) {
+                    setTimeout(() => {
+                        toast.success(`Deal Match context was removed from ${strippedCount} other template(s).`);
+                    }, 500);
                 }
+            }
 
-                updatedList = sanitizedList.map(t => t.id === template.id ? updatedData : t);
-                return { ...prev, [templateType]: updatedList };
-            });
+            updatedList = sanitizedList.map(t => t.id === template.id ? updatedData : t);
 
-            await new Promise(r => setTimeout(r, 50));
-            await persistTemplates(templateType, updatedList || allTemplates[templateType]);
+            // Update state
+            setAllTemplates(prev => ({ ...prev, [templateType]: updatedList }));
+
+            // Update database
+            await persistTemplates(templateType, updatedList);
             toast.success('System trigger context updated ✓');
         } catch (err) {
             toast.error('Failed to update context: ' + err.message);
