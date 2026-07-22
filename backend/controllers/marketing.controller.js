@@ -882,13 +882,24 @@ async function resolveMetaComponents(templateId, recipient, meta, registryMappin
 
     templateDef.components.forEach(compDef => {
         if (compDef.type === 'BODY') {
-            // ENTERPRISE FIX: Match actual {{n}} pattern (2 curly braces)
+            // ENTERPRISE FIX: Match actual {{n}} or {{var_name}} pattern
             // and count ONLY the variables actually present in the template text
-            const matches = (compDef.text || '').match(/{{\d+}}/g) || [];
+            const matches = (compDef.text || '').match(/\{\{([^}]+)\}\}/g) || [];
             if (matches.length > 0) {
                 const parameters = [];
-                matches.forEach(() => {
-                    const val = resolvedMap[String(globalVarIndex)] || '—';
+                const namedMap = VariableResolutionService.resolveNamed(enrichedContext);
+                
+                matches.forEach((match) => {
+                    const varName = match.replace(/[{}]/g, ''); // Extracts '1' or 'full_name'
+                    let val;
+                    
+                    if (/^\d+$/.test(varName)) {
+                        val = resolvedMap[String(globalVarIndex)] || '—';
+                        globalVarIndex++;
+                    } else {
+                        val = namedMap[varName] || '—';
+                    }
+                    
                     let valStr = String(val);
                     // Meta API forbids newlines and tabs in template parameters
                     valStr = valStr.replace(/\n/g, '  |  ').replace(/\t/g, ' ').replace(/\s{5,}/g, '    ');
@@ -896,7 +907,6 @@ async function resolveMetaComponents(templateId, recipient, meta, registryMappin
                         valStr = valStr.substring(0, 995) + '...';
                     }
                     parameters.push({ type: 'text', text: valStr });
-                    globalVarIndex++;
                 });
                 components.push({ type: 'body', parameters });
             }
@@ -925,12 +935,19 @@ async function resolveMetaComponents(templateId, recipient, meta, registryMappin
                     });
                 }
             });
-        } else if (compDef.type === 'HEADER' && compDef.format === 'TEXT' && /\{\{\d+\}\}/.test(compDef.text)) {
-            const headerVars = (compDef.text.match(/{{\d+}}/g) || []);
+        } else if (compDef.type === 'HEADER' && compDef.format === 'TEXT' && /\{\{([^}]+)\}\}/.test(compDef.text)) {
+            const headerVars = (compDef.text.match(/\{\{([^}]+)\}\}/g) || []);
             if (headerVars.length > 0) {
-                const parameters = headerVars.map(() => {
-                    const val = resolvedMap[String(globalVarIndex)] || 'Update';
-                    globalVarIndex++;
+                const namedMap = VariableResolutionService.resolveNamed(enrichedContext);
+                const parameters = headerVars.map((match) => {
+                    const varName = match.replace(/[{}]/g, '');
+                    let val;
+                    if (/^\d+$/.test(varName)) {
+                        val = resolvedMap[String(globalVarIndex)] || 'Update';
+                        globalVarIndex++;
+                    } else {
+                        val = namedMap[varName] || 'Update';
+                    }
                     return { type: 'text', text: String(val).substring(0, 200) };
                 });
                 components.push({ type: 'header', parameters });
