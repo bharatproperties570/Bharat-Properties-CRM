@@ -39,6 +39,8 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
     // New Omnichannel States
     const [isBlasting, setIsBlasting] = useState(false);
     const [hidePrice, setHidePrice] = useState(false);
+    const [hideLocation, setHideLocation] = useState(false);
+    const [hideUnit, setHideUnit] = useState(false);
     const [blastChannels, setBlastChannels] = useState({
         email: true,
         sms: false,
@@ -157,6 +159,8 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                             return acc;
                         }, undefined), // Simplified single schedule extraction
                         hidePrice,
+                        hideLocation,
+                        hideUnit,
                         matchContext: showOnlyPreferred ? 'perfect' : 'top'
                     })
                 );
@@ -619,10 +623,18 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
 
                     <div style={{ width: '1px', height: '32px', background: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)', margin: '0 8px' }}></div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                         <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, color: txt }}>
                             <input type="checkbox" checked={hidePrice} onChange={e => setHidePrice(e.target.checked)} style={{ cursor: 'pointer' }} />
                             Hide Price
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, color: txt }}>
+                            <input type="checkbox" checked={hideLocation} onChange={e => setHideLocation(e.target.checked)} style={{ cursor: 'pointer' }} />
+                            Hide Location
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, color: txt }}>
+                            <input type="checkbox" checked={hideUnit} onChange={e => setHideUnit(e.target.checked)} style={{ cursor: 'pointer' }} />
+                            Hide Unit
                         </label>
                     </div>
 
