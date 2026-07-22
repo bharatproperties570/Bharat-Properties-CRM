@@ -543,7 +543,7 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
 
             {/* ─── OMNICHANNEL DISPATCH BAR ─── */}
             {selectedLeads.length > 0 && (
-                <div style={{ position: 'fixed', bottom: '28px', left: '50%', transform: 'translateX(-50%)', background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)', padding: '16px 24px', borderRadius: '20px', display: 'flex', alignItems: 'center', gap: '16px', boxShadow: isDark ? '0 25px 50px -12px rgba(0,0,0,0.8)' : '0 20px 40px -10px rgba(0,0,0,0.1)', zIndex: 1000, border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.05)', backdropFilter: 'blur(16px)', flexWrap: 'wrap' }}>
+                <div className="no-scrollbar" style={{ position: 'fixed', bottom: '28px', left: '50%', transform: 'translateX(-50%)', background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)', padding: '16px 24px', borderRadius: '20px', display: 'flex', alignItems: 'center', gap: '16px', boxShadow: isDark ? '0 25px 50px -12px rgba(0,0,0,0.8)' : '0 20px 40px -10px rgba(0,0,0,0.1)', zIndex: 1000, border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.05)', backdropFilter: 'blur(16px)', width: 'max-content', maxWidth: '96vw', overflowX: 'auto', flexWrap: 'nowrap' }}>
                     
                     {/* Selected Count */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingRight: '16px', borderRight: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.1)' }}>
@@ -562,7 +562,7 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                                         background: blastChannels[ch] ? (ch === 'whatsapp' ? '#10b981' : ch === 'email' ? '#3b82f6' : '#8b5cf6') : (isDark ? '#334155' : '#e2e8f0'), 
                                         color: blastChannels[ch] ? '#fff' : sub, 
                                         cursor: 'pointer',
-                                        display: 'flex', alignItems: 'center', gap: '8px', 
+                                        display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, whiteSpace: 'nowrap',
                                         outline: blastChannels[ch] ? `2px solid ${ch === 'whatsapp' ? '#059669' : ch === 'email' ? '#2563eb' : '#7c3aed'}` : 'none'
                                     }}>
                                     <i className={`fa${ch==='whatsapp'?'b':'s'} fa-${ch==='whatsapp'?'whatsapp':ch==='email'?'envelope':'comment-dots'}`}></i> {ch === 'whatsapp' ? 'WA API' : ch.toUpperCase()}
@@ -603,7 +603,7 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                             style={{ 
                                 padding: '8px 14px', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 700, transition: 'all 0.2s', border: 'none',
                                 background: blastChannels.rcs ? '#0ea5e9' : (isDark ? '#334155' : '#e2e8f0'), color: blastChannels.rcs ? '#fff' : sub, 
-                                cursor: 'pointer',
+                                cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap',
                                 display: 'flex', alignItems: 'center', gap: '8px', outline: blastChannels.rcs ? '2px solid #0284c7' : 'none'
                             }}>
                             <i className="fas fa-mobile-alt"></i> RCS
@@ -614,7 +614,7 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                             style={{ 
                                 padding: '8px 14px', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 700, transition: 'all 0.2s', border: 'none',
                                 background: blastChannels.whatsapp_app ? '#059669' : (isDark ? '#334155' : '#e2e8f0'), color: blastChannels.whatsapp_app ? '#fff' : sub, 
-                                cursor: 'pointer',
+                                cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap',
                                 display: 'flex', alignItems: 'center', gap: '8px', outline: blastChannels.whatsapp_app ? '2px solid #047857' : 'none'
                             }}>
                             <i className="fas fa-comment"></i> WA App
@@ -623,16 +623,16 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
 
                     <div style={{ width: '1px', height: '32px', background: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)', margin: '0 8px' }}></div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, color: txt }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexShrink: 0 }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, color: txt, whiteSpace: 'nowrap' }}>
                             <input type="checkbox" checked={hidePrice} onChange={e => setHidePrice(e.target.checked)} style={{ cursor: 'pointer' }} />
                             Hide Price
                         </label>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, color: txt }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, color: txt, whiteSpace: 'nowrap' }}>
                             <input type="checkbox" checked={hideLocation} onChange={e => setHideLocation(e.target.checked)} style={{ cursor: 'pointer' }} />
                             Hide Location
                         </label>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, color: txt }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, color: txt, whiteSpace: 'nowrap' }}>
                             <input type="checkbox" checked={hideUnit} onChange={e => setHideUnit(e.target.checked)} style={{ cursor: 'pointer' }} />
                             Hide Unit
                         </label>
@@ -648,7 +648,7 @@ const DealMatchingPage = ({ onNavigate, dealId }) => {
                             style={{ 
                                 padding: '10px 24px', borderRadius: '20px', background: 'linear-gradient(135deg, #ec4899 0%, #f43f5e 100%)', 
                                 color: '#fff', border: 'none', fontWeight: 800, fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer',
-                                opacity: isBlasting ? 0.7 : 1, transition: 'all 0.2s', boxShadow: '0 8px 20px -6px rgba(236, 72, 153, 0.6)'
+                                opacity: isBlasting ? 0.7 : 1, transition: 'all 0.2s', boxShadow: '0 8px 20px -6px rgba(236, 72, 153, 0.6)', flexShrink: 0, whiteSpace: 'nowrap'
                             }}
                             onMouseOver={(e) => { if(!isBlasting) e.currentTarget.style.transform = 'translateY(-2px)'; }}
                             onMouseOut={(e) => e.currentTarget.style.transform = 'translateY(0)'}
