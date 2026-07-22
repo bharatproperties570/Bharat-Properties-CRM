@@ -315,6 +315,25 @@ const InventoryUnitSection = ({
                                 </div>
                             </div>
 
+                            {/* Zone Selection */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginTop: '8px' }}>
+                                <span style={{ fontSize: '0.9rem', fontWeight: 600, color: '#475569', minWidth: '150px' }}>ZONE</span>
+                                <div style={{ flex: 1 }}>
+                                    <select 
+                                        style={customSelectStyle} 
+                                        value={formData.zoneName || ''} 
+                                        onChange={e => setFormData(prev => ({ ...prev, zoneName: e.target.value }))}
+                                    >
+                                        <option value="">---Select Zone---</option>
+                                        {(masterFields?.zoneNames || []).map(zone => (
+                                            <option key={typeof zone === 'object' ? (zone._id || zone.id) : zone} value={typeof zone === 'object' ? (zone._id || zone.id) : zone}>
+                                                {renderValue(zone)}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+
                             {/* Area Mismatch Warning Logic */}
                             {(() => {
                                 const registryTotalMarlas = (formData.landDetails || []).reduce((acc, row) => acc + (Number(row.calculatedMarlas) || 0), 0);

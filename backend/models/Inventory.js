@@ -146,6 +146,7 @@ const InventorySchema = new mongoose.Schema({
     soilType: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
     currentCrop: { type: mongoose.Schema.Types.ObjectId, ref: 'Lookup' },
     kmlFileUrl: { type: String },
+    zoneName: { type: mongoose.Schema.Types.Mixed },
     carpetArea: {
         value: { type: Number },
         unit: { type: String, default: 'Sq.Ft.' }
