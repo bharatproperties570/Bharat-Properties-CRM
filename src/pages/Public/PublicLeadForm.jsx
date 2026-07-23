@@ -428,8 +428,8 @@ const PublicLeadForm = ({ slug }) => {
                         return (
                             <div key={section.id} style={{ marginBottom: '50px' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '30px' }}>
-                                    <div style={{ width: '40px', height: '2px', background: '#c9921a', borderRadius: '2px' }}></div>
-                                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, color: '#c9921a', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{section.title}</h3>
+                                    <div style={{ width: '40px', height: '2px', background: isDarkMode ? '#c9921a' : '#9e710f', borderRadius: '2px' }}></div>
+                                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, color: isDarkMode ? '#c9921a' : '#9e710f', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{section.title}</h3>
                                 </div>
 
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '32px' }}>
@@ -458,11 +458,11 @@ const PublicLeadForm = ({ slug }) => {
                                                     {(dynamicOptions[field.id] || field.options || []).map(opt => (
                                                         <label key={opt} style={{ 
                                                             padding: '16px 24px', 
-                                                            background: formData[field.id] === opt ? 'rgba(201, 146, 26, 0.15)' : (isDarkMode ? '#1e293b' : '#f1f5f9'),
-                                                            border: `2px solid ${formData[field.id] === opt ? '#c9921a' : 'transparent'}`,
+                                                            background: formData[field.id] === opt ? (isDarkMode ? 'rgba(201, 146, 26, 0.15)' : 'rgba(158, 113, 15, 0.1)') : (isDarkMode ? '#1e293b' : '#f1f5f9'),
+                                                            border: `2px solid ${formData[field.id] === opt ? (isDarkMode ? '#c9921a' : '#9e710f') : 'transparent'}`,
                                                             borderRadius: '16px',
                                                             cursor: 'pointer',
-                                                            color: formData[field.id] === opt ? '#c9921a' : (isDarkMode ? '#e2e8f0' : '#1e293b'),
+                                                            color: formData[field.id] === opt ? (isDarkMode ? '#c9921a' : '#9e710f') : (isDarkMode ? '#e2e8f0' : '#1e293b'),
                                                             fontWeight: 700,
                                                             transition: 'all 0.2s ease'
                                                         }}>
