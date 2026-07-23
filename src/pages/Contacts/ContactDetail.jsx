@@ -468,6 +468,13 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                 const data = response.data.data;
                 setContact(data);
 
+                const stageLookup = data.stage?.lookup_value || data.stage || '';
+                if (typeof stageLookup === 'string' && stageLookup.toLowerCase().includes('lost')) {
+                    setDealStatus('lost');
+                } else {
+                    setDealStatus('active');
+                }
+
                 // Robust Record Type Detection
                 let finalType = foundType;
                 if (data.type === 'Lead' || data.isLead || data.requirement || recordType === 'lead') {
@@ -494,6 +501,14 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                 if (leadRes.data && leadRes.data.success) {
                     const leadData = leadRes.data.data;
                     setContact(leadData);
+                    
+                    const stageLookup = leadData.stage?.lookup_value || leadData.stage || '';
+                    if (typeof stageLookup === 'string' && stageLookup.toLowerCase().includes('lost')) {
+                        setDealStatus('lost');
+                    } else {
+                        setDealStatus('active');
+                    }
+
                     setRecordType('lead');
                     fetchUnifiedTimeline(contactId, 'lead');
                     fetchRelatedData(contactId, 'lead', leadData);
