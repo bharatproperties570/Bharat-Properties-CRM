@@ -4,6 +4,7 @@ import Lead from "../models/Lead.js";
 import Lookup from "../models/Lookup.js";
 import mongoose from "mongoose";
 import { enrichmentQueue } from "../src/queues/queueManager.js";
+import jwt from "jsonwebtoken";
 
 // Helper to resolve lookup (Find or Create)
 const resolveLookup = async (type, value) => {
