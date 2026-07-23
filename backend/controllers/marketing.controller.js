@@ -1466,6 +1466,18 @@ export const executeDispatch = async (payload, user) => {
             const val = await resolveLookupSafely(base.sizeConfig);
             if (val && !base.sizeLabel) base.sizeLabel = val;
         }
+
+        const lookupFields = ['facing', 'direction', 'roadWidth', 'unitType', 'buildupType', 'corner', 'category'];
+        for (const field of lookupFields) {
+            if (pd[field]) {
+                const val = await resolveLookupSafely(pd[field]);
+                if (val) pd[field] = { lookup_value: val };
+            }
+            if (base[field]) {
+                const val = await resolveLookupSafely(base[field]);
+                if (val) base[field] = { lookup_value: val };
+            }
+        }
     }
     // ------------------------------------------
 
