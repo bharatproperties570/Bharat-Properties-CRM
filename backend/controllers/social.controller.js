@@ -215,18 +215,13 @@ export const sendWhatsAppMessage = async (req, res, next) => {
 
             // Header Media override
             if (mediaUrl || requiredHeaderFormat) {
-                // Force required format if known, otherwise fallback to frontend type mapping
-                const hType = requiredHeaderFormat || (type === 'image' ? 'image' : ((type === 'document' || type === 'pdf') ? 'document' : 'video'));
-                
-                // If mediaUrl is missing but a header is REQUIRED, provide a dummy fallback
-                // to prevent Meta from rejecting the payload entirely.
+                const hType = requiredHeaderFormat || (type === 'image' ? 'image' : type === 'document' ? 'document' : 'video');
                 const finalMediaUrl = mediaUrl || (
-                    hType === 'document' ? 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf' :
+                    hType === 'document' ? 'https://api.bharatproperties.co/uploads/Huda_Map_Book_KKR.pdf' :
                     hType === 'image' ? 'https://dummyimage.com/600x400/000/fff.png' :
                     'https://www.w3schools.com/html/mov_bbb.mp4'
                 );
 
-                const existingHeaderIdx = components.findIndex(c => c.type === 'header');
                 const headerComp = { 
                     type: 'header', 
                     parameters: [{ 
@@ -234,10 +229,11 @@ export const sendWhatsAppMessage = async (req, res, next) => {
                         [hType]: { 
                             link: finalMediaUrl,
                             // Meta API expects filename for documents
-                            ...(hType === 'document' ? { filename: filename || 'Attachment.pdf' } : {})
+                            ...(hType === 'document' ? { filename: filename || 'Huda_Map_Book_KKR.pdf' } : {})
                         } 
                     }] 
                 };
+                const existingHeaderIdx = components.findIndex(c => c.type === 'header');
                 if (existingHeaderIdx >= 0) components[existingHeaderIdx] = headerComp;
                 else components.push(headerComp);
             }

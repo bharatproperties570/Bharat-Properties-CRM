@@ -972,7 +972,7 @@ async function resolveMetaComponents(templateId, recipient, meta, registryMappin
             // in the request body because it matches multiple properties.
             // We use safe dummy fallbacks to ensure the API doesn't reject the payload.
             const finalMediaUrl = (
-                hType === 'document' ? 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf' :
+                hType === 'document' ? 'https://api.bharatproperties.co/uploads/Huda_Map_Book_KKR.pdf' :
                 hType === 'image' ? 'https://dummyimage.com/600x400/000/fff.png' :
                 'https://www.w3schools.com/html/mov_bbb.mp4'
             );
@@ -983,7 +983,7 @@ async function resolveMetaComponents(templateId, recipient, meta, registryMappin
                     type: hType,
                     [hType]: {
                         link: finalMediaUrl,
-                        ...(hType === 'document' ? { filename: 'Property_Details.pdf' } : {})
+                        ...(hType === 'document' ? { filename: 'Huda_Map_Book_KKR.pdf' } : {})
                     }
                 }]
             });
