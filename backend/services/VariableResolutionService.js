@@ -502,22 +502,23 @@ class VariableResolutionService {
                         }
                     }
 
-                    // 1. Unit Number(Unit Type)
+                    // 1. Unit Number
                     let unitPart = '';
                     if (!lead.hideUnit && !lead.hideUnitNumber && unit !== 'TBD' && unit !== '') {
                         unitPart = `#${unit}`;
-                        if (unitType && unitType !== 'N/A') {
-                            unitPart += ` (${unitType})`;
-                        } else if (subCategory && subCategory !== 'N/A') {
-                            unitPart += ` (${subCategory})`;
-                        }
                     }
                     
-                    // Sequence: unit Number(Unit type) | Project Name | Sub Category | Size label | Direction | Road | Facing | Builtup Type | Google Location | Price
+                    // 3. Sub Category (Unit Type)
+                    let subCategoryPart = subCategory || '';
+                    if (unitType && unitType !== 'N/A' && unitType !== subCategory) {
+                        subCategoryPart = subCategoryPart ? `${subCategoryPart} (${unitType})` : unitType;
+                    }
+                    
+                    // Sequence: unit Number | Project Name | Sub Category(Unit type) | Size label | Direction | Road | Facing | Builtup Type | Google Location | Price
                     const segments = [
-                        unitPart,                                   // 1. Unit Number(Unit type)
+                        unitPart,                                   // 1. Unit Number
                         pName,                                      // 2. Project Name
-                        subCategory,                                // 3. Sub Category
+                        subCategoryPart,                            // 3. Sub Category
                         `${sz} ${szUnit}`.trim(),                   // 4. Size label
                         direction,                                  // 5. Direction
                         road,                                       // 6. Road
