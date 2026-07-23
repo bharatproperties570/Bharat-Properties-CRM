@@ -468,7 +468,7 @@ class VariableResolutionService {
                     if (!lead.hidePrice && !lead.hidePrices) {
                         const rawPrice = p.price || inv.price?.value || inv.price;
                         if (rawPrice && !isNaN(rawPrice)) {
-                            pr = `₹${(Number(rawPrice) / 10000000).toFixed(2)} Cr`;
+                            pr = `${(Number(rawPrice) / 10000000).toFixed(2)} Cr`;
                         } else {
                             pr = rawPrice || 'On Request';
                         }
@@ -482,45 +482,53 @@ class VariableResolutionService {
                     const direction = getVal(inv.direction || p.direction);
                     const facing = getVal(inv.facing || p.facing);
                     const buildupType = getVal(inv.buildupType || p.buildupType);
+                    const unitType = getVal(inv.unitType || p.unitType) || category; 
                     
                     let mapsLink = '';
                     if (!lead.hideLocation) {
                         if (inv.latitude && inv.longitude) {
-                            mapsLink = `📍 https://www.google.com/maps?q=${inv.latitude},${inv.longitude}`;
+                            mapsLink = `https://www.google.com/maps?q=${inv.latitude},${inv.longitude}`;
                         } else if (inv.googleMapsLink) {
-                            mapsLink = `📍 ${inv.googleMapsLink}`;
+                            mapsLink = `${inv.googleMapsLink}`;
                         }
                     }
 
-                    let lines = [];
-                    // Header (Unit & Project)
-                    let headerLine = '';
+                    // 1. Unit Number(Unit Type)
+                    let unitPart = '';
                     if (!lead.hideUnit && !lead.hideUnitNumber && unit !== 'TBD' && unit !== '') {
-                        headerLine += `#${unit} `;
-                    }
-                    headerLine += pName;
-                    lines.push(`🏢 ${headerLine.trim()}`);
-                    
-                    // Specs
-                    lines.push(`📐 ${sz} ${szUnit}`.trim());
-                    
-                    // Features
-                    const features = [category, subCategory, road, direction, facing, buildupType]
-                        .filter(f => f && typeof f === 'string' && f !== 'N/A' && !/^[a-fA-F0-9]{24}$/.test(f));
-                    
-                    if (features.length > 0) {
-                        lines.push(`🏷️ ${features.join(', ')}`);
+                        unitPart = `#${unit}`;
+                        if (unitType && unitType !== 'N/A') {
+                            unitPart += ` (${unitType})`;
+                        } else if (subCategory && subCategory !== 'N/A') {
+                            unitPart += ` (${subCategory})`;
+                        }
                     }
                     
-                    // Location
-                    if (mapsLink) {
-                        lines.push(mapsLink);
-                    }
+                    // Sequence: unit Number(Unit type) | Project Name | Sub Category | Size label | Direction | Road | Facing | Builtup Type | Google Location | Price
+                    const segments = [
+                        unitPart,                                   // 1. Unit Number(Unit type)
+                        pName,                                      // 2. Project Name
+                        subCategory,                                // 3. Sub Category
+                        `${sz} ${szUnit}`.trim(),                   // 4. Size label
+                        direction,                                  // 5. Direction
+                        road,                                       // 6. Road
+                        facing,                                     // 7. Facing
+                        buildupType,                                // 8. Builtup Type
+                        mapsLink,                                   // 9. Google Location
+                        pr !== 'Price on call' ? `₹${pr}` : pr      // 10. Price (formatted)
+                    ];
                     
-                    // Price
-                    lines.push(`💰 *Expected Price* ${pr}`);
+                    // Filter out empty segments, 'N/A', and unpopulated ObjectIDs
+                    const cleanSegments = segments.filter(seg => 
+                        seg && 
+                        typeof seg === 'string' && 
+                        seg.trim() !== '' && 
+                        seg.trim().toLowerCase() !== 'n/a' && 
+                        seg.trim().toLowerCase() !== '₹on request' &&
+                        !/^[a-fA-F0-9]{24}$/.test(seg.trim())
+                    );
 
-                    return lines.join('\n');
+                    return cleanSegments.join(' | ');
                 }).join('\n\n---------------------------\n\n');
 
             default:
