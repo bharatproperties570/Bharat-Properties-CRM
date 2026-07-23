@@ -204,18 +204,37 @@ export const sendWhatsAppMessage = async (req, res, next) => {
                 }
             }
 
+            // Extract required header format from template definition
+            let requiredHeaderFormat = null;
+            if (templateDef) {
+                const headerDef = templateDef.components.find(c => c.type === 'HEADER');
+                if (headerDef && headerDef.format !== 'TEXT') {
+                    requiredHeaderFormat = headerDef.format.toLowerCase();
+                }
+            }
+
             // Header Media override
-            if (mediaUrl) {
-                const hType = type === 'image' ? 'image' : ((type === 'document' || type === 'pdf') ? 'document' : 'video');
+            if (mediaUrl || requiredHeaderFormat) {
+                // Force required format if known, otherwise fallback to frontend type mapping
+                const hType = requiredHeaderFormat || (type === 'image' ? 'image' : ((type === 'document' || type === 'pdf') ? 'document' : 'video'));
+                
+                // If mediaUrl is missing but a header is REQUIRED, provide a dummy fallback
+                // to prevent Meta from rejecting the payload entirely.
+                const finalMediaUrl = mediaUrl || (
+                    hType === 'document' ? 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf' :
+                    hType === 'image' ? 'https://dummyimage.com/600x400/000/fff.png' :
+                    'https://www.w3schools.com/html/mov_bbb.mp4'
+                );
+
                 const existingHeaderIdx = components.findIndex(c => c.type === 'header');
                 const headerComp = { 
                     type: 'header', 
                     parameters: [{ 
                         type: hType, 
                         [hType]: { 
-                            link: mediaUrl,
+                            link: finalMediaUrl,
                             // Meta API expects filename for documents
-                            ...(hType === 'document' && filename ? { filename } : {})
+                            ...(hType === 'document' ? { filename: filename || 'Attachment.pdf' } : {})
                         } 
                     }] 
                 };
