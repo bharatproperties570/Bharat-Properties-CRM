@@ -522,15 +522,19 @@ class VariableResolutionService {
                         subCategoryPart = subCategoryPart ? `${subCategoryPart} (${extraStr})` : extraStr;
                     }
                     
+                    const dirStr = direction ? `Direction-${direction}` : '';
+                    const roadStr = road ? `Road ${road}` : '';
+                    const facingStr = facing ? `Facing ${facing}` : '';
+
                     // Sequence: Unit Number | Sub Category (Unit Type) | Size Label | Project Name | Direction | Road | Facing | Google Location | Expected Price
                     const segments = [
                         unitPart,                                   // 1. Unit Number
                         subCategoryPart,                            // 2. Sub Category (Unit Type)
                         `${sz} ${szUnit}`.trim(),                   // 3. Size Label
                         pName,                                      // 4. Project Name
-                        direction,                                  // 5. Direction
-                        road,                                       // 6. Road
-                        facing,                                     // 7. Facing
+                        dirStr,                                     // 5. Direction
+                        roadStr,                                    // 6. Road
+                        facingStr,                                  // 7. Facing
                         mapsLink,                                   // 8. Google Location
                         pr !== 'Price on call' ? `₹${pr}` : pr      // 9. Expected Price (formatted)
                     ];
