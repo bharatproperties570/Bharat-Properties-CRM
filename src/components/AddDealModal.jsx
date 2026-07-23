@@ -708,8 +708,8 @@ const AddDealModal = ({ isOpen, onClose, onSave, deal = null, title, restrictToP
                 const loadToast = toast.loading(`Matching Deal with Leads for ${activeChannels.length} channel(s)...`);
                 try {
                     const matchRes = await api.get('leads/match', { params: { dealId: savedData._id } });
-                    if (matchRes.data?.success && matchRes.data?.data?.length > 0) {
-                        let matches = matchRes.data.data;
+                    if (matchRes.data?.success && matchRes.data?.matchingLeads?.length > 0) {
+                        let matches = matchRes.data.matchingLeads;
                         
                         const scheduledChannels = activeChannels.filter(ch => channelSchedules[ch]);
                         const nowChannels = activeChannels.filter(ch => !channelSchedules[ch] && ch !== 'whatsapp_app');
