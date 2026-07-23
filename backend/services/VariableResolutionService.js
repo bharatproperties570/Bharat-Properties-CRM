@@ -21,8 +21,13 @@ class VariableResolutionService {
         const namedPayload = {
             // --- Customer / Lead ---
             "name": this.extractValue(lead, 'fullName'),
+            "lead_name": this.extractValue(lead, 'fullName'),
+            "customerName": this.extractValue(lead, 'fullName'),
             "customer_name": this.extractValue(lead, 'fullName'),
+            "full_name": this.extractValue(lead, 'fullName'),
+            "fullName": this.extractValue(lead, 'fullName'),
             "customer_first_name": this.extractValue(lead, 'firstName'),
+            "first_name": this.extractValue(lead, 'firstName'),
             "mobile": this.extractValue(lead, 'mobile'),
             "customer_mobile": this.extractValue(lead, 'mobile'),
             "email": this.extractValue(lead, 'email'),
@@ -201,10 +206,14 @@ class VariableResolutionService {
         // Common Fields
         switch (source) {
             case 'name':
-            case 'fullName':
-                return lead.fullName || lead.name || `${lead.firstName || ''} ${lead.lastName || ''}`.trim() || 'Customer';
-            case 'firstName':
-                return lead.firstName || (lead.name ? lead.name.split(' ')[0] : 'Customer');
+            case 'fullName': {
+                const n = (lead.fullName || lead.name || `${lead.firstName || ''} ${lead.lastName || ''}`).trim();
+                return (n && n !== '-' && n !== '—') ? n : 'Customer';
+            }
+            case 'firstName': {
+                const fn = lead.firstName || (lead.name ? lead.name.split(' ')[0] : '');
+                return (fn && fn !== '-' && fn !== '—') ? fn : 'Customer';
+            }
             case 'lastName':
                 return lead.lastName || '';
             case 'salutation':
