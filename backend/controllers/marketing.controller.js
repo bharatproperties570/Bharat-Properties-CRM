@@ -965,6 +965,28 @@ async function resolveMetaComponents(templateId, recipient, meta, registryMappin
                 });
                 components.push({ type: 'header', parameters });
             }
+        } else if (compDef.type === 'HEADER' && compDef.format !== 'TEXT') {
+            const hType = compDef.format.toLowerCase(); // 'image', 'document', 'video'
+            
+            // For Dispatch Now (marketing), we typically don't have a single user-uploaded brochure
+            // in the request body because it matches multiple properties.
+            // We use safe dummy fallbacks to ensure the API doesn't reject the payload.
+            const finalMediaUrl = (
+                hType === 'document' ? 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf' :
+                hType === 'image' ? 'https://dummyimage.com/600x400/000/fff.png' :
+                'https://www.w3schools.com/html/mov_bbb.mp4'
+            );
+            
+            components.push({
+                type: 'header',
+                parameters: [{
+                    type: hType,
+                    [hType]: {
+                        link: finalMediaUrl,
+                        ...(hType === 'document' ? { filename: 'Property_Details.pdf' } : {})
+                    }
+                }]
+            });
         }
     });
 
