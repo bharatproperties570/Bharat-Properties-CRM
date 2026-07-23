@@ -206,9 +206,19 @@ export const sendWhatsAppMessage = async (req, res, next) => {
 
             // Header Media override
             if (mediaUrl) {
-                const hType = type === 'image' ? 'image' : (type === 'document' ? 'document' : 'video');
+                const hType = type === 'image' ? 'image' : ((type === 'document' || type === 'pdf') ? 'document' : 'video');
                 const existingHeaderIdx = components.findIndex(c => c.type === 'header');
-                const headerComp = { type: 'header', parameters: [{ type: hType, [hType]: { link: mediaUrl } }] };
+                const headerComp = { 
+                    type: 'header', 
+                    parameters: [{ 
+                        type: hType, 
+                        [hType]: { 
+                            link: mediaUrl,
+                            // Meta API expects filename for documents
+                            ...(hType === 'document' && filename ? { filename } : {})
+                        } 
+                    }] 
+                };
                 if (existingHeaderIdx >= 0) components[existingHeaderIdx] = headerComp;
                 else components.push(headerComp);
             }
