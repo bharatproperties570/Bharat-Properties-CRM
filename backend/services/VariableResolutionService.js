@@ -514,18 +514,17 @@ class VariableResolutionService {
                         subCategoryPart = subCategoryPart ? `${subCategoryPart} (${unitType})` : unitType;
                     }
                     
-                    // Sequence: unit Number | Project Name | Sub Category(Unit type) | Size label | Direction | Road | Facing | Builtup Type | Google Location | Price
+                    // Sequence: Unit Number | Sub Category (Unit Type) | Size Label | Project Name | Direction | Road | Facing | Google Location | Expected Price
                     const segments = [
                         unitPart,                                   // 1. Unit Number
-                        pName,                                      // 2. Project Name
-                        subCategoryPart,                            // 3. Sub Category
-                        `${sz} ${szUnit}`.trim(),                   // 4. Size label
+                        subCategoryPart,                            // 2. Sub Category (Unit Type)
+                        `${sz} ${szUnit}`.trim(),                   // 3. Size Label
+                        pName,                                      // 4. Project Name
                         direction,                                  // 5. Direction
                         road,                                       // 6. Road
                         facing,                                     // 7. Facing
-                        buildupType,                                // 8. Builtup Type
-                        mapsLink,                                   // 9. Google Location
-                        pr !== 'Price on call' ? `₹${pr}` : pr      // 10. Price (formatted)
+                        mapsLink,                                   // 8. Google Location
+                        pr !== 'Price on call' ? `₹${pr}` : pr      // 9. Expected Price (formatted)
                     ];
                     
                     // Filter out empty segments, 'N/A', and unpopulated ObjectIDs
