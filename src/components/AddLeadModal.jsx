@@ -1279,7 +1279,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
                             const toastMsg = isFallback ? `Matched ${matches.length} top properties & dispatched!` : `Matched ${matches.length} perfect properties & dispatched!`;
                             toast.success(toastMsg, { id: loadToast });
                         } else {
-                            toast.error(`No matches found for this lead.`, { id: loadToast });
+                            toast.error(`No matches found (Backend returned ${matchRes.data?.data?.length || 0} deals).`, { id: loadToast });
                         }
 
                     } catch (e) {
