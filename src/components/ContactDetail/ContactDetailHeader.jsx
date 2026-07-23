@@ -2,6 +2,7 @@ import { useTheme } from '../../context/ThemeContext';
 
 import React, { useState } from 'react';
 import RevivalModal from '../RevivalModal';
+import { api, activitiesAPI } from '../../utils/api';
 
 const ContactDetailHeader = React.memo(function ContactDetailHeader({
     contact,
@@ -23,10 +24,60 @@ const ContactDetailHeader = React.memo(function ContactDetailHeader({
     contactId,
     setIsTagsModalOpen,
     setIsAssignModalOpen,
-    setIsActivityModalOpen
+    setIsActivityModalOpen,
+    getLookupId
 }) {
     const { isDark } = useTheme();
     const [isRevivalModalOpen, setIsRevivalModalOpen] = useState(false);
+    const [isMarkLostModalOpen, setIsMarkLostModalOpen] = useState(false);
+    const [lostReasonPreset, setLostReasonPreset] = useState('');
+    const [lostReasonText, setLostReasonText] = useState('');
+    const [isSavingLost, setIsSavingLost] = useState(false);
+
+    const handleMarkLost = async () => {
+        if (!lostReasonPreset && !lostReasonText) {
+            showNotification('Please select or enter a reason for marking the lead as lost.');
+            return;
+        }
+        setIsSavingLost(true);
+        try {
+            const lostStageId = getLookupId('Stage', 'Closed (Lost)');
+            if (!lostStageId) {
+                throw new Error('Lost Stage not found in configuration.');
+            }
+            
+            // Update Lead Stage
+            const payload = { stage: lostStageId };
+            await api.put(`/leads/${contactId}`, payload);
+            
+            // Log Activity
+            const finalReason = lostReasonPreset ? (lostReasonText ? `${lostReasonPreset} - ${lostReasonText}` : lostReasonPreset) : lostReasonText;
+            await activitiesAPI.create({
+                type: 'Status Change',
+                subject: 'Lead Marked as Closed (Lost)',
+                status: 'Completed',
+                entityId: contactId,
+                entityType: 'Lead',
+                description: `Reason: ${finalReason}`,
+                dueDate: new Date()
+            });
+            
+            showNotification('Lead successfully marked as Closed (Lost).');
+            setDealStatus('lost');
+            setIsMarkLostModalOpen(false);
+            
+            // Refresh to show updated timeline and stage
+            setTimeout(() => {
+                window.location.reload();
+            }, 1000);
+            
+        } catch (error) {
+            console.error('Failed to mark lead as lost:', error);
+            showNotification('An error occurred while marking the lead as lost.');
+        } finally {
+            setIsSavingLost(false);
+        }
+    };
     return (
         <header style={{
             background: 'var(--header-bg-translucent)',
@@ -149,13 +200,9 @@ const ContactDetailHeader = React.memo(function ContactDetailHeader({
             </div>
 
             <div className="detail-header-actions" style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                {recordType === 'lead' && (
+                {recordType === 'lead' && dealStatus !== 'lost' && (
                     <button
-                        onClick={() => {
-                            const newStatus = dealStatus === 'active' ? 'lost' : 'active';
-                            setDealStatus(newStatus);
-                            showNotification(`Deal marked as ${newStatus.toUpperCase()}`);
-                        }}
+                        onClick={() => setIsMarkLostModalOpen(true)}
                         style={{
                             background: dealStatus === 'active' ? 'var(--danger-bg)' : 'var(--stat-property-bg)',
                             color: dealStatus === 'active' ? 'var(--danger-color)' : 'var(--stat-property-color)',
@@ -367,6 +414,72 @@ const ContactDetailHeader = React.memo(function ContactDetailHeader({
                     window.location.reload();
                 }}
             />
+
+            {/* Mark Lost Modal */}
+            {isMarkLostModalOpen && (
+                <div style={{
+                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                    background: 'rgba(0, 0, 0, 0.4)', zIndex: 10000,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    backdropFilter: 'blur(4px)'
+                }}>
+                    <div style={{
+                        background: 'var(--card-bg)', width: '450px', borderRadius: '16px',
+                        padding: '24px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
+                        border: '1px solid var(--border-color)', color: 'var(--text-main)'
+                    }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                            <h2 style={{ margin: 0, fontSize: '1.25rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <i className="fas fa-times-circle" style={{ color: 'var(--danger-color)' }}></i> Mark as Lost
+                            </h2>
+                            <button onClick={() => setIsMarkLostModalOpen(false)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1.2rem' }}>
+                                <i className="fas fa-times"></i>
+                            </button>
+                        </div>
+                        
+                        <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '20px' }}>
+                            Are you sure you want to mark this lead as Closed (Lost)? This action will update the lead's stage and log an activity in the timeline.
+                        </p>
+                        
+                        <div style={{ marginBottom: '16px' }}>
+                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>Primary Reason</label>
+                            <select
+                                value={lostReasonPreset}
+                                onChange={(e) => setLostReasonPreset(e.target.value)}
+                                style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--input-bg)', color: 'var(--text-main)', fontSize: '0.95rem' }}
+                            >
+                                <option value="">Select a reason...</option>
+                                <option value="Lost Interest">Lost Interest</option>
+                                <option value="Bought Elsewhere">Bought Elsewhere</option>
+                                <option value="High Price / Over Budget">High Price / Over Budget</option>
+                                <option value="No Response">No Response</option>
+                                <option value="Not Qualified">Not Qualified</option>
+                                <option value="Other">Other</option>
+                            </select>
+                        </div>
+
+                        <div style={{ marginBottom: '24px' }}>
+                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>Additional Notes (Optional)</label>
+                            <textarea
+                                value={lostReasonText}
+                                onChange={(e) => setLostReasonText(e.target.value)}
+                                placeholder="Enter any extra details about why this lead was lost..."
+                                style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--input-bg)', color: 'var(--text-main)', fontSize: '0.95rem', minHeight: '80px', resize: 'vertical' }}
+                            />
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                            <button onClick={() => setIsMarkLostModalOpen(false)} style={{ padding: '8px 16px', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-main)', cursor: 'pointer', fontWeight: 600 }}>
+                                Cancel
+                            </button>
+                            <button onClick={handleMarkLost} disabled={isSavingLost} style={{ padding: '8px 16px', borderRadius: '8px', border: 'none', background: 'var(--danger-color)', color: '#fff', cursor: isSavingLost ? 'not-allowed' : 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                {isSavingLost ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-check"></i>}
+                                Confirm & Mark Lost
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </header>
     );
 });

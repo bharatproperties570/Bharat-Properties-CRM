@@ -585,6 +585,7 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                 enrichmentAPI={enrichmentAPI}
                 renderLookup={renderLookup}
                 getInitials={getInitials}
+                getLookupId={getLookupId}
             />
 
             {/* MAIN CONTENT AREA - STACKED LAYOUT */}
