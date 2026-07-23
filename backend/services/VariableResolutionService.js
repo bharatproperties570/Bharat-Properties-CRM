@@ -508,10 +508,18 @@ class VariableResolutionService {
                         unitPart = `#${unit}`;
                     }
                     
-                    // 3. Sub Category (Unit Type)
+                    // 3. Sub Category (Unit Type, Builtup Type)
                     let subCategoryPart = subCategory || '';
+                    let extraTypes = [];
                     if (unitType && unitType !== 'N/A' && unitType !== subCategory) {
-                        subCategoryPart = subCategoryPart ? `${subCategoryPart} (${unitType})` : unitType;
+                        extraTypes.push(unitType);
+                    }
+                    if (buildupType && buildupType !== 'N/A') {
+                        extraTypes.push(buildupType);
+                    }
+                    if (extraTypes.length > 0) {
+                        const extraStr = extraTypes.join(', ');
+                        subCategoryPart = subCategoryPart ? `${subCategoryPart} (${extraStr})` : extraStr;
                     }
                     
                     // Sequence: Unit Number | Sub Category (Unit Type) | Size Label | Project Name | Direction | Road | Facing | Google Location | Expected Price
