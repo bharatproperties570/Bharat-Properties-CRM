@@ -474,44 +474,47 @@ class VariableResolutionService {
                         }
                     }
 
-                    const category = inv.category || p.category || 'N/A';
-                    const subCategory = inv.subCategory || p.subCategory || 'N/A';
-                    const road = inv.road || p.road || 'N/A';
-                    const direction = inv.direction || p.direction || 'N/A';
-                    const facing = inv.facing || p.facing || 'N/A';
-                    const buildupType = inv.buildupType || p.buildupType || '';
+                    const getVal = (v) => typeof v === 'object' && v !== null ? (v.lookup_value || v.name || v.label || '') : (v || '');
                     
-                    let mapsLink = 'N/A';
-                    if (inv.latitude && inv.longitude) {
-                        mapsLink = `https://www.google.com/maps?q=${inv.latitude},${inv.longitude}`;
-                    } else if (inv.googleMapsLink) {
-                        mapsLink = inv.googleMapsLink;
+                    const category = getVal(inv.category || p.category);
+                    const subCategory = getVal(inv.subCategory || p.subCategory);
+                    const road = getVal(inv.road || p.road);
+                    const direction = getVal(inv.direction || p.direction);
+                    const facing = getVal(inv.facing || p.facing);
+                    const buildupType = getVal(inv.buildupType || p.buildupType);
+                    
+                    let mapsLink = '';
+                    if (!lead.hideLocation) {
+                        if (inv.latitude && inv.longitude) {
+                            mapsLink = `📍 https://www.google.com/maps?q=${inv.latitude},${inv.longitude}`;
+                        } else if (inv.googleMapsLink) {
+                            mapsLink = `📍 ${inv.googleMapsLink}`;
+                        }
                     }
 
                     let lines = [];
                     // Header (Unit & Project)
+                    let headerLine = '';
                     if (!lead.hideUnit && !lead.hideUnitNumber && unit !== 'TBD' && unit !== '') {
-                        lines.push(unit);
+                        headerLine += `#${unit} `;
                     }
-                    lines.push(pName);
-                    lines.push(''); // Blank line
+                    headerLine += pName;
+                    lines.push(`🏢 ${headerLine.trim()}`);
                     
                     // Specs
-                    lines.push(`${sz} ${szUnit}`);
-                    lines.push(category);
-                    lines.push(subCategory);
-                    lines.push(road);
-                    lines.push(direction);
-                    lines.push(facing);
-                    if (buildupType) {
-                        lines.push(buildupType);
+                    lines.push(`📐 ${sz} ${szUnit}`.trim());
+                    
+                    // Features
+                    const features = [category, subCategory, road, direction, facing, buildupType]
+                        .filter(f => f && typeof f === 'string' && f !== 'N/A' && !/^[a-fA-F0-9]{24}$/.test(f));
+                    
+                    if (features.length > 0) {
+                        lines.push(`🏷️ ${features.join(', ')}`);
                     }
-                    lines.push(''); // Blank line
                     
                     // Location
-                    if (!lead.hideLocation) {
+                    if (mapsLink) {
                         lines.push(mapsLink);
-                        lines.push(''); // Blank line
                     }
                     
                     // Price
