@@ -214,6 +214,13 @@ class WhatsAppService {
                 templatePayload.components = components;
             }
 
+            console.log(`[WhatsApp/Meta] SENDING PAYLOAD TO META:`, JSON.stringify({
+                messaging_product: 'whatsapp',
+                to:                toNumber,
+                type:              'template',
+                template:          templatePayload,
+            }, null, 2));
+
             const response = await axios.post(url, {
                 messaging_product: 'whatsapp',
                 to:                toNumber,
