@@ -485,13 +485,13 @@ class VariableResolutionService {
 
                     const getVal = (v) => typeof v === 'object' && v !== null ? (v.lookup_value || v.name || v.label || '') : (v || '');
                     
-                    const category = getVal(inv.category || p.category);
-                    const subCategory = getVal(inv.subCategory || p.subCategory);
-                    const road = getVal(inv.road || p.road);
-                    const direction = getVal(inv.direction || p.direction);
-                    const facing = getVal(inv.facing || p.facing);
-                    const buildupType = getVal(inv.buildupType || p.buildupType);
-                    const unitType = getVal(inv.unitType || p.unitType) || category; 
+                    const category = getVal(base.category || inv.category || p.category);
+                    const subCategory = getVal(base.subCategory || inv.subCategory || p.subCategory);
+                    const road = getVal(base.roadWidth || inv.roadWidth || inv.road || p.road);
+                    const direction = getVal(base.direction || inv.direction || p.direction);
+                    const facing = getVal(base.facing || inv.facing || inv.corner || p.corner || p.facing);
+                    const buildupType = getVal(base.buildupType || inv.buildupType || p.buildupType);
+                    const unitType = getVal(base.unitType || inv.unitType || p.unitType) || category; 
                     
                     let mapsLink = '';
                     if (!lead.hideLocation) {
