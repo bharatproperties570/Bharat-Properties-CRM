@@ -31,9 +31,14 @@ const PublicLeadForm = ({ slug }) => {
                     try {
                         const tokenRes = await api.get(`/dynamic-forms/public/resolve-token/${refToken}`);
                         if (tokenRes.data.success) {
-                            const { lead, matchedProject } = tokenRes.data.data;
+                            const { lead, matchedProject, properties, hideUnit } = tokenRes.data.data;
                             setPreFillLead(lead);
                             
+                            // Set property fields visibility based on hideUnit flag
+                            setShowPropertyFields(!hideUnit);
+                            
+                            const firstProp = properties && properties.length > 0 ? properties[0] : null;
+
                             // Map lead data to form fields based on mappingField
                             config.sections.forEach(section => {
                                 section.fields.forEach(field => {
@@ -42,9 +47,15 @@ const PublicLeadForm = ({ slug }) => {
                                     if (field.mappingField === 'mobile') preFillData[field.id] = lead.mobile;
                                     if (field.mappingField === 'email') preFillData[field.id] = lead.email;
                                     
-                                    // Pre-select project if matched
-                                    if (field.dynamicSource === 'projects' && matchedProject) {
-                                        preFillData[field.id] = matchedProject;
+                                    // Pre-select property details from the new token structure
+                                    if (field.dynamicSource === 'projects' || field.id === 'f_project') {
+                                        preFillData[field.id] = firstProp ? (firstProp.id || matchedProject) : matchedProject;
+                                    }
+                                    if (field.id === 'f_block' && firstProp && firstProp.block) {
+                                        preFillData[field.id] = firstProp.block;
+                                    }
+                                    if (field.id === 'f_unitNo' && firstProp && firstProp.unit) {
+                                        preFillData[field.id] = [firstProp.unit]; // unitNo is multi-select usually, so array
                                     }
                                 });
                             });
