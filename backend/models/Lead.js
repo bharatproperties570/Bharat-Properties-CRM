@@ -120,6 +120,7 @@ const LeadSchema = new mongoose.Schema({
 
     // ━━ Stage Engine Fields (added for MongoDB integration) ━━━━━━━━━━━━━━━━━━━━
     stageChangedAt: { type: Date, index: true },             // When stage last changed
+    isArchived: { type: Boolean, default: false, index: true }, // [ENTERPRISE] Cold Storage flag
     lastActivityAt: { type: Date },             // When last activity logged (Indexed below)
 
     // ━━ Pipeline Health Fields — HubSpot "Deal Rotting" Pattern ━━━━━━━━━━━━━━━

@@ -129,6 +129,50 @@ const calculateDistance = (lat1, lon1, lat2, lon2) => {
     return R * c;
 };
 
+// 🧊 [ENTERPRISE] Advanced Specific Unit Range & String Matcher
+const checkUnitMatch = (leadUnits, dealUnitNo) => {
+    if (!dealUnitNo || !leadUnits || leadUnits.length === 0) return false;
+    
+    // 1. Exact string match fallback
+    if (leadUnits.some(u => u === dealUnitNo || dealUnitNo.includes(u) || u.includes(dealUnitNo))) return true;
+
+    // 2. Smart Range Logic (e.g. RANGE:101-110)
+    const rangeUnit = leadUnits.find(u => u.startsWith('range:'));
+    if (rangeUnit) {
+        try {
+            const rangeStr = rangeUnit.replace('range:', '');
+            const [startStr, endStr] = rangeStr.split('-');
+            
+            const extractNum = (str) => {
+                const match = str ? str.match(/\d+/) : null;
+                return match ? parseInt(match[0], 10) : null;
+            };
+            
+            const startNum = extractNum(startStr);
+            const endNum = extractNum(endStr);
+            const dealNum = extractNum(dealUnitNo);
+            
+            if (startNum !== null && endNum !== null && dealNum !== null) {
+                const minNum = Math.min(startNum, endNum);
+                const maxNum = Math.max(startNum, endNum);
+                
+                const getPrefix = (str) => (str || '').replace(/\d+/g, '').trim();
+                const startPrefix = getPrefix(startStr);
+                const dealPrefix = getPrefix(dealUnitNo);
+                
+                if (dealNum >= minNum && dealNum <= maxNum) {
+                    if (!startPrefix || !dealPrefix || startPrefix === dealPrefix) {
+                        return true;
+                    }
+                }
+            }
+        } catch (e) {
+            console.error("[MATCH_ENGINE] Range parsing error", e);
+        }
+    }
+    return false;
+};
+
 export const matchDeals = async (req, res) => {
     try {
         const { 
@@ -269,6 +313,7 @@ export const matchDeals = async (req, res) => {
         const leadLocArea = getLookupValueLocal(lead.locArea);
         const leadLocCity = getLookupValueLocal(lead.locCity);
         const leadBlocks = (Array.isArray(lead.locBlock) ? lead.locBlock : []).map(b => String(b || "").toLowerCase()).filter(Boolean);
+        const leadUnits = [String(lead.locHNo || "").toLowerCase(), String(lead.streetAddress || "").toLowerCase()].filter(Boolean);
 
         // Budget signals
         const lBudgetMin = parseFloat(lead.budgetMin) || 0;
@@ -291,7 +336,7 @@ export const matchDeals = async (req, res) => {
         const query = {
             ...visibilityFilter,
             isVisible: { $ne: false },
-            stage: { $nin: ["Cancelled", "Closed Lost", "Sold Out"] }
+            stage: { $nin: ["Cancelled", "Closed Lost", "Sold Out", "Closed (Lost)", "Closed Won", "Closed (Won)", "Lost", "Closed", "Junk"] }
         };
 
         let deals = [];
@@ -533,6 +578,17 @@ export const matchDeals = async (req, res) => {
                         matchDetails.push("Location Match");
                     } else {
                         scoreBreakdown.location = { earned: 0, max: locWeight, label: leadSector || leadLocArea || leadLocCity ? 'No matching location found' : 'Lead has no location set' };
+                    }
+                }
+
+                // 🧊 [ENTERPRISE] Specific Unit Match Bonus (+15 Points)
+                const dealUnitNo = String(deal.unitNo || deal.flatNumber || deal.houseNumber || "").toLowerCase().trim();
+                if (dealUnitNo && leadUnits.length > 0) {
+                    if (checkUnitMatch(leadUnits, dealUnitNo)) {
+                        score += 15;
+                        scoreBreakdown.location.earned += 15;
+                        scoreBreakdown.location.label += ' + Exact Unit Match Bonus';
+                        matchDetails.push("Exact Unit Match Bonus");
                     }
                 }
 

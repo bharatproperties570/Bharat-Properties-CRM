@@ -972,7 +972,7 @@ async function resolveMetaComponents(templateId, recipient, meta, registryMappin
             // in the request body because it matches multiple properties.
             // We use safe dummy fallbacks to ensure the API doesn't reject the payload.
             const finalMediaUrl = (
-                hType === 'document' ? 'https://api.bharatproperties.co/uploads/Huda_Map_Book_KKR.pdf' :
+                hType === 'document' ? 'https://api.bharatproperties.co/uploads/Huda_Map_Book_KKR.pdf?v=compressed_v1' :
                 hType === 'image' ? 'https://dummyimage.com/600x400/000/fff.png' :
                 'https://www.w3schools.com/html/mov_bbb.mp4'
             );
@@ -1648,6 +1648,21 @@ export const sendManualMatch = async (req, res) => {
         if (finalDealIds.length === 0 || finalLeadIds.length === 0) {
             console.error('[ManualDispatch] Bad Request: Missing IDs');
             return res.status(400).json({ success: false, error: 'Deal IDs and Lead IDs are required' });
+        }
+
+        // 🧠 Terminal State Lock: Prevent matching for closed leads
+        const Lookup = mongoose.model('Lookup');
+        const terminalLookups = await Lookup.find({ 
+            lookup_type: { $regex: /^stage$/i },
+            lookup_value: { $regex: /closed|lost|won|unqualified|junk|dormant/i }
+        }).lean();
+        const terminalStageIds = terminalLookups.map(l => l._id.toString());
+
+        const leadsToCheck = await Lead.find({ _id: { $in: finalLeadIds } }).select('stage').lean();
+        for (const l of leadsToCheck) {
+            if (l.stage && terminalStageIds.includes(l.stage.toString())) {
+                return res.status(400).json({ success: false, error: 'Cannot send matches to Closed or Unqualified leads. Please revive the lead first.' });
+            }
         }
 
         if (scheduledAt) {

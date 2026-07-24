@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import api from '../../../utils/api.js';
+import api, { systemSettingsAPI } from '../../../utils/api.js';
 import { usePropertyConfig } from '../../../context/PropertyConfigContext';
 import Toast from '../../../components/Toast';
 import {
@@ -286,6 +286,21 @@ const StagePage = () => {
 
     const [analyticsData, setAnalyticsData] = useState({ leads: [], deals: [] });
     const [loadingAnalytics, setLoadingAnalytics] = useState(false);
+    const [coldStorageDays, setColdStorageDays] = useState(365);
+
+    React.useEffect(() => {
+        const fetchSettings = async () => {
+            try {
+                const res = await systemSettingsAPI.getByKey('crm_cold_storage_days');
+                if (res.success && res.data) {
+                    setColdStorageDays(parseInt(res.data.value, 10) || 365);
+                }
+            } catch (e) {
+                console.error("Failed to fetch cold storage config", e);
+            }
+        };
+        fetchSettings();
+    }, []);
 
     React.useEffect(() => {
         const fetchDensity = async () => {
@@ -313,6 +328,16 @@ const StagePage = () => {
 
     const handleSaveStabilityConfig = () => {
         showToast('Stability config saved successfully');
+    };
+
+    const handleSaveColdStorage = async (val) => {
+        setColdStorageDays(val);
+        try {
+            await systemSettingsAPI.upsert('crm_cold_storage_days', { value: val.toString(), type: 'number' });
+            showToast('Cold Storage setting saved successfully');
+        } catch (e) {
+            showToast('Failed to save Cold Storage setting', 'error');
+        }
     };
 
     const allRows = useMemo(() => flattenOutcomeMappings(activityMasterFields), [activityMasterFields]);
@@ -1299,6 +1324,42 @@ const StagePage = () => {
                     <div style={{ marginTop: '20px', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: '10px', padding: '16px', fontSize: '13px', color: '#166534' }}>
                         <i className="fas fa-lightbulb" style={{ marginRight: '8px' }} />
                         These thresholds control automatic risk flags, score penalties, and admin alerts. Flags are shown on the Deal card and in the Deal Health score.
+                    </div>
+
+                    {/* Cold Storage Setting */}
+                    <div style={{ marginTop: '24px', background: '#fff', borderRadius: '12px', border: '1px solid #e5e7eb', padding: '24px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                                    <i className="fas fa-snowflake" style={{ color: '#3b82f6' }}></i>
+                                    <div style={{ fontWeight: 800, color: '#374151', fontSize: '16px' }}>Terminal State Archiver (Cold Storage)</div>
+                                    <span style={{ fontSize: '10px', background: '#3b82f6', color: '#fff', padding: '2px 6px', borderRadius: '4px', fontWeight: 700, textTransform: 'uppercase' }}>Enterprise</span>
+                                </div>
+                                <div style={{ fontSize: '13px', color: '#6b7280', maxWidth: '600px', lineHeight: '1.5' }}>
+                                    Automatically moves terminal leads (Closed, Lost, Junk) into Cold Storage after a specific period of inactivity. This dramatically improves dashboard speeds by removing dead records from active memory.
+                                </div>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#f8fafc', padding: '6px 12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                    <input 
+                                        type="number" 
+                                        min="1" 
+                                        value={coldStorageDays} 
+                                        onChange={e => setColdStorageDays(parseInt(e.target.value) || 365)}
+                                        style={{ width: '60px', padding: '4px', border: 'none', background: 'transparent', fontWeight: 800, fontSize: '16px', textAlign: 'center', color: '#0f172a', outline: 'none' }} 
+                                    />
+                                    <span style={{ fontSize: '13px', color: '#64748b', fontWeight: 700 }}>days</span>
+                                </div>
+                                <button
+                                    onClick={() => handleSaveColdStorage(coldStorageDays)}
+                                    style={{
+                                        background: '#3b82f6', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '8px', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+                                    }}
+                                >
+                                    <i className="fas fa-save"></i> Save Rule
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             )}

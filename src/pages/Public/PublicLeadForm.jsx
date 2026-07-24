@@ -143,8 +143,27 @@ const PublicLeadForm = ({ slug }) => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        
+        // 🚀 ENTERPRISE TWEAK: Don't validate fields that are smartly hidden!
+        const isFieldHidden = (field) => {
+            if (!preFillLead) return false;
+            
+            // Property fields are hidden if showPropertyFields is false
+            if (['f_project', 'f_block', 'f_unitNo'].includes(field.id) && !showPropertyFields) return true;
+            
+            const label = (field.label || '').toLowerCase();
+            const mapping = (field.mappingField || '').toLowerCase();
+            const id = (field.id || '').toLowerCase();
+
+            const isName = label.includes('name') || mapping.includes('name') || id.includes('name');
+            const isMobile = label.includes('mobile') || label.includes('phone') || mapping.includes('mobile') || id.includes('mobile');
+            const isEmail = label.includes('email') || mapping.includes('email') || id.includes('email');
+
+            return isName || isMobile || isEmail;
+        };
+
         const missingRequired = formConfig.sections.flatMap(s => s.fields)
-            .filter(f => f.required && !formData[f.id]);
+            .filter(f => f.required && !formData[f.id] && !isFieldHidden(f));
 
         if (missingRequired.length > 0) {
             toast.error(`Please fill in required fields: ${missingRequired.map(f => f.label).join(', ')}`);
@@ -164,7 +183,9 @@ const PublicLeadForm = ({ slug }) => {
 
             await api.post(`/lead-forms/public/${slug}/submit`, {
                 formData,
-                sourceMeta
+                sourceMeta,
+                refToken: urlParams.get('ref'), // 🚀 Enterprise: Pass the token back to backend
+                leadId: preFillLead ? preFillLead._id : null
             });
 
             setStatus('success');

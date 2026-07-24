@@ -20,6 +20,7 @@ import AiAgent from '../models/AiAgent.js';
 import UnifiedAIService from '../services/UnifiedAIService.js';
 import { getBulkExactMatchCounts } from './deal.controller.js';
 import AddressParsingService from '../services/AddressParsingService.js';
+import WhatsAppService from '../services/WhatsAppService.js';
 
 const escapeRegExp = (string) => {
     if (!string) return '';
@@ -301,6 +302,11 @@ export const getLeads = async (req, res, next) => {
         console.log(`[LEAD_AUDIT] Request reaching controller: ${JSON.stringify(auditData)}`);
 
         let query = { ...visibilityFilter };
+
+        // 🧊 [ENTERPRISE] Hide Cold Storage Archived Leads unless explicitly requested
+        if (req.query.includeArchived !== 'true') {
+            query.isArchived = { $ne: true };
+        }
 
         // 🛡️ [SENIOR FIX] Dynamically apply all un-extracted filter keys (e.g. locCity, locState)
         for (const [key, value] of Object.entries(dynamicFilters)) {
@@ -1017,6 +1023,36 @@ export const updateLead = async (req, res, next) => {
             .lean();
 
         if (existing) {
+            // 🧠 Terminal State Lock: Prevent updates on closed leads (unless reviving)
+            let currentStageStr = 'Incoming';
+            if (existing.stage) {
+                if (mongoose.Types.ObjectId.isValid(existing.stage) && String(existing.stage).length === 24) {
+                    const existingLookup = await Lookup.findById(existing.stage).select('lookup_value').lean();
+                    currentStageStr = (existingLookup?.lookup_value || String(existing.stage)).toLowerCase();
+                } else {
+                    currentStageStr = String(existing.stage).toLowerCase();
+                }
+            }
+            
+            const isCurrentlyClosed = currentStageStr.includes('closed') || currentStageStr.includes('lost') || currentStageStr.includes('won') || currentStageStr.includes('unqualified') || currentStageStr.includes('junk');
+            let isReviving = false;
+            
+            if (updateData.stage) {
+                let newStageStr = String(updateData.stage).toLowerCase();
+                if (mongoose.Types.ObjectId.isValid(updateData.stage) && String(updateData.stage).length === 24) {
+                    const newLookup = await Lookup.findById(updateData.stage).select('lookup_value').lean();
+                    newStageStr = (newLookup?.lookup_value || newStageStr).toLowerCase();
+                }
+                const isNewStageClosed = newStageStr.includes('closed') || newStageStr.includes('lost') || newStageStr.includes('won') || newStageStr.includes('unqualified') || newStageStr.includes('junk');
+                if (isCurrentlyClosed && !isNewStageClosed) {
+                    isReviving = true;
+                }
+            }
+
+            if (isCurrentlyClosed && !isReviving) {
+                return res.status(403).json({ success: false, message: 'This lead is in a Terminal State (Closed/Lost). Please revive the lead before making updates.' });
+            }
+
             const now = new Date();
             const historyUpdate = { $push: {} };
             let requiresHistoryUpdate = false;
@@ -1073,6 +1109,38 @@ export const updateLead = async (req, res, next) => {
                         { before: currentStageStr, after: newStageStr },
                         `Lead stage shifted from ${currentStageStr} to ${newStageStr}${updateData.reason ? ' - ' + updateData.reason : ''}`
                     );
+
+                    // [ENTERPRISE] Automated Exit Interview Win-back
+                    if (isNewStageClosed) {
+                        try {
+                            const mobileNumber = existing.mobile || existing.phones?.[0] || updateData.mobile;
+                            if (mobileNumber) {
+                                // 🧊 [ENTERPRISE] Use official Meta Template to bypass 24hr restriction
+                                const templateComponents = [
+                                    {
+                                        type: "body",
+                                        parameters: [
+                                            { type: "text", text: existing.firstName || 'Customer' }
+                                        ]
+                                    }
+                                ];
+                                await WhatsAppService.sendTemplate(mobileNumber, 'exit_interview_winback', 'en_US', templateComponents);
+                                
+                                const Activity = mongoose.model('Activity');
+                                await Activity.create({
+                                    entityType: 'Lead',
+                                    entityId: req.params.id,
+                                    type: 'whatsapp',
+                                    subject: 'Automated Exit Survey',
+                                    details: `Automated exit survey dispatched to ${mobileNumber} due to stage change to ${newStageStr}.`,
+                                    user: req.user?.id || null,
+                                    timestamp: new Date()
+                                });
+                            }
+                        } catch(e) {
+                            console.error("[EXIT SURVEY ERROR]", e);
+                        }
+                    }
                 }
             }
 
@@ -1598,6 +1666,49 @@ export const checkDuplicatesImport = async (req, res, next) => {
         next(error);
     }
 };
+// 🧊 [ENTERPRISE] Advanced Specific Unit Range & String Matcher
+const checkUnitMatch = (leadUnits, dealUnitNo) => {
+    if (!dealUnitNo || !leadUnits || leadUnits.length === 0) return false;
+    
+    // 1. Exact string match fallback
+    if (leadUnits.some(u => u === dealUnitNo || dealUnitNo.includes(u) || u.includes(dealUnitNo))) return true;
+
+    // 2. Smart Range Logic (e.g. RANGE:101-110)
+    const rangeUnit = leadUnits.find(u => u.startsWith('range:'));
+    if (rangeUnit) {
+        try {
+            const rangeStr = rangeUnit.replace('range:', '');
+            const [startStr, endStr] = rangeStr.split('-');
+            
+            const extractNum = (str) => {
+                const match = str ? str.match(/\d+/) : null;
+                return match ? parseInt(match[0], 10) : null;
+            };
+            
+            const startNum = extractNum(startStr);
+            const endNum = extractNum(endStr);
+            const dealNum = extractNum(dealUnitNo);
+            
+            if (startNum !== null && endNum !== null && dealNum !== null) {
+                const minNum = Math.min(startNum, endNum);
+                const maxNum = Math.max(startNum, endNum);
+                
+                const getPrefix = (str) => (str || '').replace(/\d+/g, '').trim();
+                const startPrefix = getPrefix(startStr);
+                const dealPrefix = getPrefix(dealUnitNo);
+                
+                if (dealNum >= minNum && dealNum <= maxNum) {
+                    if (!startPrefix || !dealPrefix || startPrefix === dealPrefix) {
+                        return true;
+                    }
+                }
+            }
+        } catch (e) {
+            console.error("[MATCH_ENGINE] Range parsing error", e);
+        }
+    }
+    return false;
+};
 
 export const matchLeads = async (req, res) => {
     try {
@@ -1689,7 +1800,8 @@ export const matchLeads = async (req, res) => {
         const dealCity        = getLookupVal(deal.locationDetails?.city || deal.inventoryId?.address?.city);
         const dealLat         = parseFloat(deal.latitude || deal.inventoryId?.latitude || deal.inventoryId?.address?.latitude);
         const dealLng         = parseFloat(deal.longitude || deal.inventoryId?.longitude || deal.inventoryId?.address?.longitude);
-
+        const dealBlock       = String(deal.block || deal.inventoryId?.block || '').toLowerCase().trim();
+        const dealUnitNo      = String(deal.unitNo || deal.inventoryId?.unitNo || deal.flatNumber || deal.houseNumber || '').toLowerCase().trim();
         // Deal size
         const configStr = getLookupVal(deal.unitSpecification?.sizeLabel || deal.sizeConfig || deal.inventoryId?.sizeConfig || deal.inventoryId?.unitSpecification?.sizeLabel);
         let rawDealSizeStr = null;
@@ -1712,12 +1824,31 @@ export const matchLeads = async (req, res) => {
         console.log(`[DEAL_MATCH_ENGINE] Deal: ${dealProjName} | Intent=${dealIntentLbl} | Cat=${dealCategoryLbl} | City=${dealCity} | Price=${(dealPrice/100000).toFixed(1)}L | Size=${dealSizeNum} ${dealSizeUnit}`);
 
         // ─── 2. FETCH LEADS ───────────────────────────────────────────────────────
-        const excludedStatusIds = allLookups
-            .filter(l => ['Lost', 'Closed', 'Rejected', 'Converted'].includes(l.lookup_value))
-            .map(l => l._id.toString());
+        const terminalStageLookups = allLookups
+            .filter(l => ['Closed (Lost)', 'Closed (Won)', 'Unqualified', 'Closed Lost', 'Closed Won', 'Lost', 'Closed', 'Junk', 'Sold Out'].includes(l.lookup_value));
+            
+        // Because stage is Mixed type in Schema, Mongoose might not cast automatically. Include ObjectId, String ID, and Raw Values.
+        const terminalStageIds = ['Closed (Lost)', 'Closed (Won)', 'Unqualified', 'Closed Lost', 'Closed Won', 'Lost', 'Closed', 'Junk', 'Sold Out'];
+        terminalStageLookups.forEach(l => {
+            terminalStageIds.push(l._id); // ObjectId
+            terminalStageIds.push(l._id.toString()); // String
+        });
+
+        const excludedStatusLookups = allLookups
+            .filter(l => ['Lost', 'Closed', 'Rejected', 'Converted'].includes(l.lookup_value));
+            
+        const excludedStatusIds = ['Lost', 'Closed', 'Rejected', 'Converted'];
+        excludedStatusLookups.forEach(l => {
+            excludedStatusIds.push(l._id);
+            excludedStatusIds.push(l._id.toString());
+        });
 
         const visFilter = await getVisibilityFilter(req.user);
-        const leadQuery = { ...visFilter, status: { $nin: excludedStatusIds } };
+        const leadQuery = { 
+            ...visFilter, 
+            status: { $nin: excludedStatusIds },
+            stage: { $nin: terminalStageIds }
+        };
         const leads = await Lead.find(leadQuery).lean();
         console.log(`[DEAL_MATCH_ENGINE] Evaluating ${leads.length} active leads`);
 
@@ -1829,7 +1960,7 @@ export const matchLeads = async (req, res) => {
                     !!(leadLocArea && (dealLocVal.includes(leadLocArea) || leadLocArea.includes(dealLocVal))),
                     !!(leadLocVal && (dealProjName.includes(leadLocVal) || dealLocVal.includes(leadLocVal) || dealLocArea.includes(leadLocVal))),
                     !!(leadLocCity && dealCity && (dealCity.includes(leadLocCity) || leadLocCity.includes(dealCity))),
-                    leadBlocks.some(b => b && dealProjName.includes(b))
+                    leadBlocks.some(b => b && (dealBlock.includes(b) || dealProjName.includes(b)))
                 ];
                 const locMatchCount = locSignals.filter(Boolean).length;
                 const hasLeadLocSignal = !!(leadLocVal || leadLocArea || leadLocCity || leadProjects.length > 0);
@@ -1839,6 +1970,17 @@ export const matchLeads = async (req, res) => {
                     score += 10; scoreBreakdown.location = { earned: 10, max: 30, label: 'Lead has no location set' };
                 } else {
                     scoreBreakdown.location = { earned: 0, max: 30, label: 'No matching location found' };
+                }
+            }
+
+            // 🧊 [ENTERPRISE] Specific Unit Match Bonus (+15 Points)
+            const leadUnits = [String(lead.locHNo || "").toLowerCase().trim(), String(lead.streetAddress || "").toLowerCase().trim()].filter(Boolean);
+            if (dealUnitNo && leadUnits.length > 0) {
+                if (checkUnitMatch(leadUnits, dealUnitNo)) {
+                    score += 15;
+                    scoreBreakdown.location.earned += 15;
+                    scoreBreakdown.location.label += ' + Exact Unit Match Bonus';
+                    matchDetails.push("Exact Unit Match Bonus");
                 }
             }
 

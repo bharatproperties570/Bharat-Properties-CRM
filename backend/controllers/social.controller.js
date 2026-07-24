@@ -217,7 +217,7 @@ export const sendWhatsAppMessage = async (req, res, next) => {
             if (mediaUrl || requiredHeaderFormat) {
                 const hType = requiredHeaderFormat || (type === 'image' ? 'image' : type === 'document' ? 'document' : 'video');
                 const finalMediaUrl = mediaUrl || (
-                    hType === 'document' ? 'https://api.bharatproperties.co/uploads/Huda_Map_Book_KKR.pdf' :
+                    hType === 'document' ? 'https://api.bharatproperties.co/uploads/Huda_Map_Book_KKR.pdf?v=compressed_v1' :
                     hType === 'image' ? 'https://dummyimage.com/600x400/000/fff.png' :
                     'https://www.w3schools.com/html/mov_bbb.mp4'
                 );

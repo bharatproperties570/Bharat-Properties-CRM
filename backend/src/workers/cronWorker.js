@@ -33,7 +33,10 @@ export const cronWorker = new Worker('cronQueue', async (job) => {
         // Fetch non-terminal stages to filter out closed/lost leads
         const lookups = await Lookup.find({ lookup_type: { $regex: /^stage$/i } }).lean();
         const closedStageIds = lookups
-            .filter(l => ['closed won', 'closed lost', 'won', 'lost', 'dormant'].includes((l.lookup_value || '').toLowerCase()))
+            .filter(l => {
+                const val = (l.lookup_value || '').toLowerCase();
+                return val.includes('closed') || val.includes('lost') || val.includes('won') || val.includes('dormant') || val.includes('unqualified') || val.includes('junk');
+            })
             .map(l => l._id);
 
         // Fetch leads that are still open using an Enterprise-grade Cursor to prevent memory leaks

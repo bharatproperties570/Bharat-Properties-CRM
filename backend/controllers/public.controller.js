@@ -1348,6 +1348,80 @@ export const submitLeadForm = async (req, res) => {
     }
 };
 
+export const submitWaSiteVisit = async (req, res) => {
+    try {
+        const { token, date, time, remarks } = req.body;
+        if (!token || !date || !time) {
+            return res.status(400).json({ success: false, message: 'Missing required fields' });
+        }
+
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'crm_secret_key');
+        const leadId = decoded.leadId;
+        const properties = decoded.properties || [];
+        const hideLocation = decoded.hideLocation || false;
+
+        let lead = await Lead.findById(leadId);
+        if (!lead) return res.status(404).json({ success: false, message: 'Lead not found' });
+
+        const firstProperty = properties[0] || {};
+        const projectName = firstProperty.name || 'General Project';
+
+        const activityData = {
+            type: 'Site Visit',
+            subject: `WhatsApp One-Click Site Visit: ${lead.firstName} - ${projectName}`,
+            description: remarks || `Scheduled via WhatsApp Match Centre for ${projectName}.`,
+            status: 'Pending',
+            entityType: 'Lead',
+            entityId: lead._id,
+            dueDate: date,
+            dueTime: time,
+            tags: ['WhatsApp-Smart-Link'],
+            details: {
+                source: 'WhatsApp Match Centre',
+                projectName: projectName,
+                projectId: firstProperty.id,
+                block: firstProperty.block,
+                unitNumber: firstProperty.unit,
+                visitedProperties: properties.map(p => ({
+                    project: p.name,
+                    block: p.block,
+                    property: p.unit,
+                    result: 'Interested'
+                }))
+            }
+        };
+
+        if (!hideLocation) {
+             activityData.details.meetingLocation = 'Site Address';
+        }
+
+        const activity = await Activity.create(activityData);
+
+        // Notify Assigned User
+        const notifyTarget = lead.owner || (await mongoose.model('User').findOne({}).select('_id').lean())?._id;
+        if (notifyTarget) {
+            await createNotification(
+                notifyTarget,
+                'publicForms',
+                '🎯 WhatsApp Site Visit Scheduled',
+                `${lead.firstName} scheduled a site visit for ${projectName} on ${date} at ${time}.`,
+                `/leads/${lead._id}`,
+                { leadId: lead._id, source: 'whatsapp_form' }
+            ).catch(() => {});
+        }
+
+        res.status(201).json({
+            success: true,
+            message: 'Site visit scheduled successfully!',
+            activityId: activity._id
+        });
+
+    } catch (error) {
+        console.error('WhatsApp Site Visit error:', error);
+        res.status(500).json({ success: false, message: 'Invalid token or server error' });
+    }
+};
+
 // 6. Fetch Public Settings (Relations, Activity Lookups etc.)
 export const getPublicSettings = async (req, res) => {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');

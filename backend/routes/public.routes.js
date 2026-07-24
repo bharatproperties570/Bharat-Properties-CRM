@@ -9,7 +9,8 @@ import {
     getPublicSettings,
     getAvailableUnits,
     getGoogleReviews,
-    getMatchBrochure
+    getMatchBrochure,
+    submitWaSiteVisit
 } from "../controllers/public.controller.js";
 import { verifyApiKey } from "../middleware/apiKey.middleware.js";
 import * as parsingRuleController from '../src/modules/parsing/parsingRule.controller.js';
@@ -37,6 +38,7 @@ router.get("/projects/:slug", getProjectBySlug);
 // Submission Routes
 router.post("/submit-property", submitPropertyForm);
 router.post("/submit-lead", submitLeadForm);
+router.post("/wa-site-visit", submitWaSiteVisit);
 
 // Metadata Routes
 router.get("/public-settings", getPublicSettings);

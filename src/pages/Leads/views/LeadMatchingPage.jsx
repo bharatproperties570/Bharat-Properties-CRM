@@ -823,6 +823,30 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
         );
     }
 
+    // 🧠 Terminal State Lock Check
+    const stageStr = lead.stage?.lookup_value ? String(lead.stage.lookup_value).toLowerCase() : String(lead.stage || '').toLowerCase();
+    const isClosed = stageStr.includes('closed') || stageStr.includes('lost') || stageStr.includes('won') || stageStr.includes('unqualified') || stageStr.includes('junk');
+
+    if (isClosed) {
+        return (
+            <div style={{ padding: '80px 40px', textAlign: 'center', background: 'var(--bg-light)', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                <i className="fas fa-lock" style={{ fontSize: '4rem', color: '#94a3b8', marginBottom: '20px' }}></i>
+                <h2 style={{ color: 'var(--text-main)', margin: '0 0 10px 0' }}>Match Centre Locked</h2>
+                <p style={{ color: 'var(--text-muted)', maxWidth: '500px', lineHeight: '1.6', marginBottom: '30px' }}>
+                    This lead is in a Terminal State (e.g., Closed, Lost, or Unqualified). Deal matching and AI recommendations are disabled for closed records to preserve pipeline integrity.
+                </p>
+                <div style={{ display: 'flex', gap: '16px' }}>
+                    <button onClick={() => onNavigate('leads')} className="btn-primary" style={{ background: 'var(--bg-dark)', color: 'var(--text-main)', border: '1px solid var(--border-color)' }}>
+                        <i className="fas fa-arrow-left"></i> Back to Leads
+                    </button>
+                    <button onClick={() => onNavigate('contact-detail', lead.mobile)} className="btn-primary">
+                        View Lead Details
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#f8fafc', minHeight: '100vh', padding: '24px', paddingBottom: '100px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
@@ -1156,7 +1180,14 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
                                         </div>
                                         {s.action && (
                                             <button 
-                                                onClick={() => s.action.toLowerCase().includes('quick fill') && setShowQuickFill(true)}
+                                                onClick={() => {
+                                                    const actionStr = s.action.toLowerCase();
+                                                    if (actionStr.includes('quick fill')) {
+                                                        setShowQuickFill(true);
+                                                    } else if (actionStr.includes('review lead requirement')) {
+                                                        window.dispatchEvent(new CustomEvent('open-edit-lead-modal', { detail: { leadId } }));
+                                                    }
+                                                }}
                                                 style={{ fontSize: '0.65rem', fontWeight: 800, color: c.icon, background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff', border: `1px solid ${c.border}`, padding: '4px 12px', borderRadius: '8px', whiteSpace: 'nowrap', cursor: 'pointer', flexShrink: 0, boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}
                                             >
                                                 {renderValue(s.action)} →

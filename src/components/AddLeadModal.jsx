@@ -1043,6 +1043,13 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
             leadPayload.mobile = formData.phones?.[0]?.number || "";
             leadPayload.email = formData.emails?.[0]?.address || "";
 
+            // 🧊 [ENTERPRISE] Specific Unit Mapping
+            if (formData.specificUnitType === 'row' && formData.propertyNo && formData.propertyNoEnd) {
+                leadPayload.locHNo = `RANGE:${formData.propertyNo}-${formData.propertyNoEnd}`;
+            } else if (formData.propertyNo) {
+                leadPayload.locHNo = formData.propertyNo;
+            }
+
             // Optimization: If linking to an existing contact, we don't need to save redundant contact details (phones/emails) on the lead itself
             if (finalContactId) {
                 leadPayload.contactDetails = finalContactId;

@@ -109,6 +109,7 @@ export const submitForm = async (req, res) => {
 
         if (refToken) {
             try {
+                // Meta WhatsApp replaces . with -
                 const normalizedToken = refToken.includes("-") ? refToken.replace(/-/g, ".") : refToken;
                 const decoded = jwt.verify(normalizedToken, process.env.JWT_SECRET || 'crm_secret_key');
                 if (decoded && decoded.leadId) {

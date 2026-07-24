@@ -3,6 +3,7 @@ import { useTheme } from '../../context/ThemeContext';
 import React, { useState } from 'react';
 import RevivalModal from '../RevivalModal';
 import { api, activitiesAPI } from '../../utils/api';
+import { useUserContext } from '../../context/UserContext';
 
 const ContactDetailHeader = React.memo(function ContactDetailHeader({
     contact,
@@ -28,6 +29,7 @@ const ContactDetailHeader = React.memo(function ContactDetailHeader({
     getLookupId
 }) {
     const { isDark } = useTheme();
+    const { currentUser } = useUserContext();
     const [isRevivalModalOpen, setIsRevivalModalOpen] = useState(false);
     const [isMarkLostModalOpen, setIsMarkLostModalOpen] = useState(false);
     const [lostReasonPreset, setLostReasonPreset] = useState('');
@@ -226,18 +228,36 @@ const ContactDetailHeader = React.memo(function ContactDetailHeader({
                 <button className="action-btn" title="Email" onClick={() => setIsEmailModalOpen(true)}><i className="fas fa-envelope" style={{ color: '#8b5cf6' }}></i> Email</button>
 
                 {/* Lead Revival Button */}
-                {recordType === 'lead' && (contact.stage?.lookup_value === 'Dormant' || contact.stage === 'Dormant') && (
+                {recordType === 'lead' && (dealStatus === 'lost' || (contact.stage?.lookup_value && contact.stage.lookup_value.match(/dormant|closed|lost|unqualified|junk/i))) && (
                     <button
                         className="action-btn"
-                        onClick={() => setIsRevivalModalOpen(true)}
-                        style={{
-                            background: 'linear-gradient(to right, #8b5cf6, #7c3aed)',
-                            color: '#fff',
-                            border: 'none',
-                            boxShadow: '0 4px 6px -1px rgba(124, 58, 237, 0.3)'
+                        onClick={async () => {
+                            if (!currentUser?.isAdmin && currentUser?.role?.name?.toLowerCase() !== 'manager') {
+                                showNotification('Permission Denied: Only Managers or Admins can revive a closed lead.');
+                                return;
+                            }
+                            if (window.confirm("Are you sure you want to revive this lead? It will be moved to the Incoming stage.")) {
+                                try {
+                                    const incomingStageId = getLookupId('Stage', 'Incoming');
+                                    await api.put(`/leads/${contactId}`, { stage: incomingStageId });
+                                    showNotification('Lead successfully revived to Incoming.');
+                                    setTimeout(() => window.location.reload(), 1000);
+                                } catch (e) {
+                                    showNotification('Failed to revive lead.');
+                                }
+                            }
                         }}
+                        style={{
+                            background: (!currentUser?.isAdmin && currentUser?.role?.name?.toLowerCase() !== 'manager') ? 'var(--bg-light)' : 'linear-gradient(to right, #10b981, #059669)',
+                            color: (!currentUser?.isAdmin && currentUser?.role?.name?.toLowerCase() !== 'manager') ? '#94a3b8' : '#fff',
+                            border: (!currentUser?.isAdmin && currentUser?.role?.name?.toLowerCase() !== 'manager') ? '1px solid #e2e8f0' : 'none',
+                            boxShadow: (!currentUser?.isAdmin && currentUser?.role?.name?.toLowerCase() !== 'manager') ? 'none' : '0 4px 6px -1px rgba(16, 185, 129, 0.3)',
+                            cursor: (!currentUser?.isAdmin && currentUser?.role?.name?.toLowerCase() !== 'manager') ? 'not-allowed' : 'pointer'
+                        }}
+                        title={(!currentUser?.isAdmin && currentUser?.role?.name?.toLowerCase() !== 'manager') ? "Ask Manager to Revive" : "Revive Lead"}
                     >
-                        <i className="fas fa-sync-alt"></i> Revive Lead
+                        <i className={(!currentUser?.isAdmin && currentUser?.role?.name?.toLowerCase() !== 'manager') ? "fas fa-lock" : "fas fa-heartbeat"}></i> 
+                        {(!currentUser?.isAdmin && currentUser?.role?.name?.toLowerCase() !== 'manager') ? 'Ask Manager to Revive' : 'Revive Lead'}
                     </button>
                 )}
 

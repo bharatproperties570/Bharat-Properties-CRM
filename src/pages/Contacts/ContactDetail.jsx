@@ -43,7 +43,7 @@ import ContactBookings from '../../components/ContactDetail/ContactBookings';
 
 const ContactDetail = ({ contactId, onBack, onNavigate }) => {
     const { isDark } = useTheme();
-    const { scoringAttributes, activityMasterFields, scoreBands, getLookupValue } = usePropertyConfig(); // Inject Context
+    const { scoringAttributes, activityMasterFields, scoreBands, getLookupValue, getLookupId } = usePropertyConfig(); // Inject Context
     const { sequences, enrollments, updateEnrollmentStatus } = useSequences();
     const [contact, setContact] = useState(null);
     const [expandedSections, setExpandedSections] = useState(['core', 'professional', 'location', 'financial', 'education', 'personal', 'pref', 'property_req', 'journey', 'negotiation', 'ai', 'ownership', 'documents', 'matching', 'probability']);
@@ -554,7 +554,19 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
         ];
 
         syncEvents.forEach(evt => window.addEventListener(evt, handleRefresh));
-        return () => syncEvents.forEach(evt => window.removeEventListener(evt, handleRefresh));
+        
+        // Listen for requests to open edit modal from child tabs (like LeadMatchingPage)
+        const handleOpenEditModal = (e) => {
+            if (e.detail?.leadId === contactId) {
+                setIsAddLeadModalOpen(true);
+            }
+        };
+        window.addEventListener('open-edit-lead-modal', handleOpenEditModal);
+
+        return () => {
+            syncEvents.forEach(evt => window.removeEventListener(evt, handleRefresh));
+            window.removeEventListener('open-edit-lead-modal', handleOpenEditModal);
+        };
     }, [contactId, fetchData, fetchLiveScore, recordType]);
 
     const toggleSection = (section) => {
@@ -601,6 +613,7 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                 renderLookup={renderLookup}
                 getInitials={getInitials}
                 getLookupId={getLookupId}
+                contactId={contactId}
             />
 
             {/* MAIN CONTENT AREA - STACKED LAYOUT */}
@@ -650,24 +663,24 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                             <span style={{ fontSize: '0.7rem', fontWeight: 900, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Contact Intelligence</span>
                         </div>
                         
-                        <ContactCoreInfo 
-                            contact={contact}
-                            recordType={recordType}
-                            expandedSections={expandedSections}
-                            toggleSection={toggleSection}
-                            handleAutoSave={handleAutoSave}
-                            renderLookup={renderLookup}
-                        />
+                        <div style={{ pointerEvents: dealStatus === 'lost' ? 'none' : 'auto', opacity: dealStatus === 'lost' ? 0.8 : 1 }}>
+                            <ContactCoreInfo 
+                                contact={contact}
+                                recordType={recordType}
+                                expandedSections={expandedSections}
+                                toggleSection={toggleSection}
+                                handleAutoSave={handleAutoSave}
+                                renderLookup={renderLookup}
+                            />
 
-
-
-                        <ContactPreferences 
-                            contact={contact}
-                            aiStats={aiStats}
-                            expandedSections={expandedSections}
-                            toggleSection={toggleSection}
-                            renderLookup={renderLookup}
-                        />
+                            <ContactPreferences 
+                                contact={contact}
+                                aiStats={aiStats}
+                                expandedSections={expandedSections}
+                                toggleSection={toggleSection}
+                                renderLookup={renderLookup}
+                            />
+                        </div>
                     </div>
 
                     {/* COLUMN 2: CENTER - Interaction Intelligence */}
@@ -735,7 +748,7 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                                 />
                             </>
                         ) : (
-                            <>
+                            <div style={{ pointerEvents: dealStatus === 'lost' ? 'none' : 'auto', opacity: dealStatus === 'lost' ? 0.8 : 1 }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                                     <i className="fas fa-chart-line" style={{ color: isDark ? 'var(--bg-card)' : 'var(--premium-blue)' }}></i>
                                     <span style={{ fontSize: '0.7rem', fontWeight: 900, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Strategic Monitoring</span>
@@ -793,7 +806,7 @@ const ContactDetail = ({ contactId, onBack, onNavigate }) => {
                                     renderLookup={renderLookup}
                                     onNavigate={onNavigate}
                                 />
-                            </>
+                            </div>
                         )}
 
                         {/* Strategic Intelligence Sections */}

@@ -3,6 +3,7 @@ import Lead from '../models/Lead.js';
 import Deal from '../models/Deal.js';
 import Lookup from '../models/Lookup.js';
 import AuditLog from '../models/AuditLog.js';
+import SystemSetting from '../models/SystemSetting.js';
 
 class AgingCronService {
     /**
@@ -59,7 +60,7 @@ class AgingCronService {
                 const stageStr = (lead.stage?.lookup_value || '').toLowerCase();
 
                 // Skip terminal stages
-                if (stageStr.includes('closed') || stageStr.includes('booked')) continue;
+                if (stageStr.includes('closed') || stageStr.includes('booked') || stageStr.includes('unqualified') || stageStr.includes('lost') || stageStr.includes('junk')) continue;
 
                 const lastActive = lead.lastActivityAt || lead.stageChangedAt || lead.createdAt;
                 const daysSinceActivity = Math.floor((now - new Date(lastActive)) / (1000 * 60 * 60 * 24));
@@ -108,6 +109,32 @@ class AgingCronService {
                         atRiskCount++;
                     }
                 }
+            }
+
+            // ── 3. [ENTERPRISE] Cold Storage Archiver ────────────────────────
+            let coldStorageDays = 365;
+            const coldStorageSetting = await SystemSetting.findOne({ key: 'crm_cold_storage_days' }).lean();
+            if (coldStorageSetting && coldStorageSetting.value) {
+                coldStorageDays = parseInt(coldStorageSetting.value, 10) || 365;
+            }
+
+            const oneYearAgo = new Date();
+            oneYearAgo.setDate(oneYearAgo.getDate() - coldStorageDays);
+            
+            // Find Terminal Stages
+            const terminalStageLookups = await Lookup.find({ lookup_type: { $regex: /^Stage$/i }, lookup_value: { $regex: /closed|lost|won|unqualified|junk/i } }).lean();
+            const terminalStageIds = terminalStageLookups.map(l => l._id);
+            
+            if (terminalStageIds.length > 0) {
+                const archiveResult = await Lead.updateMany(
+                    {
+                        stage: { $in: terminalStageIds },
+                        stageChangedAt: { $lte: oneYearAgo },
+                        isArchived: { $ne: true }
+                    },
+                    { $set: { isArchived: true } }
+                );
+                console.log(`[AgingCronService] Cold Storage Archiver: Moved ${archiveResult.modifiedCount} old terminal leads to archive.`);
             }
 
             console.log(`[AgingCronService] Sweep complete. Stalled/Dormant: ${stalledCount}, At Risk (stage-aware): ${atRiskCount}`);

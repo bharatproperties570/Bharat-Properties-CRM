@@ -10,9 +10,12 @@ export const resolveToken = async (req, res, next) => {
         const { token } = req.params;
         if (!token) return res.status(400).json({ success: false, message: "No token provided" });
 
+        // Meta WhatsApp doesn't allow dots in URL variables, so we encode them as dashes
+        const normalizedToken = token.includes("-") ? token.replace(/-/g, ".") : token;
+        
         // In a real professional setup, we verify the JWT. 
         // For simplicity and resilience, we'll try to decode it.
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'crm_secret_key');
+        const decoded = jwt.verify(normalizedToken, process.env.JWT_SECRET || 'crm_secret_key');
         
         if (!decoded || !decoded.leadId) {
             return res.status(400).json({ success: false, message: "Invalid token" });
@@ -27,7 +30,11 @@ export const resolveToken = async (req, res, next) => {
         // Add matched property context if present in token
         const context = {
             lead,
-            matchedProject: decoded.projectId || null
+            matchedProject: decoded.projectId || null,
+            properties: decoded.properties || [],
+            hidePrice: decoded.hidePrice || false,
+            hideUnit: decoded.hideUnit || false,
+            hideLocation: decoded.hideLocation || false
         };
 
         res.json({ success: true, data: context });

@@ -93,8 +93,23 @@ class VariableResolutionService {
                 try {
                     const leadId = lead.id || lead._id;
                     if (!leadId) return 'visit';
+                    
+                    const propertyDetails = lead.matchedProperties ? lead.matchedProperties.map(p => ({
+                        id: p.inventoryId?._id || p.inventoryId,
+                        name: p.inventoryId?.name || lead.projectName || '',
+                        block: p.inventoryId?.block || '',
+                        unit: p.inventoryId?.unitNumber || ''
+                    })) : [];
+                    
                     return jwt.sign(
-                        { leadId: String(leadId), source: 'wa_match_centre' },
+                        { 
+                            leadId: String(leadId), 
+                            source: 'wa_match_centre',
+                            properties: propertyDetails,
+                            hidePrice: lead.hidePrice || false,
+                            hideUnit: lead.hideUnit || false,
+                            hideLocation: lead.hideLocation || false
+                        },
                         process.env.JWT_SECRET || 'crm_secret_key',
                         { expiresIn: '30d' }
                     );
@@ -104,8 +119,23 @@ class VariableResolutionService {
                 try {
                     const leadId = lead.id || lead._id;
                     if (!leadId) return 'visit';
+                    
+                    const propertyDetails = lead.matchedProperties ? lead.matchedProperties.map(p => ({
+                        id: p.inventoryId?._id || p.inventoryId,
+                        name: p.inventoryId?.name || lead.projectName || '',
+                        block: p.inventoryId?.block || '',
+                        unit: p.inventoryId?.unitNumber || ''
+                    })) : [];
+                    
                     return jwt.sign(
-                        { leadId: String(leadId), source: 'wa_match_centre' },
+                        { 
+                            leadId: String(leadId), 
+                            source: 'wa_match_centre',
+                            properties: propertyDetails,
+                            hidePrice: lead.hidePrice || false,
+                            hideUnit: lead.hideUnit || false,
+                            hideLocation: lead.hideLocation || false
+                        },
                         process.env.JWT_SECRET || 'crm_secret_key',
                         { expiresIn: '30d' }
                     );
