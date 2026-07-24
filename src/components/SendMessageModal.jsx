@@ -303,19 +303,37 @@ const SendMessageModal = ({
         try {
             let res;
             if (channel === 'WHATSAPP') {
-                res = await whatsappService.sendMessage({
-                    mobile: recipients[0]?.phone || recipients[0]?.mobile,
-                    message: messageBody,
-                    templateId,
-                    // ✅ SENIOR FIX: Pass full component objects (with parameter_name + text).
-                    // Previously only c.text was passed, discarding parameter_name entirely.
-                    // Backend needs { type, parameter_name, text } to build correct Meta payload.
-                    templateComponents: templateId ? whatsappComponents : [],
-                    language: templateLanguage,
-                    mediaUrl: attachment?.url,
-                    filename: attachment?.name,
-                    type: attachment?.type || 'text'
-                });
+                let successCount = 0;
+                let lastRes = null;
+                for (const recipient of recipients) {
+                    try {
+                        const individualRes = await whatsappService.sendMessage({
+                            mobile: recipient.phone || recipient.mobile,
+                            message: messageBody,
+                            templateId,
+                            templateComponents: templateId ? whatsappComponents : [],
+                            language: templateLanguage,
+                            mediaUrl: attachment?.url,
+                            filename: attachment?.name,
+                            type: attachment?.type || 'text'
+                        });
+                        if (individualRes && individualRes.success) {
+                            successCount++;
+                            lastRes = individualRes;
+                        }
+                    } catch (err) {
+                        console.error(`Failed to send WA to ${recipient.phone || recipient.mobile}`, err);
+                    }
+                }
+                
+                if (successCount === 0 && recipients.length > 0) {
+                    res = { success: false, error: 'All WhatsApp messages failed to send.' };
+                } else if (successCount > 0) {
+                    res = { success: true, mock: lastRes?.mock };
+                    if (recipients.length > 1) {
+                        toast.success(`Successfully sent WhatsApp to ${successCount}/${recipients.length} recipients`);
+                    }
+                }
             } else {
                 res = await smsService.sendMessage(data);
             }
@@ -331,13 +349,15 @@ const SendMessageModal = ({
                 // Fire Triggers
                 fireEvent('message_sent', data, { entityType: 'communication' });
 
-                // Dispatch Global Sync Event
-                window.dispatchEvent(new CustomEvent('activity-completed', {
-                    detail: { 
-                        entityId: recipients[0]?.id || recipients[0]?._id,
-                        type: channel
-                    }
-                }));
+                // Dispatch Global Sync Event for ALL recipients
+                recipients.forEach(recipient => {
+                    window.dispatchEvent(new CustomEvent('activity-completed', {
+                        detail: { 
+                            entityId: recipient.id || recipient._id,
+                            type: channel
+                        }
+                    }));
+                });
 
                 onClose();
             } else {
