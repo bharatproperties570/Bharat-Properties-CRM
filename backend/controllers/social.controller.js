@@ -736,8 +736,12 @@ export const getSocialStatus = async (req, res) => {
 export const getWhatsAppTemplates = async (req, res) => {
     try {
         const WhatsAppService = (await import('../services/WhatsAppService.js')).default;
-        const templates = await WhatsAppService.getTemplates();
-        res.json({ success: true, templates });
+        const result = await WhatsAppService.getTemplates();
+        if (result && result.success) {
+            res.json({ success: true, templates: result.data });
+        } else {
+            res.status(500).json({ success: false, error: result?.error || 'Failed to fetch templates' });
+        }
     } catch (err) {
         console.error('[SocialController] getWhatsAppTemplates error:', err.message);
         res.status(500).json({ success: false, error: err.message });
