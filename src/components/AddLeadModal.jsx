@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../utils/api';
+import whatsappService from '../services/whatsappService';
 import { STAGE_PIPELINE } from '../utils/stageEngine';
 
 import { usePropertyConfig } from '../context/PropertyConfigContext';
@@ -532,8 +533,8 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
 
     useEffect(() => {
         if (isOpen) {
-            api.get('/system-settings/key/crm_whatsapp_templates').then(res => {
-                const tmpls = res.data?.data?.value || [];
+            whatsappService.getTemplates().then(res => {
+                const tmpls = Array.isArray(res) ? res : (res && Array.isArray(res.templates) ? res.templates : []);
                 const filtered = tmpls.filter(t => t.systemContext?.includes('lead_match_full') || t.systemContext?.includes('lead_match_short'));
                 setMarketingTemplates(filtered);
             }).catch(console.error);
