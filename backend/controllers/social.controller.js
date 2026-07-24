@@ -737,7 +737,9 @@ export const getWhatsAppTemplates = async (req, res) => {
     try {
         const WhatsAppService = (await import('../services/WhatsAppService.js')).default;
         const result = await WhatsAppService.getTemplates();
-        if (result && result.success) {
+        if (Array.isArray(result)) {
+            res.json({ success: true, templates: result });
+        } else if (result && result.success) {
             res.json({ success: true, templates: result.data });
         } else {
             res.status(500).json({ success: false, error: result?.error || 'Failed to fetch templates' });
