@@ -535,7 +535,7 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
         if (isOpen) {
             whatsappService.getTemplates().then(res => {
                 const tmpls = Array.isArray(res) ? res : (res && Array.isArray(res.templates) ? res.templates : []);
-                const filtered = tmpls.filter(t => t.systemContext?.includes('lead_match_full') || t.systemContext?.includes('lead_match_short'));
+                const filtered = tmpls.filter(t => t.status === 'APPROVED');
                 setMarketingTemplates(filtered);
             }).catch(console.error);
         }
