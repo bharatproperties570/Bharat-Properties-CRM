@@ -535,14 +535,14 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
         if (isOpen) {
             whatsappService.getTemplates().then(res => {
                 const tmpls = Array.isArray(res) ? res : (res && Array.isArray(res.templates) ? res.templates : []);
-                setMarketingTemplates(tmpls);
+                
+                // 🛡️ Enterprise Logic: Only show templates explicitly aligned with this modal
+                const filteredTmpls = tmpls.filter(t => t.systemContext?.includes('add_lead_modal'));
+                setMarketingTemplates(filteredTmpls);
                 
                 // Auto-select template if aligned in settings
-                if (!selectedTemplateId) {
-                    const match = tmpls.find(t => t.systemContext?.includes('add_lead_modal'));
-                    if (match) {
-                        setSelectedTemplateId(match.id || match._id || match.name);
-                    }
+                if (!selectedTemplateId && filteredTmpls.length > 0) {
+                    setSelectedTemplateId(filteredTmpls[0].id || filteredTmpls[0]._id || filteredTmpls[0].name);
                 }
             }).catch(console.error);
         }
