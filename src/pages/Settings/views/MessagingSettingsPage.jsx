@@ -767,6 +767,7 @@ const ContextEditModal = ({ isOpen, onClose, template, onSave }) => {
     if (!isOpen || !template) return null;
 
     const options = [
+        { value: 'add_lead_modal', label: 'Add Lead (Auto-Send Modal)' },
         { value: 'lead_match_full', label: 'Lead Match (Full Details)' },
         { value: 'lead_match_short', label: 'Lead Match (Short Details)' },
         { value: 'deal_match', label: 'Deal Match (Auto-Dispatch)' },

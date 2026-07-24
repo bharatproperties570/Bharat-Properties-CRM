@@ -536,9 +536,17 @@ const AddLeadModal = ({ isOpen, onClose, onAdd, initialData, mode = 'add', entit
             whatsappService.getTemplates().then(res => {
                 const tmpls = Array.isArray(res) ? res : (res && Array.isArray(res.templates) ? res.templates : []);
                 setMarketingTemplates(tmpls);
+                
+                // Auto-select template if aligned in settings
+                if (!selectedTemplateId) {
+                    const match = tmpls.find(t => t.systemContext?.includes('add_lead_modal'));
+                    if (match) {
+                        setSelectedTemplateId(match.id || match._id || match.name);
+                    }
+                }
             }).catch(console.error);
         }
-    }, [isOpen]);
+    }, [isOpen, selectedTemplateId]);
 
     const [projectData, setProjectData] = useState({});
     const [cities, setCities] = useState([]);
