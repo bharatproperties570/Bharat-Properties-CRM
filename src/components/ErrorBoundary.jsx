@@ -19,7 +19,14 @@ class ErrorBoundary extends React.Component {
             const hasReloaded = typeof sessionStorage !== 'undefined' && sessionStorage.getItem('chunk_reload_2');
             if (!hasReloaded) {
                 if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('chunk_reload_2', 'true');
-                window.location.href = window.location.origin + window.location.pathname + '?v=' + new Date().getTime();
+                // 🛡️ Enterprise Fix: Do NOT use ?v= query params for ESM chunk errors.
+                // It pollutes the URL and doesn't reliably clear the browser's ESM cache.
+                // Instead, just perform a hard reload. If the URL already has a query param, strip it to start fresh.
+                if (window.location.search.includes('v=')) {
+                    window.location.href = window.location.origin + window.location.pathname;
+                } else {
+                    window.location.reload();
+                }
                 return;
             }
         }
@@ -58,7 +65,7 @@ class ErrorBoundary extends React.Component {
                                     sessionStorage.removeItem('chunk_reload');
                                 }
                                 // Force hard reload bypassing cache
-                                window.location.href = window.location.origin + window.location.pathname + '?v=' + new Date().getTime();
+                                window.location.href = window.location.origin + window.location.pathname;
                             }}
                             style={{
                                 background: '#ef4444',
