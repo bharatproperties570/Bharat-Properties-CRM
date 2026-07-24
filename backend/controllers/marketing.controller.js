@@ -929,7 +929,7 @@ async function resolveMetaComponents(templateId, recipient, meta, registryMappin
                     // in the dynamic URL parameter for buttons, as it looks like phishing.
                     // Replace JWT dots with hyphens.
                     if (typeof siteVisitToken === 'string' && siteVisitToken.includes('.')) {
-                        siteVisitToken = siteVisitToken.replace(/\./g, '-');
+                        siteVisitToken = siteVisitToken.replace(/\./g, '~');
                     }
 
                     components.push({

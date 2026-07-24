@@ -10,8 +10,14 @@ export const resolveToken = async (req, res, next) => {
         const { token } = req.params;
         if (!token) return res.status(400).json({ success: false, message: "No token provided" });
 
-        // Meta WhatsApp doesn't allow dots in URL variables, so we encode them as dashes
-        const normalizedToken = token.includes("-") ? token.replace(/-/g, ".") : token;
+        // Meta WhatsApp doesn't allow dots in URL variables.
+        // We now use ~ to represent dots. Legacy tokens might have used - which is unsafe.
+        let normalizedToken = token.includes("~") ? token.replace(/~/g, ".") : token;
+        
+        // Only if it doesn't have ~ and has exactly 2 dashes, it might be a legacy token
+        if (!token.includes("~") && token.split("-").length === 3) {
+            normalizedToken = token.replace(/-/g, ".");
+        }
         
         // In a real professional setup, we verify the JWT. 
         // For simplicity and resilience, we'll try to decode it.

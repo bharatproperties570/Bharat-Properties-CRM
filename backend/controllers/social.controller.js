@@ -166,7 +166,7 @@ export const sendWhatsAppMessage = async (req, res, next) => {
                                 const urlVarName = btn.url.match(/{{([a-zA-Z0-9_]+)}}/)[1];
                                 let btnTokenVal = namedParamMap[urlVarName] || namedParamMap['siteVisitToken'] || namedParamMap['site_visit_token'] || plainTextList[plainIdx] || 'visit';
                                 if (typeof btnTokenVal === 'string' && btnTokenVal.includes('.')) {
-                                    btnTokenVal = btnTokenVal.replace(/\./g, '-');
+                                    btnTokenVal = btnTokenVal.replace(/\./g, '~');
                                 }
                                 components.push({
                                     type: 'button',
