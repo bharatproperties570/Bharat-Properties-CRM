@@ -580,6 +580,12 @@ export const receiveWebhook = async (req, res) => {
                         content: messageText,
                         metadata: attachment ? { attachment } : null
                     });
+                    
+                    // Increment unreadCount for Real-Time Polling Notifications
+                    conversation.metadata = conversation.metadata || {};
+                    conversation.metadata.unreadCount = (conversation.metadata.unreadCount || 0) + 1;
+                    conversation.metadata.lastMessageAt = new Date();
+                    
                     await conversation.save();
 
                     // 7. Save as Activity for Timeline

@@ -34,6 +34,7 @@ import CaptureFormPage from './pages/Public/CaptureFormPage';
 import CallModal from './components/CallModal'; // Import CallModal
 import CallResolutionModal from './components/CallResolutionModal';
 import PublicChatWidget from './components/PublicChatWidget';
+import WhatsAppNotificationPoller from './components/WhatsAppNotificationPoller';
 
 // Helper Wrapper to connect Context to Modal
 const CallModalWrapper = () => {
@@ -366,6 +367,7 @@ const AppContent = () => {
 
     return (
         <>
+            <WhatsAppNotificationPoller onNavigate={handleNavigate} />
             <MainLayout currentView={currentView} onNavigate={handleNavigate}>
                 {(modalHandlers) => (
                     <AppRouter

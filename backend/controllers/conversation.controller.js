@@ -35,3 +35,41 @@ export const updateConversationStatus = async (req, res) => {
         res.status(500).json({ success: false, message: "Internal server error" });
     }
 };
+
+export const getUnreadConversations = async (req, res) => {
+    try {
+        const conversations = await Conversation.find({ 
+            status: 'active',
+            'metadata.unreadCount': { $gt: 0 }
+        })
+        .populate('lead', 'firstName lastName mobile')
+        .populate('contact', 'name phones')
+        .sort({ 'metadata.lastMessageAt': -1, updatedAt: -1 })
+        .limit(20);
+            
+        res.status(200).json({ success: true, data: conversations });
+    } catch (error) {
+        console.error("Failed to fetch unread conversations:", error);
+        res.status(500).json({ success: false, message: "Internal server error" });
+    }
+};
+
+export const markConversationAsRead = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const conversation = await Conversation.findByIdAndUpdate(
+            id,
+            { $set: { 'metadata.unreadCount': 0 } },
+            { new: true }
+        );
+        
+        if (!conversation) {
+            return res.status(404).json({ success: false, message: "Conversation not found" });
+        }
+        
+        res.status(200).json({ success: true, data: conversation });
+    } catch (error) {
+        console.error("Failed to mark conversation as read:", error);
+        res.status(500).json({ success: false, message: "Internal server error" });
+    }
+};

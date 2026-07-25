@@ -248,6 +248,7 @@ export default function CommunicationPage() {
                         isMatched: !!(conv.lead||conv.contact),
                         status: conv.status,
                         isHandedOff: conv.status==='handed_off',
+                        unreadCount: conv.metadata?.unreadCount || 0,
                         lead,
                         messages: (conv.messages||[]).map(m => ({
                             sender: m.role==='user'?'customer':(m.role==='assistant'?'ai':'agent'),
@@ -260,6 +261,20 @@ export default function CommunicationPage() {
             }
         } catch(e){ console.error(e); }
     }, []);
+
+    const handleSelectAI = async (id) => {
+        setSelectedAIId(id);
+        const conv = aiConvos.find(c => c.id === id);
+        if (conv && conv.unreadCount > 0) {
+            setAiConvos(prev => prev.map(c => c.id === id ? { ...c, unreadCount: 0 } : c));
+            try {
+                await api.patch(`conversations/${id}/read`);
+            } catch (err) {
+                console.error("Failed to mark as read", err);
+            }
+        }
+    };
+
 
     /* ── Init & refresh ─── */
     useEffect(() => { 
@@ -567,7 +582,7 @@ export default function CommunicationPage() {
 
                     {/* ── AI Bot View ── */}
                     {channel === 'AI' ? (
-                        <AIBotView T={T} isDark={isDark} convos={aiConvos} selected={currentAI} onSelect={setSelectedAIId} onTakeover={handleAITakeover} onRefresh={fetchAIConvos} setPreviewMedia={setPreviewMedia} />
+                        <AIBotView T={T} isDark={isDark} convos={aiConvos} selected={currentAI} onSelect={handleSelectAI} onTakeover={handleAITakeover} onRefresh={fetchAIConvos} setPreviewMedia={setPreviewMedia} />
                     ) : (
                         /* ── Inbox List ── */
                         <div style={{ flex:1, overflowY:'auto', padding:'12px 16px', background: T.bg, display:'flex', flexDirection:'column', gap:'8px' }}>
@@ -1287,6 +1302,11 @@ function AIBotView({ T, isDark, convos, selected, onSelect, onTakeover, onRefres
                             <div style={{textAlign:'right',flexShrink:0}}>
                                 <div style={{fontSize:'0.62rem',color:T.text3}}>{timeAgo(conv.updatedAt)}</div>
                                 <div style={{fontSize:'0.62rem',color:T.text2,marginTop:'2px'}}>💬 {conv.messages.length}</div>
+                                {conv.unreadCount > 0 && (
+                                    <div style={{fontSize:'0.65rem',color:'#fff',background:'#22c55e',padding:'2px 6px',borderRadius:'10px',marginTop:'4px',fontWeight:700,display:'inline-block'}}>
+                                        {conv.unreadCount} New
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
