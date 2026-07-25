@@ -1742,7 +1742,7 @@ Write a highly engaging, SEO-optimized description with short, readable paragrap
             </div>
 
             {isMessageOpen && (
-                <SendMessageModal triggerContext='deal_match_modal'
+                <SendMessageModal triggerContext='deal_match'
                     isOpen={isMessageOpen}
                     onClose={() => {
                         setIsMessageOpen(false);

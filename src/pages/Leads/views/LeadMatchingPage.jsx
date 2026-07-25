@@ -230,7 +230,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
     const [mailAttachments, setMailAttachments] = useState([]);
     const [mailTemplateId, setMailTemplateId] = useState('');
     const [recipients, setRecipients] = useState([]);
-    const [initialTemplateId, setInitialTemplateId] = useState('');
+
     const [initialChannel, setInitialChannel] = useState('SMS');
     const [selectedProperties, setSelectedProperties] = useState([]);
     
@@ -376,7 +376,6 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             phone: lead.mobile || lead.phone
         }]);
         setSelectedProperties([item]);
-        setInitialTemplateId('property_match_alert');
         setInitialChannel('WHATSAPP');
         setIsMessageOpen(true);
         logActivity('WhatsApp Prepared', item);
@@ -1743,7 +1742,7 @@ const LeadMatchingPage = ({ onNavigate, leadId }) => {
             )}
 
             <ComposeEmailModal isOpen={isMailOpen} onClose={() => setIsMailOpen(false)} recipients={[lead]} initialSubject={mailSubject} initialBody={mailBody} autoAttachments={mailAttachments} />
-            <SendMessageModal triggerContext='deal_match' isOpen={isMessageOpen} onClose={() => setIsMessageOpen(false)} initialRecipients={recipients} initialTemplateId={initialTemplateId} initialChannel={initialChannel} initialProperties={selectedProperties} onSend={() => setIsMessageOpen(false)} />
+            <SendMessageModal triggerContext='deal_match' isOpen={isMessageOpen} onClose={() => setIsMessageOpen(false)} initialRecipients={recipients} initialChannel={initialChannel} initialProperties={selectedProperties} onSend={() => setIsMessageOpen(false)} />
             <CreateActivityModal isOpen={isActivityOpen} onClose={() => setIsActivityOpen(false)} initialData={activityInitialData} onSave={() => setIsActivityOpen(false)} />
             {showQuickFill && (
                 <QuickFillModal 
